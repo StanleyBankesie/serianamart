@@ -75,6 +75,32 @@ async function ensureBankAccountsColumns() {
 // Run on startup
 ensureBankAccountsColumns();
 
+async function ensureVoucherLineCurrencyColumns() {
+  try {
+    const [cols] = await pool.execute(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS 
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fin_voucher_lines'`,
+    );
+    const colNames = (cols || []).map((c) => c.COLUMN_NAME);
+    if (!colNames.includes("currency_id")) {
+      await pool.execute(
+        `ALTER TABLE fin_voucher_lines ADD COLUMN currency_id BIGINT UNSIGNED NULL AFTER payment_method`,
+      );
+      await pool.execute(
+        `ALTER TABLE fin_voucher_lines ADD INDEX idx_vl_currency (currency_id)`,
+      );
+    }
+    if (!colNames.includes("exchange_rate")) {
+      await pool.execute(
+        `ALTER TABLE fin_voucher_lines ADD COLUMN exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000 AFTER currency_id`,
+      );
+    }
+  } catch (e) {
+    // Silently fail - table might not exist yet
+  }
+}
+ensureVoucherLineCurrencyColumns();
+
 async function ensureAccountBalanceObjects() {
   let conn;
   try {
@@ -1802,6 +1828,7 @@ export const getVoucherById = async (req, res, next) => {
     if (!voucher) return next(httpError(404, "NOT_FOUND", "Voucher not found"));
     const lines = await query(
       `SELECT l.id, l.line_no, l.account_id, l.debit, l.credit, l.description,
+              l.currency_id, l.exchange_rate,
               a.code AS account_code, a.name AS account_name
          FROM fin_voucher_lines l
          LEFT JOIN fin_accounts a ON a.id = l.account_id AND a.company_id = :companyId
@@ -1921,12 +1948,16 @@ export const createVoucher = async (req, res, next) => {
               description: payvDirectDescription,
               debit: payvDirectBaseAmount,
               credit: 0,
+              currencyId: paymentDetails.currencyId || currencyId || null,
+              exchangeRate: Number(paymentDetails.exchangeRate || paymentDetails.exchange_rate || finalExchangeRate || 1),
             },
             {
               accountId: Number(paymentDetails.paymentAccountId),
               description: payvDirectDescription,
               debit: 0,
               credit: payvDirectBaseAmount,
+              currencyId: paymentDetails.currencyId || currencyId || null,
+              exchangeRate: Number(paymentDetails.exchangeRate || paymentDetails.exchange_rate || finalExchangeRate || 1),
             },
           ]
         : [];
@@ -2008,9 +2039,9 @@ export const createVoucher = async (req, res, next) => {
           const line = purchaseVoucherPostingLines[i];
           await txQuery(
             `INSERT INTO fin_voucher_lines
-               (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method)
+                (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method, currency_id, exchange_rate)
              VALUES
-               (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+                (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod, :currencyId, :exchangeRate)`,
             {
               companyId,
               voucherId: purchaseVoucherId,
@@ -2020,6 +2051,8 @@ export const createVoucher = async (req, res, next) => {
               debit: Number(line.debit || 0),
               credit: Number(line.credit || 0),
               taxCodeId: Number(line.taxCodeId || line.tax_code_id || 0) || null,
+              currencyId: line.currencyId || line.currency_id || currencyId || null,
+              exchangeRate: Number(line.exchangeRate || line.exchange_rate || finalExchangeRate || 1),
               referenceNo: line.referenceNo || null,
               chequeNumber: line.chequeNumber || null,
               chequeDate: line.chequeDate || null,
@@ -2077,9 +2110,9 @@ export const createVoucher = async (req, res, next) => {
           const line = postingLines[i];
           await txQuery(
             `INSERT INTO fin_voucher_lines
-               (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method)
+                (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method, currency_id, exchange_rate)
              VALUES
-               (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+                (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod, :currencyId, :exchangeRate)`,
             {
               companyId,
               voucherId: salesVoucherId,
@@ -2090,6 +2123,8 @@ export const createVoucher = async (req, res, next) => {
               credit: Number(line.credit || 0),
               taxCodeId: Number(line.taxCodeId || line.tax_code_id || 0) || null,
               referenceNo: line.referenceNo || null,
+              currencyId: line.currencyId || line.currency_id || currencyId || null,
+              exchangeRate: Number(line.exchangeRate || line.exchange_rate || finalExchangeRate || 1),
               chequeNumber: line.chequeNumber || null,
               chequeDate: line.chequeDate || null,
               paymentMethod: line.paymentMethod || null,
@@ -2167,9 +2202,9 @@ export const createVoucher = async (req, res, next) => {
         const line = linesToSave[i];
         await txQuery(
           `INSERT INTO fin_voucher_lines
-             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method)
+              (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method, currency_id, exchange_rate)
            VALUES
-             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod, :currencyId, :exchangeRate)`,
           {
             companyId,
             voucherId: result.insertId,
@@ -2183,6 +2218,8 @@ export const createVoucher = async (req, res, next) => {
             chequeNumber: line.chequeNumber || null,
             chequeDate: line.chequeDate || null,
             paymentMethod: line.paymentMethod || null,
+            currencyId: line.currencyId || line.currency_id || currencyId || null,
+            exchangeRate: Number(line.exchangeRate || line.exchange_rate || finalExchangeRate || 1) || 1,
           },
         );
       }
@@ -2410,6 +2447,153 @@ export const updateVoucher = async (req, res, next) => {
     res.json({ ok: true });
   } catch (e) {
     next(e);
+  }
+};
+
+export const bulkImportVouchers = async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    await ensurePurBillsPaymentStatusObjects();
+    const companyId = req.scope.companyId;
+    const branchId = req.scope.branchId || null;
+    const { vouchers } = req.body || {};
+    if (!Array.isArray(vouchers) || !vouchers.length) {
+      return next(httpError(400, "VALIDATION_ERROR", "vouchers array is required"));
+    }
+
+    const results = { created: 0, failed: 0, errors: [] };
+    await conn.beginTransaction();
+
+    const txQuery = async (sql, params) => {
+      const [rows] = await conn.execute(sql, params);
+      return rows;
+    };
+
+    for (let vi = 0; vi < vouchers.length; vi++) {
+      const v = vouchers[vi];
+      try {
+        const voucherTypeCode = String(v.voucher_type_code || v.voucherTypeCode || "Journal Entry").trim();
+
+        // Resolve voucher type by name or code
+        const [vtRows] = await txQuery(
+          `SELECT id, code FROM fin_voucher_types WHERE company_id = :companyId AND (name = :name OR code = :name) LIMIT 1`,
+          { companyId, name: voucherTypeCode },
+        );
+        if (!vtRows?.length) throw new Error(`Voucher type "${voucherTypeCode}" not found`);
+        const voucherTypeId = vtRows.id;
+        const resolvedVoucherTypeCode = vtRows.code || "JV";
+
+        // Resolve fiscal year
+        const voucherDate = v.voucher_date || new Date().toISOString().slice(0, 10);
+        const [fyRows] = await txQuery(
+          `SELECT id FROM fin_fiscal_years WHERE company_id = :companyId AND :vd BETWEEN start_date AND end_date LIMIT 1`,
+          { companyId, vd: voucherDate },
+        );
+        const fiscalYearId = fyRows?.id || 1;
+
+        // Resolve currency
+        let currencyId = null;
+        let exchangeRate = 1;
+        if (v.currency_name || v.currencyName) {
+          const [curRows] = await txQuery(
+            `SELECT id FROM fin_currencies WHERE company_id = :companyId AND (name = :name OR code = :name) LIMIT 1`,
+            { companyId, name: String(v.currency_name || v.currencyName).trim() },
+          );
+          if (curRows?.length) {
+            currencyId = curRows.id;
+            exchangeRate = Number(v.exchange_rate || 1) || 1;
+          }
+        }
+
+        // Generate voucher number
+        const [lastRows] = await txQuery(
+          `SELECT voucher_no FROM fin_vouchers
+           WHERE company_id = :companyId AND voucher_type_id = :vtId
+           ORDER BY id DESC LIMIT 1`,
+          { companyId, vtId: voucherTypeId },
+        );
+        let nextNum = 1;
+        if (lastRows?.voucher_no) {
+          const match = String(lastRows.voucher_no).match(/(\d+)$/);
+          if (match) nextNum = Number(match[1]) + 1;
+        }
+        const voucherNo = v.voucher_id || `${resolvedVoucherTypeCode}-${String(nextNum).padStart(6, "0")}`;
+
+        const lines = Array.isArray(v.lines) ? v.lines : [];
+        const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
+        const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
+
+        // Insert header
+        const [hdr] = await txQuery(
+          `INSERT INTO fin_vouchers
+            (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no,
+             voucher_date, currency_id, exchange_rate,
+             total_debit, total_credit, balanced_amount, status, created_by)
+           VALUES
+            (:companyId, :branchId, :fyId, :vtId, :voucherNo,
+             :voucherDate, :currencyId, :exchangeRate,
+             :totalDebit, :totalCredit, :balancedAmount, 'APPROVED', :createdBy)`,
+          {
+            companyId,
+            branchId,
+            fyId: fiscalYearId,
+            vtId: voucherTypeId,
+            voucherNo,
+            voucherDate,
+            currencyId,
+            exchangeRate,
+            totalDebit,
+            totalCredit,
+            balancedAmount: Math.abs(totalDebit - totalCredit),
+            createdBy: req.user?.sub || null,
+          },
+        );
+
+        // Insert lines
+        for (let li = 0; li < lines.length; li++) {
+          const ln = lines[li];
+          const accName = String(ln.account_name || ln.accountName || "").trim();
+          const [accRows] = await txQuery(
+            `SELECT id FROM fin_accounts WHERE company_id = :companyId AND (name = :name OR code = :name) LIMIT 1`,
+            { companyId, name: accName },
+          );
+          if (!accRows?.length) throw new Error(`Account "${accName}" not found on line ${li + 1}`);
+
+          await txQuery(
+            `INSERT INTO fin_voucher_lines
+              (company_id, voucher_id, line_no, account_id, description,
+               debit, credit, cheque_number, cheque_date)
+             VALUES
+              (:companyId, :voucherId, :lineNo, :accountId, :description,
+               :debit, :credit, :chequeNumber, :chequeDate)`,
+            {
+              companyId,
+              voucherId: hdr.insertId,
+              lineNo: li + 1,
+              accountId: accRows.id,
+              description: ln.description || null,
+              debit: Number(ln.debit || 0),
+              credit: Number(ln.credit || 0),
+              chequeNumber: ln.cheque_number || null,
+              chequeDate: ln.cheque_date || null,
+            },
+          );
+        }
+
+        results.created++;
+      } catch (lineErr) {
+        results.failed++;
+        results.errors.push({ row: vi + 1, message: lineErr.message || String(lineErr) });
+      }
+    }
+
+    await conn.commit();
+    res.json(results);
+  } catch (e) {
+    try { await conn.rollback(); } catch {}
+    next(e);
+  } finally {
+    conn.release();
   }
 };
 
@@ -4131,102 +4315,123 @@ export const generalLedgerReport = async (req, res, next) => {
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
-    if (!accountId) {
-      return res.json({ opening_balance: 0, items: [], account: null });
-    }
 
-    const accountRows = await query(
-      `SELECT a.id, a.code, a.name,
-              COALESCE(a.balance_type, CASE WHEN g.nature IN ('ASSET','EXPENSE') THEN 'DEBIT' ELSE 'CREDIT' END) AS balance_type
-         FROM fin_accounts a
-         JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = a.company_id
-        WHERE a.company_id = :companyId
-          AND a.id = :accountId
-        LIMIT 1`,
-      { companyId, accountId },
-    );
-    const account = accountRows?.[0] || null;
-    if (!account) {
-      return res.json({ opening_balance: 0, items: [], account: null });
-    }
+    const accountFilter = accountId ? "AND vl.account_id = :accountId" : "";
+    const orderBy = accountId
+      ? "v.voucher_date ASC, v.id ASC, vl.line_no ASC"
+      : "a.code ASC, v.voucher_date ASC, v.id ASC, vl.line_no ASC";
+    const params = { companyId, branchId: branchId || null, from, to, accountId };
 
-    const openingRows = await query(
-      `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS opening_balance
-         FROM fin_vouchers v
-         JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
-        WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
-          AND (:from IS NULL OR v.voucher_date < :from)
-          AND vl.account_id = :accountId
-          AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
-      { companyId, branchId, from, accountId },
-    );
-    const openingBalance = Number(openingRows?.[0]?.opening_balance || 0);
+    let account = null;
+    let openingBalance = 0;
+    let currentNet = 0;
+
+    if (accountId) {
+      const accountRows = await query(
+        `SELECT a.id, a.code, a.name,
+                COALESCE(a.balance_type, CASE WHEN g.nature IN ('ASSET','EXPENSE') THEN 'DEBIT' ELSE 'CREDIT' END) AS balance_type
+           FROM fin_accounts a
+           JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = a.company_id
+          WHERE a.company_id = :companyId
+            AND a.id = :accountId
+          LIMIT 1`,
+        { companyId, accountId },
+      );
+      account = accountRows?.[0] || null;
+
+      const openingRows = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS opening_balance
+           FROM fin_vouchers v
+           JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
+          WHERE v.company_id = :companyId
+            AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
+            AND (:from IS NULL OR v.voucher_date < :from)
+            AND vl.account_id = :accountId
+            AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
+        { companyId, branchId, from, accountId },
+      );
+      openingBalance = Number(openingRows?.[0]?.opening_balance || 0);
+
+      const netRows = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS current_net
+           FROM fin_vouchers v
+           JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
+          WHERE v.company_id = :companyId
+            AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
+            AND vl.account_id = :accountId
+            AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
+        { companyId, branchId, accountId },
+      );
+      currentNet = Number(netRows?.[0]?.current_net || 0);
+
+      await query(
+        `INSERT INTO fin_account_balances
+           (company_id, account_id, balance_amount, balance_type, as_of_date)
+         VALUES
+           (:companyId, :accountId, :balanceAmount, :balanceType, :asOfDate)
+         ON DUPLICATE KEY UPDATE
+           balance_amount = VALUES(balance_amount),
+           balance_type = VALUES(balance_type),
+           as_of_date = VALUES(as_of_date)`,
+        {
+          companyId,
+          accountId,
+          balanceAmount: Math.abs(currentNet),
+          balanceType: currentNet >= 0 ? "DEBIT" : "CREDIT",
+          asOfDate: to || new Date().toISOString().slice(0, 10),
+        },
+      );
+    }
 
     const itemsRaw = await query(
-      `SELECT v.id AS voucher_id, vt.code AS voucher_type_code, v.voucher_date, v.voucher_no, vl.line_no, a.code AS account_code, a.name AS account_name,
-              vl.description, vl.debit, vl.credit, vl.id
+      `SELECT v.id AS voucher_id, vt.code AS voucher_type_code, v.voucher_date, v.voucher_no,
+              vl.line_no, a.code AS account_code, a.name AS account_name,
+              vl.description, vl.debit, vl.credit, vl.id,
+              COALESCE(vl.currency_id, v.currency_id) AS currency_id,
+              COALESCE(lc.code, c.code) AS currency_code,
+              COALESCE(vl.exchange_rate, v.exchange_rate) AS exchange_rate,
+              a.currency_id AS account_currency_id
          FROM fin_vouchers v
          JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
          JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id AND vt.company_id = v.company_id
          JOIN fin_accounts a ON a.id = vl.account_id
+         LEFT JOIN fin_currencies c ON c.id = v.currency_id AND c.company_id = v.company_id
+         LEFT JOIN fin_currencies lc ON lc.id = vl.currency_id AND lc.company_id = v.company_id
         WHERE v.company_id = :companyId
           AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
-          AND vl.account_id = :accountId
+          ${accountFilter}
           AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')
-        ORDER BY v.voucher_date ASC, v.id ASC, vl.line_no ASC`,
-      { companyId, branchId, from, to, accountId },
+      ORDER BY ${orderBy}`,
+      params,
     );
 
     let running = openingBalance;
+    let lastAccount = null;
     const items = (itemsRaw || []).map((row) => {
+      if (accountId) {
+        running += Number(row.debit || 0) - Number(row.credit || 0);
+        return { ...row, balance: running };
+      }
+      if (row.account_code !== lastAccount) {
+        running = 0;
+        lastAccount = row.account_code;
+      }
       running += Number(row.debit || 0) - Number(row.credit || 0);
-      return {
-        ...row,
-        balance: running,
-      };
+      return { ...row, balance: running };
     });
-
-    // Refresh cached account balance snapshot.
-    const currentRows = await query(
-      `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS current_net
-         FROM fin_vouchers v
-         JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
-        WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
-          AND vl.account_id = :accountId
-          AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
-      { companyId, branchId, accountId },
-    );
-    const currentNet = Number(currentRows?.[0]?.current_net || 0);
-    await query(
-      `INSERT INTO fin_account_balances
-         (company_id, account_id, balance_amount, balance_type, as_of_date)
-       VALUES
-         (:companyId, :accountId, :balanceAmount, :balanceType, :asOfDate)
-       ON DUPLICATE KEY UPDATE
-         balance_amount = VALUES(balance_amount),
-         balance_type = VALUES(balance_type),
-         as_of_date = VALUES(as_of_date)`,
-      {
-        companyId,
-        accountId,
-        balanceAmount: Math.abs(currentNet),
-        balanceType: currentNet >= 0 ? "DEBIT" : "CREDIT",
-        asOfDate: to || new Date().toISOString().slice(0, 10),
-      },
-    );
 
     res.json({
       opening_balance: openingBalance,
       items,
-      account: {
-        ...account,
-        current_balance: Math.abs(currentNet),
-        current_balance_type: currentNet >= 0 ? "DEBIT" : "CREDIT",
-      },
+      account: account
+        ? {
+            ...account,
+            current_balance: Math.abs(currentNet),
+            current_balance_type: currentNet >= 0 ? "DEBIT" : "CREDIT",
+          }
+        : null,
     });
   } catch (e) {
     next(e);

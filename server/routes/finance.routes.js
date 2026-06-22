@@ -158,6 +158,14 @@ router.post(
   financeController.submitVoucher,
 );
 
+router.post(
+  "/vouchers/bulk-import",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.bulkImportVouchers,
+);
+
 // Account Groups
 router.get(
   "/account-groups",

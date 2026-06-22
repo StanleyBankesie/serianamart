@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   useNavigate,
@@ -6,6 +6,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 
+import { toast } from "react-toastify";
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
@@ -146,6 +147,10 @@ export default function StockUpdationForm({
   }, [isNew]);
 
   useEffect(() => {
+    if (skipStockRefresh.current) {
+      skipStockRefresh.current = false;
+      return;
+    }
     const wid = formData.warehouseId ? Number(formData.warehouseId) : 0;
     if (!wid) {
       setItems((prev) => prev.map((r) => ({ ...r, currentStock: 0 })));
@@ -194,6 +199,7 @@ export default function StockUpdationForm({
       .get(`/inventory/stock-updation/${id}`)
       .then((res) => {
         if (!mounted) return;
+        skipStockRefresh.current = true;
         const a = res.data?.item;
         const details = Array.isArray(res.data?.details)
           ? res.data.details
@@ -216,7 +222,7 @@ export default function StockUpdationForm({
               item_id: d.item_id ? String(d.item_id) : "",
               itemCode: d.item_code || "",
               itemName: d.item_name || "",
-              currentStock: 0, // Not needed for simple updation (addition)
+              currentStock: Number(d.current_stock) || 0,
               qty: Number(d.qty) || 0,
               uom: d.uom || "",
               unitCost: Number(d.unit_cost) || 0,
@@ -226,7 +232,7 @@ export default function StockUpdationForm({
         setItems(mappedItems);
         const initQueries = {};
         mappedItems.forEach((i) => {
-          initQueries[i.id] = "";
+          initQueries[i.id] = i.itemName || i.itemCode || "";
         });
         setItemQueries(initQueries);
       })
@@ -246,6 +252,8 @@ export default function StockUpdationForm({
     };
   }, [id, isNew]);
 
+  const skipStockRefresh = useRef(false);
+
   const normalizedDetails = useMemo(() => {
     return items
       .filter((r) => r.item_id)
@@ -253,6 +261,7 @@ export default function StockUpdationForm({
         item_id: Number(r.item_id),
         qty: Number(r.qty) || 0,
         unit_cost: Number(r.unitCost) || 0,
+        current_stock: Number(r.currentStock) || 0,
         uom: r.uom,
         remarks: r.remarks,
       }));
@@ -869,37 +878,34 @@ export default function StockUpdationForm({
                             setSaving(true);
                             let currentId = id;
                             // If new, we must save first
+                            const mapPayload = () => ({
+                              updation_no: isNew ? undefined : formData.updationNo,
+                              updation_date: formData.updationDate,
+                              warehouse_id: formData.warehouseId
+                                ? Number(formData.warehouseId)
+                                : null,
+                              reason: formData.reason,
+                              status: formData.status,
+                              remarks: formData.remarks || null,
+                              details: items
+                                .filter((i) => i.item_id)
+                                .map((r) => ({
+                                  item_id: Number(r.item_id),
+                                  qty: Number(r.qty || 0),
+                                  uom: r.uom || "PCS",
+                                  unit_cost: Number(r.unitCost || 0),
+                                  current_stock: Number(r.currentStock || 0),
+                                  remarks: r.remarks || null,
+                                })),
+                            });
                             if (isNew) {
                               const saveRes = await api.post(
                                 "/inventory/stock-updation",
-                                {
-                                  ...formData,
-                                  details: items
-                                    .filter((i) => i.item_id)
-                                    .map((r) => ({
-                                      item_id: Number(r.item_id),
-                                      qty: Number(r.qty || 0),
-                                      uom: r.uom || "PCS",
-                                      unit_cost: Number(r.unitCost || 0),
-                                      remarks: r.remarks || null,
-                                    })),
-                                },
+                                mapPayload(),
                               );
                               currentId = saveRes.data?.id;
                             } else {
-                              // Optional: save updates before confirming
-                              await api.put(`/inventory/stock-updation/${id}`, {
-                                ...formData,
-                                details: items
-                                  .filter((i) => i.item_id)
-                                  .map((r) => ({
-                                    item_id: Number(r.item_id),
-                                    qty: Number(r.qty || 0),
-                                    uom: r.uom || "PCS",
-                                    unit_cost: Number(r.unitCost || 0),
-                                    remarks: r.remarks || null,
-                                  })),
-                              });
+                              await api.put(`/inventory/stock-updation/${id}`, mapPayload());
                             }
 
                             if (!currentId)
@@ -908,12 +914,14 @@ export default function StockUpdationForm({
                             await api.post(
                               `/inventory/stock-updation/${currentId}/submit`,
                             );
-                            alert("Stock updation confirmed and approved");
+                            toast.success("Stock updation confirmed and approved");
                             if (isModal) onClose && onClose(true);
                             else navigate("/inventory/stock-updation");
                           } catch (e) {
+                            console.error("Confirm Updation error:", e);
                             setError(
                               e?.response?.data?.message ||
+                                e?.message ||
                                 "Confirmation failed",
                             );
                           } finally {

@@ -3026,19 +3026,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
-                {isJV && (
-                  <div className="md:col-span-3">
-                    <label className="label">Narration</label>
-                    <input
-                      className="input"
-                      value={narration}
-                      onChange={(e) => setNarration(e.target.value)}
-                      placeholder="Optional narration"
-                      disabled={readOnly}
-                    />
-                  </div>
-                )}
-                {(isPAYV || isRV || isCV || isSV || isPAYV) && (
+                {(isPAYV || isRV || isCV) && (
                   <div className="md:col-span-3">
                     <label className="label font-bold text-brand">
                       Narration *
@@ -4789,7 +4777,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                     disabled={readOnly}
                   />
                 </div>
-                {!(isPAYV || isRV || isCV) && (
+                {(isDN || isCN) && (
                   <div className="md:col-span-3">
                     <label className="label font-bold text-brand">
                       Description *

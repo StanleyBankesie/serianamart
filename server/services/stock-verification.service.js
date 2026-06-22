@@ -40,7 +40,7 @@ export async function applyStockVerificationApprovalTx(
     `
     SELECT
       item_id,
-      COALESCE(verified_qty, counted_qty, 0) AS verified_qty
+      COALESCE(counted_qty, verified_qty, 0) AS verified_qty
     FROM inv_stock_verification_details
     WHERE verification_id = :verificationId
     ORDER BY id ASC

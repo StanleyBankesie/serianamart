@@ -202,6 +202,14 @@ async function applyAutoApprovalToLinkedDocument(instance) {
       }
     }
   }
+
+  if (docType === "MAINT_REQUEST") {
+    await query(
+      `UPDATE maint_requests SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id: documentId, companyId },
+    );
+    return;
+  }
 }
 
 async function autoApprovePendingWorkflowDocuments({
@@ -633,6 +641,15 @@ export const reverseApproval = async (req, res, next) => {
       try {
         await query(
           `UPDATE pur_service_requests SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
+          { id: instance.document_id, companyId: instance.company_id },
+        );
+      } catch {}
+    } else if (
+      String(instance.document_type || "").toUpperCase() === "MAINT_REQUEST"
+    ) {
+      try {
+        await query(
+          `UPDATE maint_requests SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } catch {}
@@ -1863,6 +1880,14 @@ export const performAction = async (req, res, next) => {
              WHERE document_workflow_id = :dw AND step_order = :cur`,
           { dw: instance.id, cur: instance.current_step_order },
         );
+        if (
+          String(instance.document_type || "").toUpperCase() === "MAINT_REQUEST"
+        ) {
+          await query(
+            `UPDATE maint_requests SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        }
         const initiatorId = await getInitiator();
         await notifyUser(
           initiatorId,

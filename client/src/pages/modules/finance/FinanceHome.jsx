@@ -146,6 +146,12 @@ export default function FinanceHome() {
           icon: "🔁",
         },
         {
+          name: "Import Vouchers",
+          path: "/finance/import",
+          description: "Bulk import vouchers from Excel template",
+          icon: "📥",
+        },
+        {
           name: "Voucher Register Report",
           path: "/finance/reports",
           description: "Voucher listing with filters (report)",

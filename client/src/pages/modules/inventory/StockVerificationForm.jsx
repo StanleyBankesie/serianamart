@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Save, Plus, Trash2, ArrowLeft, Check } from "lucide-react";
 import { filterByPrefix } from "@/utils/searchUtils.js";
@@ -107,6 +108,8 @@ export default function StockVerificationForm({
     };
   }, []);
 
+  const skipStockRefresh = useRef(false);
+
   useEffect(() => {
     if (isNew) return;
 
@@ -117,6 +120,7 @@ export default function StockVerificationForm({
       .get(`/inventory/stock-verification/${id}`)
       .then((res) => {
         if (!mounted) return;
+        skipStockRefresh.current = true;
         const a = res.data?.item;
         const details = Array.isArray(res.data?.details)
           ? res.data.details
@@ -137,13 +141,15 @@ export default function StockVerificationForm({
           const mappedDetails = details.map((d) => ({
             id: d.id || Date.now() + Math.random(),
             item_id: d.item_id ? String(d.item_id) : "",
+            itemCode: d.item_code || "",
+            itemName: d.item_name || "",
             system_qty: Number(d.system_qty || 0),
             reserve_qty: Number(d.reserve_qty || 0),
             verified_qty:
-              d.verified_qty !== undefined && d.verified_qty !== null
-                ? Number(d.verified_qty)
-                : d.counted_qty !== undefined && d.counted_qty !== null
-                  ? Number(d.counted_qty)
+              d.counted_qty !== undefined && d.counted_qty !== null
+                ? Number(d.counted_qty)
+                : d.verified_qty !== undefined && d.verified_qty !== null
+                  ? Number(d.verified_qty)
                   : "",
             uom: d.uom || "",
             remarks: d.remarks || "",
@@ -151,7 +157,7 @@ export default function StockVerificationForm({
           setItems(mappedDetails);
           const initQueries = {};
           mappedDetails.forEach((i) => {
-            initQueries[i.id] = "";
+            initQueries[i.id] = i.itemName || i.itemCode || "";
           });
           setItemQueries(initQueries);
         }
@@ -189,6 +195,10 @@ export default function StockVerificationForm({
   }, [isNew]);
 
   useEffect(() => {
+    if (skipStockRefresh.current) {
+      skipStockRefresh.current = false;
+      return;
+    }
     const warehouseId = formData.warehouse_id
       ? Number(formData.warehouse_id)
       : 0;
@@ -335,7 +345,7 @@ export default function StockVerificationForm({
 
   const saveVerification = async ({ navigateAfterSave = true } = {}) => {
     if (!formData.warehouse_id || !formData.verification_date) {
-      alert("Please fill in all required fields");
+      toast.error("Please fill in all required fields");
       return null;
     }
 
@@ -381,7 +391,7 @@ export default function StockVerificationForm({
     setError("");
     try {
       await api.post(`/inventory/stock-verification/${currentId}/submit`);
-      alert("Verification confirmed and approved");
+      toast.success("Verification confirmed and approved");
       if (isModal) onClose && onClose(true);
       else navigate("/inventory/stock-verification");
     } catch (e) {

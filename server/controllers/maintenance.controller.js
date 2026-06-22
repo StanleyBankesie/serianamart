@@ -196,6 +196,13 @@ async function ensureTables(companyId, branchId) {
     status VARCHAR(50) DEFAULT 'ACTIVE',
     notes TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  try {
+    const hasFileUrl = await hasColumn("maint_contracts", "contract_file_url");
+    if (!hasFileUrl) {
+      await query("ALTER TABLE maint_contracts ADD COLUMN contract_file_url VARCHAR(500) NULL AFTER notes");
+      await query("ALTER TABLE maint_contracts ADD COLUMN contract_file_name VARCHAR(200) NULL AFTER contract_file_url");
+    }
+  } catch {}
 
   await query(`CREATE TABLE IF NOT EXISTS maint_contract_assets (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -512,6 +519,16 @@ function parseRequestPayload(body = {}, requesterName = null) {
     status: cleanText(body.status) || "DRAFT",
     notes: cleanText(body.notes),
   };
+}
+
+async function hasColumn(tableName, columnName) {
+  try {
+    const rows = await query(
+      "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c LIMIT 1",
+      { t: tableName, c: columnName },
+    );
+    return rows.length > 0;
+  } catch { return false; }
 }
 
 // ===== ASSETS =====
@@ -2033,7 +2050,7 @@ export const createContract = async (req, res, next) => {
       { companyId, branchId },
     );
     const contract_no = b.contract_no || nextNo("MCT", existing);
-    const r = await query(`INSERT INTO maint_contracts (company_id,branch_id,contract_no,supplier_id,supplier_name,start_date,end_date,contract_value,scope,payment_terms,renewal_alert_days,status,notes) VALUES (:companyId,:branchId,:contract_no,:supplier_id,:supplier_name,:start_date,:end_date,:contract_value,:scope,:payment_terms,:renewal_alert_days,:status,:notes)`,
+    const r = await query(`INSERT INTO maint_contracts (company_id,branch_id,contract_no,supplier_id,supplier_name,start_date,end_date,contract_value,scope,payment_terms,renewal_alert_days,status,notes,contract_file_url,contract_file_name) VALUES (:companyId,:branchId,:contract_no,:supplier_id,:supplier_name,:start_date,:end_date,:contract_value,:scope,:payment_terms,:renewal_alert_days,:status,:notes,:contract_file_url,:contract_file_name)`,
       {
         companyId,
         branchId,
@@ -2048,6 +2065,8 @@ export const createContract = async (req, res, next) => {
         renewal_alert_days: toNumber(b.renewal_alert_days) || 30,
         status: b.status || "ACTIVE",
         notes: b.notes || null,
+        contract_file_url: b.contract_file_url || null,
+        contract_file_name: b.contract_file_name || null,
       },
     );
     const cId = r.insertId;
@@ -2073,7 +2092,7 @@ export const updateContract = async (req, res, next) => {
     const { companyId, branchId } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_contracts SET supplier_id=:supplier_id,supplier_name=:supplier_name,start_date=:start_date,end_date=:end_date,contract_value=:contract_value,scope=:scope,payment_terms=:payment_terms,renewal_alert_days=:renewal_alert_days,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_contracts SET supplier_id=:supplier_id,supplier_name=:supplier_name,start_date=:start_date,end_date=:end_date,contract_value=:contract_value,scope=:scope,payment_terms=:payment_terms,renewal_alert_days=:renewal_alert_days,status=:status,notes=:notes,contract_file_url=:contract_file_url,contract_file_name=:contract_file_name WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
       {
         id,
         companyId,
@@ -2088,6 +2107,8 @@ export const updateContract = async (req, res, next) => {
         renewal_alert_days: toNumber(b.renewal_alert_days) || 30,
         status: b.status || "ACTIVE",
         notes: b.notes || null,
+        contract_file_url: b.contract_file_url || null,
+        contract_file_name: b.contract_file_name || null,
       },
     );
     if (Array.isArray(b.assets)) {

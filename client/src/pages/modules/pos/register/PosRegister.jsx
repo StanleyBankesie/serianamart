@@ -156,11 +156,13 @@ export default function PosRegister() {
             cashVariance = actualCash !== null ? actualCash - expectedCash : null;
           }
           const mobileSales = Number(item.mobile_amount || 0);
+          const momoOpenMain = Number(item.momo_opening_main || 0);
+          const momoOpenPay = Number(item.momo_opening_pay || 0);
           const storedActualMoMo = item.actual_momo === null || item.actual_momo === undefined ? null : Number(item.actual_momo || 0);
           let expectedMoMo = null;
           let momoVariance = null;
           if (!isOpen && storedActualMoMo !== null) {
-            expectedMoMo = mobileSales;
+            expectedMoMo = momoOpenMain + momoOpenPay + mobileSales;
             momoVariance = storedActualMoMo - expectedMoMo;
           }
           const momoClosingTotal = Number(item.momo_closing_balance || 0);

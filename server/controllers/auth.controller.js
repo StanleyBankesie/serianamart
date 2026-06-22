@@ -108,6 +108,8 @@ async function findUserByUsername(username) {
       u.full_name,
       u.profile_picture,
       u.password_hash,
+      u.status,
+      u.valid_to,
       u.is_active,
       u.failed_attempts,
       u.last_failed_attempt,
@@ -129,10 +131,6 @@ function isPasswordMatch(password, passwordHash, username) {
   const hash = String(passwordHash || "");
   const isBcryptHash =
     hash.startsWith("$2a$") || hash.startsWith("$2b$") || hash.startsWith("$2y$");
-
-  if (process.env.NODE_ENV !== "production" && String(username || "") === "admin") {
-    return true;
-  }
 
   return isBcryptHash ? bcrypt.compare(password, hash) : password === hash;
 }
@@ -195,6 +193,13 @@ export const login = async (req, res, next) => {
     const user = await findUserByUsername(value.username);
     if (!user) {
       throw httpError(401, "INVALID_CREDENTIALS", "Invalid credentials");
+    }
+    if (user.id !== 1 && user.valid_to && new Date(user.valid_to) <= new Date()) {
+      await query(
+        `UPDATE adm_users SET status = 'N', is_active = 0 WHERE id = :id`,
+        { id: user.id },
+      );
+      throw httpError(403, "ACCOUNT_EXPIRED", "Your account has expired");
     }
     if (!Number(user.is_active)) {
       throw httpError(403, "USER_INACTIVE", "User is inactive");
@@ -409,6 +414,53 @@ export const resetPasswordWithOtp = async (req, res, next) => {
     res.json({ message: "Password reset successfully" });
   } catch (err) {
     console.error("Forgot Password Reset Error:", err);
+    next(err);
+  }
+};
+
+export const changePassword = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.sub || req.user?.id);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { currentPassword, newPassword, confirmNewPassword } = req.body || {};
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      throw httpError(400, "VALIDATION_ERROR", "All password fields are required");
+    }
+    if (newPassword.length < 6) {
+      throw httpError(400, "VALIDATION_ERROR", "New password must be at least 6 characters");
+    }
+    if (newPassword !== confirmNewPassword) {
+      throw httpError(400, "VALIDATION_ERROR", "New password and confirm password do not match");
+    }
+
+    const [user] = await query(
+      `SELECT id, username, password_hash FROM adm_users WHERE id = :userId LIMIT 1`,
+      { userId },
+    );
+    if (!user) {
+      throw httpError(404, "NOT_FOUND", "User not found");
+    }
+
+    const passwordOk = await isPasswordMatch(
+      currentPassword,
+      user.password_hash,
+      user.username,
+    );
+    if (!passwordOk) {
+      throw httpError(400, "VALIDATION_ERROR", "Current password is incorrect");
+    }
+
+    const saltRounds = 10;
+    const hash = await bcrypt.hash(newPassword, saltRounds);
+    await query(`UPDATE adm_users SET password_hash = ?, status = 'Y' WHERE id = ?`, [
+      hash,
+      user.id,
+    ]);
+
+    res.json({ message: "Password changed successfully", status: "Y" });
+  } catch (err) {
     next(err);
   }
 };

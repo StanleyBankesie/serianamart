@@ -146,66 +146,66 @@ export default function MaintenanceJobOrderForm() {
           <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="label">Order Date *</label>
-              <input
-                className="input"
-                type="date"
-                value={form.order_date}
-                onChange={(e) => update("order_date", e.target.value)}
-                required
-              />
+                <input
+                  className="input w-[216px]"
+                  type="date"
+                  value={form.order_date}
+                  onChange={(e) => update("order_date", e.target.value)}
+                  required
+                />
             </div>
             <div>
               <label className="label">Linked Request</label>
               <select
-                className="input"
-                value={form.request_id}
-                onChange={(e) => update("request_id", e.target.value)}
-              >
-                <option value="">-- None --</option>
-                {requests.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.request_no}
-                  </option>
-                ))}
-              </select>
+                  className="input w-[216px]"
+                  value={form.request_id}
+                  onChange={(e) => update("request_id", e.target.value)}
+                >
+                  <option value="">-- None --</option>
+                  {requests.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.request_no}
+                    </option>
+                  ))}
+                </select>
             </div>
             <div>
               <label className="label">Equipment / Asset</label>
-              <select
-                className="input"
-                value={form.asset_name}
-                onChange={(e) => update("asset_name", e.target.value)}
-              >
-                <option value="">-- Select --</option>
-                {equipment.map((eq) => (
-                  <option key={eq.id} value={eq.equipment_name}>
-                    {eq.equipment_code} – {eq.equipment_name}
-                  </option>
-                ))}
-              </select>
+                <select
+                  className="input w-[216px]"
+                  value={form.asset_name}
+                  onChange={(e) => update("asset_name", e.target.value)}
+                >
+                  <option value="">-- Select --</option>
+                  {equipment.map((eq) => (
+                    <option key={eq.id} value={eq.equipment_name}>
+                      {eq.equipment_code} – {eq.equipment_name}
+                    </option>
+                  ))}
+                </select>
             </div>
             <div>
               <label className="label">Order Type *</label>
-              <select
-                className="input"
-                value={form.order_type}
-                onChange={(e) => update("order_type", e.target.value)}
-                required
-              >
-                <option value="">-- Select Type --</option>
-                {ORDER_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+                <select
+                  className="input w-[216px]"
+                  value={form.order_type}
+                  onChange={(e) => update("order_type", e.target.value)}
+                  required
+                >
+                  <option value="">-- Select Type --</option>
+                  {ORDER_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
             </div>
             <div>
               <label className="label">Job Order Type *</label>
-              <select
-                className="input"
-                value={form.job_order_type}
-                onChange={(e) => update("job_order_type", e.target.value)}
+                <select
+                  className="input w-[216px]"
+                  value={form.job_order_type}
+                  onChange={(e) => update("job_order_type", e.target.value)}
               >
                 <option value="">-- Select --</option>
                 {setupCatalogs.jobOrderTypes.filter(t => t.is_active).map(t => (
@@ -215,28 +215,28 @@ export default function MaintenanceJobOrderForm() {
             </div>
             <div>
               <label className="label">Scheduled Date</label>
-              <input
-                className="input"
-                type="date"
-                value={form.scheduled_date}
-                onChange={(e) => update("scheduled_date", e.target.value)}
-              />
+                <input
+                  className="input w-[216px]"
+                  type="date"
+                  value={form.scheduled_date}
+                  onChange={(e) => update("scheduled_date", e.target.value)}
+                />
             </div>
             <div>
               <label className="label">Location</label>
-              <input
-                className="input"
-                value={form.location || ""}
-                onChange={(e) => update("location", e.target.value)}
+                <input
+                  className="input w-[216px]"
+                  value={form.location || ""}
+                  onChange={(e) => update("location", e.target.value)}
                 placeholder="Location"
               />
             </div>
             <div>
               <label className="label">Supervisor</label>
-              <select
-                className="input"
-                value={form.supervisor || ""}
-                onChange={(e) => update("supervisor", e.target.value)}
+                <select
+                  className="input w-[216px]"
+                  value={form.supervisor || ""}
+                  onChange={(e) => update("supervisor", e.target.value)}
               >
                 <option value="">-- Select --</option>
                 {setupCatalogs.supervisors.filter(s => s.is_active).map(s => (
@@ -246,10 +246,10 @@ export default function MaintenanceJobOrderForm() {
             </div>
             <div>
               <label className="label">Service Provider</label>
-              <select
-                className="input"
-                value={form.service_provider || ""}
-                onChange={(e) => update("service_provider", e.target.value)}
+                <select
+                  className="input w-[216px]"
+                  value={form.service_provider || ""}
+                  onChange={(e) => update("service_provider", e.target.value)}
               >
                 <option value="">-- Select --</option>
                 {setupCatalogs.serviceProviders.filter(s => s.is_active).map(s => (
@@ -259,10 +259,10 @@ export default function MaintenanceJobOrderForm() {
             </div>
             <div>
               <label className="label">Assigned Team</label>
-              <select
-                className="input"
-                value={form.assigned_team}
-                onChange={(e) => update("assigned_team", e.target.value)}
+                <select
+                  className="input w-[216px]"
+                  value={form.assigned_team}
+                  onChange={(e) => update("assigned_team", e.target.value)}
               >
                 <option value="">-- Select --</option>
                 {setupCatalogs.teams.filter(t => t.is_active).map(t => (
@@ -272,10 +272,10 @@ export default function MaintenanceJobOrderForm() {
             </div>
             <div>
               <label className="label">Assigned Technician</label>
-              <select
-                className="input"
-                value={form.assigned_technician}
-                onChange={(e) => update("assigned_technician", e.target.value)}
+                <select
+                  className="input w-[216px]"
+                  value={form.assigned_technician}
+                  onChange={(e) => update("assigned_technician", e.target.value)}
               >
                 <option value="">-- Select --</option>
                 {setupCatalogs.technicians.filter(t => t.is_active).map(t => (
@@ -285,10 +285,10 @@ export default function MaintenanceJobOrderForm() {
             </div>
             <div>
               <label className="label">Status</label>
-              <select
-                className="input"
-                value={form.status}
-                onChange={(e) => update("status", e.target.value)}
+                <select
+                  className="input w-[216px]"
+                  value={form.status}
+                  onChange={(e) => update("status", e.target.value)}
               >
                 {STATUSES.map((s) => (
                   <option key={s} value={s}>

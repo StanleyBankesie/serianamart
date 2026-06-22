@@ -19,6 +19,8 @@ function emptyLine() {
     chequeNumber: "",
     chequeDate: "",
     paymentMethod: "",
+    currencyId: "",
+    exchangeRate: "1",
   };
 }
 
@@ -155,6 +157,21 @@ export default function PurchaseVoucherForm() {
       )
     );
   }, [currencies]);
+  function autoFetchLineRate(cId, lineIdx) {
+    if (!cId) return;
+    const sel = (currencies || []).find((c) => String(c.id) === String(cId));
+    const fromCode = sel?.code || sel?.currency_code || "";
+    const toCode = baseCurrency?.code || baseCurrency?.currency_code || "";
+    if (fromCode && toCode) {
+      if (fromCode === toCode) {
+        updateLine(lineIdx, { exchangeRate: "1" });
+      } else {
+        getExchangeRate(fromCode, toCode).then((r) => {
+          if (r != null) updateLine(lineIdx, { exchangeRate: String(r) });
+        });
+      }
+    }
+  }
   const dncnLineCurrencyId = useMemo(() => {
     const firstLineWithAccount = lines.find((l) => String(l.accountId || ""));
     const acc = accounts.find(
@@ -511,6 +528,8 @@ export default function PurchaseVoucherForm() {
           description: it.description || "",
           debit: Number(it.debit || 0),
           credit: Number(it.credit || 0),
+          currencyId: it.currency_id || it.currencyId || "",
+          exchangeRate: it.exchange_rate || it.exchangeRate || "1",
         })) || [];
       setLines(mapped.length ? mapped : [emptyLine(), emptyLine()]);
       if (isRV) {
@@ -1662,6 +1681,8 @@ export default function PurchaseVoucherForm() {
           chequeNumber: l.chequeNumber || null,
           chequeDate: l.chequeDate || null,
           paymentMethod: l.paymentMethod || null,
+          currencyId: l.currencyId || null,
+          exchangeRate: Number(l.exchangeRate || 1) || 1,
         }))
         .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     }
@@ -3228,6 +3249,12 @@ export default function PurchaseVoucherForm() {
                             {isCN || isDN ? (
                               <th className="text-right w-32">Currency</th>
                             ) : null}
+                            {isJV || isSV || isPV ? (
+                              <>
+                                <th className="text-right w-28">Currency</th>
+                                <th className="text-right w-28">Exch. Rate</th>
+                              </>
+                            ) : null}
                             <th
                               className="text-right"
                               style={{ minWidth: "300px" }}
@@ -3270,11 +3297,18 @@ export default function PurchaseVoucherForm() {
                                     <select
                                       className="input"
                                       value={l.accountId}
-                                      onChange={(e) =>
-                                        updateLine(idx, {
-                                          accountId: e.target.value,
-                                        })
-                                      }
+                                        onChange={(e) => {
+                                          const accId = e.target.value;
+                                          const acc = accounts.find(
+                                            (a) => String(a.id) === String(accId),
+                                          );
+                                          const newCId = acc?.currency_id || "";
+                                          updateLine(idx, {
+                                            accountId: accId,
+                                            currencyId: newCId,
+                                          });
+                                          autoFetchLineRate(newCId, idx);
+                                        }}
                                       required
                                       disabled={readOnly}
                                     >
@@ -3319,6 +3353,44 @@ export default function PurchaseVoucherForm() {
                                       return acc?.currency_code || "";
                                     })()}
                                   </td>
+                                ) : null}
+                                {isJV || isSV || isPV ? (
+                                  <>
+                                    <td>
+                                      <select
+                                        className="input"
+                                        value={l.currencyId}
+                                        onChange={(e) => {
+                                          const cId = e.target.value;
+                                          updateLine(idx, { currencyId: cId });
+                                          autoFetchLineRate(cId, idx);
+                                        }}
+                                        disabled={readOnly}
+                                      >
+                                        <option value="">Base Currency</option>
+                                        {currencies.map((c) => (
+                                          <option key={c.id} value={c.id}>
+                                            {c.code || c.currency_code}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <input
+                                        className="input text-right"
+                                        type="number"
+                                        min="0"
+                                        step="any"
+                                        value={l.exchangeRate}
+                                        onChange={(e) =>
+                                          updateLine(idx, {
+                                            exchangeRate: e.target.value,
+                                          })
+                                        }
+                                        disabled={readOnly}
+                                      />
+                                    </td>
+                                  </>
                                 ) : null}
                                 <td
                                   className={

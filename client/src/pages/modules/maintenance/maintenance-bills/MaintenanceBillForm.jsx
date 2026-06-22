@@ -260,27 +260,27 @@ export default function MaintenanceBillForm() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="card">
           <div className="card-header bg-brand text-white rounded-t-lg font-semibold">Bill Details</div>
-          <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div><label className="label">Bill No</label><input className="input" value={form.bill_no} onChange={e => update("bill_no", e.target.value)} /></div>
-            <div><label className="label">Bill Date</label><input className="input" type="date" value={form.bill_date} onChange={e => update("bill_date", e.target.value)} /></div>
-            <div><label className="label">Due Date</label><input className="input" type="date" value={form.due_date} onChange={e => update("due_date", e.target.value)} /></div>
+          <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div><label className="label">Bill No</label><input className="input w-56" value={form.bill_no} onChange={e => update("bill_no", e.target.value)} /></div>
+            <div><label className="label">Bill Date</label><input className="input w-56" type="date" value={form.bill_date} onChange={e => update("bill_date", e.target.value)} /></div>
+            <div><label className="label">Due Date</label><input className="input w-56" type="date" value={form.due_date} onChange={e => update("due_date", e.target.value)} /></div>
             <div>
               <label className="label">Job Execution</label>
-              <select className="input" value={form.execution_id} onChange={e => update("execution_id", e.target.value)}>
+              <select className="input w-56" value={form.execution_id} onChange={e => update("execution_id", e.target.value)}>
                 <option value="">-- None --</option>
                 {executions.map(ex => <option key={ex.id} value={ex.id}>{ex.execution_no}</option>)}
               </select>
             </div>
             <div>
               <label className="label">Supplier / Contractor</label>
-              <select className="input" value={form.supplier_id} onChange={e => { const s = suppliers.find(x => String(x.id) === e.target.value); update("supplier_id", e.target.value); update("supplier_name", s?.supplier_name || s?.name || ""); }}>
+              <select className="input w-56" value={form.supplier_id} onChange={e => { const s = suppliers.find(x => String(x.id) === e.target.value); update("supplier_id", e.target.value); update("supplier_name", s?.supplier_name || s?.name || ""); }}>
                 <option value="">-- Select --</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name || s.name}</option>)}
               </select>
             </div>
             <div>
               <label className="label">Currency</label>
-              <select className="input" value={form.currency} onChange={e => handleCurrencyChange(e.target.value)}>
+              <select className="input w-56" value={form.currency} onChange={e => handleCurrencyChange(e.target.value)}>
                 {currencies.map(c => (
                   <option key={c.id} value={c.code || c.currency_code}>
                     {c.code || c.currency_code} - {c.name || c.currency_name}
@@ -288,13 +288,13 @@ export default function MaintenanceBillForm() {
                 ))}
               </select>
             </div>
-            <div><label className="label">Exchange Rate</label><input className="input text-right" type="number" step="0.000001" value={form.exchange_rate} readOnly /></div>
-            <div><label className="label">Payment Terms (Days)</label><input className="input" type="number" value={form.payment_terms} onChange={e => update("payment_terms", e.target.value)} /></div>
-            <div><label className="label">Payment Method</label><select className="input" value={form.payment_method} onChange={e => update("payment_method", e.target.value)}>{PAYMENT_METHODS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}</select></div>
-            <div><label className="label">Payment Reference</label><input className="input" value={form.payment_reference} onChange={e => update("payment_reference", e.target.value)} /></div>
-            <div><label className="label">Payment Status</label><select className="input" value={form.payment_status} onChange={e => update("payment_status", e.target.value)}>{PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-            <div><label className="label">Status</label><select className="input" value={form.status} onChange={e => update("status", e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-            <div className="md:col-span-2"><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
+            <div><label className="label">Exchange Rate</label><input className="input w-56 text-right" type="number" step="0.000001" value={form.exchange_rate} readOnly /></div>
+            <div><label className="label">Payment Terms (Days)</label><input className="input w-56" type="number" value={form.payment_terms} onChange={e => update("payment_terms", e.target.value)} /></div>
+            <div><label className="label">Payment Method</label><select className="input w-56" value={form.payment_method} onChange={e => update("payment_method", e.target.value)}>{PAYMENT_METHODS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}</select></div>
+            <div><label className="label">Payment Reference</label><input className="input w-56" value={form.payment_reference} onChange={e => update("payment_reference", e.target.value)} /></div>
+            <div><label className="label">Payment Status</label><select className="input w-56" value={form.payment_status} onChange={e => update("payment_status", e.target.value)}>{PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+            <div><label className="label">Status</label><select className="input w-56" value={form.status} onChange={e => update("status", e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+            <div className="md:col-span-3"><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
           </div>
         </div>
         <div className="card">

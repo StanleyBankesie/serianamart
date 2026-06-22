@@ -319,7 +319,7 @@ export default function StockUpdationList() {
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {adj.forwarded_to_username}
                               </span>
-                            ) : ["DRAFT", "RETURNED", "REJECTED"].includes(String(adj.status || "").toUpperCase()) ? (
+                            ) : ["DRAFT", "RETURNED", "REJECTED"].includes(String(adj.status || "").toUpperCase()) && adj.has_workflow ? (
                               <button
                                 type="button"
                                 className="list-approval-forward-btn"

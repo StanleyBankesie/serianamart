@@ -69,21 +69,14 @@ export default function GeneralLedgerReportPage() {
   }
 
   async function run() {
-    if (!accountId) {
-      setOpening(0);
-      setItems([]);
-      setAccountMeta(null);
-      return;
-    }
     try {
       setLoading(true);
-      const res = await api.get("/finance/reports/general-ledger", {
-        params: {
-          accountId,
-          from: from || null,
-          to: to || null,
-        },
-      });
+      const params = {
+        from: from || null,
+        to: to || null,
+      };
+      if (accountId) params.accountId = accountId;
+      const res = await api.get("/finance/reports/general-ledger", { params });
       setOpening(Number(res.data?.opening_balance || 0));
       setAccountMeta(res.data?.account || null);
       setItems(res.data?.items || []);
@@ -183,9 +176,6 @@ export default function GeneralLedgerReportPage() {
       .toLowerCase();
     if (!v) {
       setAccountId("");
-      setOpening(0);
-      setItems([]);
-      setAccountMeta(null);
       return;
     }
     const hit = (groupFilteredAccounts || []).find((a) => {
@@ -212,7 +202,7 @@ export default function GeneralLedgerReportPage() {
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             General Ledger
           </h1>
-          <p className="text-sm mt-1">Ledger entries for a selected account</p>
+          <p className="text-sm mt-1">Ledger entries — leave account empty for all accounts</p>
         </div>
       </div>
 
@@ -233,9 +223,6 @@ export default function GeneralLedgerReportPage() {
                     .toLowerCase();
                   if (!v) {
                     setAccountId("");
-                    setOpening(0);
-                    setItems([]);
-                    setAccountMeta(null);
                     return;
                   }
                   const hit = (groupFilteredAccounts || []).find((a) => {
@@ -408,6 +395,15 @@ export default function GeneralLedgerReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
+                  {!accountId ? (
+                    <SortableHeader
+                      label="Account"
+                      sortKey="account_name"
+                      currentKey={sortKey}
+                      direction={sortDir}
+                      onToggle={toggle}
+                    />
+                  ) : null}
                   <SortableHeader
                     label="Date"
                     sortKey="voucher_date"
@@ -446,6 +442,22 @@ export default function GeneralLedgerReportPage() {
                     className="text-right"
                   />
                   <SortableHeader
+                    label="Currency"
+                    sortKey="currency_code"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                    className="text-right"
+                  />
+                  <SortableHeader
+                    label="Exch. Rate"
+                    sortKey="exchange_rate"
+                    currentKey={sortKey}
+                    direction={sortDir}
+                    onToggle={toggle}
+                    className="text-right"
+                  />
+                  <SortableHeader
                     label="Balance (Dr/Cr)"
                     sortKey="balance"
                     currentKey={sortKey}
@@ -461,7 +473,10 @@ export default function GeneralLedgerReportPage() {
                   const balanceType = balance >= 0 ? "Dr" : "Cr";
                   const displayBalance = Math.abs(balance);
                   return (
-                    <tr key={`${r.voucher_no}-${r.line_no}-${idx}`}>
+                    <tr key={`${r.account_code || ""}-${r.voucher_no}-${r.line_no}-${idx}`}>
+                      {!accountId ? (
+                        <td className="font-medium">{r.account_name || r.account_code || "-"}</td>
+                      ) : null}
                       <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
                       <td>
                         <Link
@@ -477,6 +492,12 @@ export default function GeneralLedgerReportPage() {
                       </td>
                       <td className="text-right">
                         {Number(r.credit || 0).toLocaleString()}
+                      </td>
+                      <td className="text-right">
+                        {r.currency_code || "-"}
+                      </td>
+                      <td className="text-right">
+                        {Number(r.exchange_rate || 1).toLocaleString()}
                       </td>
                       <td className="text-right">
                         <span className="font-medium">

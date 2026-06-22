@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { Upload, FileText, X } from "lucide-react";
 
 const STATUSES = ["ACTIVE","PENDING","EXPIRED","CANCELLED"];
 
@@ -9,16 +10,19 @@ export default function MaintenanceContractForm() {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = !!id;
+  const fileRef = useRef(null);
   const [form, setForm] = useState({
     contract_no: "", supplier_id: "", supplier_name: "",
     start_date: "", end_date: "", contract_value: 0,
-    scope: "", payment_terms: "30 days", renewal_alert_days: 30,
-    status: "ACTIVE", notes: ""
+    scope: "", payment_terms: "30 days",
+    status: "ACTIVE", notes: "",
+    contract_file_url: "", contract_file_name: "",
   });
   const [assets, setAssets] = useState([{ asset_id: "", asset_name: "" }]);
   const [suppliers, setSuppliers] = useState([]);
   const [equipment, setEquipment] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   useEffect(() => {
@@ -43,6 +47,31 @@ export default function MaintenanceContractForm() {
     const eq = equipment.find(e => String(e.id) === String(eid));
     setAssets(p => p.map((a, idx) => idx === i ? { asset_id: eid, asset_name: eq?.equipment_name || "" } : a));
   };
+
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.post("/upload", fd);
+      const data = res.data;
+      update("contract_file_url", data.url || data.path);
+      update("contract_file_name", data.filename || file.name);
+      toast.success("File uploaded");
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  function removeFile() {
+    update("contract_file_url", "");
+    update("contract_file_name", "");
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -75,20 +104,39 @@ export default function MaintenanceContractForm() {
           <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="label">Supplier *</label>
-              <select className="input" value={form.supplier_id} onChange={e => { const s = suppliers.find(x => String(x.id) === e.target.value); update("supplier_id", e.target.value); update("supplier_name", s?.supplier_name || s?.name || ""); }} required>
+              <select className="input w-56" value={form.supplier_id} onChange={e => { const s = suppliers.find(x => String(x.id) === e.target.value); update("supplier_id", e.target.value); update("supplier_name", s?.supplier_name || s?.name || ""); }} required>
                 <option value="">-- Select Supplier --</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.supplier_name || s.name}</option>)}
               </select>
             </div>
-            <div><label className="label">Start Date</label><input className="input" type="date" value={form.start_date} onChange={e => update("start_date", e.target.value)} /></div>
-            <div><label className="label">End Date</label><input className="input" type="date" value={form.end_date} onChange={e => update("end_date", e.target.value)} /></div>
-            <div><label className="label">Contract Value</label><input className="input text-right" type="number" step="0.01" value={form.contract_value} onChange={e => update("contract_value", e.target.value)} /></div>
-            <div><label className="label">Payment Terms</label><input className="input" value={form.payment_terms} onChange={e => update("payment_terms", e.target.value)} /></div>
-            <div><label className="label">Renewal Alert (days)</label><input className="input" type="number" value={form.renewal_alert_days} onChange={e => update("renewal_alert_days", e.target.value)} /></div>
-            <div><label className="label">Status</label><select className="input" value={form.status} onChange={e => update("status", e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-            <div className="md:col-span-2"><label className="label">Scope of Contract</label><textarea className="input" rows={3} value={form.scope} onChange={e => update("scope", e.target.value)} placeholder="Services covered, response times, exclusions..." /></div>
-            <div><label className="label">Notes</label><textarea className="input" rows={3} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
-            <div className="md:col-span-2">
+            <div><label className="label">Start Date</label><input className="input w-56" type="date" value={form.start_date} onChange={e => update("start_date", e.target.value)} /></div>
+            <div><label className="label">End Date</label><input className="input w-56" type="date" value={form.end_date} onChange={e => update("end_date", e.target.value)} /></div>
+            <div><label className="label">Contract Value</label><input className="input w-56 text-right" type="number" step="0.01" value={form.contract_value} onChange={e => update("contract_value", e.target.value)} /></div>
+            <div><label className="label">Payment Terms</label><input className="input w-56" value={form.payment_terms} onChange={e => update("payment_terms", e.target.value)} /></div>
+            <div><label className="label">Status</label><select className="input w-56" value={form.status} onChange={e => update("status", e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+            <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div><label className="label">Scope of Contract</label><textarea className="input w-full" rows={3} value={form.scope} onChange={e => update("scope", e.target.value)} placeholder="Services covered, response times, exclusions..." /></div>
+              <div><label className="label">Notes</label><textarea className="input w-full" rows={3} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
+            </div>
+            <div className="md:col-span-1">
+              <label className="label">Contract Document</label>
+              <div className="space-y-2">
+                {form.contract_file_url ? (
+                  <div className="flex items-center gap-2 p-2 bg-slate-50 rounded border">
+                    <FileText size={16} className="text-brand shrink-0" />
+                    <a href={form.contract_file_url} target="_blank" rel="noopener noreferrer" className="text-sm text-brand hover:underline truncate flex-1">
+                      {form.contract_file_name || "View Document"}
+                    </a>
+                    <button type="button" onClick={removeFile} className="p-1 hover:bg-slate-200 rounded"><X size={14} /></button>
+                  </div>
+                ) : null}
+                <button type="button" className="btn-secondary btn-sm flex items-center gap-1" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                  <Upload size={14} /> {uploading ? "Uploading..." : "Upload Contract"}
+                </button>
+                <input ref={fileRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" onChange={handleFileUpload} />
+              </div>
+            </div>
+            <div className="md:col-span-1">
               <label className="label">Assets / Equipment Covered</label>
               <div className="space-y-2">
                 {assets.map((a, i) => (

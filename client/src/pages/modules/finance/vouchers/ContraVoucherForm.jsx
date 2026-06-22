@@ -19,6 +19,8 @@ function emptyLine() {
     chequeNumber: "",
     chequeDate: "",
     paymentMethod: "",
+    currencyId: "",
+    exchangeRate: "1",
   };
 }
 
@@ -155,6 +157,21 @@ export default function ContraVoucherForm() {
       )
     );
   }, [currencies]);
+  function autoFetchLineRate(cId, lineIdx) {
+    if (!cId) return;
+    const sel = (currencies || []).find((c) => String(c.id) === String(cId));
+    const fromCode = sel?.code || sel?.currency_code || "";
+    const toCode = baseCurrency?.code || baseCurrency?.currency_code || "";
+    if (fromCode && toCode) {
+      if (fromCode === toCode) {
+        updateLine(lineIdx, { exchangeRate: "1" });
+      } else {
+        getExchangeRate(fromCode, toCode).then((r) => {
+          if (r != null) updateLine(lineIdx, { exchangeRate: String(r) });
+        });
+      }
+    }
+  }
   const dncnLineCurrencyId = useMemo(() => {
     const firstLineWithAccount = lines.find((l) => String(l.accountId || ""));
     const acc = accounts.find(
@@ -512,6 +529,8 @@ export default function ContraVoucherForm() {
           description: it.description || "",
           debit: Number(it.debit || 0),
           credit: Number(it.credit || 0),
+          currencyId: String(it.currency_id || it.currencyId || ""),
+          exchangeRate: String(it.exchange_rate || it.exchangeRate || "1"),
         })) || [];
       setLines(mapped.length ? mapped : [emptyLine(), emptyLine()]);
       if (isRV) {
@@ -1612,15 +1631,19 @@ export default function ContraVoucherForm() {
           chequeNumber: cvForm.reference || null,
           chequeDate: cvForm.chequeDate || null,
           paymentMethod: cvForm.transferMethod || null,
+          currencyId: cvToCurrencyId || null,
+          exchangeRate: Number(cvExchangeRate || 1) || 1,
         },
         {
           accountId: Number(cvForm.fromAccountId),
           description: firstDesc,
           debit: 0,
-          credit: Number(total),
+          credit: Number(totalConverted),
           chequeNumber: cvForm.reference || null,
           chequeDate: cvForm.chequeDate || null,
           paymentMethod: cvForm.transferMethod || null,
+          currencyId: cvFromCurrencyId || null,
+          exchangeRate: Number(cvExchangeRate || 1) || 1,
         },
       ];
     } else if (isPAYV && paymentType === "DIRECT") {
@@ -1637,6 +1660,8 @@ export default function ContraVoucherForm() {
           chequeNumber: l.chequeNumber || null,
           chequeDate: l.chequeDate || null,
           paymentMethod: l.paymentMethod || null,
+          currencyId: l.currencyId || null,
+          exchangeRate: Number(l.exchangeRate || 1) || 1,
         }))
         .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     } else {
@@ -1654,6 +1679,8 @@ export default function ContraVoucherForm() {
           chequeNumber: l.chequeNumber || null,
           chequeDate: l.chequeDate || null,
           paymentMethod: l.paymentMethod || null,
+          currencyId: l.currencyId || null,
+          exchangeRate: Number(l.exchangeRate || 1) || 1,
         }))
         .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     }
@@ -1693,7 +1720,12 @@ export default function ContraVoucherForm() {
               currencyId: rvVoucherCurrencyId || null,
               exchangeRate: Number(rvVoucherExchangeRate || 1) || 1,
             }
-          : {}),
+          : isCV
+            ? {
+                currencyId: cvToCurrencyId || cvFromCurrencyId || null,
+                exchangeRate: Number(cvExchangeRate || 1) || 1,
+              }
+            : {}),
         ...(isPAYV &&
         paymentType === "AGAINST_BILL" &&
         selectedBillId &&
@@ -3201,6 +3233,12 @@ export default function ContraVoucherForm() {
                             {isCN || isDN ? (
                               <th className="text-right w-32">Currency</th>
                             ) : null}
+                            {isPAYV || isRV || isCV ? (
+                              <>
+                                <th className="text-right w-28">Currency</th>
+                                <th className="text-right w-28">Exch. Rate</th>
+                              </>
+                            ) : null}
                             <th
                               className="text-right"
                               style={{ minWidth: "300px" }}
@@ -3243,11 +3281,18 @@ export default function ContraVoucherForm() {
                                     <select
                                       className="input"
                                       value={l.accountId}
-                                      onChange={(e) =>
+                                      onChange={(e) => {
+                                        const accId = e.target.value;
+                                        const acc = accounts.find(
+                                          (a) => String(a.id) === String(accId),
+                                        );
+                                        const newCId = acc?.currency_id || "";
                                         updateLine(idx, {
-                                          accountId: e.target.value,
-                                        })
-                                      }
+                                          accountId: accId,
+                                          currencyId: newCId,
+                                        });
+                                        autoFetchLineRate(newCId, idx);
+                                      }}
                                       required
                                       disabled={readOnly}
                                     >
@@ -3292,6 +3337,55 @@ export default function ContraVoucherForm() {
                                       return acc?.currency_code || "";
                                     })()}
                                   </td>
+                                ) : null}
+                                {isPAYV || isRV || isCV ? (
+                                  <>
+                                    <td>
+                                      {readOnly ? (
+                                        <span className="text-slate-600 dark:text-slate-400">
+                                          {(() => {
+                                            const sel = (currencies || []).find(
+                                              (c) => String(c.id) === String(l.currencyId || ""),
+                                            );
+                                            return sel?.code || sel?.currency_code || "-";
+                                          })()}
+                                        </span>
+                                      ) : (
+                                        <select
+                                          className="input"
+                                          value={l.currencyId}
+                                          onChange={(e) => {
+                                            const cId = e.target.value;
+                                            updateLine(idx, { currencyId: cId });
+                                            autoFetchLineRate(cId, idx);
+                                          }}
+                                          disabled={readOnly}
+                                        >
+                                          <option value="">Base Currency</option>
+                                          {currencies.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                              {c.code || c.currency_code}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <input
+                                        className="input text-right"
+                                        type="number"
+                                        min="0"
+                                        step="any"
+                                        value={l.exchangeRate}
+                                        onChange={(e) =>
+                                          updateLine(idx, {
+                                            exchangeRate: e.target.value,
+                                          })
+                                        }
+                                        disabled={readOnly}
+                                      />
+                                    </td>
+                                  </>
                                 ) : null}
                                 <td
                                   className={

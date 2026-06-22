@@ -207,6 +207,45 @@ export async function ensureAuthTables() {
         ADD COLUMN last_failed_attempt DATETIME NULL`,
     );
   }
+  if (!(await hasColumn("adm_users", "status"))) {
+    await query(
+      `ALTER TABLE adm_users
+        ADD COLUMN status CHAR(1) NOT NULL DEFAULT 'N'`,
+    );
+  }
+  if (!(await hasColumn("adm_users", "valid_to"))) {
+    await query(
+      `ALTER TABLE adm_users
+        ADD COLUMN valid_to DATE NULL`,
+    );
+  }
+
+  const [trigRows] = await query(
+    `SELECT TRIGGER_NAME FROM information_schema.triggers
+      WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME = 'trg_adm_users_pw_status'`,
+  );
+  if (!trigRows?.length) {
+    await query(
+      `CREATE TRIGGER trg_adm_users_pw_status
+       BEFORE UPDATE ON adm_users
+       FOR EACH ROW
+       BEGIN
+         IF OLD.password_hash <> NEW.password_hash THEN
+           SET NEW.status = 'Y';
+         END IF;
+       END`,
+    );
+  }
+
+  await query(
+    `CREATE EVENT IF NOT EXISTS evt_adm_users_expire
+     ON SCHEDULE EVERY 1 DAY
+     STARTS CURRENT_DATE + INTERVAL 1 DAY
+     DO
+       UPDATE adm_users
+       SET status = 'N', is_active = 0
+       WHERE DATE(valid_to) = CURDATE() AND is_active = 1 AND id != 1`,
+  );
 }
 
 export async function getUserPermissions(userId) {
@@ -272,6 +311,7 @@ export async function getUserForAuth(userId) {
       u.full_name,
       u.profile_picture,
       u.is_active,
+      u.status,
       u.failed_attempts,
       u.last_failed_attempt,
       c.name AS company_name,
@@ -300,6 +340,7 @@ export function buildAuthUserPayload(user, permissions = []) {
     companyName: user.company_name || "",
     branchName: user.branch_name || "",
     profile_picture_url: profilePictureToDataUrl(user.profile_picture),
+    status: user.status || "N",
   };
 
   if (Number(user.id) === 1) {

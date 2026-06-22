@@ -114,7 +114,6 @@ export default function PosDayManagement() {
   const momoClosingRef = useRef({ main: 0, pay: 0 });
   momoClosingRef.current = { main: momoClosingMain, pay: momoClosingPay };
   const [showMomoConfirmModal, setShowMomoConfirmModal] = useState(false);
-  const [actualMoMo, setActualMoMo] = useState(0);
   const momoOpeningBalance = useMemo(
     () => momoOpeningMain + momoOpeningPay,
     [momoOpeningMain, momoOpeningPay],
@@ -123,14 +122,13 @@ export default function PosDayManagement() {
     () => momoClosingMain + momoClosingPay,
     [momoClosingMain, momoClosingPay],
   );
-  const momoBalanceDiff = useMemo(() => {
-    return (
-      momoClosingMain + momoClosingPay - (momoOpeningMain + momoOpeningPay)
-    );
-  }, [momoOpeningMain, momoOpeningPay, momoClosingMain, momoClosingPay]);
+  const actualMoMo = useMemo(
+    () => momoClosingMain + momoClosingPay,
+    [momoClosingMain, momoClosingPay],
+  );
   const expectedMoMo = useMemo(() => {
-    return Number(salesData.mobile.amount || 0);
-  }, [salesData.mobile.amount]);
+    return momoOpeningMain + momoOpeningPay + Number(salesData.mobile.amount || 0);
+  }, [momoOpeningMain, momoOpeningPay, salesData.mobile.amount]);
   const momoVariance = useMemo(() => {
     return actualMoMo - expectedMoMo;
   }, [expectedMoMo, actualMoMo]);
@@ -604,7 +602,6 @@ export default function PosDayManagement() {
         setMomoOpeningPay(momoClosingRef.current.pay);
         setMomoClosingMain(0);
         setMomoClosingPay(0);
-        setActualMoMo(0);
         setOpenData((prev) => ({
           ...prev,
           float:
@@ -630,7 +627,9 @@ export default function PosDayManagement() {
           const actualCash = Number(
             item.actual_cash ?? closing.actualCash ?? 0,
           );
-          const momoExpected = Number(endSummary.mobileAmount || 0);
+          const momoOpenMain = Number(item.momo_opening_main ?? base.momoOpeningMain ?? momoOpeningMain ?? 0);
+          const momoOpenPay = Number(item.momo_opening_pay ?? base.momoOpeningPay ?? momoOpeningPay ?? 0);
+          const momoExpected = momoOpenMain + momoOpenPay + Number(endSummary.mobileAmount || 0);
           const momoActual = Number(item.actual_momo ?? actualMoMo ?? 0);
           const updated = {
             ...base,
@@ -657,6 +656,8 @@ export default function PosDayManagement() {
             expectedCash: expectedAtClose,
             actualCash,
             cashVariance: actualCash - expectedAtClose,
+            momoOpeningMain: momoOpenMain,
+            momoOpeningPay: momoOpenPay,
             openingMoMo: momoCloseTotal,
             expectedMoMo: momoExpected,
             actualMoMo: momoActual,
@@ -1206,13 +1207,10 @@ export default function PosDayManagement() {
                   <div>
                     <label className="label">Actual MoMo</label>
                     <input
-                      type="number"
+                      type="text"
                       className="input"
-                      step="0.01"
-                      value={actualMoMo}
-                      onChange={(e) =>
-                        setActualMoMo(Number(e.target.value || 0))
-                      }
+                      disabled
+                      value={fmtCurrency(actualMoMo)}
                     />
                   </div>
                 </div>
@@ -1522,8 +1520,8 @@ export default function PosDayManagement() {
                   </div>
                 </div>
                 <div className="rounded bg-slate-100 px-3 py-3 flex items-center justify-between font-semibold">
-                  <div>Mobile Money Sales for the Day</div>
-                  <div>{momoBalanceDiff.toFixed(2)}</div>
+                  <div>Expected MoMo (Opening + Sales)</div>
+                  <div>{fmtCurrency(expectedMoMo)}</div>
                 </div>
               </div>
               <div className="mt-4 flex justify-end gap-2">
@@ -1537,12 +1535,9 @@ export default function PosDayManagement() {
                 <button
                   type="button"
                   className="btn-primary"
-                  onClick={() => {
-                    setActualMoMo(momoBalanceDiff);
-                    setShowMomoConfirmModal(false);
-                  }}
+                  onClick={() => setShowMomoConfirmModal(false)}
                 >
-                  Apply
+                  Done
                 </button>
               </div>
             </div>

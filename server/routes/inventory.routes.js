@@ -3189,7 +3189,7 @@ router.post(
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/inventory/stock-adjustments";
 
-      const { activeWorkflow: activeWf, inactiveWorkflow } =
+      const { activeWorkflow: activeWf } =
         await resolveWorkflowSelection({
           companyId,
           workflowIdOverride,
@@ -3199,10 +3199,6 @@ router.post(
         });
 
       if (!activeWf) {
-        const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
-        if (behavior && behavior.toUpperCase() !== "AUTO_APPROVE") {
-          return res.json({ status: "SUBMITTED" });
-        }
         await query(
           `UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id`,
           { id },
@@ -3368,7 +3364,7 @@ router.post(
           branchId,
           warehouseId: toNumber(warehouse_id) || null,
           adjNo,
-          adjDate: toDateOnly(adjustment_date || new Date()),
+          adjDate: toDateOnly(adjustment_date || new Date().toISOString().split("T")[0]),
           adjustmentType: adjustment_type ? String(adjustment_type) : null,
           referenceDoc: reference_doc ? String(reference_doc) : null,
           reason: reason ? String(reason) : null,
@@ -3408,6 +3404,56 @@ router.post(
         }
       }
       await conn.commit();
+
+      // auto-approve when no active workflow (same pattern as stock updation)
+      if ((status || "DRAFT") === "DRAFT") {
+        try {
+          const [wfRows] = await query(
+            `SELECT COUNT(*) AS cnt FROM adm_workflows
+             WHERE company_id = :companyId
+               AND (document_route = '/inventory/stock-adjustments'
+                    OR document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
+               AND is_active = 1`,
+            { companyId },
+          );
+          if (!wfRows?.cnt) {
+            // approve
+            await query(
+              `UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id`,
+              { id: adjId },
+            );
+
+            // move stock for each detail line
+            if (Array.isArray(details) && details.length) {
+              const adjConn = await pool.getConnection();
+              try {
+                await adjConn.beginTransaction();
+                for (const r of details) {
+                  const itemId = toNumber(r.item_id);
+                  const qty = Number(r.qty || 0);
+                  if (!itemId || !qty) continue;
+                  await recordMovementTx(adjConn, {
+                    companyId,
+                    branchId,
+                    warehouseId: toNumber(warehouse_id) || null,
+                    itemId,
+                    transactionType: "STOCK_ADJUSTMENT",
+                    qtyChange: qty,
+                    sourceRef: adjId,
+                    createdBy: req.user?.sub || null,
+                  });
+                }
+                await adjConn.commit();
+              } catch (movErr) {
+                await adjConn.rollback().catch(() => {});
+              } finally {
+                adjConn.release();
+              }
+            }
+          }
+        } catch {}
+      }
+
       res.json({ id: adjId, adjustment_no: adjNo });
     } catch (e) {
       try {
@@ -3437,6 +3483,7 @@ router.get(
                w.warehouse_name,
                COUNT(d.id) AS item_count,
                fu.username AS forwarded_to_username,
+               (SELECT COUNT(*) FROM adm_workflows WHERE company_id = :companyId2 AND (document_route = '/inventory/stock-updation' OR document_type = 'STOCK_UPDATION') AND is_active = 1) AS has_workflow,
           a.created_at,
           cu.username AS created_by_name
          FROM inv_stock_updations a
@@ -3459,7 +3506,7 @@ router.get(
          GROUP BY a.id
          ORDER BY a.updation_date DESC, a.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, companyId2: companyId },
       );
       res.json({ items: rows || [] });
     } catch (e) {
@@ -3562,7 +3609,7 @@ router.post(
           branchId,
           warehouseId: toNumber(warehouse_id) || null,
           upNo,
-          upDate: toDateOnly(updation_date || new Date()),
+          upDate: toDateOnly(updation_date || new Date().toISOString().split("T")[0]),
           reason: reason ? String(reason) : null,
           status: status || "DRAFT",
           remarks: remarks || reason ? String(remarks || reason) : null,
@@ -3574,9 +3621,9 @@ router.post(
           await conn.execute(
             `
             INSERT INTO inv_stock_updation_details
-              (updation_id, item_id, qty, uom, batch_no, unit_cost, remarks)
+              (updation_id, item_id, qty, uom, batch_no, unit_cost, current_stock, remarks)
             VALUES
-              (:upId, :itemId, :qty, :uom, :batchNo, :unitCost, :remarks)
+              (:upId, :itemId, :qty, :uom, :batchNo, :unitCost, :currentStock, :remarks)
             `,
             {
               upId,
@@ -3585,6 +3632,7 @@ router.post(
               uom: String(r.uom || "PCS"),
               batchNo: r.batch_no || null,
               unitCost: Number(r.unit_cost || 0),
+              currentStock: Number(r.current_stock || 0),
               remarks: r.remarks ? String(r.remarks) : null,
             },
           );
@@ -3633,8 +3681,8 @@ router.put(
           id,
           companyId,
           branchId,
-          upDate: toDateOnly(updation_date || new Date()),
-          warehouse_id: toNumber(warehouse_id) || null,
+          upDate: toDateOnly(updation_date || new Date().toISOString().split("T")[0]),
+          warehouseId: toNumber(warehouse_id) || null,
           reason: reason ? String(reason) : null,
           remarks: remarks || null,
         },
@@ -3649,9 +3697,9 @@ router.put(
           await conn.execute(
             `
             INSERT INTO inv_stock_updation_details
-              (updation_id, item_id, qty, uom, batch_no, unit_cost, remarks)
+              (updation_id, item_id, qty, uom, batch_no, unit_cost, current_stock, remarks)
             VALUES
-              (:upId, :itemId, :qty, :uom, :batchNo, :unitCost, :remarks)
+              (:upId, :itemId, :qty, :uom, :batchNo, :unitCost, :currentStock, :remarks)
             `,
             {
               upId: id,
@@ -3660,6 +3708,7 @@ router.put(
               uom: String(r.uom || "PCS"),
               batchNo: r.batch_no || null,
               unitCost: Number(r.unit_cost || 0),
+              currentStock: Number(r.current_stock || 0),
               remarks: r.remarks ? String(r.remarks) : null,
             },
           );
@@ -3677,6 +3726,56 @@ router.put(
     }
   },
 );
+
+async function autoApproveUpdation(id, companyId, createdBy) {
+  const [upHdr] = await query(
+    `SELECT id, warehouse_id, branch_id FROM inv_stock_updations WHERE id = :id AND company_id = :companyId LIMIT 1`,
+    { id, companyId },
+  );
+  if (!upHdr) return;
+  if (!upHdr.warehouse_id) {
+    await query(
+      `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id, companyId },
+    );
+    return;
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id, companyId },
+    );
+    const [details] = await conn.execute(
+      `SELECT item_id, qty, batch_no FROM inv_stock_updation_details WHERE updation_id = :id`,
+      { id },
+    );
+    for (const d of details) {
+      const itemId = Number(d.item_id);
+      const qtyChange = Number(d.qty || 0);
+      if (itemId && Number.isFinite(qtyChange) && qtyChange !== 0) {
+        await recordMovementTx(conn, {
+          companyId,
+          branchId: upHdr.branch_id,
+          warehouseId: upHdr.warehouse_id,
+          itemId,
+          transactionType: "STOCK_UPDATION",
+          qtyChange,
+          batchNo: d.batch_no || null,
+          sourceRef: id,
+          createdBy: createdBy || null,
+        });
+      }
+    }
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
 
 router.post(
   "/stock-updation/:id/submit",
@@ -3701,30 +3800,38 @@ router.post(
       );
       if (!upd) throw httpError(404, "NOT_FOUND", "Updation not found");
 
-      // Workflow trigger logic... (simplified for now to match project style)
-      // In this project, 'submit' usually finds an active workflow or just updates status.
-      // We will follow the exact same logic as stock adjustments.
-
-      const docType = "STOCK_UPDATION";
-      const docRouteBase = "/inventory/stock-updation";
-
-      const wfByRoute = await query(
-        `SELECT *,
+      const existing = await query(
+        `SELECT id,
           created_at,
           u.username AS created_by_name
-         FROM adm_workflows
+         FROM adm_document_workflows
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND (document_route = :docRouteBase OR document_type = :docType) AND is_active = 1 ORDER BY id ASC`,
-        { companyId, docRouteBase, docType },
+         WHERE company_id = :companyId
+          AND document_id = :id
+          AND document_type = 'STOCK_UPDATION'
+          AND status = 'PENDING'
+        ORDER BY id DESC
+        LIMIT 1`,
+        { companyId, id },
       ).catch(() => []);
+      if (existing.length) {
+        return res.json({
+          instanceId: existing[0].id,
+          status: "PENDING_APPROVAL",
+        });
+      }
 
-      let activeWf = wfByRoute[0] || null;
+      const docRouteBase = "/inventory/stock-updation";
+
+      const { activeWorkflow: activeWf } =
+        await resolveWorkflowSelection({
+          companyId,
+          docRouteBase,
+          typeSynonyms: ["STOCK_UPDATION", "Stock Updation"],
+        });
 
       if (!activeWf) {
-        await query(
-          `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id`,
-          { id },
-        );
+        await autoApproveUpdation(id, companyId, req.user?.sub);
         return res.json({ status: "APPROVED" });
       }
 
@@ -3738,25 +3845,49 @@ router.post(
         { wf: activeWf.id },
       );
       if (!steps.length) {
-        await query(
-          `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id`,
-          { id },
-        );
+        await autoApproveUpdation(id, companyId, req.user?.sub);
         return res.json({ status: "APPROVED" });
       }
 
       const first = steps[0];
-      const assignedToUserId =
-        toNumber(req.body?.target_user_id) || toNumber(first.approver_user_id);
+
+      const allowedUsers = await query(
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf AND step_order = :ord`,
+        { wf: activeWf.id, ord: first.step_order },
+      ).catch(() => []);
+      const allowedSet = new Set(
+        allowedUsers.map((r) => Number(r.approver_user_id)),
+      );
+
+      const targetUserIdRaw = req.body?.target_user_id;
+      let assignedToUserId = toNumber(first.approver_user_id) || null;
+      if (targetUserIdRaw != null && allowedSet.has(Number(targetUserIdRaw))) {
+        assignedToUserId = Number(targetUserIdRaw);
+      } else if (!assignedToUserId && allowedUsers.length > 0) {
+        assignedToUserId = Number(allowedUsers[0].approver_user_id);
+      }
+      if (!assignedToUserId) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Workflow step 1 has no approver configured",
+        );
+      }
 
       const dwRes = await query(
-        `INSERT INTO adm_document_workflows (company_id, workflow_id, document_id, document_type, current_step_order, status, assigned_to_user_id)
-         VALUES (:companyId, :workflowId, :documentId, :docType, :stepOrder, 'PENDING', :assignedTo)`,
+        `INSERT INTO adm_document_workflows
+          (company_id, workflow_id, document_id, document_type, current_step_order, status, assigned_to_user_id)
+         VALUES
+          (:companyId, :workflowId, :documentId, 'STOCK_UPDATION', :stepOrder, 'PENDING', :assignedTo)`,
         {
           companyId,
           workflowId: activeWf.id,
           documentId: id,
-          docType,
           stepOrder: first.step_order,
           assignedTo: assignedToUserId,
         },
@@ -3764,9 +3895,51 @@ router.post(
       const instanceId = dwRes.insertId;
 
       await query(
-        `UPDATE inv_stock_updations SET status = 'PENDING_APPROVAL' WHERE id = :id`,
-        { id },
+        `INSERT INTO adm_workflow_tasks
+          (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+         VALUES
+          (:companyId, :workflowId, :dwId, :documentId, 'STOCK_UPDATION', :stepOrder, :assignedTo, 'PENDING')`,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          dwId: instanceId,
+          documentId: id,
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      ).catch(() => {});
+
+      await query(
+        `INSERT INTO adm_workflow_logs
+          (document_workflow_id, step_order, action, actor_user_id, comments)
+         VALUES
+          (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)`,
+        {
+          dwId: instanceId,
+          stepOrder: first.step_order,
+          actor: req.user?.sub || null,
+          comments: "",
+        },
+      ).catch(() => {});
+
+      await query(
+        `UPDATE inv_stock_updations SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
       );
+
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+         VALUES (:companyId, :userId, :title, :message, :link, 0)`,
+        {
+          companyId,
+          userId: assignedToUserId,
+          title: "Approval Required",
+          message: upd.updation_no
+            ? `Stock Updation ${upd.updation_no} requires your approval`
+            : `Stock Updation #${id} requires your approval`,
+          link: `/administration/workflows/approvals/${instanceId}`,
+        },
+      ).catch(() => {});
 
       res.status(201).json({ instanceId, status: "PENDING_APPROVAL" });
     } catch (err) {
@@ -3923,7 +4096,7 @@ router.post(
           branchId,
           warehouseId: toNumber(warehouse_id) || null,
           verNo,
-          verDate: toDateOnly(verification_date || new Date()),
+          verDate: toDateOnly(verification_date || new Date().toISOString().split("T")[0]),
           startDate: toDateOnly(start_date) || null,
           endDate: toDateOnly(end_date) || null,
           verificationType: verification_type
@@ -3946,19 +4119,21 @@ router.post(
           await conn.execute(
             `
             INSERT INTO inv_stock_verification_details
-              (verification_id, item_id, system_qty, counted_qty, variance_qty, uom, remarks)
+              (verification_id, item_id, system_qty, reserve_qty, counted_qty, verified_qty, variance_qty, uom, remarks)
             VALUES
-              (:verId, :itemId, :systemQty, :countedQty, :varianceQty, :uom, :remarks)
+              (:verId, :itemId, :systemQty, :reserveQty, :countedQty, :verifiedQty, :varianceQty, :uom, :remarks)
             `,
             {
               verId,
               itemId: toNumber(r.item_id),
               systemQty: Number(r.system_qty || 0),
-              countedQty: Number(r.counted_qty || 0),
+              reserveQty: Number(r.reserve_qty || 0),
+              countedQty: Number(r.verified_qty || r.counted_qty || 0),
+              verifiedQty: Number(r.verified_qty || r.counted_qty || 0),
               varianceQty:
                 r.variance_qty != null
                   ? Number(r.variance_qty || 0)
-                  : Number(r.counted_qty || 0) - Number(r.system_qty || 0),
+                  : Number(r.verified_qty || r.counted_qty || 0) - Number(r.system_qty || 0),
               uom: String(r.uom || "PCS"),
               remarks: r.remarks ? String(r.remarks) : null,
             },
@@ -3966,6 +4141,57 @@ router.post(
         }
       }
       await conn.commit();
+
+      // auto-approve when no active workflow
+      if ((status || "DRAFT") === "DRAFT") {
+        try {
+          const [wfRows] = await query(
+            `SELECT COUNT(*) AS cnt FROM adm_workflows
+             WHERE company_id = :companyId
+               AND (document_route = '/inventory/stock-verification'
+                    OR document_type IN ('STOCK_VERIFICATION','Stock Verification'))
+               AND is_active = 1`,
+            { companyId },
+          );
+          if (!wfRows?.cnt) {
+            await query(
+              `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id`,
+              { id: verId },
+            );
+
+            // move stock based on variance
+            if (Array.isArray(details) && details.length) {
+              const mvConn = await pool.getConnection();
+              try {
+                await mvConn.beginTransaction();
+                for (const r of details) {
+                  const qty = Number(r.variance_qty != null
+                    ? Number(r.variance_qty || 0)
+                    : Number(r.verified_qty || r.counted_qty || 0) - Number(r.system_qty || 0));
+                  const itemId = toNumber(r.item_id);
+                  if (!itemId || !qty) continue;
+                  await recordMovementTx(mvConn, {
+                    companyId,
+                    branchId,
+                    warehouseId: toNumber(warehouse_id) || null,
+                    itemId,
+                    transactionType: "STOCK_VERIFICATION",
+                    qtyChange: qty,
+                    sourceRef: verId,
+                    createdBy: req.user?.sub || null,
+                  });
+                }
+                await mvConn.commit();
+              } catch (mvErr) {
+                await mvConn.rollback().catch(() => {});
+              } finally {
+                mvConn.release();
+              }
+            }
+          }
+        } catch {}
+      }
+
       res.json({ id: verId, verification_no: verNo });
     } catch (e) {
       try {
@@ -4023,7 +4249,7 @@ router.put(
           id,
           companyId,
           branchId,
-          verDate: toDateOnly(verification_date || new Date()),
+          verDate: toDateOnly(verification_date || new Date().toISOString().split("T")[0]),
           startDate: toDateOnly(start_date) || null,
           endDate: toDateOnly(end_date) || null,
           warehouseId: toNumber(warehouse_id) || null,
@@ -4051,19 +4277,21 @@ router.put(
           await conn.execute(
             `
             INSERT INTO inv_stock_verification_details
-              (verification_id, item_id, system_qty, verified_qty, variance_qty, uom, remarks)
+              (verification_id, item_id, system_qty, reserve_qty, counted_qty, verified_qty, variance_qty, uom, remarks)
             VALUES
-              (:verId, :itemId, :systemQty, :verifiedQty, :varianceQty, :uom, :remarks)
+              (:verId, :itemId, :systemQty, :reserveQty, :countedQty, :verifiedQty, :varianceQty, :uom, :remarks)
             `,
             {
               verId: id,
               itemId: toNumber(r.item_id),
               systemQty: Number(r.system_qty || 0),
-              verifiedQty: Number(r.verified_qty || 0),
+              reserveQty: Number(r.reserve_qty || 0),
+              countedQty: Number(r.verified_qty || r.counted_qty || 0),
+              verifiedQty: Number(r.verified_qty || r.counted_qty || 0),
               varianceQty:
                 r.variance_qty != null
                   ? Number(r.variance_qty || 0)
-                  : Number(r.verified_qty || 0) - Number(r.system_qty || 0),
+                  : Number(r.verified_qty || r.counted_qty || 0) - Number(r.system_qty || 0),
               uom: String(r.uom || "PCS"),
               remarks: r.remarks ? String(r.remarks) : null,
             },
@@ -4126,6 +4354,44 @@ router.post(
           `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id`,
           { id },
         );
+
+        // move stock based on variance (same pattern as stock adjustment)
+        try {
+          const [verHdr] = await query(
+            `SELECT warehouse_id, branch_id FROM inv_stock_verifications WHERE id = :id LIMIT 1`,
+            { id },
+          );
+          const [details] = await query(
+            `SELECT item_id, variance_qty FROM inv_stock_verification_details WHERE verification_id = :id`,
+            { id },
+          );
+          if (details?.length && verHdr) {
+            const mvConn = await pool.getConnection();
+            try {
+              await mvConn.beginTransaction();
+              for (const d of details) {
+                const qty = Number(d.variance_qty || 0);
+                if (!d.item_id || !qty) continue;
+                await recordMovementTx(mvConn, {
+                  companyId,
+                  branchId: verHdr.branch_id || branchId,
+                  warehouseId: verHdr.warehouse_id || null,
+                  itemId: d.item_id,
+                  transactionType: "STOCK_VERIFICATION",
+                  qtyChange: qty,
+                  sourceRef: id,
+                  createdBy: req.user?.sub || null,
+                });
+              }
+              await mvConn.commit();
+            } catch (mvErr) {
+              await mvConn.rollback().catch(() => {});
+            } finally {
+              mvConn.release();
+            }
+          }
+        } catch {}
+
         return res.json({ status: "APPROVED" });
       }
 
@@ -4143,6 +4409,44 @@ router.post(
           `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id`,
           { id },
         );
+
+        // move stock based on variance
+        try {
+          const [verHdr2] = await query(
+            `SELECT warehouse_id, branch_id FROM inv_stock_verifications WHERE id = :id LIMIT 1`,
+            { id },
+          );
+          const [details2] = await query(
+            `SELECT item_id, variance_qty FROM inv_stock_verification_details WHERE verification_id = :id`,
+            { id },
+          );
+          if (details2?.length && verHdr2) {
+            const mvConn2 = await pool.getConnection();
+            try {
+              await mvConn2.beginTransaction();
+              for (const d of details2) {
+                const qty = Number(d.variance_qty || 0);
+                if (!d.item_id || !qty) continue;
+                await recordMovementTx(mvConn2, {
+                  companyId,
+                  branchId: verHdr2.branch_id || branchId,
+                  warehouseId: verHdr2.warehouse_id || null,
+                  itemId: d.item_id,
+                  transactionType: "STOCK_VERIFICATION",
+                  qtyChange: qty,
+                  sourceRef: id,
+                  createdBy: req.user?.sub || null,
+                });
+              }
+              await mvConn2.commit();
+            } catch (mvErr2) {
+              await mvConn2.rollback().catch(() => {});
+            } finally {
+              mvConn2.release();
+            }
+          }
+        } catch {}
+
         return res.json({ status: "APPROVED" });
       }
 
@@ -4309,7 +4613,7 @@ router.post(
         qty: Number(qty) || 0,
         refType: ref_type ? String(ref_type).trim() || null : null,
         refId: toNumber(ref_id) || null,
-        refDate: toDateOnly(ref_date || new Date()) || null,
+        refDate: toDateOnly(ref_date || new Date().toISOString().split("T")[0]) || null,
       });
       await conn.commit();
       res.json({ allocations });
@@ -4853,6 +5157,8 @@ async function ensureStockUpdationTables() {
       UNIQUE KEY uq_upd_no (company_id, branch_id, updation_no)
     )
   `).catch(() => {});
+  try { await query("ALTER TABLE inv_stock_updations MODIFY COLUMN warehouse_id BIGINT UNSIGNED NULL"); } catch {}
+
   await query(`
     CREATE TABLE IF NOT EXISTS inv_stock_updation_details (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -4862,11 +5168,13 @@ async function ensureStockUpdationTables() {
       uom VARCHAR(20) DEFAULT 'PCS',
       batch_no VARCHAR(100),
       unit_cost DECIMAL(18,4) DEFAULT 0,
+      current_stock DECIMAL(18,3) DEFAULT 0,
       remarks VARCHAR(255) DEFAULT NULL,
       KEY idx_upd (updation_id),
       KEY idx_item (item_id)
     )
   `).catch(() => {});
+  try { await query("ALTER TABLE inv_stock_updation_details ADD COLUMN current_stock DECIMAL(18,3) DEFAULT 0 AFTER unit_cost"); } catch {}
 }
 
 async function nextUpdationNo(companyId, branchId) {
@@ -4924,6 +5232,7 @@ async function ensureStockVerificationTables() {
       verification_id BIGINT UNSIGNED NOT NULL,
       item_id BIGINT UNSIGNED NOT NULL,
       system_qty DECIMAL(18,3) DEFAULT 0,
+      reserve_qty DECIMAL(18,3) DEFAULT 0,
       counted_qty DECIMAL(18,3) DEFAULT 0,
       variance_qty DECIMAL(18,3) DEFAULT 0,
       uom VARCHAR(20) DEFAULT 'PCS',
@@ -4932,6 +5241,8 @@ async function ensureStockVerificationTables() {
       KEY idx_item (item_id)
     )
   `).catch(() => {});
+  try { await query("ALTER TABLE inv_stock_verification_details ADD COLUMN reserve_qty DECIMAL(18,3) DEFAULT 0 AFTER system_qty"); } catch {}
+  try { await query("ALTER TABLE inv_stock_verification_details ADD COLUMN verified_qty DECIMAL(18,3) NULL AFTER counted_qty"); } catch {}
 
   if (!(await hasColumn("inv_stock_verifications", "start_date"))) {
     await query(
@@ -5021,9 +5332,10 @@ router.get(
                MAX(a.adjustment_type) AS adjustment_type,
                MAX(w.warehouse_name) AS warehouse_name,
                COUNT(d.id) AS item_count,
-               u.username AS forwarded_to_username,
+               (SELECT COUNT(*) FROM adm_workflows WHERE company_id = :companyId2 AND (document_route = '/inventory/stock-adjustments' OR document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment')) AND is_active = 1) AS has_workflow,
+               fu.username AS forwarded_to_username,
           a.created_at,
-          u.username AS created_by_name
+          cu.username AS created_by_name
          FROM inv_stock_adjustments a
           LEFT JOIN inv_stock_adjustment_details d ON d.adjustment_id = a.id
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
@@ -5033,25 +5345,25 @@ router.get(
             JOIN (
               SELECT document_id, MAX(id) AS max_id
               FROM adm_document_workflows
-        LEFT JOIN adm_users u ON u.id = a.created_by
-         WHERE company_id = :companyId
-                AND status = 'PENDING'
-                AND (document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
+               WHERE company_id = :companyId3
+                 AND status = 'PENDING'
+                 AND (document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
               GROUP BY document_id
             ) m ON m.max_id = t.id
           ) x ON x.document_id = a.id
-          LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+          LEFT JOIN adm_users fu ON fu.id = x.assigned_to_user_id
+          LEFT JOIN adm_users cu ON cu.id = a.created_by
          WHERE a.company_id = :companyId AND a.branch_id = :branchId
          GROUP BY a.id
          ORDER BY a.adjustment_date DESC, a.id DESC
         `,
-        { companyId, branchId },
-      );
-      res.json({ items: rows || [] });
-    } catch (e) {
-      next(e);
-    }
-  },
+         { companyId, branchId, companyId2: companyId, companyId3: companyId },
+       );
+       res.json({ items: rows || [] });
+     } catch (e) {
+       next(e);
+     }
+   },
 );
 
 // Stock transfers list
@@ -6180,7 +6492,7 @@ router.post(
       const createdBy = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const body = req.body || {};
       const rtsNo = body.rts_no || (await nextReturnNo(companyId, branchId));
-      const rtsDate = toDateOnly(body.rts_date || new Date()) || null;
+      const rtsDate = toDateOnly(body.rts_date || new Date().toISOString().split("T")[0]) || null;
       const warehouseId = toNumber(body.warehouse_id) || null;
       const departmentId = toNumber(body.department_id) || null;
       const issueId = toNumber(body.issue_id) || null;
@@ -6556,7 +6868,7 @@ router.post(
       const { companyId, branchId } = req.scope;
       const body = req.body || {};
       const transferNo = body.transfer_no || (await nextTransferNo(companyId));
-      const transferDate = toDateOnly(body.transfer_date || new Date()) || null;
+      const transferDate = toDateOnly(body.transfer_date || new Date().toISOString().split("T")[0]) || null;
       const fromBranchId = toNumber(body.from_branch_id) || null;
       const toBranchId = toNumber(body.to_branch_id) || null;
       const fromWarehouseId = toNumber(body.from_warehouse_id) || null;
@@ -6846,7 +7158,7 @@ router.post(
       const adjustmentNo =
         body.adjustment_no || (await nextAdjustmentNo(companyId));
       const adjustmentDate =
-        toDateOnly(body.adjustment_date || new Date()) || null;
+        toDateOnly(body.adjustment_date || new Date().toISOString().split("T")[0]) || null;
       const status =
         (body.status ? String(body.status).trim() : null) || "DRAFT";
       const remarks = body.remarks ? String(body.remarks).trim() || null : null;
@@ -6893,6 +7205,27 @@ router.post(
       }
 
       await conn.commit();
+
+      // auto-approve when no active workflow (same pattern as stock updation)
+      if (status === "DRAFT") {
+        try {
+          const [wfRows] = await query(
+            `SELECT COUNT(*) AS cnt FROM adm_workflows
+             WHERE company_id = :companyId
+               AND (document_route = '/inventory/stock-adjustments'
+                    OR document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
+               AND is_active = 1`,
+            { companyId },
+          );
+          if (!wfRows?.cnt) {
+            await query(
+              `UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id`,
+              { id: adjustmentId },
+            );
+          }
+        } catch {}
+      }
+
       res.status(201).json({ id: adjustmentId, adjustment_no: adjustmentNo });
     } catch (err) {
       try {
@@ -7248,7 +7581,7 @@ router.post(
       const { companyId, branchId, userId } = req.scope;
       const body = req.body || {};
       const warehouseId = toNumber(body.warehouse_id);
-      const countDate = toDateOnly(body.count_date || new Date()) || null;
+      const countDate = toDateOnly(body.count_date || new Date().toISOString().split("T")[0]) || null;
       const status =
         (body.status ? String(body.status).trim() : null) || "DRAFT";
       const remarks = body.remarks ? String(body.remarks).trim() || null : null;
@@ -7325,7 +7658,7 @@ router.post(
       const body = req.body || {};
       const stockTakeNoRaw = body.stock_take_no;
       const stockTakeDate =
-        toDateOnly(body.stock_take_date || new Date()) || null;
+        toDateOnly(body.stock_take_date || new Date().toISOString().split("T")[0]) || null;
       const warehouseId = toNumber(body.warehouse_id) || null;
       const status =
         (body.status ? String(body.status).trim() : null) || "DRAFT";
@@ -9285,7 +9618,7 @@ router.get(
           i.item_code,
           i.item_name,
           d.system_qty,
-          d.physical_qty,
+          d.counted_qty,
           d.variance_qty,
           v.created_at,
           u.username AS created_by_name

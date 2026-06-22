@@ -139,19 +139,11 @@ export const uploadFile = async (req, res, next) => {
         } catch {}
         return;
       } catch (e) {
-        // Fall through to local storage if Cloudinary upload fails
+        next(e);
+        return;
       }
     }
-    // Local storage fallback
-    const filePath = `/uploads/${req.file.filename}`;
-    const origin = `${req.protocol}://${req.get("host")}`;
-    const fileUrl = `${origin}${filePath}`;
-    res.json({
-      message: "File uploaded successfully",
-      url: fileUrl,
-      path: filePath,
-      filename: req.file.filename,
-    });
+    return next(new Error("Cloudinary is not configured"));
   } catch (e) {
     next(e);
   }

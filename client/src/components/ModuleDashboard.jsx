@@ -617,7 +617,7 @@ const ModuleDashboard = ({
                             {item.icon || "📄"}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors mb-1 truncate">
+                            <h3 className="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors mb-1">
                               {itemTitle}
                             </h3>
                             {item.description && (

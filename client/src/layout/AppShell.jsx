@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -12,6 +12,8 @@ import { useAuth } from "../auth/AuthContext.jsx";
 import {
   getLastActivity,
   getInactivityTimeoutMs,
+  readStoredAuth,
+  writeStoredAuth,
 } from "../auth/authStorage.js";
 import { usePermission } from "../auth/PermissionContext.jsx";
 import { useTheme } from "../theme/ThemeContext.jsx";
@@ -55,49 +57,42 @@ const modules = [
     key: "administration",
     label: "Administration",
     path: "/administration",
-    icon: "⚙",
   },
-  { key: "sales", label: "Sales", path: "/sales", icon: "🧾" },
-  { key: "inventory", label: "Inventory", path: "/inventory", icon: "📦" },
-  { key: "purchase", label: "Purchase", path: "/purchase", icon: "🛒" },
-  { key: "finance", label: "Finance", path: "/finance", icon: "💳" },
+  { key: "sales", label: "Sales", path: "/sales" },
+  { key: "inventory", label: "Inventory", path: "/inventory" },
+  { key: "purchase", label: "Purchase", path: "/purchase" },
+  { key: "finance", label: "Finance", path: "/finance" },
   {
     key: "human-resources",
     label: "Human Resources",
     path: "/human-resources",
-    icon: "👥",
   },
   {
     key: "maintenance",
     label: "Maintenance",
     path: "/maintenance",
-    icon: "🛠",
   },
   {
     key: "project-management",
     label: "Project Management",
     path: "/project-management",
-    icon: "📋",
   },
-  { key: "production", label: "Production", path: "/production", icon: "🏭" },
-  { key: "pos", label: "POS", path: "/pos", icon: "🧮" },
+  { key: "production", label: "Production", path: "/production" },
+  { key: "pos", label: "POS", path: "/pos" },
   {
     key: "business-intelligence",
     label: "Business Intelligence",
     path: "/business-intelligence",
-    icon: "📈",
   },
   {
     key: "service-management",
     label: "Service Management",
     path: "/service-management",
-    icon: "🛎️",
   },
   {
     key: "executive-overview",
     label: "Executive Overview",
     path: "/executive-overview",
-    icon: "🎯",
   },
 ];
 
@@ -264,7 +259,10 @@ export default function AppShell() {
   });
   const sidebarTouchStart = useRef(null);
   const handleSidebarTouchStart = (e) => {
-    sidebarTouchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    sidebarTouchStart.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
   };
   const handleSidebarTouchEnd = (e) => {
     if (!sidebarTouchStart.current) return;
@@ -281,17 +279,33 @@ export default function AppShell() {
     } else {
       document.body.style.overflow = "";
     }
-    return () => { document.body.style.overflow = ""; };
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [sidebarOpen]);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef(null);
-    const [contextModalOpen, setContextModalOpen] = useState(false);
+  const [contextModalOpen, setContextModalOpen] = useState(false);
   useEffect(() => {
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [location.pathname]);
   const [lowStockPrompted, setLowStockPrompted] = useState(false);
   const [lowStockCount, setLowStockCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [changePwModalOpen, setChangePwModalOpen] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwChanging, setPwChanging] = useState(false);
+  const [showPwCurrent, setShowPwCurrent] = useState(false);
+  const [showPwNew, setShowPwNew] = useState(false);
+  const [showPwConfirm, setShowPwConfirm] = useState(false);
+  const [welcomeModalOpen, setWelcomeModalOpen] = useState(false);
+  useEffect(() => {
+    if (user?.status === "N") {
+      setWelcomeModalOpen(true);
+    }
+  }, [user?.status]);
   useEffect(() => {
     try {
       const raw =
@@ -1058,9 +1072,7 @@ export default function AppShell() {
           className="lg:hidden fixed left-3 top-3 z-[90] inline-flex items-center justify-center w-12 h-12 rounded-full shadow-erp bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
           onClick={() => setSidebarOpen(true)}
           data-rbac-exempt="true"
-        >
-          <span className="text-2xl leading-none">☰</span>
-        </button>
+        ></button>
       )}
       {/* Floating Social Feed Notification - Always Visible */}
       <SocialFeedNotification />
@@ -1072,11 +1084,7 @@ export default function AppShell() {
             aria-label="Open menu"
             onClick={() => setSidebarOpen((v) => !v)}
             className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
-          >
-            <span className="text-xl leading-none" aria-hidden="true">
-              ☰
-            </span>
-          </button>
+          ></button>
 
           <Link
             to="/"
@@ -1115,9 +1123,22 @@ export default function AppShell() {
               onClick={() => setProfileOpen((v) => !v)}
               className="inline-flex items-center gap-2 px-3 py-1 rounded-lg text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 transition-colors"
             >
-              <svg className="w-5 h-5 sm:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-              <span className="hidden sm:inline text-sm font-semibold">User Profile</span>
-              <span aria-hidden="true">▾</span>
+              <svg
+                className="w-5 h-5 sm:hidden"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                />
+              </svg>
+              <span className="hidden sm:inline text-sm font-semibold">
+                User Profile
+              </span>
             </button>
 
             {profileOpen && (
@@ -1186,11 +1207,52 @@ export default function AppShell() {
                         branchOptions.length > 1
                       }
                     >
-                      Switch Context
+                      Switch Branch
                     </button>
                   </div>
 
-                  <div className="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+                  <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        setChangePwModalOpen(true);
+                        setPwCurrent("");
+                        setPwNew("");
+                        setPwConfirm("");
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <svg
+                        className="w-4 h-4 flex-shrink-0"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                        />
+                      </svg>
+                      <span className="flex-1 text-left">Change Password</span>
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5l7 7-7 7"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="flex justify-end">
                     <button
                       type="button"
                       onClick={async () => {
@@ -1222,7 +1284,7 @@ export default function AppShell() {
       {queueOpen && (
         <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
           <div className="text-sm">
-            Pending {pending} • Failed {failed} • Completed {completed}
+            Pending {pending} â€¢ Failed {failed} â€¢ Completed {completed}
           </div>
           <div className="mt-3">
             <div className="grid grid-cols-1 gap-2">
@@ -1270,14 +1332,14 @@ export default function AppShell() {
                 onClick={() => setContextModalOpen(false)}
                 aria-label="Close"
               >
-                ✕
+                âœ•
               </button>
             </div>
             <div className="mt-4 space-y-4">
-              <div>
+              {/* <div>
                 <label className="label">Company</label>
                 <div className="input">{currentCompanyName}</div>
-              </div>
+              </div> */}
               <div>
                 <label className="label">Role</label>
                 {dbRoles.length > 1 || roleOptions.length > 1 ? (
@@ -1363,6 +1425,287 @@ export default function AppShell() {
         </div>
       )}
 
+      {welcomeModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 sm:p-6">
+          <div className="w-full max-w-sm sm:max-w-md card p-5 sm:p-6 shadow-erp-lg bg-white dark:bg-slate-900 text-center max-h-[90vh] overflow-y-auto">
+            <div className="mx-auto w-12 sm:w-14 h-12 sm:h-14 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center mb-3 sm:mb-4">
+              <svg
+                className="w-6 sm:w-7 h-6 sm:h-7 text-blue-600 dark:text-blue-300"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
+              </svg>
+            </div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">
+              Welcome!
+            </h2>
+            <p className="mt-2 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              To keep your account secure, please change your password before
+              proceeding
+            </p>
+            <button
+              type="button"
+              className="btn-primary w-full mt-5 sm:mt-6"
+              onClick={() => {
+                setWelcomeModalOpen(false);
+                setChangePwModalOpen(true);
+                setPwCurrent("");
+                setPwNew("");
+                setPwConfirm("");
+              }}
+            >
+              Change Password
+            </button>
+          </div>
+        </div>
+      )}
+
+      {changePwModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 sm:p-6">
+          <div className="w-full max-w-sm sm:max-w-md card p-5 sm:p-6 shadow-erp-lg bg-white dark:bg-slate-900 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center">
+              <h2 className="text-base sm:text-lg font-bold">
+                Change Password
+              </h2>
+              <button
+                type="button"
+                className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                onClick={() => setChangePwModalOpen(false)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Current Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPwCurrent ? "text" : "password"}
+                    placeholder="Enter current password"
+                    className="input w-full pr-10"
+                    value={pwCurrent}
+                    onChange={(e) => setPwCurrent(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwCurrent((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                    tabIndex={-1}
+                  >
+                    {showPwCurrent ? (
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  New Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPwNew ? "text" : "password"}
+                    placeholder="Enter new password"
+                    className="input w-full pr-10"
+                    value={pwNew}
+                    onChange={(e) => setPwNew(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwNew((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                    tabIndex={-1}
+                  >
+                    {showPwNew ? (
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Verify Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPwConfirm ? "text" : "password"}
+                    placeholder="Re-enter new password"
+                    className="input w-full pr-10"
+                    value={pwConfirm}
+                    onChange={(e) => setPwConfirm(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwConfirm((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                    tabIndex={-1}
+                  >
+                    {showPwConfirm ? (
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6">
+              <button
+                type="button"
+                className="btn-primary w-full"
+                disabled={pwChanging}
+                onClick={async () => {
+                  if (!pwCurrent || !pwNew || !pwConfirm) {
+                    toast.error("Fill in all password fields");
+                    return;
+                  }
+                  if (pwNew.length < 6) {
+                    toast.error("New password must be at least 6 characters");
+                    return;
+                  }
+                  if (pwNew !== pwConfirm) {
+                    toast.error("New password and confirmation do not match");
+                    return;
+                  }
+                  setPwChanging(true);
+                  try {
+                    await api.post("/auth/change-password", {
+                      currentPassword: pwCurrent,
+                      newPassword: pwNew,
+                      confirmNewPassword: pwConfirm,
+                    });
+                    toast.success("Password changed successfully");
+                    setPwCurrent("");
+                    setPwNew("");
+                    setPwConfirm("");
+                    setChangePwModalOpen(false);
+                    const stored = readStoredAuth();
+                    if (stored?.user) {
+                      stored.user.status = "Y";
+                      writeStoredAuth(stored);
+                    }
+                  } catch (err) {
+                    const msg =
+                      err?.response?.data?.message ||
+                      err?.message ||
+                      "Failed to change password";
+                    toast.error(msg);
+                  } finally {
+                    setPwChanging(false);
+                  }
+                }}
+              >
+                {pwChanging ? "Changing..." : "Update Password"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div
         className={
           "flex-1 " +
@@ -1399,12 +1742,6 @@ export default function AppShell() {
                   : "text-brand-200 hover:bg-brand-800 hover:text-white border-l-4 border-transparent")
               }
             >
-              <span
-                className="w-6 text-lg leading-none opacity-80 group-hover:opacity-100 transition-opacity"
-                aria-hidden="true"
-              >
-                🏠
-              </span>
               Home
             </NavLink>
             {modules
@@ -1458,7 +1795,7 @@ export default function AppShell() {
             {!online && !isRootPage && !location.pathname.startsWith("/pos") ? (
               <div className="min-h-[60vh] flex items-center justify-center">
                 <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 max-w-lg w-full text-center">
-                  <div className="text-4xl mb-2">📡</div>
+                  <div className="text-4xl mb-2">ðŸ“¡</div>
                   <div className="text-lg font-semibold mb-1">Offline</div>
                   <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                     This module requires a network connection. Return to Home or

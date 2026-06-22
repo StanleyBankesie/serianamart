@@ -104,6 +104,17 @@ export async function ensureSystemLogsTable() {
         "UPDATE adm_system_logs SET created_at = event_time WHERE created_at IS NULL",
       );
     }
+    // Create event to auto-delete logs older than 7 days
+    try {
+      await query("SET GLOBAL event_scheduler = ON");
+      await query(`
+        CREATE EVENT IF NOT EXISTS cleanup_adm_system_logs
+        ON SCHEDULE EVERY 1 DAY
+        STARTS CURRENT_DATE + INTERVAL 1 DAY
+        DO
+          DELETE FROM adm_system_logs WHERE created_at < NOW() - INTERVAL 7 DAY
+      `);
+    } catch {}
   } catch {}
 }
 

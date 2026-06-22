@@ -19,6 +19,8 @@ function emptyLine() {
     chequeNumber: "",
     chequeDate: "",
     paymentMethod: "",
+    currencyId: "",
+    exchangeRate: "1",
   };
 }
 
@@ -172,6 +174,21 @@ export default function DebitNoteForm() {
       )
     );
   }, [currencies]);
+  function autoFetchLineRate(cId, lineIdx) {
+    if (!cId) return;
+    const sel = (currencies || []).find((c) => String(c.id) === String(cId));
+    const fromCode = sel?.code || sel?.currency_code || "";
+    const toCode = baseCurrency?.code || baseCurrency?.currency_code || "";
+    if (fromCode && toCode) {
+      if (fromCode === toCode) {
+        updateLine(lineIdx, { exchangeRate: "1" });
+      } else {
+        getExchangeRate(fromCode, toCode).then((r) => {
+          if (r != null) updateLine(lineIdx, { exchangeRate: String(r) });
+        });
+      }
+    }
+  }
   const dncnLineCurrencyId = useMemo(() => {
     const firstLineWithAccount = lines.find((l) => String(l.accountId || ""));
     const acc = accounts.find(
@@ -431,6 +448,8 @@ export default function DebitNoteForm() {
       chequeNumber: "",
       chequeDate: "",
       paymentMethod: "",
+      currencyId: supplierAcc?.currency_id || "",
+      exchangeRate: "1",
     };
 
     // 2. Tax Component Lines (Credit)
@@ -443,6 +462,7 @@ export default function DebitNoteForm() {
           const rateVal = Number(c.rate_percent || 0);
           const taxAmount = Math.round(totalAmount * rateVal) / 100;
           totalTaxAmount += taxAmount;
+          const taxAcc = accounts.find((a) => String(a.id) === String(c.account_id));
           taxLines.push({
             accountId: String(c.account_id),
             accountName: String(c.account_name || ""),
@@ -454,6 +474,8 @@ export default function DebitNoteForm() {
             chequeNumber: "",
             chequeDate: "",
             paymentMethod: "",
+            currencyId: taxAcc?.currency_id || "",
+            exchangeRate: "1",
           });
         }
       });
@@ -473,6 +495,8 @@ export default function DebitNoteForm() {
       chequeNumber: "",
       chequeDate: "",
       paymentMethod: "",
+      currencyId: purchaseAcc?.currency_id || "",
+      exchangeRate: "1",
     };
 
     // Put them all together
@@ -719,6 +743,8 @@ export default function DebitNoteForm() {
           description: it.description || "",
           debit: Number(it.debit || 0),
           credit: Number(it.credit || 0),
+          currencyId: String(it.currency_id || it.currencyId || ""),
+          exchangeRate: String(it.exchange_rate || it.exchangeRate || "1"),
         })) || [];
       setLines(mapped.length ? mapped : [emptyLine(), emptyLine()]);
       linesManuallyEdited.current = true;
@@ -1857,6 +1883,8 @@ export default function DebitNoteForm() {
           chequeNumber: l.chequeNumber || null,
           chequeDate: l.chequeDate || null,
           paymentMethod: l.paymentMethod || null,
+          currencyId: l.currencyId || null,
+          exchangeRate: Number(l.exchangeRate || 1) || 1,
         }))
         .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     } else {
@@ -1874,6 +1902,8 @@ export default function DebitNoteForm() {
           chequeNumber: l.chequeNumber || null,
           chequeDate: l.chequeDate || null,
           paymentMethod: l.paymentMethod || null,
+          currencyId: l.currencyId || null,
+          exchangeRate: Number(l.exchangeRate || 1) || 1,
         }))
         .filter((l) => l.accountId && (l.debit > 0 || l.credit > 0));
     }
@@ -3635,7 +3665,10 @@ export default function DebitNoteForm() {
                             <th>Account</th>
                             <th>Description</th>
                             {isCN || isDN ? (
-                              <th className="text-right w-32">Currency</th>
+                              <>
+                                <th className="text-right w-28">Currency</th>
+                                <th className="text-right w-28">Exch. Rate</th>
+                              </>
                             ) : null}
                             <th
                               className="text-right"
@@ -3679,11 +3712,18 @@ export default function DebitNoteForm() {
                                     <select
                                       className="input"
                                       value={l.accountId}
-                                      onChange={(e) =>
+                                      onChange={(e) => {
+                                        const accId = e.target.value;
+                                        const acc = accounts.find(
+                                          (a) => String(a.id) === String(accId),
+                                        );
+                                        const newCId = acc?.currency_id || "";
                                         updateLine(idx, {
-                                          accountId: e.target.value,
-                                        })
-                                      }
+                                          accountId: accId,
+                                          currencyId: newCId,
+                                        });
+                                        autoFetchLineRate(newCId, idx);
+                                      }}
                                       required
                                       disabled={readOnly}
                                     >
@@ -3718,16 +3758,58 @@ export default function DebitNoteForm() {
                                   )}
                                 </td>
                                 {isCN || isDN ? (
-                                  <td className="text-right">
-                                    {(() => {
-                                      const acc = accounts.find(
-                                        (a) =>
-                                          String(a.id) ===
-                                          String(l.accountId || ""),
-                                      );
-                                      return acc?.currency_code || "";
-                                    })()}
-                                  </td>
+                                  <>
+                                    <td>
+                                      {readOnly ? (
+                                        <span className="text-slate-600 dark:text-slate-400">
+                                          {(() => {
+                                            const sel = (currencies || []).find(
+                                              (c) => String(c.id) === String(l.currencyId || ""),
+                                            );
+                                            return sel?.code || sel?.currency_code || (() => {
+                                              const acc = accounts.find(
+                                                (a) => String(a.id) === String(l.accountId || ""),
+                                              );
+                                              return acc?.currency_code || "";
+                                            })();
+                                          })()}
+                                        </span>
+                                      ) : (
+                                        <select
+                                          className="input"
+                                          value={l.currencyId}
+                                          onChange={(e) => {
+                                            const cId = e.target.value;
+                                            updateLine(idx, { currencyId: cId });
+                                            autoFetchLineRate(cId, idx);
+                                          }}
+                                          disabled={readOnly}
+                                        >
+                                          <option value="">Base Currency</option>
+                                          {currencies.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                              {c.code || c.currency_code}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      )}
+                                    </td>
+                                    <td>
+                                      <input
+                                        className="input text-right"
+                                        type="number"
+                                        min="0"
+                                        step="any"
+                                        value={l.exchangeRate}
+                                        onChange={(e) =>
+                                          updateLine(idx, {
+                                            exchangeRate: e.target.value,
+                                          })
+                                        }
+                                        disabled={readOnly}
+                                      />
+                                    </td>
+                                  </>
                                 ) : null}
                                 <td
                                   className={

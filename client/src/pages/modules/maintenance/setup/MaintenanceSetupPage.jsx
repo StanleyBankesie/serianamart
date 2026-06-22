@@ -86,6 +86,7 @@ function SetupItemsEditor({
   onDraftChange,
   onCreate,
   onSave,
+  onSaveAndReload,
   onDelete,
   hideDescription = false,
   onOpenModal,
@@ -129,7 +130,8 @@ function SetupItemsEditor({
                   <input
                     className="input"
                     value={item.item_name || ""}
-                    onChange={(e) => onSave(kind, { ...item, item_name: e.target.value }, true)}
+                    onChange={(e) => onSave(kind, { ...item, item_name: e.target.value })}
+                    onBlur={() => onSave(kind, { ...item, item_name: item.item_name })}
                   />
                 </td>
                 {!hideDescription && (
@@ -137,7 +139,8 @@ function SetupItemsEditor({
                   <input
                     className="input"
                     value={item.description || ""}
-                    onChange={(e) => onSave(kind, { ...item, description: e.target.value }, true)}
+                    onChange={(e) => onSave(kind, { ...item, description: e.target.value })}
+                    onBlur={() => onSave(kind, { ...item, description: item.description })}
                   />
                 </td>
                 )}
@@ -147,8 +150,9 @@ function SetupItemsEditor({
                     type="number"
                     value={item.sort_order ?? 0}
                     onChange={(e) =>
-                      onSave(kind, { ...item, sort_order: e.target.value }, true)
+                      onSave(kind, { ...item, sort_order: e.target.value })
                     }
+                    onBlur={() => onSave(kind, { ...item, sort_order: item.sort_order })}
                   />
                 </td>
                 <td>
@@ -156,7 +160,7 @@ function SetupItemsEditor({
                     type="checkbox"
                     checked={Boolean(item.is_active)}
                     onChange={(e) =>
-                      onSave(kind, { ...item, is_active: e.target.checked }, false)
+                      onSave(kind, { ...item, is_active: e.target.checked })
                     }
                   />
                 </td>
@@ -164,7 +168,7 @@ function SetupItemsEditor({
                   <button
                     type="button"
                     className="btn-secondary btn-sm"
-                    onClick={() => onSave(kind, item, false)}
+                    onClick={() => onSaveAndReload(kind, item)}
                   >
                     Save
                   </button>
@@ -289,7 +293,7 @@ export default function MaintenanceSetupPage() {
     }
   }
 
-  async function saveItem(kind, item, silent = false) {
+  async function saveItem(kind, item) {
     setCatalogs((prev) => {
       const mapping = {
         "maintenance-types": "maintenanceTypes",
@@ -323,19 +327,21 @@ export default function MaintenanceSetupPage() {
       };
     });
 
-    if (silent) return;
-
     try {
       await api.put(`/maintenance/setup/catalog/${kind}/${item.id}`, {
         ...item,
         sort_order: item.sort_order === "" ? 0 : Number(item.sort_order || 0),
         is_active: item.is_active ? 1 : 0,
       });
-      await loadSetup();
-      toast.success("Item updated");
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to update item");
     }
+  }
+
+  async function saveItemAndReload(kind, item) {
+    await saveItem(kind, item);
+    await loadSetup();
+    toast.success("Item updated");
   }
 
   function openModal(kind) {
@@ -479,6 +485,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 onOpenModal={openModal}
               />
@@ -495,6 +502,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 onOpenModal={openModal}
               />
@@ -511,6 +519,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 onOpenModal={openModal}
               />
@@ -527,6 +536,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -544,6 +554,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -561,6 +572,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -578,6 +590,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -595,6 +608,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -612,6 +626,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -629,6 +644,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -646,6 +662,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -663,6 +680,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
@@ -680,6 +698,7 @@ export default function MaintenanceSetupPage() {
                 onDraftChange={setDraft}
                 onCreate={createItem}
                 onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
                 onOpenModal={openModal}
