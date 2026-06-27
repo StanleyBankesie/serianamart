@@ -11,7 +11,7 @@ function toNumber(v, fallback = null) {
 
 export const listBoms = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(
       `SELECT b.*, i.item_name, i.item_code, u.username AS created_by_name
        FROM prod_boms b
@@ -29,7 +29,7 @@ export const listBoms = async (req, res, next) => {
 
 export const getBomById = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -59,7 +59,7 @@ export const getBomById = async (req, res, next) => {
 export const createBom = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.sub || req.user?.id;
     const { item_id, bom_name, output_qty, components } = req.body || {};
 
@@ -99,7 +99,7 @@ export const createBom = async (req, res, next) => {
 export const updateBom = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     const { item_id, bom_name, output_qty, is_active, components } = req.body || {};
 
@@ -138,7 +138,7 @@ export const updateBom = async (req, res, next) => {
 
 export const deleteBom = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     await query(`DELETE FROM prod_boms WHERE id = :id AND company_id = :companyId`, { id, companyId });
     await query(`DELETE FROM prod_bom_items WHERE bom_id = :id`, { id });
@@ -152,7 +152,7 @@ export const deleteBom = async (req, res, next) => {
 
 export const listWorkOrders = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const items = await query(
       `SELECT wo.*, b.bom_name, i.item_name, i.item_code, u.username AS created_by_name
        FROM prod_work_orders wo
@@ -171,7 +171,7 @@ export const listWorkOrders = async (req, res, next) => {
 
 export const getWorkOrderById = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -202,7 +202,7 @@ export const getWorkOrderById = async (req, res, next) => {
 export const createWorkOrder = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const userId = req.user?.sub || req.user?.id;
     const { work_order_no, work_order_date, bom_id, qty_to_produce, warehouse_id, remarks } = req.body || {};
 
@@ -253,7 +253,7 @@ export const createWorkOrder = async (req, res, next) => {
 export const updateWorkOrderStatus = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const userId = req.user?.sub || req.user?.id;
     const id = toNumber(req.params.id);
     const { status, actual_items } = req.body || {};

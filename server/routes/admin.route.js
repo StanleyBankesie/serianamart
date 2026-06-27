@@ -2571,7 +2571,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureSystemSettingsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT setting_key, setting_value,
@@ -2609,7 +2609,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureSystemSettingsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const body = req.body || {};
       const cloud_name = String(body.cloud_name || "").trim();
       const api_key = String(body.api_key || "").trim();

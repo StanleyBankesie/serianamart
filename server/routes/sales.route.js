@@ -1633,7 +1633,7 @@ router.get(
   requirePermission("SAL.CUSTOMER.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const q = String(req.query.q || "").trim();
       await query(`
         CREATE TABLE IF NOT EXISTS sal_prospect_customers (
@@ -1828,7 +1828,7 @@ router.get(
   requirePermission("SAL.CUSTOMER.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1865,7 +1865,7 @@ router.post(
   requirePermission("SAL.CUSTOMER.CREATE"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const {
         customer_code,
         customer_name,
@@ -1947,7 +1947,7 @@ router.put(
   requirePermission("SAL.CUSTOMER.UPDATE"),
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -2068,7 +2068,7 @@ router.post(
     try {
       await ensureDeliveryTables();
       await ensureStockBalancesWarehouseInfrastructure();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const {
         delivery_no,
         delivery_date,
@@ -2242,7 +2242,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureDeliveryTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -2394,7 +2394,7 @@ router.post(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const { priceTypes } = req.body;
       const createdBy = req.user?.sub || null;
       if (!Array.isArray(priceTypes)) {
@@ -2442,7 +2442,7 @@ router.delete(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) {
         throw { status: 400, message: "Invalid id" };
@@ -2528,7 +2528,7 @@ router.get(
     try {
       await ensureQuotationTables();
       await ensureQuotationDetailsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -2643,7 +2643,7 @@ router.post(
     try {
       await ensureQuotationTables();
       await ensureQuotationDetailsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const body = req.body || {};
       let quotation_no = String(body.quotation_no || "").trim();
       const quotation_date = body.quotation_date
@@ -2832,7 +2832,7 @@ router.put(
     try {
       await ensureQuotationTables();
       await ensureQuotationDetailsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -2998,7 +2998,7 @@ router.delete(
     try {
       await ensureQuotationTables();
       await ensureQuotationDetailsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0)
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -3104,7 +3104,7 @@ router.get(
     try {
       await ensureQuotationTables();
       await ensureQuotationDetailsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT quotation_no,
@@ -3258,7 +3258,7 @@ router.delete(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0)
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -3329,7 +3329,7 @@ router.get(
   requireAnyPermission(["SAL.ORDER.VIEW", "SAL.INVOICE.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -3409,7 +3409,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureSalesOrderColumns();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const body = req.body || {};
       const order_no = String(body.order_no || "").trim();
       const order_date = body.order_date
@@ -3573,7 +3573,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureSalesOrderColumns();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -3742,7 +3742,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureSalesOrderColumns();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4136,7 +4136,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4258,7 +4258,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0)
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4385,7 +4385,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const topProductsLimit = Math.max(
         1,
         Math.min(50, Number(req.query.topProducts || req.query.top || 10)),
@@ -4718,7 +4718,7 @@ router.post(
     await ensureInvoiceTables();
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const body = req.body || {};
       const {
         invoice_no,
@@ -4941,7 +4941,7 @@ router.put(
     await ensureInvoiceTables();
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       const body = req.body || {};
       const {
@@ -5164,7 +5164,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       const invoices = await query(
         "SELECT id, invoice_no, invoice_date, customer_id, net_amount, balance_amount, status, currency_id, exchange_rate, remarks FROM sal_invoices WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1",
@@ -5290,7 +5290,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const items = await query(
         `
         SELECT
@@ -5328,7 +5328,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT delivery_no,
@@ -5367,7 +5367,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -5439,7 +5439,7 @@ router.put(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -5490,7 +5490,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureStandardPriceSyncTriggersOnce();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const product_id = Number(req.body?.product_id);
       if (!Number.isFinite(product_id) || product_id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "product_id is required");
@@ -5589,7 +5589,7 @@ router.get(
   ]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const customer_id =
         req.query?.customer_id !== undefined && req.query?.customer_id !== ""
           ? Number(req.query.customer_id)
@@ -5625,7 +5625,7 @@ router.post(
   ]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const customer_id = Number(req.body?.customer_id);
       const product_id = Number(req.body?.product_id);
       if (!Number.isFinite(customer_id) || customer_id <= 0) {
@@ -5737,7 +5737,7 @@ router.post(
     try {
       const items = Array.isArray(req.body?.items) ? req.body.items : [];
       if (!items.length) return res.json({ success: true, inserted: 0 });
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       let inserted = 0;
       for (const row of items) {
         const productName = String(row["Item Name"] || "").trim();
@@ -5810,7 +5810,7 @@ router.post(
     try {
       const items = Array.isArray(req.body?.items) ? req.body.items : [];
       if (!items.length) return res.json({ success: true, inserted: 0 });
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       let inserted = 0;
       for (const row of items) {
         const customerName = String(row["Customer Name"] || "").trim();
@@ -5876,7 +5876,7 @@ router.post(
   ]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const customer_id = Number(req.body?.customer_id);
       const price_type_id = req.body?.price_type_id
         ? Number(req.body.price_type_id)
@@ -5995,7 +5995,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureStandardPriceSyncTriggersOnce();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const productId = Number(req.body?.product_id);
       const qtyParam = Number(req.body?.quantity || 0);
       const priceTypeInput = req.body?.price_type;
@@ -6841,7 +6841,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const items = await query(
@@ -6885,7 +6885,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const items = await query(
@@ -6928,7 +6928,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const items = await query(
@@ -6972,7 +6972,7 @@ router.get(
   requirePermission("SAL.CUSTOMER.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const asOf = req.query.asOf ? String(req.query.asOf) : null;
       const items = await query(
         `
@@ -7014,7 +7014,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const items = await query(
@@ -7062,7 +7062,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureQuotationTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const customerId = req.query.customerId
@@ -7164,7 +7164,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureQuotationTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const status = req.query.status ? String(req.query.status) : null;
@@ -7221,7 +7221,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureQuotationTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const totalRows = await query(
@@ -7277,7 +7277,7 @@ router.get(
   requireAnyPermission(["SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const status = req.query.status ? String(req.query.status) : null;
@@ -7337,7 +7337,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureInvoiceTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = req.query.from ? String(req.query.from) : null;
       const to = req.query.to ? String(req.query.to) : null;
       const customer = req.query.customer ? String(req.query.customer) : null;
@@ -7394,7 +7394,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.CUSTOMER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT 
@@ -7433,7 +7433,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT
@@ -7481,7 +7481,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT 
@@ -7517,7 +7517,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT 
@@ -7555,7 +7555,7 @@ router.get(
   requireAnyPermission(["SAL.PRICE.VIEW", "SAL.ITEM.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT 
@@ -7591,7 +7591,7 @@ router.get(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT DATE_FORMAT(i.invoice_date, '%Y-%m-01') AS month_start,
@@ -7628,7 +7628,7 @@ router.get(
   ]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const customerId = req.query.customerId
         ? String(req.query.customerId)
         : null;
@@ -7719,7 +7719,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureSalesReturnTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const customerId = req.query.customerId
         ? String(req.query.customerId)
         : null;
@@ -7835,7 +7835,7 @@ router.get(
   requireAnyPermission(["SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT o.order_no,
@@ -8043,7 +8043,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureSalesReturnTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const items = await query(
         `
         SELECT r.id, r.return_no, r.return_date, r.total_amount,
@@ -8099,7 +8099,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureSalesReturnTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const nextNo = await nextSalesReturnNo(companyId, branchId);
       res.json({ nextNo });
     } catch (e) {
@@ -8117,7 +8117,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureSalesReturnTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -8176,7 +8176,7 @@ router.post(
     try {
       await ensureSalesReturnTables();
       await ensureStockBalancesWarehouseInfrastructure();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const body = req.body || {};
       const return_no =
         String(body.return_no || "").trim() ||
@@ -8383,7 +8383,7 @@ router.post(
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -8702,7 +8702,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureProspectiveCustomersTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const {
         customer_code,
         customer_name,
@@ -8779,7 +8779,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureProspectiveCustomersTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -8872,7 +8872,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureProspectiveCustomersTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -8897,7 +8897,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const rows = await query(
         `SELECT sp.*, i.item_code, i.item_name,
                 pt.id AS price_type_lookup_id,

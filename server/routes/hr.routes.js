@@ -709,7 +709,7 @@ router.get(
 // ===== DASHBOARD METRICS (detailed dashboard page) =====
 router.get("/dashboard/metrics", requireAuth, requireCompanyScope, async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const year = Number(req.query.year) || new Date().getFullYear();
     const whereCompany = { companyId };
 
@@ -774,7 +774,7 @@ router.get("/dashboard/metrics", requireAuth, requireCompanyScope, async (req, r
 // ===== DASHBOARD STATS =====
 router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const [employees] = await query(
       "SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND status IN ('ACTIVE','PROBATION') AND deleted_at IS NULL",
       { companyId, branchId, branchIdsStr },

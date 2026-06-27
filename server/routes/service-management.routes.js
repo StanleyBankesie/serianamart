@@ -29,7 +29,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const status = String(req.query.status || "").trim();
@@ -89,7 +89,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const status = String(req.query.status || "").trim();
@@ -150,7 +150,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const tech = String(req.query.technician || "").trim();
@@ -209,7 +209,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const params = { companyId, branchId, branchIdsStr };
@@ -262,7 +262,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const svcType = String(req.query.serviceType || "").trim();
@@ -328,7 +328,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const items = await query(`
         SELECT 
           b.bill_no,
@@ -373,7 +373,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const items = await query(`
         SELECT 
           o.order_no,
@@ -408,7 +408,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const params = { companyId, branchId, branchIdsStr };
@@ -456,7 +456,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const items = await query(`
         SELECT 
           o.order_no,
@@ -497,7 +497,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const items = await query(`
         SELECT 
           COALESCE(o.customer_name, 'UNSPECIFIED') AS customer,
@@ -531,7 +531,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const items = await query(`
         SELECT 
           COALESCE(o.service_category, 'UNSPECIFIED') AS service_type,

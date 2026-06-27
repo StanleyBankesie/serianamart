@@ -59,7 +59,7 @@ router.get(
 // ===== DASHBOARD STATS =====
 router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     let dashboards = 0;
     let salesTotal = 0;
     let purchaseTotal = 0;

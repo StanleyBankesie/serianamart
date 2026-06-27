@@ -909,7 +909,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureItemTypesTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const rows = await query(
         `
       SELECT id, type_code, type_name, is_active,
@@ -936,7 +936,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureItemTypesTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const body = req.body || {};
       const typeCode = String(body.type_code || "").trim();
       const typeName = String(body.type_name || "").trim();
@@ -968,7 +968,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureItemTypesTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1009,7 +1009,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureItemTypesTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1048,7 +1048,7 @@ router.get(
       await ensureUomTable();
       await ensureItemTypesTable();
       // Assuming other tables are ensured elsewhere, but we at least handle the basic ones.
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
 
       const uoms = await query(
         "SELECT id, uom_code, uom_name FROM inv_uom WHERE is_active = 1 ORDER BY uom_name ASC",
@@ -1136,7 +1136,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureUnitConversionsTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT c.id,
@@ -1309,7 +1309,7 @@ router.get(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const warehouseId = toNumber(req.query.warehouse_id) || null;
       // Ensure table and UOM column exists with proper defaults
       await ensureItemsTable();
@@ -1393,7 +1393,7 @@ router.get(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const rows = await query(
         `SELECT item_code FROM inv_items 
          WHERE company_id = :companyId AND item_code LIKE 'ITM-%' 
@@ -1424,7 +1424,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureWarehousesTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const activeParam = String(req.query.active || "")
         .trim()
         .toLowerCase();
@@ -1451,12 +1451,102 @@ router.get(
 );
 
 router.get(
+  "/warehouses/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureWarehousesTable();
+      const { companyId, branchIdsStr } = req.scope;
+      const id = toNumber(req.params.id, 0);
+      const rows = await query(
+        `SELECT * FROM inv_warehouses
+         WHERE id = :id AND company_id = :companyId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchIdsStr: branchIdsStr || '' }
+      );
+      if (!rows.length) throw httpError(404, "NOT_FOUND", "Warehouse not found");
+      res.json({ item: rows[0] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/warehouses",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureWarehousesTable();
+      const { companyId, userId } = req.scope;
+      const body = req.body || {};
+      const branch_id = toNumber(body.branch_id, 0);
+      const [result] = await pool.execute(
+        `INSERT INTO inv_warehouses (
+           company_id, branch_id, warehouse_code, warehouse_name, location, is_active, created_by
+         ) VALUES (
+           :companyId, :branch_id, :warehouse_code, :warehouse_name, :location, :is_active, :userId
+         )`,
+        {
+          companyId,
+          branch_id: branch_id || null,
+          warehouse_code: body.warehouse_code || "",
+          warehouse_name: body.warehouse_name || "",
+          location: body.location || "",
+          is_active: body.is_active ? 1 : 0,
+          userId: userId || null,
+        }
+      );
+      res.json({ item: { id: result.insertId } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/warehouses/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureWarehousesTable();
+      const { companyId = null } = req.scope || {};
+      const id = toNumber(req.params.id, 0);
+      const body = req.body || {};
+      await pool.execute(
+        `UPDATE inv_warehouses SET
+           warehouse_code = :warehouse_code,
+           warehouse_name = :warehouse_name,
+           location = :location,
+           is_active = :is_active
+         WHERE id = :id AND company_id = :companyId`,
+        {
+          id,
+          companyId,
+          warehouse_code: body.warehouse_code || "",
+          warehouse_name: body.warehouse_name || "",
+          location: body.location || "",
+          is_active: body.is_active ? 1 : 0,
+        }
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
   "/items/:id/batches",
   requireAuth,
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const itemId = req.params.id;
       const rows = await query(
         `
@@ -1485,7 +1575,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockBalancesWarehouseInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const warehouseId = toNumber(req.query.warehouse_id);
       const itemId = toNumber(req.query.item_id);
 
@@ -1530,7 +1620,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureMaterialRequisitionApprovalTrigger();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const statusFilter =
         String(req.query?.status || "")
           .trim()
@@ -1625,7 +1715,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
       const q = String(req.query?.q || "").trim();
       const params = { companyId, branchId };
@@ -1681,7 +1771,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockBalancesWarehouseInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const rows = Array.isArray(body.rows)
         ? body.rows
@@ -1766,7 +1856,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
       const params = { companyId, branchId };
       const stockWhere = [
@@ -1826,7 +1916,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
       const q = String(req.query?.q || "").trim();
       const params = { companyId, branchId };
@@ -1874,7 +1964,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
       const q = String(req.query?.q || "").trim();
       const params = { companyId, branchId };
@@ -1922,7 +2012,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const from = toDateOnly(req.query?.from) || null;
       const to = toDateOnly(req.query?.to) || null;
       const warehouseId = toNumber(req.query?.warehouseId);
@@ -1987,7 +2077,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const from = toDateOnly(req.query?.from) || null;
       const to = toDateOnly(req.query?.to) || null;
       const warehouseId = toNumber(req.query?.warehouseId);
@@ -2047,7 +2137,7 @@ router.get(
   requirePermission("INV.MATERIAL_REQUISITION.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const rows = await query(
@@ -2115,7 +2205,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const from = toDateOnly(req.query?.from) || null;
       const to = toDateOnly(req.query?.to) || null;
       const warehouseId = toNumber(req.query?.warehouseId);
@@ -2177,7 +2267,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const requisitionNo =
         body.requisition_no && String(body.requisition_no).trim()
@@ -2277,7 +2367,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureMaterialRequisitionApprovalTrigger();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -2394,7 +2484,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureMaterialRequisitionApprovalTrigger();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const amount = req.body?.amount ?? null;
@@ -2554,7 +2644,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureGRNTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { type } = req.query;
       const nextNo = await nextGRNNo(companyId, branchId, type || "LOCAL");
       res.json({ next_no: nextNo });
@@ -2572,7 +2662,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `SELECT r.id,
                r.rts_no,
@@ -2629,7 +2719,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const nextNo = await nextReturnNo(companyId, branchId);
       res.json({ next_no: nextNo });
     } catch (err) {
@@ -2647,7 +2737,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockTransferTables();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const nextNo = await nextTransferNo(companyId);
       res.json({ next_no: nextNo });
     } catch (err) {
@@ -3012,7 +3102,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const nextNo = await nextAdjustmentNo(companyId);
       res.json({ next_no: nextNo });
     } catch (e) {
@@ -3029,7 +3119,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
@@ -3074,7 +3164,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -3269,7 +3359,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const {
         adjustment_no,
         adjustment_date,
@@ -3406,7 +3496,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT a.id, a.updation_no, a.updation_date, a.status,
@@ -3452,7 +3542,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const nextNo = await nextUpdationNo(companyId, branchId);
       res.json({ next_no: nextNo });
     } catch (e) {
@@ -3469,7 +3559,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
@@ -3515,7 +3605,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const {
         updation_no,
         updation_date,
@@ -3590,7 +3680,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -3715,7 +3805,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -3888,7 +3978,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT a.id, a.verification_no, a.verification_date, a.verification_type, a.status,
@@ -3934,7 +4024,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const nextNo = await nextVerificationNo(companyId, branchId);
       res.json({ verification_no: nextNo });
     } catch (e) {
@@ -3951,7 +4041,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
@@ -3997,7 +4087,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const {
         verification_no,
         verification_date,
@@ -4143,7 +4233,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -4249,7 +4339,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -4419,7 +4509,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockBalanceDetailsInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { item_id, batch_no, expiry_from, expiry_to } = req.query || {};
       const whereParts = [
         "b.company_id = :companyId",
@@ -4468,7 +4558,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const itemId = toNumber(req.query.item_id);
       const warehouseId = toNumber(req.query.warehouse_id);
       if (!itemId || !warehouseId) return res.json({ items: [] });
@@ -4525,7 +4615,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureItemBatchTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { item_id, qty, ref_type, ref_id, ref_date, warehouse_id } =
         req.body || {};
       if (!item_id || !qty)
@@ -4565,7 +4655,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT g.id, g.group_code, g.group_name, g.parent_group_id,
@@ -4596,7 +4686,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const groupCode = String(body.group_code || "").trim();
       const groupName = String(body.group_name || "").trim();
@@ -4632,7 +4722,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4685,7 +4775,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4805,7 +4895,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT c.id, c.category_code, c.category_name, c.parent_category_id,
@@ -4836,7 +4926,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const categoryCode = String(body.category_code || "").trim();
       const categoryName = String(body.category_name || "").trim();
@@ -4879,7 +4969,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4932,7 +5022,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -5255,7 +5345,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT a.id, a.adjustment_no, a.adjustment_date, a.status,
@@ -5305,7 +5395,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockTransferTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT t.id, t.transfer_no, t.transfer_date, t.status,
@@ -5346,7 +5436,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const itemId = toNumber(req.query.item_id);
       const warehouseId = toNumber(req.query.warehouse_id);
       const batchNo = req.query.batch_no ? String(req.query.batch_no) : null;
@@ -5408,7 +5498,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT pt.po_id, pt.total_ordered, COALESCE(gt.total_accepted,0) AS total_accepted
@@ -5448,7 +5538,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const grnType = String(req.query?.grn_type || "").toUpperCase() || null;
       let where = "WHERE g.company_id = :companyId AND g.branch_id = :branchId";
       const params = { companyId, branchId };
@@ -5499,7 +5589,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
@@ -5545,7 +5635,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub);
 
       const payload = req.body;
@@ -5677,7 +5767,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       const userId = toNumber(req.scope?.userId ?? req.user?.sub);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -5819,7 +5909,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       const userId = toNumber(req.scope?.userId ?? req.user?.sub);
       const { amount, workflow_id, target_user_id } = req.body;
@@ -5942,7 +6032,7 @@ router.post(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await query(
@@ -6039,7 +6129,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT i.id, i.issue_no, i.issue_date, i.warehouse_id, i.issued_to,
@@ -6075,7 +6165,7 @@ router.get(
     try {
       await ensureReportingViews();
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6222,7 +6312,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6325,7 +6415,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6376,7 +6466,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -6476,7 +6566,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6557,7 +6647,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const createdBy = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const body = req.body || {};
       const rtsNo = body.rts_no || (await nextReturnNo(companyId, branchId));
@@ -6652,7 +6742,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -6752,7 +6842,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6854,7 +6944,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       const { status } = req.body;
       if (!id || !status)
@@ -6934,7 +7024,7 @@ router.post(
       await ensureStockBalancesWarehouseInfrastructure();
       await ensureStockBalanceDetailsInfrastructure();
 
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const transferNo = body.transfer_no || (await nextTransferNo(companyId));
       const transferDate = toDateOnly(body.transfer_date || new Date().toISOString().split("T")[0]) || null;
@@ -7048,7 +7138,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockTransferTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -7153,7 +7243,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       const { status } = req.body;
       if (!id || !status)
@@ -7228,7 +7318,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const adjustmentNo =
         body.adjustment_no || (await nextAdjustmentNo(companyId));
@@ -7322,7 +7412,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -7490,7 +7580,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT c.id, c.warehouse_id, c.count_date, c.status,
@@ -7522,7 +7612,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT c.id,
@@ -7729,7 +7819,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const stockTakeNoRaw = body.stock_take_no;
       const stockTakeDate =
@@ -7799,7 +7889,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -7878,7 +7968,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -7971,7 +8061,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockReorderTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT r.*, i.item_code, i.item_name, w.warehouse_name,
@@ -8118,7 +8208,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureItemsTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const items = Array.isArray(req.body?.items)
         ? req.body.items
@@ -8328,7 +8418,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureItemsTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const body = req.body || {};
       let itemCode = body.item_code ? String(body.item_code).trim() : null;
@@ -8481,7 +8571,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureItemsTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -8626,7 +8716,7 @@ router.post(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const body = req.body || {};
       const itemId = toNumber(body.item_id);
       const costPrice = Number(body.cost_price);
@@ -8652,7 +8742,7 @@ router.post(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const items = Array.isArray(req.body?.items) ? req.body.items : [];
       if (!items.length)
         throw httpError(400, "VALIDATION_ERROR", "No items provided");
@@ -8748,7 +8838,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReorderPointsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { warehouseId, search, status } = req.query;
 
       let where =
@@ -8816,7 +8906,7 @@ router.post(
     try {
       await ensureReorderPointsTable();
       await ensureSupplierItemsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
 
       const warehouseId = toNumber(body.warehouse_id);
@@ -8925,7 +9015,7 @@ router.delete(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
 
       if (!id) {
@@ -8972,7 +9062,7 @@ router.get(
         req.scope?.branchId,
       );
       await ensureReorderPointsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       console.log("🔍 Fetching items and warehouses for company:", companyId);
 
       // Fetch all items and warehouses for this company/branch
@@ -9090,7 +9180,7 @@ router.post(
     try {
       await ensureReorderPointsTable();
       await ensureSupplierItemsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const data = Array.isArray(body.data) ? body.data : [];
 
@@ -9207,7 +9297,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { itemId, warehouseId, batchNo, search } = req.query || {};
 
       const clauses = [
@@ -9263,7 +9353,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const { itemId } = req.query;
       let sql = `
         SELECT c.id, c.company_id, c.item_id,
@@ -9300,7 +9390,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       // Fetch transfers where status is IN TRANSIT / IN_TRANSIT and to_branch_id = current branch
       const rows = await query(
         `
@@ -9339,7 +9429,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -9399,7 +9489,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const id = toNumber(req.params.id);
       const details = Array.isArray(req.body?.details) ? req.body.details : [];
@@ -9491,7 +9581,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const items = await query(
         `
         SELECT 
@@ -9535,7 +9625,7 @@ router.post(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const items = await query(
         `
         SELECT 
@@ -9676,7 +9766,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { from, to } = req.query;
       let where = "WHERE v.company_id = :companyId AND v.branch_id = :branchId";
       const params = { companyId, branchId };
@@ -9731,7 +9821,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const [items] = await query(
         "SELECT COUNT(*) as count FROM inv_items WHERE company_id = :companyId AND is_active = 1",
         { companyId },

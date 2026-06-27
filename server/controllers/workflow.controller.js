@@ -442,7 +442,7 @@ const ensureWorkflowTables = async () => {
 export const listWorkflows = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(
       `SELECT w.*, c.name as company_name,
           w.created_at,
@@ -740,7 +740,7 @@ export const reverseApproval = async (req, res, next) => {
 export const reverseByDocument = async (req, res, next) => {
   try {
     const userId = req.user.sub;
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { document_type, document_id } = req.body || {};
     const docTypeRaw = String(document_type || "").trim();
     const docId = Number(document_id);
@@ -814,7 +814,7 @@ function envTrue(v) {
 export const getWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
 
@@ -886,7 +886,7 @@ export const debugWorkflowEmailStatus = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
     const instanceId = toNumber(req.params.instanceId);
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     if (!instanceId) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const instRows = await query(
       `SELECT dw.*, w.email_notify, w.workflow_name,
@@ -970,7 +970,7 @@ export const debugWorkflowEmailStatus = async (req, res, next) => {
 export const createWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const {
       workflow_code,
       workflow_name,
@@ -1070,7 +1070,7 @@ export const createWorkflow = async (req, res, next) => {
 export const updateWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     const {
       workflow_code,
@@ -1195,7 +1195,7 @@ export const updateWorkflow = async (req, res, next) => {
 export const deleteWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     const existing = await query(
       "SELECT id FROM adm_workflows WHERE id = :id AND company_id = :companyId",
@@ -1213,7 +1213,7 @@ export const deleteWorkflow = async (req, res, next) => {
 export const startWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { workflow_id, document_id, document_type, target_user_id } =
       req.body;
 
@@ -1344,7 +1344,7 @@ export const startWorkflow = async (req, res, next) => {
 export const getPendingApprovals = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user.sub;
     const items = await query(
       `SELECT 
@@ -1440,7 +1440,7 @@ export const getApprovalInstanceDetail = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
     const { instanceId } = req.params;
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const instances = await query(
       `SELECT dw.*, 
                w.workflow_name, w.workflow_code,

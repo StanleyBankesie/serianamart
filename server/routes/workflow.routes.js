@@ -59,7 +59,7 @@ router.post(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const { document_type, document_id } = req.body || {};
       if (!document_type || !document_id) {
         return res.status(400).json({ message: "document_type and document_id are required" });
@@ -121,7 +121,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { q, active, limit } = req.query || {};
       const clauses = ["u.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(u.branch_id, :branchIdsStr))"];
       const params = { companyId, branchId, branchIdsStr };

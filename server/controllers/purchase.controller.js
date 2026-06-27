@@ -312,7 +312,7 @@ async function nextSequentialNo(table, column, prefix) {
 export const listServiceConfirmations = async (req, res, next) => {
   try {
     await ensureServiceConfirmationTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const rows = await query(
       `
       SELECT c.id,
@@ -341,7 +341,7 @@ export const listServiceConfirmations = async (req, res, next) => {
 export const getServiceConfirmationById = async (req, res, next) => {
   try {
     await ensureServiceConfirmationTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -380,7 +380,7 @@ export const createServiceConfirmation = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensureServiceConfirmationTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const body = req.body || {};
     const scNo = body.sc_no || nextDocNo("SC");
     const scDate = body.sc_date;
@@ -529,7 +529,7 @@ async function ensurePortClearanceStatusEnum() {
 
 export const getNextSupplierCode = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const [supRows] = await pool.query(
       `SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED)) AS maxnum,
           created_at,
@@ -564,7 +564,7 @@ export const getNextSupplierCode = async (req, res, next) => {
 
 export const listShippingAdvices = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { status, po_type } = req.query;
     if (!(await hasColumn("pur_shipping_advices", "is_active"))) {
       await query(
@@ -601,7 +601,7 @@ export const listShippingAdvices = async (req, res, next) => {
 
 export const getNextShippingAdviceNo = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const rows = await query(
       `SELECT MAX(CAST(SUBSTRING(advice_no, 4) AS UNSIGNED)) AS maxnum,
           created_at,
@@ -624,7 +624,7 @@ export const getNextShippingAdviceNo = async (req, res, next) => {
 
 export const getShippingAdviceById = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -659,7 +659,7 @@ export const getShippingAdviceById = async (req, res, next) => {
 export const createShippingAdvice = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const body = req.body || {};
     await ensureShippingAdviceStatusEnum();
     await ensureShippingAdviceETDColumn();
@@ -719,7 +719,7 @@ export const createShippingAdvice = async (req, res, next) => {
 export const updateShippingAdvice = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -795,7 +795,7 @@ export const updateShippingAdvice = async (req, res, next) => {
 
 export const listPortClearances = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { status } = req.query;
     if (!(await hasColumn("pur_port_clearances", "is_active"))) {
       await query(
@@ -832,7 +832,7 @@ export const listPortClearances = async (req, res, next) => {
 
 export const getNextPortClearanceNo = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const rows = await query(
       `SELECT MAX(CAST(SUBSTRING(clearance_no, 4) AS UNSIGNED)) AS maxnum,
           created_at,
@@ -855,7 +855,7 @@ export const getNextPortClearanceNo = async (req, res, next) => {
 
 export const getPortClearanceById = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -879,7 +879,7 @@ export const getPortClearanceById = async (req, res, next) => {
 export const createPortClearance = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const body = req.body || {};
     await ensurePortClearanceStatusEnum();
     let clearanceNo = body.clearance_no || null;
@@ -943,7 +943,7 @@ export const createPortClearance = async (req, res, next) => {
 export const updatePortClearance = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -1013,7 +1013,7 @@ export const updateServiceConfirmation = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensureServiceConfirmationTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -1255,7 +1255,7 @@ async function ensureProspectCustomersTable() {
 export const listServiceRequests = async (req, res, next) => {
   try {
     await ensureServiceRequestTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const rows = await query(
       `
       SELECT r.id, r.request_no, r.request_date, r.requester_full_name, r.service_type, r.priority, r.status,
@@ -1291,7 +1291,7 @@ export const listServiceRequests = async (req, res, next) => {
 export const getServiceRequestById = async (req, res, next) => {
   try {
     await ensureServiceRequestTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -1333,7 +1333,7 @@ export const createServiceRequest = async (req, res, next) => {
   try {
     await ensureServiceRequestTables();
     await ensureProspectCustomersTable();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const body = req.body || {};
     const requestNo =
       body.request_no ||
@@ -1481,7 +1481,7 @@ export const updateServiceRequest = async (req, res, next) => {
   try {
     await ensureServiceRequestTables();
     await ensureProspectCustomersTable();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -1634,7 +1634,7 @@ export const updateServiceRequest = async (req, res, next) => {
 export const listServiceBills = async (req, res, next) => {
   try {
     await ensureServiceBillTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const status = String(req.query.status || "")
       .trim()
       .toUpperCase();
@@ -1698,7 +1698,7 @@ export const listServiceBills = async (req, res, next) => {
 export const getServiceBillById = async (req, res, next) => {
   try {
     await ensureServiceBillTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -1757,7 +1757,7 @@ export const createServiceBill = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensureServiceBillTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const body = req.body || {};
     const supplierId = body.supplier_id || body.supplierId || null;
     const billNo =
@@ -2011,7 +2011,7 @@ export const updateServiceBill = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensureServiceBillTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};

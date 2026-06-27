@@ -4,7 +4,7 @@ import { toNumber } from "../utils/dbUtils.js";
 
 export async function listKpiCategories(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT * FROM hr_kpi_categories WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`, { companyId });
     res.json({ items });
   } catch (err) { next(err); }
@@ -12,7 +12,7 @@ export async function listKpiCategories(req, res, next) {
 
 export async function saveKpiCategory(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, name, description } = req.body;
     if (id) {
       await query(`UPDATE hr_kpi_categories SET name = :name, description = :description WHERE id = :id AND company_id = :companyId`, { id, name, description, companyId });
@@ -26,7 +26,7 @@ export async function saveKpiCategory(req, res, next) {
 
 export async function deleteKpiCategory(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     await query(`UPDATE hr_kpi_categories SET is_active = 0 WHERE id = :id AND company_id = :companyId`, { id, companyId });
     res.json({ message: "Category deleted" });
@@ -35,7 +35,7 @@ export async function deleteKpiCategory(req, res, next) {
 
 export async function listKpis(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { category_id, is_active, q } = req.query;
     const clauses = ["k.company_id = :companyId"];
     const params = { companyId };
@@ -50,7 +50,7 @@ export async function listKpis(req, res, next) {
 
 export async function getKpi(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const rows = await query(`SELECT k.*, kc.name AS category_name FROM hr_kpis k LEFT JOIN hr_kpi_categories kc ON kc.id = k.category_id WHERE k.id = :id AND k.company_id = :companyId`, { id, companyId });
     if (!rows.length) throw httpError(404, "NOT_FOUND", "KPI not found");
@@ -60,7 +60,7 @@ export async function getKpi(req, res, next) {
 
 export async function saveKpi(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { id, code, name, category_id, description, kpi_type, department, job_role, evaluation_period, weight, target_value, measurement_unit, min_score, max_score, scoring_method, calculation_formula, effective_date, expiry_date, is_active } = req.body;
     if (id) {
@@ -75,7 +75,7 @@ export async function saveKpi(req, res, next) {
 
 export async function deleteKpi(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const linked = await query(`SELECT COUNT(*) AS c FROM hr_appraisal_details WHERE kpi_id = :id`, { id });
     if (Number(linked[0]?.c || 0) > 0) throw httpError(400, "VALIDATION_ERROR", "Cannot delete KPI linked to appraisals");
@@ -86,7 +86,7 @@ export async function deleteKpi(req, res, next) {
 
 export async function cloneKpi(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { id, new_code } = req.body;
     const rows = await query(`SELECT * FROM hr_kpis WHERE id = :id AND company_id = :companyId`, { id, companyId });
@@ -100,7 +100,7 @@ export async function cloneKpi(req, res, next) {
 
 export async function listKpiAssignments(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { kpi_id, employee_id } = req.query;
     const clauses = ["a.company_id = :companyId"];
     const params = { companyId };
@@ -114,7 +114,7 @@ export async function listKpiAssignments(req, res, next) {
 
 export async function saveKpiAssignment(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { id, kpi_id, employee_id, dept_id, pos_id, assignment_type, weight, target_value, scoring_method, effective_date, expiry_date } = req.body;
     if (!kpi_id) throw httpError(400, "VALIDATION_ERROR", "KPI is required");
@@ -132,7 +132,7 @@ export async function saveKpiAssignment(req, res, next) {
 
 export async function deleteKpiAssignment(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     await query(`UPDATE hr_kpi_assignments SET is_active = 0 WHERE id = :id AND company_id = :companyId`, { id, companyId });
     res.json({ message: "Assignment removed" });
@@ -141,7 +141,7 @@ export async function deleteKpiAssignment(req, res, next) {
 
 export async function listAppraisals(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { employee_id, status, q } = req.query;
     const clauses = ["a.company_id = :companyId"];
     const params = { companyId };
@@ -156,7 +156,7 @@ export async function listAppraisals(req, res, next) {
 
 export async function getAppraisal(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const rows = await query(`SELECT a.*, e.first_name, e.last_name, e.emp_code, d.dept_name, p.pos_name, CONCAT(e.first_name, ' ', e.last_name) AS employee_name, m.first_name AS mgr_first_name, m.last_name AS mgr_last_name FROM hr_appraisals a LEFT JOIN hr_employees e ON e.id = a.employee_id LEFT JOIN hr_departments d ON d.id = e.dept_id LEFT JOIN hr_positions p ON p.id = e.pos_id LEFT JOIN hr_employees m ON m.id = e.manager_id WHERE a.id = :id AND a.company_id = :companyId`, { id, companyId });
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Appraisal not found");
@@ -170,7 +170,7 @@ export async function getAppraisal(req, res, next) {
 
 export async function saveAppraisal(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { id, employee_id, reviewer_user_id, review_period, start_date, end_date, status, employee_remarks, details, competencies, goals } = req.body;
     if (!employee_id) throw httpError(400, "VALIDATION_ERROR", "Employee is required");
@@ -228,7 +228,7 @@ function calcCompScore(competencies) {
 
 export async function submitAppraisal(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { id } = req.params;
     const { action, comments } = req.body;
@@ -252,7 +252,7 @@ export async function submitAppraisal(req, res, next) {
 
 export async function getAppraisalDashboard(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const total = await query(`SELECT COUNT(*) AS c FROM hr_appraisals WHERE company_id = :companyId`, { companyId });
     const pending = await query(`SELECT COUNT(*) AS c FROM hr_appraisals WHERE company_id = :companyId AND status IN ('PENDING_SUPERVISOR','PENDING_HR','PENDING_EMPLOYEE')`, { companyId });
     const completed = await query(`SELECT COUNT(*) AS c FROM hr_appraisals WHERE company_id = :companyId AND status IN ('APPROVED','CLOSED')`, { companyId });
@@ -266,7 +266,7 @@ export async function getAppraisalDashboard(req, res, next) {
 
 export async function uploadAttachment(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { appraisal_id, section, file_url, file_name } = req.body;
     if (!appraisal_id || !file_url) throw httpError(400, "VALIDATION_ERROR", "appraisal_id and file_url are required");
     const r = await query(`INSERT INTO hr_employee_documents (company_id, employee_id, doc_type, doc_name, file_url) VALUES (:companyId, (SELECT employee_id FROM hr_appraisals WHERE id = :appraisal_id), :doc_type, :doc_name, :file_url)`, { companyId: companyId || null, appraisal_id, doc_type: `APPRAISAL_${String(section || 'GENERAL').toUpperCase()}`, doc_name: file_name || 'Attachment', file_url });

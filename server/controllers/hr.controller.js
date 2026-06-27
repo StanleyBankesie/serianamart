@@ -15,7 +15,7 @@ import { sendMail } from "../utils/mailer.js";
 export async function listEmployees(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { dept_id, status, q } = req.query;
 
     const clauses = ["e.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))", "e.deleted_at IS NULL"];
@@ -66,7 +66,7 @@ export async function listEmployees(req, res, next) {
  */
 export async function listKPIs(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_kpis
          WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`,
@@ -80,7 +80,7 @@ export async function listKPIs(req, res, next) {
 
 export async function saveKPI(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, code, name, description, target_value, is_active } = req.body;
     if (id) {
       await query(`UPDATE hr_kpis SET code = :code, name = :name, description = :description, target_value = :target_value, is_active = :is_active 
@@ -119,7 +119,7 @@ export async function saveKPI(req, res, next) {
  */
 async function listTrainingProgramsDup(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_training_programs
          WHERE company_id = :companyId AND is_active = 1 ORDER BY start_date DESC`,
@@ -190,7 +190,7 @@ async function getNextMedicalPolicyCode(companyId) {
 export async function listPolicies(req, res, next) {
   try {
     await ensurePolicyAttachmentColumns();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT id, company_id, code, title, content, attachment_url, attachment_name, is_active, created_at, updated_at,
           created_at FROM hr_policies
          WHERE company_id = :companyId AND is_active = 1
@@ -206,7 +206,7 @@ export async function listPolicies(req, res, next) {
 export async function savePolicy(req, res, next) {
   try {
     await ensurePolicyAttachmentColumns();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const {
       id,
       code,
@@ -264,7 +264,7 @@ export async function savePolicy(req, res, next) {
 
 export async function acknowledgePolicy(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { employee_id, policy_id } = req.body;
     await query(`INSERT INTO hr_policy_acknowledgements (company_id, employee_id, policy_id, acknowledged_at)
@@ -379,7 +379,7 @@ export async function updateClearance(req, res, next) {
 }
 export async function listKpis(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_kpis
          WHERE company_id = :companyId ORDER BY name ASC`,
@@ -393,7 +393,7 @@ export async function listKpis(req, res, next) {
 
 export async function saveKpi(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, code, name, description, target_value, is_active } = req.body;
     if (id) {
       await query(`UPDATE hr_kpis SET code = :code, name = :name, description = :description, target_value = :target_value, is_active = :is_active WHERE id = :id AND company_id = :companyId`,
@@ -442,7 +442,7 @@ export async function listPerformanceReviews(req, res, next) {
 
 export async function savePerformanceReview(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const {
       id,
       employee_id,
@@ -486,7 +486,7 @@ export async function savePerformanceReview(req, res, next) {
 
 export async function listTrainingPrograms(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_training_programs
          WHERE company_id = :companyId ORDER BY start_date DESC`,
@@ -500,7 +500,7 @@ export async function listTrainingPrograms(req, res, next) {
 
 export async function saveTrainingProgram(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, code, title, description, start_date, end_date, is_active } =
       req.body;
     if (id) {
@@ -551,7 +551,7 @@ export async function listTrainingRecords(req, res, next) {
 
 export async function saveTrainingRecord(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, employee_id, program_id, completion_date, status, remarks } =
       req.body;
     if (id) {
@@ -590,7 +590,7 @@ export async function saveTrainingRecord(req, res, next) {
  */
 export async function getEmployeeById(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
 
     const rows = await query(`SELECT e.*, d.dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
@@ -634,7 +634,7 @@ export async function saveEmployee(req, res, next) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const body = req.body;
 
@@ -809,7 +809,7 @@ export async function saveEmployeesBulk(req, res, next) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     let created = 0;
@@ -946,7 +946,7 @@ export async function saveEmployeesBulk(req, res, next) {
 export async function listDepartments(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT id, dept_code, dept_name,
           created_at FROM hr_departments
          WHERE company_id = :companyId AND deleted_at IS NULL ORDER BY dept_name ASC`,
@@ -964,7 +964,7 @@ export async function listDepartments(req, res, next) {
 export async function listPositions(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT id, pos_code, pos_name,
           created_at FROM hr_positions
          WHERE company_id = :companyId AND deleted_at IS NULL ORDER BY pos_name ASC`,
@@ -982,7 +982,7 @@ export async function listPositions(req, res, next) {
 export async function saveDepartment(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { id, dept_code, dept_name, manager_id, parent_dept_id } = req.body;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
 
@@ -1022,7 +1022,7 @@ export async function saveDepartment(req, res, next) {
 export async function savePosition(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { id, pos_code, pos_name, dept_id } = req.body;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
 
@@ -1060,7 +1060,7 @@ export async function savePosition(req, res, next) {
  */
 export async function getNextRequisitionNo(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const rows = await query(`SELECT MAX(id) as max_id FROM hr_job_requisitions
          WHERE company_id = :companyId`,
       { companyId },
@@ -1075,7 +1075,7 @@ export async function getNextRequisitionNo(req, res, next) {
 
 export async function listRequisitions(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const items = await query(`SELECT r.*, d.dept_name, p.pos_name,
           r.created_at FROM hr_job_requisitions r
        LEFT JOIN hr_departments d ON d.id = r.dept_id
@@ -1092,7 +1092,7 @@ export async function listRequisitions(req, res, next) {
 
 export async function getRequisitionById(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const rows = await query(`SELECT r.*, d.dept_name, p.pos_name,
           r.created_at FROM hr_job_requisitions r
@@ -1113,7 +1113,7 @@ export async function getRequisitionById(req, res, next) {
  */
 export async function saveRequisition(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const {
       id,
@@ -1190,7 +1190,7 @@ export async function saveRequisition(req, res, next) {
 export async function submitRequisition(req, res, next) {
   try {
     await ensureWorkflowTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id, null);
     if (!id) throw httpError(400, "BAD_REQUEST", "Invalid requisition ID");
 
@@ -1306,7 +1306,7 @@ export async function submitRequisition(req, res, next) {
  */
 export async function listCandidates(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT c.*, r.title as requisition_title, r.recruitment_type, p.pos_name,
           c.created_at FROM hr_candidates c
        LEFT JOIN hr_job_requisitions r ON r.id = c.requisition_id
@@ -1323,7 +1323,7 @@ export async function listCandidates(req, res, next) {
 
 export async function getCandidate(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const rows = await query(`SELECT c.*, r.title as requisition_title, r.recruitment_type, p.pos_name,
           c.created_at FROM hr_candidates c
@@ -1341,7 +1341,7 @@ export async function getCandidate(req, res, next) {
 
 export async function saveCandidate(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const {
       id,
       first_name,
@@ -1399,7 +1399,7 @@ export async function saveCandidate(req, res, next) {
 
 export async function savePromotion(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const {
       employee_id,
       promotion_date,
@@ -1450,7 +1450,7 @@ export async function savePromotion(req, res, next) {
 
 export async function listPromotions(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT pr.*, e.first_name, e.last_name, e.emp_code, p1.pos_name as previous_pos, p2.pos_name as new_pos,
           pr.created_at FROM hr_promotions pr
        JOIN hr_employees e ON e.id = pr.employee_id
@@ -1538,7 +1538,7 @@ export async function listInterviews(req, res, next) {
 export async function getOfferById(req, res, next) {
   try {
     const { id } = req.params;
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const [item] = await query(`SELECT o.*, c.first_name, c.last_name,
          r.title AS requisition_title, r.id AS requisition_id,
          p.pos_name, p.id AS position_id
@@ -1653,7 +1653,7 @@ export async function listOffers(req, res, next) {
 export async function listShifts(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_shifts
          WHERE company_id = :companyId AND is_active = 1 ORDER BY start_time ASC`,
@@ -1667,7 +1667,7 @@ export async function listShifts(req, res, next) {
 
 export async function saveShift(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { id, code, name, start_time, end_time, break_minutes, is_active } =
       req.body;
@@ -1709,7 +1709,7 @@ export async function saveShift(req, res, next) {
 
 export async function clockIn(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const employee_id = toNumber(req.body.employee_id, null);
     const attendance_date =
       req.body.attendance_date || new Date().toISOString().slice(0, 10);
@@ -1796,7 +1796,7 @@ export async function listAttendance(req, res, next) {
 
 export async function saveBulkAttendance(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { date, attendance } = req.body; // attendance is an array of { employee_id, status, clock_in, clock_out, remarks }
 
     if (!date || !Array.isArray(attendance)) {
@@ -1827,7 +1827,7 @@ export async function saveBulkAttendance(req, res, next) {
 
 export async function saveTimesheet(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { employee_id, work_date, hours_worked, overtime_hours, remarks } =
       req.body;
     const existing = await query(`SELECT id,
@@ -1866,7 +1866,7 @@ export async function saveTimesheet(req, res, next) {
 
 export async function listTimesheets(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { employee_id, from_date, to_date } = req.query;
     const clauses = ["t.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(t.branch_id, :branchIdsStr))"];
     const params = { companyId, branchId, branchIdsStr };
@@ -1959,7 +1959,7 @@ export async function biometricWebhook(req, res, next) {
 export async function listPayrollPeriods(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *
          FROM hr_payroll_periods
          WHERE company_id = :companyId ORDER BY start_date DESC`,
@@ -1974,7 +1974,7 @@ export async function listPayrollPeriods(req, res, next) {
 export async function savePayrollPeriod(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, period_name, start_date, end_date, status } = req.body;
     if (id) {
       await query(`UPDATE hr_payroll_periods SET period_name = :period_name, start_date = :start_date, end_date = :end_date, status = :status
@@ -2160,7 +2160,7 @@ async function seedFixedSalaryComponents(companyId) {
 export async function generatePayroll(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { period_id } = req.body;
     if (!period_id) throw httpError(400, "BAD_REQUEST", "period_id required");
     const [period] = await query(`SELECT *,
@@ -2772,7 +2772,7 @@ export async function generatePayroll(req, res, next) {
  */
 export async function listSalaryComponents(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     await seedFixedSalaryComponents(companyId);
     const items = await query(`SELECT c.id, c.column_name, c.label, c.component_type, c.display_order,
               c.is_earning, c.is_fixed, c.source_type, c.source_id, c.is_active,
@@ -2842,7 +2842,7 @@ export async function listSalaryComponents(req, res, next) {
 
 export async function mapSalaryComponentAccount(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { componentId, columnName, accountId } = req.body;
 
     if (!componentId && !columnName) {
@@ -2939,7 +2939,7 @@ export async function mapSalaryComponentAccount(req, res, next) {
 
 export async function listPayslips(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { period_id, employee_id } = req.query;
     const clauses = ["e.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))"];
     const params = { companyId, branchId, branchIdsStr };
@@ -3037,7 +3037,7 @@ export async function listPayslips(req, res, next) {
 
 export async function sendPayslipEmail(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { payslipId } = req.body;
     const rows = await query(`SELECT p.*, e.first_name, e.last_name, e.email, pr.period_name,
           p.created_at FROM hr_payslips p
@@ -3161,7 +3161,7 @@ export async function sendPayslipEmail(req, res, next) {
 
 export async function getPayrollBreakdown(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { payroll_id, period_id } = req.query;
     let pid = payroll_id ? Number(payroll_id) : null;
     if (!pid && period_id) {
@@ -3323,7 +3323,7 @@ export async function listMedicalPolicies(req, res, next) {
   try {
     await ensureHRTables();
     await ensureMedicalPolicyAttachmentColumns();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_medical_policies
          WHERE company_id = :companyId AND is_active = 1 ORDER BY policy_name ASC`,
@@ -3338,7 +3338,7 @@ export async function listMedicalPolicies(req, res, next) {
 export async function getMedicalPolicy(req, res, next) {
   try {
     await ensureMedicalPolicyAttachmentColumns();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const rows = await query(`SELECT *,
           created_at FROM hr_medical_policies
@@ -3356,7 +3356,7 @@ export async function getMedicalPolicy(req, res, next) {
 export async function saveMedicalPolicy(req, res, next) {
   try {
     await ensureMedicalPolicyAttachmentColumns();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const userId = toNumber(req.user?.id || req.user?.sub, null);
     const {
       id,
@@ -3435,7 +3435,7 @@ export async function saveMedicalPolicy(req, res, next) {
 export async function listAllowances(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_allowances
          WHERE company_id = :companyId AND is_active = 1 ORDER BY allowance_name ASC`,
@@ -3449,7 +3449,7 @@ export async function listAllowances(req, res, next) {
 
 export async function saveAllowance(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const userId = toNumber(req.user?.id || req.user?.sub, null);
     const {
       id,
@@ -3500,7 +3500,7 @@ export async function saveAllowance(req, res, next) {
  */
 export async function listLoans(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
 
     // Auto-activate loans reaching their start date
     try {
@@ -3537,7 +3537,7 @@ export async function listLoans(req, res, next) {
 
 export async function saveLoan(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const userId = toNumber(req.user?.id || req.user?.sub, null);
     const {
       id,
@@ -3667,7 +3667,7 @@ export async function saveLoan(req, res, next) {
 
 export async function listLoanTypes(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     await query(`CREATE TABLE IF NOT EXISTS hr_setup_loan_types (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         company_id BIGINT UNSIGNED NOT NULL,
@@ -3692,7 +3692,7 @@ export async function listLoanTypes(req, res, next) {
 
 export async function saveLoanType(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     await query(`CREATE TABLE IF NOT EXISTS hr_setup_loan_types (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         company_id BIGINT UNSIGNED NOT NULL,
@@ -3731,7 +3731,7 @@ export async function saveLoanType(req, res, next) {
  */
 export async function listTaxConfigs(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_tax_config
          WHERE company_id = :companyId AND is_active = 1 ORDER BY tax_name ASC, min_amount ASC`,
@@ -3745,7 +3745,7 @@ export async function listTaxConfigs(req, res, next) {
 
 export async function saveTaxConfig(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     await ensureHRTables();
     await query(`CREATE TABLE IF NOT EXISTS hr_tax_config (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -3918,7 +3918,7 @@ export async function saveTaxConfig(req, res, next) {
  */
 export async function listSalaryStructures(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_salary_structures
          WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`,
@@ -3932,7 +3932,7 @@ export async function listSalaryStructures(req, res, next) {
 
 export async function saveSalaryStructure(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, name, description, is_active, components } = req.body;
 
     const params = {
@@ -3975,7 +3975,7 @@ export async function saveSalaryStructure(req, res, next) {
 
 export async function getActiveSalaryStructure(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const rows = await query(`SELECT id, name, description, is_active, components,
           created_at FROM hr_salary_structures
          WHERE company_id = :companyId AND is_active = 1 
@@ -3992,7 +3992,7 @@ export async function getActiveSalaryStructure(req, res, next) {
 export async function listBaseSalaries(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
 
     // Get the latest base salary per employee using a more robust join
     const items = await query(`SELECT e.id as employee_id, e.emp_code, e.first_name, e.last_name, 
@@ -4026,7 +4026,7 @@ export async function listBaseSalaries(req, res, next) {
 export async function saveBaseSalary(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = toNumber(req.user?.id || req.user?.sub, null);
     const { employee_id, base_salary } = req.body;
     const effective_date = new Date().toISOString().slice(0, 10);
@@ -4057,7 +4057,7 @@ export async function saveBaseSalary(req, res, next) {
 
 export async function saveBaseSalariesBulk(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = toNumber(req.user?.id || req.user?.sub, null);
     const { rows } = req.body;
     if (!Array.isArray(rows)) {
@@ -4103,7 +4103,7 @@ export async function saveBaseSalariesBulk(req, res, next) {
 
 export async function closePayroll(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const {
       payroll_id,
       finance_post,
@@ -4341,7 +4341,7 @@ export async function closePayroll(req, res, next) {
  */
 export async function assignOnboardingChecklist(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { employee_id, checklist_id, assigned_date } = req.body;
     if (!employee_id || !checklist_id)
@@ -4390,7 +4390,7 @@ export async function assignOnboardingChecklist(req, res, next) {
 
 export async function backfillTier3(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const taxRows = await query(`SELECT employee_contribution_rate,
           created_at FROM hr_tax_config
          WHERE company_id = :companyId AND is_active = 1 AND 
@@ -4502,7 +4502,7 @@ export async function listOnboardingAssignments(req, res, next) {
 export async function listLocations(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_locations
          WHERE company_id = :companyId AND is_active = 1 ORDER BY location_name ASC`,
@@ -4517,7 +4517,7 @@ export async function listLocations(req, res, next) {
 export async function saveLocation(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const branchId = req.scope.branchId || req.user?.branch_id || 1;
     const { id, location_name, address, is_active } = req.body;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
@@ -4555,7 +4555,7 @@ export async function saveLocation(req, res, next) {
  */
 export async function listParameters(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT id, param_key, param_value,
           created_at FROM hr_setup_parameters
          WHERE company_id = :companyId`,
@@ -4569,7 +4569,7 @@ export async function listParameters(req, res, next) {
 
 export async function saveParameters(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { parameters } = req.body;
     if (parameters && typeof parameters === "object") {
       for (const [key, value] of Object.entries(parameters)) {
@@ -4592,7 +4592,7 @@ export async function saveParameters(req, res, next) {
 export async function reportEmployees(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { dept_id, q } = req.query;
     const clauses = ["e.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))", "e.deleted_at IS NULL"];
     const params = { companyId, branchId, branchIdsStr };
@@ -4623,7 +4623,7 @@ export async function reportEmployees(req, res, next) {
 
 export async function reportSSF(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { period_id, from_date, to_date } = req.query;
     const clauses = ["pp.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(pp.branch_id, :branchIdsStr))"];
     const params = { companyId, branchId, branchIdsStr };
@@ -4659,7 +4659,7 @@ export async function reportSSF(req, res, next) {
 
 export async function reportPAYE(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { period_id, from_date, to_date } = req.query;
     const clauses = ["pp.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(pp.branch_id, :branchIdsStr))"];
     const params = { companyId, branchId, branchIdsStr };
@@ -4693,7 +4693,7 @@ export async function reportPAYE(req, res, next) {
 
 export async function reportEmployeeLoans(req, res, next) {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const items = await query(`SELECT l.id, e.emp_code, e.first_name, e.last_name, l.loan_type, l.amount, l.monthly_installment, l.start_date, l.status,
           l.created_at FROM hr_loans l
        JOIN hr_employees e ON e.id = l.employee_id
@@ -4709,7 +4709,7 @@ export async function reportEmployeeLoans(req, res, next) {
 
 export async function reportEmployeeAllowances(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT e.emp_code, e.first_name, e.last_name, a.allowance_name, a.amount_type, a.amount,
           m.created_at FROM hr_employee_allowance_mappings m
        JOIN hr_employees e ON e.id = m.employee_id
@@ -4729,7 +4729,7 @@ export async function reportEmployeeAllowances(req, res, next) {
  */
 export async function sendEmailBulk(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { payslipIds } = req.body;
     if (!Array.isArray(payslipIds)) {
       throw httpError(400, "BAD_REQUEST", "payslipIds must be an array");
@@ -4876,7 +4876,7 @@ export async function sendEmailBulk(req, res, next) {
 export async function listEmploymentTypes(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_setup_employment_types
          WHERE company_id = :companyId ORDER BY name ASC`,
@@ -4891,7 +4891,7 @@ export async function listEmploymentTypes(req, res, next) {
 export async function saveEmploymentType(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, name } = req.body;
     if (id) {
       await query(`UPDATE hr_setup_employment_types SET name = :name WHERE id = :id AND company_id = :companyId`,
@@ -4914,7 +4914,7 @@ export async function saveEmploymentType(req, res, next) {
 export async function listEmployeeCategories(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_setup_employee_categories
          WHERE company_id = :companyId ORDER BY name ASC`,
@@ -4929,7 +4929,7 @@ export async function listEmployeeCategories(req, res, next) {
 export async function saveEmployeeCategory(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, name } = req.body;
     if (id) {
       await query(`UPDATE hr_setup_employee_categories SET name = :name WHERE id = :id AND company_id = :companyId`,
@@ -4952,7 +4952,7 @@ export async function saveEmployeeCategory(req, res, next) {
 export async function listAllowanceTypes(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_setup_allowance_types
          WHERE company_id = :companyId ORDER BY name ASC`,
@@ -4967,7 +4967,7 @@ export async function listAllowanceTypes(req, res, next) {
 export async function saveAllowanceType(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, name } = req.body;
     if (id) {
       await query(`UPDATE hr_setup_allowance_types SET name = :name WHERE id = :id AND company_id = :companyId`,
@@ -5005,7 +5005,7 @@ async function ensureWorkSchedulesTable() {
 export async function listWorkSchedules(req, res, next) {
   try {
     await ensureWorkSchedulesTable();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT ws.*, 
               e.emp_code, e.first_name, e.last_name, e.status as emp_status,
               s.code as shift_code, s.name as shift_name, s.start_time, s.end_time, s.break_minutes,
@@ -5025,7 +5025,7 @@ export async function listWorkSchedules(req, res, next) {
 export async function saveWorkSchedule(req, res, next) {
   try {
     await ensureWorkSchedulesTable();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, employee_id, shift_id, off_days, is_active } = req.body;
 
     if (id) {
@@ -5139,7 +5139,7 @@ async function ensureLeaveTables() {
 export async function listLeaveTypes(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const items = await query(`SELECT *,
           created_at FROM hr_leave_types
          WHERE company_id = :companyId AND is_active = 1 ORDER BY type_name ASC`,
@@ -5153,7 +5153,7 @@ export async function listLeaveTypes(req, res, next) {
 
 export async function getLeaveType(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const rows = await query(`SELECT *,
           created_at FROM hr_leave_types
@@ -5170,7 +5170,7 @@ export async function getLeaveType(req, res, next) {
 export async function saveLeaveType(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, type_name, max_days, is_paid, is_active } = req.body;
     if (id) {
       await query(`UPDATE hr_leave_types SET type_name=:type_name, max_days=:max_days, is_paid=:is_paid, is_active=:is_active
@@ -5206,7 +5206,7 @@ export async function saveLeaveType(req, res, next) {
 export async function getLeaveDashboard(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const today = new Date().toISOString().slice(0, 10);
     const currentYear = new Date().getFullYear();
     const futureDate = new Date();
@@ -5250,7 +5250,7 @@ export async function applyLeave(req, res, next) {
   try {
     await ensureLeaveTables();
     await conn.beginTransaction();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { employee_id, leave_type_id, start_date, end_date, reason } =
       req.body;
 
@@ -5329,7 +5329,7 @@ export async function applyLeave(req, res, next) {
 export async function scheduleLeave(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { employee_ids, leave_type_id, start_date, end_date, remarks } =
       req.body;
 
@@ -5418,7 +5418,7 @@ export async function scheduleLeave(req, res, next) {
 export async function saveLeaveRoster(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { year, items } = req.body;
 
     if (!Array.isArray(items) || !items.length) {
@@ -5473,7 +5473,7 @@ export async function saveLeaveRoster(req, res, next) {
 export async function listLeaveRecords(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { employee_id, source, status, start_date, end_date, dept_id, q } =
       req.query;
 
@@ -5536,7 +5536,7 @@ export async function listLeaveRecords(req, res, next) {
 // ── Delete Leave Record ──────────────────────────────────────
 export async function deleteLeaveRecord(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const rows = await query(`SELECT id,
           created_at FROM hr_leave_records
@@ -5554,7 +5554,7 @@ export async function deleteLeaveRecord(req, res, next) {
 // ── Update Leave Record ──────────────────────────────────────
 export async function updateLeave(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const { start_date, end_date, status, remarks, leave_type_id } = req.body;
 
@@ -5601,7 +5601,7 @@ export async function updateLeave(req, res, next) {
 export async function leaveCalendar(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { year, month } = req.query;
 
     const clauses = ["lr.company_id = :companyId", "lr.status = 'ACTIVE'"];
@@ -5644,7 +5644,7 @@ export async function leaveCalendar(req, res, next) {
 export async function listLeaveBalances(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { year, dept_id, employee_id } = req.query;
     const currentYear = year ? Number(year) : new Date().getFullYear();
 

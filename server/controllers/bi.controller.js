@@ -11,7 +11,7 @@ async function safeQuery(sql, params, fallbackRows) {
 
 export const getDashboards = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const salesStats = await safeQuery(
       `SELECT COUNT(*) as count, SUM(total_amount) as total FROM sal_invoices 
        WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND invoice_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)`,
@@ -63,7 +63,7 @@ export const getDashboards = async (req, res, next) => {
 
 export const getSalesReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const data = await safeQuery(
       `SELECT DATE(invoice_date) as date, COUNT(*) as count, SUM(total_amount) as total 
        FROM sal_invoices 
@@ -80,7 +80,7 @@ export const getSalesReport = async (req, res, next) => {
 
 export const getPurchaseReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const data = await safeQuery(
       `SELECT DATE(po_date) as date, COUNT(*) as count, SUM(total_amount) as total 
        FROM pur_orders 
@@ -97,7 +97,7 @@ export const getPurchaseReport = async (req, res, next) => {
 
 export const getInventoryReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const data = await safeQuery(
       `SELECT i.item_code, i.item_name, sb.qty, i.reorder_level, i.max_stock_level 
        FROM inv_stock_balances sb

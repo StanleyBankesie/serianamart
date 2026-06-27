@@ -3052,7 +3052,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = canonicalDocumentType(String(req.params.type || "").trim());
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -3476,7 +3476,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = canonicalDocumentType(String(req.params.type || "").trim());
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -3791,7 +3791,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = String(req.params.type || "").trim();
       if (!type) throw httpError(400, "VALIDATION_ERROR", "Invalid request");
 
@@ -4107,7 +4107,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -4160,7 +4160,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -4225,7 +4225,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       const attId = toNumber(req.params.attId);

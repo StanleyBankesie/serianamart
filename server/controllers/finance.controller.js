@@ -951,7 +951,7 @@ export const getNextVoucherNo = async (req, res, next) => {
 
 export const submitVoucher = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const voucherId = Number(req.params.voucherId);
     const amount = req.body?.amount ?? null;
     const workflowIdOverride = Number(req.body?.workflow_id || 0) || null;
@@ -1870,7 +1870,7 @@ export const createVoucher = async (req, res, next) => {
       return rows;
     };
 
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const {
       voucherTypeCode,
       voucherTypeId,
@@ -2474,7 +2474,7 @@ export const bulkImportVouchers = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensurePurBillsPaymentStatusObjects();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { vouchers, defaultBranchId } = req.body || {};
     const branchId = defaultBranchId || req.scope.branchId;
     if (!Array.isArray(vouchers) || !vouchers.length) {
@@ -2691,7 +2691,7 @@ export const voucherRegisterReport = async (req, res, next) => {
 export const paymentDueReport = async (req, res, next) => {
   try {
     await ensurePurBillsPaymentStatusObjects();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     let conn = null;
@@ -2776,7 +2776,7 @@ export const paymentDueReport = async (req, res, next) => {
 
 export const outstandingReceivableReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const items = await query(
@@ -2800,7 +2800,7 @@ export const outstandingReceivableReport = async (req, res, next) => {
 
 export const trialBalanceReport = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const groupId = req.query.groupId ? Number(req.query.groupId) : null;
@@ -2866,7 +2866,7 @@ export const trialBalanceReport = async (req, res, next) => {
 
 export const auditTrailReport = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const items = await query(
@@ -2889,7 +2889,7 @@ export const auditTrailReport = async (req, res, next) => {
 
 export const journalsReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const order = req.query.order || "new";
@@ -2917,7 +2917,7 @@ export const journalsReport = async (req, res, next) => {
 
 export const customerOutstandingReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const asOf = req.query.asOf ? String(req.query.asOf) : null;
     const items = await query(
       `SELECT i.id, c.customer_name, i.invoice_no, i.invoice_date, i.invoice_date AS due_date,
@@ -3460,7 +3460,7 @@ export const listOpeningBalances = async (req, res, next) => {
 
 export const upsertOpeningBalance = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { fiscalYearId, accountId, openingDebit, openingCredit } =
       req.body || {};
     if (!fiscalYearId || !accountId)
@@ -3491,7 +3491,7 @@ export const upsertOpeningBalance = async (req, res, next) => {
 export const bulkUpsertOpeningBalances = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { fiscalYearId, items } = req.body || {};
     if (!fiscalYearId || !Array.isArray(items))
       throw httpError(
@@ -3691,7 +3691,7 @@ export const updateAccountGroup = async (req, res, next) => {
 // Financial Reports
 export const cashFlowReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
 
@@ -3741,7 +3741,7 @@ export const cashFlowReport = async (req, res, next) => {
 
 export const balanceSheetReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const asOfDate = req.query.to
       ? String(req.query.to)
       : new Date().toISOString().split("T")[0];
@@ -3885,7 +3885,7 @@ export const balanceSheetReport = async (req, res, next) => {
 
 export const profitAndLossReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
 
@@ -3995,7 +3995,7 @@ export const profitAndLossReport = async (req, res, next) => {
 
 export const ratioAnalysisReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const asOf = req.query.to
       ? String(req.query.to)
       : new Date().toISOString().split("T")[0];
@@ -4131,7 +4131,7 @@ export const ratioAnalysisReport = async (req, res, next) => {
 
 export const chartOfAccountsGraphical = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
 
     // Fetch all groups
     const groups = await query(
@@ -4196,7 +4196,7 @@ export const chartOfAccountsGraphical = async (req, res, next) => {
 
 export const supplierOutstandingReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const asOf = req.query.asOf
       ? String(req.query.asOf)
       : new Date().toISOString().split("T")[0];
@@ -4286,7 +4286,7 @@ export const supplierOutstandingReport = async (req, res, next) => {
 
 export const creditorsLedgerReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
@@ -4315,7 +4315,7 @@ export const creditorsLedgerReport = async (req, res, next) => {
 
 export const debtorsLedgerReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
@@ -4345,7 +4345,7 @@ export const debtorsLedgerReport = async (req, res, next) => {
 export const generalLedgerReport = async (req, res, next) => {
   try {
     await ensureAccountBalanceObjects();
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
@@ -4474,7 +4474,7 @@ export const generalLedgerReport = async (req, res, next) => {
 
 export const chartOfAccountsReport = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { search } = req.query || {};
     const items = await query(
       `SELECT a.id, a.code, a.name, a.is_postable, a.is_active,
@@ -4495,7 +4495,7 @@ export const chartOfAccountsReport = async (req, res, next) => {
 
 export const bankReconciliationReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { bankAccountId, from, to, reconciled } = req.query || {};
     if (!bankAccountId)
       throw httpError(400, "VALIDATION_ERROR", "bankAccountId is required");
@@ -4536,7 +4536,7 @@ export const bankReconciliationReport = async (req, res, next) => {
 // Banking & PDC Management
 export const listBankAccounts = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const items = await query(
       `SELECT id, company_id, branch_id, name, bank_name, account_number, gl_account_id, currency_id, is_active
          FROM fin_bank_accounts
@@ -4584,7 +4584,7 @@ export const createBankAccount = async (req, res, next) => {
 
 export const listPdcPostings = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { status, bankAccountId, from, to } = req.query || {};
     const items = await query(
       `SELECT p.id, p.company_id, p.branch_id, p.bank_account_id, p.instrument_no,
@@ -5258,7 +5258,7 @@ export const createVoucherType = async (req, res, next) => {
 
 export const getFinanceDashboardStats = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     let cashBalance = 0;
@@ -5340,7 +5340,7 @@ export const getFinanceDashboardStats = async (req, res, next) => {
 
 export const getDashboardMetrics = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from || null;
     const to = req.query.to || null;
 

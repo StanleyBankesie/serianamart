@@ -84,7 +84,7 @@ async function ensureProjectTables(companyId, branchId) {
 
 export const listProjects = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureProjectTables(companyId, branchId);
     const activeFilter = req.query.active !== 'all' ? " AND p.is_active = 'Y'" : "";
     const items = await query(`SELECT p.*,
@@ -104,7 +104,7 @@ export const listProjects = async (req, res, next) => {
 
 export const getProjectById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensureProjectTables(companyId, branchId);
@@ -125,7 +125,7 @@ export const getProjectById = async (req, res, next) => {
 
 export const createProject = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureProjectTables(companyId, branchId);
     const b = req.body || {};
 
@@ -160,7 +160,7 @@ export const createProject = async (req, res, next) => {
 
 export const updateProject = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     const b = req.body || {};
     await ensureProjectTables(companyId, branchId);
@@ -200,7 +200,7 @@ export const updateProject = async (req, res, next) => {
 // ===== TASKS =====
 export const listTasks = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const projectId = toNumber(req.query.projectId);
     await ensureProjectTables(companyId, branchId);
     
@@ -220,7 +220,7 @@ export const listTasks = async (req, res, next) => {
 
 export const getTaskById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid task id");
     await ensureProjectTables(companyId, branchId);
@@ -240,7 +240,7 @@ export const getTaskById = async (req, res, next) => {
 
 export const createOrUpdateTask = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const b = req.body || {};
     await ensureProjectTables(companyId, branchId);
 
@@ -278,7 +278,7 @@ export const createOrUpdateTask = async (req, res, next) => {
 
 export const deleteTask = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await query(`DELETE FROM pm_tasks WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, { id, companyId, branchId });
@@ -288,7 +288,7 @@ export const deleteTask = async (req, res, next) => {
 
 export const deleteProject = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await query(`DELETE FROM pm_projects WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, { id, companyId, branchId });
@@ -299,7 +299,7 @@ export const deleteProject = async (req, res, next) => {
 // ===== PROJECT MANAGERS =====
 export const listProjectManagers = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const rows = await query(
       `SELECT pm.id, pm.user_id, pm.is_active, u.username, u.email
        FROM pm_project_managers pm
@@ -314,7 +314,7 @@ export const listProjectManagers = async (req, res, next) => {
 
 export const createProjectManager = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const userId = toNumber(req.body?.user_id);
     if (!userId) return next(httpError(400, "VALIDATION_ERROR", "user_id is required"));
     const result = await query(
@@ -329,7 +329,7 @@ export const createProjectManager = async (req, res, next) => {
 
 export const removeProjectManager = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
     await query(
@@ -343,7 +343,7 @@ export const removeProjectManager = async (req, res, next) => {
 // ===== TIMESHEETS =====
 export const listTimesheets = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const projectId = toNumber(req.query.projectId);
     await ensureProjectTables(companyId, branchId);
     
@@ -363,7 +363,7 @@ export const listTimesheets = async (req, res, next) => {
 
 export const createTimesheet = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const b = req.body || {};
     await ensureProjectTables(companyId, branchId);
     
@@ -384,7 +384,7 @@ export const createTimesheet = async (req, res, next) => {
 
 export const updateTimesheet = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const b = req.body;
@@ -403,7 +403,7 @@ export const updateTimesheet = async (req, res, next) => {
 
 export const deleteTimesheet = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const old = await query(`SELECT * FROM pm_timesheets WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, { id, companyId, branchId });
@@ -419,7 +419,7 @@ export const deleteTimesheet = async (req, res, next) => {
 // ===== DASHBOARD =====
 export const getPMDashboardStats = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureProjectTables(companyId, branchId);
 
     const [projects] = await query(`SELECT COUNT(*) as count FROM pm_projects WHERE company_id = :companyId AND branch_id = :branchId`, { companyId, branchId });
@@ -456,7 +456,7 @@ async function ensureTaskDependenciesTable(companyId, branchId) {
 
 export const listTaskDependencies = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureTaskDependenciesTable(companyId, branchId);
     const taskId = req.query.taskId ? toNumber(req.query.taskId) : null;
     let sql = `SELECT d.*, t.task_title AS task_title, p.task_title AS predecessor_title
@@ -473,7 +473,7 @@ export const listTaskDependencies = async (req, res, next) => {
 
 export const createTaskDependency = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureTaskDependenciesTable(companyId, branchId);
     const b = req.body;
     if (!b.task_id || !b.predecessor_id) throw httpError(400, "VALIDATION_ERROR", "task_id and predecessor_id required");
@@ -489,7 +489,7 @@ export const createTaskDependency = async (req, res, next) => {
 
 export const deleteTaskDependency = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await query(`DELETE FROM pm_task_dependencies WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, { id, companyId, branchId });
@@ -500,7 +500,7 @@ export const deleteTaskDependency = async (req, res, next) => {
 // ===== EXPENSES CRUD =====
 export const listExpenses = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureProjectTables(companyId, branchId);
     const projectId = toNumber(req.query.projectId);
     let sql = `SELECT e.*, p.project_name, u.username AS created_by_name
@@ -517,7 +517,7 @@ export const listExpenses = async (req, res, next) => {
 
 export const createExpense = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureProjectTables(companyId, branchId);
     const b = req.body;
     if (!b.project_id || !b.amount) throw httpError(400, "VALIDATION_ERROR", "project_id and amount required");
@@ -539,7 +539,7 @@ export const createExpense = async (req, res, next) => {
 
 export const updateExpense = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const b = req.body;
@@ -557,7 +557,7 @@ export const updateExpense = async (req, res, next) => {
 
 export const deleteExpense = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await query(`DELETE FROM pm_expenses WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, { id, companyId, branchId });
@@ -568,7 +568,7 @@ export const deleteExpense = async (req, res, next) => {
 // ===== ENHANCED DASHBOARD STATS =====
 export const getPMDashboardDetail = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureProjectTables(companyId, branchId);
     const [projectStats] = await query(`SELECT
       COUNT(*) AS total, SUM(CASE WHEN project_status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS active,
@@ -595,7 +595,7 @@ export const getPMDashboardDetail = async (req, res, next) => {
 // ===== BUDGET VS ACTUAL =====
 export const getBudgetVsActual = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensureProjectTables(companyId, branchId);
     const rows = await query(`SELECT
       p.id, p.project_name, p.project_code, p.project_status, p.budget, p.completion_percent,
@@ -618,7 +618,7 @@ export const getBudgetVsActual = async (req, res, next) => {
 // ===== PROJECT DETAIL DASHBOARD =====
 export const getProjectDetail = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const projectId = toNumber(req.params.id);
     if (!projectId) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensureProjectTables(companyId, branchId);
@@ -772,7 +772,7 @@ async function nextPMRcptNo(companyId, branchId) {
 // ===== PM MATERIAL REQUISITION CRUD =====
 export const listPMMaterialRequisitions = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensurePMMaterialRequisitionTables(companyId, branchId);
     const rows = await query(`SELECT r.*, p.project_name, w.warehouse_name, d.name AS department_name, u.username AS created_by_name
       FROM inv_material_requisitions r
@@ -788,7 +788,7 @@ export const listPMMaterialRequisitions = async (req, res, next) => {
 
 export const getPMMaterialRequisitionById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensurePMMaterialRequisitionTables(companyId, branchId);
@@ -808,7 +808,7 @@ export const getPMMaterialRequisitionById = async (req, res, next) => {
 export const createPMMaterialRequisition = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensurePMMaterialRequisitionTables(companyId, branchId);
     const b = req.body || {};
     const reqNo = await nextPMMRNo(companyId, branchId);
@@ -847,7 +847,7 @@ export const createPMMaterialRequisition = async (req, res, next) => {
 export const updatePMMaterialRequisition = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensurePMMaterialRequisitionTables(companyId, branchId);
@@ -887,7 +887,7 @@ export const updatePMMaterialRequisition = async (req, res, next) => {
 
 export const submitPMMaterialRequisition = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await query(`UPDATE inv_material_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId`, { id, companyId });
@@ -924,7 +924,7 @@ export const submitPMMaterialRequisition = async (req, res, next) => {
 // ===== PM MATERIAL UTILIZATION CRUD =====
 export const listPMMaterialUtilizations = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensurePMMaterialUtilizationTables(companyId, branchId);
     const rows = await query(`SELECT u.id, u.utilization_no, u.utilization_date, u.project_id, u.task_id, u.task_summary, u.warehouse_id, u.remarks, u.status, u.created_by, u.created_at, u.updated_at,
       p.project_name, t.task_title, u2.username AS created_by_name, w.warehouse_name
@@ -941,7 +941,7 @@ export const listPMMaterialUtilizations = async (req, res, next) => {
 
 export const getPMMaterialUtilizationById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensurePMMaterialUtilizationTables(companyId, branchId);
@@ -960,7 +960,7 @@ export const getPMMaterialUtilizationById = async (req, res, next) => {
 export const createPMMaterialUtilization = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensurePMMaterialUtilizationTables(companyId, branchId);
     const b = req.body || {};
     const utilNo = b.utilization_no || await nextPMUtilNo(companyId, branchId);
@@ -1039,7 +1039,7 @@ export const createPMMaterialUtilization = async (req, res, next) => {
 export const updatePMMaterialUtilization = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensurePMMaterialUtilizationTables(companyId, branchId);
@@ -1161,7 +1161,7 @@ export const updatePMMaterialUtilization = async (req, res, next) => {
 export const confirmPMMaterialUtilization = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensurePMMaterialUtilizationTables(companyId, branchId);
@@ -1232,7 +1232,7 @@ export const confirmPMMaterialUtilization = async (req, res, next) => {
 // ===== PM MATERIALS RECEIPT CRUD =====
 export const listPMMaterialReceipts = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     await ensurePMMaterialReceiptTables(companyId, branchId);
     const rows = await query(`SELECT r.*, w.warehouse_name, d.name AS department_name, u.username AS created_by_name
       FROM pm_material_receipts r
@@ -1247,7 +1247,7 @@ export const listPMMaterialReceipts = async (req, res, next) => {
 
 export const getPMMaterialReceiptById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensurePMMaterialReceiptTables(companyId, branchId);
@@ -1477,7 +1477,7 @@ export const updatePMMaterialReceipt = async (req, res, next) => {
 // ===== AUTO-POPULATE FROM ISSUE TO REQUIREMENT =====
 export const getPendingIssueToRequirement = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const departmentId = req.query.department_id ? toNumber(req.query.department_id) : null;
     await ensurePMMaterialReceiptTables(companyId, branchId);
 
@@ -1506,7 +1506,7 @@ export const getPendingIssueToRequirement = async (req, res, next) => {
 
 export const getIssueToRequirementDetail = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null } = req.scope || {};
     const issueId = toNumber(req.params.issueId);
     if (!issueId) throw httpError(400, "VALIDATION_ERROR", "Invalid issue id");
     const [hdr] = await query(`SELECT i.*, w.warehouse_name, d.name AS department_name
@@ -1527,7 +1527,7 @@ export const getIssueToRequirementDetail = async (req, res, next) => {
 // ===== PROJECT STATUS REPORT =====
 export const getProjectStatusReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     await ensureProjectTables(companyId, branchId);
     const rows = await query(`SELECT p.id, p.project_code, p.project_name, p.project_status, p.completion_percent,
       p.start_date, p.end_date, p.actual_start_date, p.actual_end_date,
@@ -1551,7 +1551,7 @@ export const getProjectStatusReport = async (req, res, next) => {
 
 export const getProjectIncomeReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const projectId = req.query.project_id ? toNumber(req.query.project_id) : null;
     if (!projectId) {
       const projects = await query(`SELECT DISTINCT p.id, p.project_code, p.project_name
@@ -1579,7 +1579,7 @@ export const getProjectIncomeReport = async (req, res, next) => {
 
 export const getProjectExpenseReport = async (req, res, next) => {
   try {
-    const { companyId, branchId, branchIdsStr } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const projectId = req.query.project_id ? toNumber(req.query.project_id) : null;
     if (!projectId) {
       const projects = await query(`SELECT DISTINCT p.id, p.project_code, p.project_name

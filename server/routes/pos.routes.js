@@ -1,4 +1,4 @@
-﻿import express from "express";
+import express from "express";
 
 import {
   requireAuth,
@@ -2435,7 +2435,7 @@ router.get(
                AND (:branchIdsStr = '' OR FIND_IN_SET(pos_terminals.branch_id, :branchIdsStr)) 
                AND UPPER(code) = :code 
              LIMIT 1`,
-            { companyId, branchId, code: terminalCode.toUpperCase() },
+            { companyId, branchId, branchIdsStr, code: terminalCode.toUpperCase() },
           );
           resolvedTerminalId = Number(rows?.[0]?.id || 0) || 0;
         } catch {}
@@ -2825,7 +2825,8 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId, branchIdsStr = '' } = req.scope || {};
+      const { companyId, branchIdsStr = '' } = req.scope || {};
+      const branchId = req.scope?.branchId || null;
       const {
         payment_method,
         payment_mode_id,
@@ -2948,7 +2949,7 @@ router.post(
           `SELECT id, warehouse_id FROM pos_terminals 
            WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND code = :code 
            LIMIT 1`,
-          { companyId, branchId, code: String(terminal || "") },
+          { companyId, branchId, branchIdsStr, code: String(terminal || "") },
         );
         if (!tRows || tRows.length === 0) {
           throw httpError(

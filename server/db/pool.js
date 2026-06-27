@@ -352,12 +352,18 @@ function wrapConnection(connection) {
           let cleanParams = params;
           if (params) {
             if (Array.isArray(params)) {
-              cleanParams = params.map(v => v === undefined ? null : v);
-            } else if (typeof params === 'object') {
-              cleanParams = {};
-              for (const key in params) {
-                cleanParams[key] = params[key] === undefined ? null : params[key];
-              }
+              cleanParams = params.map((v) => (v === undefined ? null : v));
+            } else if (typeof params === "object") {
+              cleanParams = new Proxy(params, {
+                get(target, prop) {
+                  if (prop === 'branchIdsStr' && target[prop] === undefined) return '';
+                  const val = target[prop];
+                  return val === undefined ? null : val;
+                },
+                has(target, prop) {
+                  return true;
+                },
+              });
             }
           }
           return withQueryTimeout(() => target.query(sql, cleanParams), sql);
@@ -369,12 +375,18 @@ function wrapConnection(connection) {
           let cleanParams = params;
           if (params) {
             if (Array.isArray(params)) {
-              cleanParams = params.map(v => v === undefined ? null : v);
-            } else if (typeof params === 'object') {
-              cleanParams = {};
-              for (const key in params) {
-                cleanParams[key] = params[key] === undefined ? null : params[key];
-              }
+              cleanParams = params.map((v) => (v === undefined ? null : v));
+            } else if (typeof params === "object") {
+              cleanParams = new Proxy(params, {
+                get(target, prop) {
+                  if (prop === 'branchIdsStr' && target[prop] === undefined) return '';
+                  const val = target[prop];
+                  return val === undefined ? null : val;
+                },
+                has(target, prop) {
+                  return true;
+                },
+              });
             }
           }
           return withQueryTimeout(() => target.execute(sql, cleanParams), sql);
@@ -447,13 +459,18 @@ export const pool = new Proxy(
 export async function query(sql, params = {}) {
   if (params) {
     if (Array.isArray(params)) {
-      params = params.map(v => v === undefined ? null : v);
-    } else if (typeof params === 'object') {
-      const newParams = {};
-      for (const key in params) {
-        newParams[key] = params[key] === undefined ? null : params[key];
-      }
-      params = newParams;
+      params = params.map((v) => (v === undefined ? null : v));
+    } else if (typeof params === "object") {
+      params = new Proxy(params, {
+        get(target, prop) {
+          if (prop === 'branchIdsStr' && target[prop] === undefined) return '';
+          const val = target[prop];
+          return val === undefined ? null : val;
+        },
+        has(target, prop) {
+          return true;
+        },
+      });
     }
   }
 

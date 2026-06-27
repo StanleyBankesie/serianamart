@@ -420,7 +420,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePMOrderTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `SELECT order_no FROM pm_orders
          WHERE company_id = :companyId
@@ -453,7 +453,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePMOrderTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const items = await query(
         `SELECT
            o.id, o.order_no, o.order_date,
@@ -533,7 +533,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePMOrderTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -584,7 +584,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensurePMOrderTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const body = req.body || {};
       let order_no = String(body.order_no || "").trim();
       const order_date = body.order_date
@@ -710,7 +710,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensurePMOrderTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -826,7 +826,7 @@ router.delete(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0)
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -858,7 +858,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensurePMOrderTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1038,7 +1038,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePMPurchaseRequisitionTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const requisition_no = await nextPMReqNo(companyId, branchId);
       res.json({ requisition_no });
     } catch (e) { next(e); }
@@ -1053,7 +1053,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePMPurchaseRequisitionTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { status, from_date, to_date } = req.query;
       let where = "WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)) AND COALESCE(r.is_active,'Y') = 'Y'";
       const params = { companyId, branchId, branchIdsStr };
@@ -1083,7 +1083,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePMPurchaseRequisitionTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
       const rows = await query(
@@ -1114,7 +1114,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensurePMPurchaseRequisitionTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const userId = req.user?.sub || null;
       const { requisition_date, project_id, department, requested_by, purpose, priority, required_date, status, remarks, items, timeline } = req.body;
       if (!requisition_date) throw httpError(400, "VALIDATION_ERROR", "Date is required");
@@ -1172,7 +1172,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensurePMPurchaseRequisitionTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
       const existing = await query(
@@ -1235,7 +1235,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensurePMPurchaseRequisitionTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
       await query(
@@ -1256,7 +1256,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensurePMPurchaseRequisitionTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const amount = req.body?.amount ?? null;

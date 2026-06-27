@@ -14,7 +14,7 @@ router.get(
   requireAnyPermission(["SERVICE.VISITORS.VIEW", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { from, to, status, department, search } = req.query;
       
       const clauses = ["v.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))"];
@@ -84,7 +84,7 @@ router.get(
   requireAnyPermission(["SERVICE.VISITORS.VIEW", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { id } = req.params;
       
       const rows = await query(`
@@ -116,7 +116,7 @@ router.post(
   requireAnyPermission(["SERVICE.VISITORS.MANAGE", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const {
         visitorName,
         phoneNumber,
@@ -180,7 +180,7 @@ router.put(
   requireAnyPermission(["SERVICE.VISITORS.MANAGE", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { id } = req.params;
       const {
         visitorName,
@@ -250,7 +250,7 @@ router.delete(
   requireAnyPermission(["SERVICE.VISITORS.MANAGE", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { id } = req.params;
       
       const existing = await query(`
@@ -283,7 +283,7 @@ router.get(
   requireAnyPermission(["SERVICE.VISITORS.VIEW", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       
       const stats = await query(`
         SELECT 
@@ -325,7 +325,7 @@ router.get(
   requireAnyPermission(["SERVICE.VISITORS.VIEW", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { from, to, department } = req.query;
       
       const clauses = ["v.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))"];
@@ -395,7 +395,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       
       const departments = await query(`
         SELECT DISTINCT department_visited AS name

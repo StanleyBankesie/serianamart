@@ -438,7 +438,7 @@ export const getBranchById = async (req, res, next) => {
 export const createBranch = async (req, res, next) => {
   try {
     await ensureBranchColumns();
-    // const { companyId } = req.scope;
+    // const { companyId = null } = req.scope || {};
     // We expect company_id in body now for global setup
     const {
       company_id,
@@ -499,7 +499,7 @@ export const createBranch = async (req, res, next) => {
 export const updateBranch = async (req, res, next) => {
   try {
     await ensureBranchColumns();
-    // const { companyId } = req.scope;
+    // const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -701,7 +701,7 @@ export const createDepartment = async (req, res, next) => {
 
 export const getCurrentCompany = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     if (!companyId) throw httpError(401, "UNAUTHORIZED", "Company scope not found");
 
     const items = await query(

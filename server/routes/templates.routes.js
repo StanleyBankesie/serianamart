@@ -177,7 +177,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const document_type = String(req.params.documentType || "").trim();
       const template_name = req.query.name
         ? String(req.query.name).trim()
@@ -233,7 +233,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [item] = await query(
@@ -269,7 +269,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const {
         name,
         document_type,
@@ -348,7 +348,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const {
@@ -475,7 +475,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId, branchIdsStr } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [existing] = await query(

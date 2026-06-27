@@ -290,7 +290,7 @@ export async function consumeStockFIFOTx(conn, params) {
 
   const {
     companyId,
-    branchId,
+    branchId = null,
     warehouseId,
     itemId,
     transactionType,
