@@ -1,15 +1,21 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { Eye } from "lucide-react";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 const statusColors = { ACTIVE:"bg-green-100 text-green-700", INACTIVE:"bg-slate-100 text-slate-600", DECOMMISSIONED:"bg-red-100 text-red-600" };
 
 export default function EquipmentList() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let m = true;
@@ -48,8 +54,8 @@ export default function EquipmentList() {
                     <th>Created Date</th>
                     </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan="8" className="text-center py-8 text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="8" className="text-center py-8 text-slate-500">No equipment found</td></tr>}
+                {loading && <tr><td colSpan="10" className="text-center py-8 text-slate-500">Loading...</td></tr>}
+                {!loading && !filtered.length && <tr><td colSpan="10" className="text-center py-8 text-slate-500">No equipment found</td></tr>}
                 {!loading && filtered.map(r => (
                   <tr key={r.id}>
                     <td className="font-mono text-sm">{r.equipment_code}</td>
@@ -59,7 +65,9 @@ export default function EquipmentList() {
                     <td>{r.serial_number}</td>
                     <td className={r.warranty_expiry && r.warranty_expiry < today ? "text-red-600 font-medium" : ""}>{r.warranty_expiry}</td>
                     <td><span className={`inline-block px-2 py-0.5 text-xs rounded font-medium ${statusColors[r.status] || "bg-slate-100 text-slate-600"}`}>{r.status}</span></td>
-                    <td><Link to={`/maintenance/equipment/${r.id}`} className="btn-secondary btn-sm">Edit</Link></td>
+                    <td>{r.created_by_name || "-"}</td>
+                    <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                    <td><div className="flex items-center gap-1"><button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/equipment/${r.id}?mode=view`)}><Eye size={15} /></button><ListPrintIconButton onClick={() => toast.info("Print coming soon")} /><ListPdfIconButton onClick={() => toast.info("PDF coming soon")} /><ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} /><Link to={`/maintenance/equipment/${r.id}`} className="btn-secondary btn-sm">Edit</Link></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -67,6 +75,14 @@ export default function EquipmentList() {
           </div>
         </div>
       </div>
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
     </div>
   );
 }

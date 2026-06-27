@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
@@ -622,8 +623,8 @@ export default function PosPostToFinance() {
       })
       .then((res) => {
         const vn = res?.data?.voucher_no || vNo;
-        window.alert(
-          `Transaction posted to finance successfully!\nVoucher: ${vn}`,
+        toast.success(
+          `Transaction posted to finance successfully! Voucher: ${vn}`,
         );
         resetForm();
       })

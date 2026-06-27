@@ -321,7 +321,7 @@ export default function InvoiceForm() {
   const fetchOrders = async () => {
     try {
       const [ordersRes, invoicesRes] = await Promise.all([
-        api.get("/sales/orders"),
+        api.get("/projects/project-orders"),
         api.get("/sales/invoices"),
       ]);
       const baseOrders = Array.isArray(ordersRes.data?.items)
@@ -336,13 +336,13 @@ export default function InvoiceForm() {
           .filter((v) => v !== undefined && v !== null)
           .map((v) => String(v)),
       );
-      let filtered = baseOrders.filter((o) => !usedSoIds.has(String(o.id)));
+      let filtered = baseOrders.filter((o) => o.status === "POSTED" && !usedSoIds.has(String(o.id)));
       if (isEdit && form.sales_order_id) {
         const sid = String(form.sales_order_id);
         const exists = filtered.some((o) => String(o.id) === sid);
         if (!exists) {
           try {
-            const res = await api.get(`/sales/orders/${form.sales_order_id}`);
+            const res = await api.get(`/projects/project-orders/${form.sales_order_id}`);
             const item = res.data?.item;
             if (item) {
               filtered = [item, ...filtered];
@@ -731,7 +731,8 @@ export default function InvoiceForm() {
   async function repriceLinesByPriceType(newPriceType, newCustomerId) {
     try {
       const pType = newPriceType !== undefined ? newPriceType : form.price_type;
-      const cId = newCustomerId !== undefined ? newCustomerId : form.customer_id;
+      const cId =
+        newCustomerId !== undefined ? newCustomerId : form.customer_id;
       const currentLines = [...lines];
       const results = await Promise.all(
         currentLines.map(async (l) => {
@@ -746,9 +747,7 @@ export default function InvoiceForm() {
               quantity: Number(l.qty || 1),
               date: form.invoice_date,
               price_type:
-                typeof pType === "string"
-                  ? pType
-                  : String(pType || ""),
+                typeof pType === "string" ? pType : String(pType || ""),
               only_standard: true,
             });
             if (res.data && res.data.price !== undefined) {
@@ -795,7 +794,7 @@ export default function InvoiceForm() {
 
   async function applyOrderToInvoice(orderId) {
     try {
-      const resp = await api.get(`/sales/orders/${orderId}`);
+      const resp = await api.get(`/projects/project-orders/${orderId}`);
       const order = resp.data?.item;
       const details = Array.isArray(resp.data?.details)
         ? resp.data.details
@@ -1515,7 +1514,7 @@ export default function InvoiceForm() {
               <div>
                 <label className="label">Invoice Date *</label>
                 <input
-                  className="input"
+                  className="input w-56"
                   type="date"
                   value={form.invoice_date}
                   onChange={(e) => update("invoice_date", e.target.value)}
@@ -1523,17 +1522,18 @@ export default function InvoiceForm() {
                   disabled={readOnly}
                 />
               </div>
-               <div className="relative">
+              <div className="relative">
                 <label className="label">Customer *</label>
                 <input
                   type="text"
-                  className="input"
+                  className="input w-56"
                   placeholder="Search customer..."
                   required={!form.customer_id}
                   disabled={readOnly}
                   value={
-                    customers.find((c) => String(c.id) === String(form.customer_id))?.customer_name ||
-                    customerSearch
+                    customers.find(
+                      (c) => String(c.id) === String(form.customer_id),
+                    )?.customer_name || customerSearch
                   }
                   onChange={(e) => {
                     const val = e.target.value;
@@ -1542,14 +1542,21 @@ export default function InvoiceForm() {
                     update("customer_id", "");
                   }}
                 />
-                {!readOnly && customerSearch && (
+                {!readOnly &&
+                  customerSearch &&
                   (() => {
                     const q = customerSearch.toLowerCase();
-                    const matched = customers.filter(
-                      (c) =>
-                        String(c.customer_name || "").toLowerCase().includes(q) ||
-                        String(c.customer_code || "").toLowerCase().includes(q)
-                    ).slice(0, 10);
+                    const matched = customers
+                      .filter(
+                        (c) =>
+                          String(c.customer_name || "")
+                            .toLowerCase()
+                            .includes(q) ||
+                          String(c.customer_code || "")
+                            .toLowerCase()
+                            .includes(q),
+                      )
+                      .slice(0, 10);
                     return matched.length > 0 ? (
                       <div className="absolute z-30 w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
                         {matched.map((c) => (
@@ -1563,8 +1570,14 @@ export default function InvoiceForm() {
                               setCustomerSearch("");
                             }}
                           >
-                            <div className="font-medium text-slate-800 dark:text-slate-200 text-sm">{c.customer_name}</div>
-                            {c.customer_code && <div className="text-xs text-slate-500">{c.customer_code}</div>}
+                            <div className="font-medium text-slate-800 dark:text-slate-200 text-sm">
+                              {c.customer_name}
+                            </div>
+                            {c.customer_code && (
+                              <div className="text-xs text-slate-500">
+                                {c.customer_code}
+                              </div>
+                            )}
                           </button>
                         ))}
                       </div>
@@ -1583,13 +1596,12 @@ export default function InvoiceForm() {
                         </div>
                       </div>
                     ) : null;
-                  })()
-                )}
+                  })()}
               </div>
               <div>
                 <label className="label">Warehouse</label>
                 <select
-                  className="input"
+                  className="input w-56"
                   value={form.warehouse_id}
                   onChange={(e) => update("warehouse_id", e.target.value)}
                   required
@@ -1606,7 +1618,7 @@ export default function InvoiceForm() {
               <div>
                 <label className="label">Project</label>
                 <select
-                  className="input"
+                  className="input w-56"
                   value={form.project_id}
                   onChange={(e) => update("project_id", e.target.value)}
                   disabled={readOnly}
@@ -1620,32 +1632,36 @@ export default function InvoiceForm() {
                 </select>
               </div>
               <div>
-                <label className="label">Sales Order</label>
+                <label className="label">Order</label>
                 <select
-                  className="input"
+                  className="input w-56"
                   value={form.sales_order_id}
                   onChange={(e) => update("sales_order_id", e.target.value)}
                   disabled={readOnly}
                 >
-                  <option value="">Select Sales Order (Optional)</option>
-                  {orders.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.order_no}
-                    </option>
-                  ))}
+                  <option value="">Select Order (Optional)</option>
+                  {orders
+                    .filter((o) => !form.project_id || String(o.project_id) === String(form.project_id))
+                    .map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.order_no}
+                      </option>
+                    ))}
                 </select>
               </div>
               <div>
                 <label className="label">Price Type</label>
                 <select
-                  className="input"
+                  className="input w-56"
                   value={form.price_type}
                   onChange={(e) => update("price_type", e.target.value)}
                   disabled={readOnly}
                 >
                   <option value="">Select price type</option>
                   {priceTypes.map((pt) => (
-                    <option key={pt.id} value={pt.name}>{pt.name}</option>
+                    <option key={pt.id} value={pt.name}>
+                      {pt.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -1692,7 +1708,7 @@ export default function InvoiceForm() {
               <div>
                 <label className="label">Currency</label>
                 <select
-                  className="input"
+                  className="input w-56"
                   value={form.currency_id}
                   onChange={(e) => update("currency_id", e.target.value)}
                   disabled={readOnly}
@@ -1715,7 +1731,7 @@ export default function InvoiceForm() {
                 <input
                   type="number"
                   step="0.000001"
-                  className="input"
+                  className="input w-56"
                   value={form.exchange_rate}
                   onChange={(e) => update("exchange_rate", e.target.value)}
                   readOnly
@@ -1724,7 +1740,7 @@ export default function InvoiceForm() {
               <div>
                 <label className="label">City</label>
                 <input
-                  className="input bg-gray-50"
+                  className="input bg-gray-50 w-56"
                   value={form.city}
                   onChange={(e) => update("city", e.target.value)}
                   placeholder="Auto"
@@ -1734,7 +1750,7 @@ export default function InvoiceForm() {
               <div>
                 <label className="label">State</label>
                 <input
-                  className="input bg-gray-50"
+                  className="input bg-gray-50 w-56"
                   value={form.state}
                   onChange={(e) => update("state", e.target.value)}
                   placeholder="Auto"
@@ -1744,7 +1760,7 @@ export default function InvoiceForm() {
               <div>
                 <label className="label">Country</label>
                 <input
-                  className="input bg-gray-50"
+                  className="input bg-gray-50 w-56"
                   value={form.country}
                   onChange={(e) => update("country", e.target.value)}
                   placeholder="Auto"
@@ -1754,7 +1770,7 @@ export default function InvoiceForm() {
               <div>
                 <label className="label">Phone</label>
                 <input
-                  className="input bg-gray-50"
+                  className="input bg-gray-50 w-56"
                   value={form.phone}
                   onChange={(e) => update("phone", e.target.value)}
                   placeholder="Auto"
@@ -1799,12 +1815,18 @@ export default function InvoiceForm() {
                             const results = query
                               ? filterByPrefix(itemsCatalog, {
                                   query,
-                                  searchFields: ["item_code", "item_name", "barcode"],
+                                  searchFields: [
+                                    "item_code",
+                                    "item_name",
+                                    "barcode",
+                                  ],
                                 })
                               : [];
                             if (!query || !results.length) return;
                             e.preventDefault();
-                            handleNewItemChange({ target: { name: "item_id", value: results[0].id } });
+                            handleNewItemChange({
+                              target: { name: "item_id", value: results[0].id },
+                            });
                             setItemQuery(results[0].item_name);
                           }
                         }}
@@ -1814,35 +1836,54 @@ export default function InvoiceForm() {
                         const results = query
                           ? filterByPrefix(itemsCatalog, {
                               query,
-                              searchFields: ["item_code", "item_name", "barcode"],
+                              searchFields: [
+                                "item_code",
+                                "item_name",
+                                "barcode",
+                              ],
                             })
                           : [];
-                        return results.length && !newItem.item_id ? (
-                          (() => {
-                            const el = document.getElementById("invoice-item-search");
-                            const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
-                            return (
-                              <div
-                                className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
-                                style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
-                              >
-                                {results.map((o) => (
-                                  <button
-                                    type="button"
-                                    key={o.id}
-                                    className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
-                                    onClick={() => {
-                                      handleNewItemChange({ target: { name: "item_id", value: o.id } });
-                                      setItemQuery(o.item_name);
-                                    }}
-                                  >
-                                    {o.item_code} - {o.item_name}
-                                  </button>
-                                ))}
-                              </div>
-                            );
-                          })()
-                        ) : null;
+                        return results.length && !newItem.item_id
+                          ? (() => {
+                              const el = document.getElementById(
+                                "invoice-item-search",
+                              );
+                              const r = el
+                                ? el.getBoundingClientRect()
+                                : { bottom: 0, left: 0, width: 0 };
+                              return (
+                                <div
+                                  className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                  style={{
+                                    position: "fixed",
+                                    top: `${r.bottom + 4}px`,
+                                    left: `${r.left}px`,
+                                    width: `${r.width}px`,
+                                    zIndex: 9999,
+                                  }}
+                                >
+                                  {results.map((o) => (
+                                    <button
+                                      type="button"
+                                      key={o.id}
+                                      className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
+                                      onClick={() => {
+                                        handleNewItemChange({
+                                          target: {
+                                            name: "item_id",
+                                            value: o.id,
+                                          },
+                                        });
+                                        setItemQuery(o.item_name);
+                                      }}
+                                    >
+                                      {o.item_code} - {o.item_name}
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })()
+                          : null;
                       })()}
                     </div>
                   </div>
@@ -2598,7 +2639,7 @@ export default function InvoiceForm() {
                     .join(", ")}
                 </div>
               )}
-              <div className="flex gap-3">
+              <div className="flex gap-3 w-56">
                 {companyInfo.phone && <span>{companyInfo.phone}</span>}
                 {companyInfo.email && <span>{companyInfo.email}</span>}
               </div>
@@ -2744,22 +2785,41 @@ export default function InvoiceForm() {
         }}
       />
       {showCustomerModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowCustomerModal(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 max-w-sm mx-4 w-full" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Customer not found</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setShowCustomerModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 max-w-sm mx-4 w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+              Customer not found
+            </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
-              Customer cannot be found in the system. Would you like to add a new customer?
+              Customer cannot be found in the system. Would you like to add a
+              new customer?
             </p>
             <div className="flex gap-3 justify-end">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowCustomerModal(false)}>Back</button>
-              <button type="button" className="btn btn-primary" onClick={() => {
-                setShowCustomerModal(false);
-                if (!canAccessPath("/sales/customers/new")) {
-                  setShowPermModal(true);
-                } else {
-                  navigate("/sales/customers/new");
-                }
-              }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowCustomerModal(false)}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setShowCustomerModal(false);
+                  if (!canAccessPath("/sales/customers/new")) {
+                    setShowPermModal(true);
+                  } else {
+                    navigate("/sales/customers/new");
+                  }
+                }}
+              >
                 Add Customer
               </button>
             </div>
@@ -2767,14 +2827,28 @@ export default function InvoiceForm() {
         </div>
       )}
       {showPermModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowPermModal(false)}>
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 max-w-sm mx-4 w-full" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Access Denied</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setShowPermModal(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 max-w-sm mx-4 w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+              Access Denied
+            </h3>
             <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
               You do not have permission to access this page.
             </p>
             <div className="flex justify-end">
-              <button type="button" className="btn btn-secondary" onClick={() => setShowPermModal(false)}>Back</button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowPermModal(false)}
+              >
+                Back
+              </button>
             </div>
           </div>
         </div>

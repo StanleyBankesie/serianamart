@@ -67,32 +67,34 @@ export default function PurchaseReturnForm() {
     async function load() {
       try {
         const [supRes, whRes, itemsRes, taxRes, nextNoRes, reasonsRes] =
-          await Promise.all([
+          await Promise.allSettled([
             api.get("/purchase/suppliers?active=true"),
             api.get("/inventory/warehouses"),
             api.get("/inventory/items"),
             api.get("/finance/tax-codes/by-page/20"),
             api.get("/purchase/returns/next-no"),
-            api
-              .get("/purchase/return-rejection-reasons")
-              .catch(() => ({ data: { items: [] } })),
+            api.get("/purchase/return-rejection-reasons"),
           ]);
         if (!mounted) return;
         setSuppliers(
-          Array.isArray(supRes.data?.items) ? supRes.data.items : [],
+          supRes.status === "fulfilled" && Array.isArray(supRes.value?.data?.items) ? supRes.value.data.items : [],
         );
-        setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
+        setWarehouses(
+          whRes.status === "fulfilled" && Array.isArray(whRes.value?.data?.items) ? whRes.value.data.items : [],
+        );
         setItemsMaster(
-          Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [],
+          itemsRes.status === "fulfilled" && Array.isArray(itemsRes.value?.data?.items) ? itemsRes.value.data.items : [],
         );
-        const taxItems = Array.isArray(taxRes.data?.items)
-          ? taxRes.data.items
-          : [];
+        const taxItems =
+          taxRes.status === "fulfilled" && Array.isArray(taxRes.value?.data?.items)
+            ? taxRes.value.data.items
+            : [];
         setTaxes(taxItems);
         setDefaultTaxId("");
-        const reasonItems = Array.isArray(reasonsRes.data?.items)
-          ? reasonsRes.data.items
-          : [];
+        const reasonItems =
+          reasonsRes.status === "fulfilled" && Array.isArray(reasonsRes.value?.data?.items)
+            ? reasonsRes.value.data.items
+            : [];
         const activeReasons = reasonItems.filter((r) => r.is_active);
         setReturnReasons(activeReasons);
         if (activeReasons.length > 0 && !id) {
@@ -102,7 +104,7 @@ export default function PurchaseReturnForm() {
             prev.map((l) => ({ ...l, reasonCode: firstCode })),
           );
         }
-        const nextNo = String(nextNoRes.data?.nextNo || "").trim();
+        const nextNo = nextNoRes.status === "fulfilled" ? String(nextNoRes.value?.data?.nextNo || "").trim() : "";
         if (nextNo) setFormData((p) => ({ ...p, returnNo: nextNo }));
       } catch (err) {
         if (!mounted) return;

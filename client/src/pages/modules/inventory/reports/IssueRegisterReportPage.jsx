@@ -8,8 +8,10 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
 export default function IssueRegisterReportPage() {
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const today = new Date().toISOString().slice(0, 10);
+  const jan1 = new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10);
+  const [from, setFrom] = useState(jan1);
+  const [to, setTo] = useState(today);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 

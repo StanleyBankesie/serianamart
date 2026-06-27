@@ -6,7 +6,7 @@ export default function CostCentersPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ code: "", name: "" });
+  const [form, setForm] = useState({ name: "" });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
 
@@ -28,23 +28,30 @@ export default function CostCentersPage() {
     load();
   }, []);
 
+  const generateCode = () => {
+    const codes = items.map((it) => it.code).filter(Boolean);
+    let next = 1;
+    while (codes.includes(String(next).padStart(4, "0"))) next++;
+    return String(next).padStart(4, "0");
+  };
+
   const save = async (e) => {
     e.preventDefault();
-    if (!form.code || !form.name) return;
+    if (!form.name) return;
     setSaving(true);
     setError("");
     setSuccess("");
     try {
       await api.post("/finance/cost-centers", {
-        code: form.code,
+        code: generateCode(),
         name: form.name,
         is_active: 1,
       });
-      setForm({ code: "", name: "" });
+      setForm({ name: "" });
       setSuccess("Cost center saved successfully");
       await load();
     } catch (e) {
-      setError("Failed to save cost center");
+      setError(e?.response?.data?.message || "Failed to save cost center");
     } finally {
       setSaving(false);
     }
@@ -78,20 +85,8 @@ export default function CostCentersPage() {
           ) : null}
           <form
             onSubmit={save}
-            className="grid grid-cols-1 md:grid-cols-3 gap-3"
+            className="grid grid-cols-1 md:grid-cols-2 gap-3"
           >
-            <div>
-              <label className="label">Code</label>
-              <input
-                className="input"
-                value={form.code}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, code: e.target.value }))
-                }
-                placeholder="OPS"
-                required
-              />
-            </div>
             <div>
               <label className="label">Name</label>
               <input
@@ -107,7 +102,7 @@ export default function CostCentersPage() {
             <div className="flex items-end">
               <button
                 className="btn-primary"
-                disabled={saving || !form.code || !form.name}
+                disabled={saving || !form.name}
               >
                 {saving ? "Saving..." : "Save"}
               </button>

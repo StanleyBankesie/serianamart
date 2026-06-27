@@ -403,6 +403,7 @@ export default function PosDashboard() {
   const [salesMonthly, setSalesMonthly] = useState([]);
   const [weekdaySales, setWeekdaySales] = useState([]);
   const [hourlyToday, setHourlyToday] = useState([]);
+  const [busyHours, setBusyHours] = useState([]);
   const [categoryShare, setCategoryShare] = useState([]);
   const [topItems, setTopItems] = useState([]);
   const [profitByGroup, setProfitByGroup] = useState([]);
@@ -437,6 +438,7 @@ export default function PosDashboard() {
       api.get("/pos/analytics/sales-monthly"),
       api.get("/pos/analytics/weekday-current-week"),
       api.get("/pos/analytics/hourly-today", { params: dateParams }),
+      api.get("/pos/analytics/busy-hours"),
       api.get("/pos/analytics/category-share", { params: dateParams }),
       api.get("/pos/analytics/profit-by-group", { params: dateParams }),
       api.get("/pos/analytics/profit-by-item", { params: dateParams }),
@@ -453,6 +455,7 @@ export default function PosDashboard() {
           salesMonthlyRes,
           weekdayRes,
           hourlyRes,
+          busyRes,
           categoryRes,
           profitRes,
           profitItemRes,
@@ -481,6 +484,9 @@ export default function PosDashboard() {
           );
           setHourlyToday(
             Array.isArray(hourlyRes.data?.items) ? hourlyRes.data.items : [],
+          );
+          setBusyHours(
+            Array.isArray(busyRes.data?.items) ? busyRes.data.items : [],
           );
           setCategoryShare(
             Array.isArray(categoryRes.data?.items)
@@ -649,6 +655,20 @@ export default function PosDashboard() {
       };
     });
   }, [hourlyToday]);
+
+  const busyHourPoints = useMemo(() => {
+    const map = new Map();
+    for (const r of busyHours) {
+      map.set(Number(r.hr || 0), Number(r.total || 0));
+    }
+    return Array.from({ length: 16 }, (_, i) => {
+      const h = i + 7;
+      return {
+        x: `${String(h).padStart(2, "0")}-${String(h + 1).padStart(2, "0")}`,
+        y: Number(map.get(h) || 0),
+      };
+    });
+  }, [busyHours]);
 
   const pieData = useMemo(() => {
     const totals = new Map();
@@ -890,18 +910,18 @@ export default function PosDashboard() {
       </div>
 
       <div className="grid grid-cols-1">
-        <div className="card shadow-sm border-slate-200/60 cursor-pointer" onClick={() => setModalChart({ title: "Busy Sales Hours", component: LineChart, props: { points: hourlyPoints, xLabel: "Hour", yLabel: "Sales (GH₵)", formatY: fmtCurrency, color: "#22c55e", areaColor: "rgba(34,197,94,0.2)", showXLabels: true, scrollX: true, height: 400 } })}>
+        <div className="card shadow-sm border-slate-200/60 cursor-pointer" onClick={() => setModalChart({ title: "Busy Sales Hours", component: LineChart, props: { points: busyHourPoints, xLabel: "Hour", yLabel: "Avg Sales (GH₵)", formatY: fmtCurrency, color: "#22c55e", areaColor: "rgba(34,197,94,0.2)", showXLabels: true, scrollX: true, height: 400 } })}>
           <div className="card-header bg-slate-50/80 rounded-t-lg border-b border-slate-200/60">
             <div className="font-bold text-slate-800">Busy Sales Hours</div>
             <div className="text-[11px] text-slate-500">
-              Heatmap emphasis by hour ({dateLabel})
+              Average sales by hour (all time)
             </div>
           </div>
           <div className="card-body overflow-x-auto p-4">
             <LineChart
-              points={hourlyPoints}
+              points={busyHourPoints}
               xLabel="Hour"
-              yLabel="Sales (GH₵)"
+              yLabel="Avg Sales (GH₵)"
               formatY={fmtCurrency}
               color="#22c55e"
               areaColor="rgba(34,197,94,0.2)"

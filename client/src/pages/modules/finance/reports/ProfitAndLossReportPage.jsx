@@ -273,7 +273,7 @@ export default function ProfitAndLossReportPage() {
       {/* Header */}
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
-          <Link to="/finance" className="text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors">
+          <Link to="/finance" className="font-sans text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors">
             ← Back to Finance
           </Link>
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-2 tracking-tight">

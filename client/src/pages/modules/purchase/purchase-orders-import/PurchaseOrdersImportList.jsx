@@ -36,6 +36,8 @@ export default function PurchaseOrdersImportList() {
   const [firstApprover, setFirstApprover] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [submittingForward, setSubmittingForward] = useState(false);
+  const [forwardedTo, setForwardedTo] = useState({});
+  const [selectedPO, setSelectedPO] = useState(null);
   const [workflowsCache, setWorkflowsCache] = useState(null);
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
@@ -412,6 +414,7 @@ export default function PurchaseOrdersImportList() {
 
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);
+    setSelectedPO(doc);
     setShowForwardModal(true);
     setWfError("");
     if (!workflowsCache) {
@@ -605,6 +608,10 @@ export default function PurchaseOrdersImportList() {
           : r,
       ),
     );
+    setForwardedTo((prev) => ({
+      ...prev,
+      [selectedDoc.id]: optimisticApprover || "Approver",
+    }));
     setShowForwardModal(false);
     setSelectedDoc(null);
     try {
@@ -883,9 +890,9 @@ export default function PurchaseOrdersImportList() {
                                   </button>
                                 )}
                               </div>
-                            ) : po.forwarded_to_username ? (
+                            ) : po.status === "PENDING_APPROVAL" || po.forwarded_to_username || forwardedTo[po.id] ? (
                               <span className="list-approval-forwarded-pill">
-                                Forwarded to {po.forwarded_to_username}
+                                Forwarded to {po.forwarded_to_username || forwardedTo[po.id] || "Approver"}
                               </span>
                             ) : (
                               <button

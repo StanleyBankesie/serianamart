@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { ArrowLeft, Search, ChevronRight, Plus } from "lucide-react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { ArrowLeft, Search, ChevronRight, Plus, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 const statusColors = { DRAFT:"bg-slate-100 text-slate-600", IN_PROGRESS:"bg-amber-100 text-amber-700", COMPLETED:"bg-green-100 text-green-700", ON_HOLD:"bg-orange-100 text-orange-700" };
 function Badge({ value, colorMap }) {
@@ -11,10 +13,13 @@ function Badge({ value, colorMap }) {
 }
 
 export default function JobExecutionList() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -70,12 +75,14 @@ export default function JobExecutionList() {
                 <th>Timeline</th>
                 <th>Technicians</th>
                 <th>Status</th>
+                <th>Created By</th>
+                <th>Created Date</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
               {loading ? (
-                <tr><td colSpan="6" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Loading Logs...</td></tr>
+                <tr><td colSpan="8" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Loading Logs...</td></tr>
               ) : filtered.length > 0 ? filtered.map(r => (
                 <tr key={r.id} className="group">
                   <td className="px-6 py-4 font-bold text-slate-900 dark:text-white text-sm">{r.execution_no}</td>
@@ -86,8 +93,14 @@ export default function JobExecutionList() {
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-500">{r.technicians}</td>
                   <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
+                  <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
+                  <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/job-executions/${r.id}?mode=view`)}><Eye size={15} /></button>
+                      <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
+                      <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
+                      <ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} />
                       <Link 
                         to={`/maintenance/job-executions/${r.id}`} 
                         className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
@@ -98,12 +111,20 @@ export default function JobExecutionList() {
                   </td>
                 </tr>
               )) : (
-                <tr><td colSpan="6" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No execution records identified.</td></tr>
+                <tr><td colSpan="8" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No execution records identified.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
     </div>
   );
 }

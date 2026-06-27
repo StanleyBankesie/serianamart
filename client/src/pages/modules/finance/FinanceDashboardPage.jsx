@@ -591,7 +591,7 @@ export default function FinanceDashboardPage() {
               onChange={(e) => setTo(e.target.value)}
               title="To"
             />
-            <Link to={backTo} className="btn btn-secondary">
+            <Link to={backTo} className="font-sans btn btn-secondary">
               Return to Finance
             </Link>
           </div>

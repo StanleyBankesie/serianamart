@@ -232,28 +232,6 @@ export default function ServiceExecutionForm() {
     }
   }
 
-  const summaryHtml = useMemo(() => {
-    if (!selectedOrder) {
-      return '<p style="text-align:center;color:#64748b;padding:20px;">Select a service order to begin</p>';
-    }
-    const mCount = materials.length;
-    const qPassed = Object.values(qualityChecks).filter(Boolean).length;
-    return `
-      <div class="space-y-2">
-        <div class="summary-item"><span class="label">Order</span><span class="value">${selectedOrder.orderNumber}</span></div>
-        <div class="summary-item"><span class="label">Customer</span><span class="value">${selectedOrder.customer}</span></div>
-        <div class="summary-item"><span class="label">Type</span><span class="value">${selectedOrder.serviceType}</span></div>
-        <div class="summary-item"><span class="label">Scheduled</span><span class="value">${selectedOrder.scheduledDate}</span></div>
-        <div class="summary-item"><span class="label">Materials</span><span class="value">${mCount}</span></div>
-        <div class="summary-item"><span class="label">Techs</span><span class="value">${Array.from(assignedTechs).length}</span></div>
-        <div class="summary-item"><span class="label">QC Checks</span><span class="value">${qPassed} / 6</span></div>
-        <div class="summary-item"><span class="label">Est. Cost</span><span class="value">$${formatMoney(selectedOrder.estimatedCost)}</span></div>
-        <div class="status-badge ${step < 3 ? "status-pending" : step < 5 ? "status-in-progress" : "status-completed"}">
-          ${step < 3 ? "Pending" : step < 5 ? "In Progress" : "Completed"}
-        </div>
-      </div>
-    `;
-  }, [selectedOrder, materials, assignedTechs, qualityChecks, step]);
 
   return (
     <div className="space-y-6">
@@ -802,16 +780,7 @@ export default function ServiceExecutionForm() {
                 )}
               </form>
             </div>
-            <div>
-              <div className="card">
-                <div className="card-body">
-                  <h2 className="text-lg font-semibold mb-2">
-                    Execution Summary
-                  </h2>
-                  <div dangerouslySetInnerHTML={{ __html: summaryHtml }} />
-                </div>
-              </div>
-            </div>
+
           </div>
         </div>
       </div>

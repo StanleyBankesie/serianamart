@@ -1,8 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { 
-  Link, 
-  useNavigate 
-} from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { 
   Plus, 
   Search, 
@@ -15,7 +12,8 @@ import {
   ArrowLeft,
   FileText,
   ShieldCheck,
-  Tag
+  Tag,
+  Eye
 } from "lucide-react";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
@@ -23,14 +21,19 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import AssetMeterModal from "./AssetMeterModal";
 import useSort from "../../../../hooks/useSort.js";
 import SortableHeader from "../../../../components/SortableHeader.jsx";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 export default function AssetList() {
   const { canPerformAction } = usePermission();
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [showMeterModal, setShowMeterModal] = useState(false);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   const fetchAssets = async () => {
     setLoading(true);
@@ -122,12 +125,14 @@ export default function AssetList() {
                 <th>Classification</th>
                 <th>Current Status</th>
                 <th>Performance</th>
+                <th>Created By</th>
+                <th>Created Date</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
               {loading ? (
-                <tr><td colSpan="5" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Accessing Registry...</td></tr>
+                <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Accessing Registry...</td></tr>
               ) : filteredItems.length > 0 ? filteredItems.map((item) => (
                 <tr key={item.id} className="group">
                   <td className="px-6 py-4">
@@ -162,8 +167,14 @@ export default function AssetList() {
                        <span className="text-[10px] font-bold text-slate-500 uppercase">85%</span>
                     </div>
                   </td>
+                  <td className="px-6 py-4 text-sm">{item.created_by_name || "-"}</td>
+                  <td className="px-6 py-4 text-sm">{item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/assets/${item.id}?mode=view`)}><Eye size={15} /></button>
+                      <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
+                      <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
+                      <ListAttachmentIconButton onClick={() => { setActiveDocId(item.id); setShowAttach(true); }} />
                       <button 
                         onClick={() => handleOpenMeters(item)}
                         className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
@@ -182,7 +193,7 @@ export default function AssetList() {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="5" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">
+                  <td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">
                     No infrastructure assets found.
                   </td>
                 </tr>
@@ -199,6 +210,14 @@ export default function AssetList() {
             setShowMeterModal(false);
             setSelectedAsset(null);
           }} 
+        />
+      )}
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
         />
       )}
     </div>

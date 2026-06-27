@@ -85,7 +85,7 @@ router.post(
       if (!endpoint || !p256dh || !auth) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid subscription");
       }
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr = '' } = req.scope;
       const userId =
         Number(req.user?.sub) ||
         Number(req.user?.id) ||

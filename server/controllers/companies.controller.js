@@ -1,4 +1,4 @@
-import { query } from "../db/pool.js";
+﻿import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { hasColumn, toNumber, ensureBranchColumns } from "../utils/dbUtils.js";
 
@@ -386,6 +386,11 @@ export const getBranches = async (req, res, next) => {
       filters.push("b.is_active = :is_active");
       params.is_active = Number(Boolean(active));
     }
+    const { branchIdsStr } = req.scope || {};
+    if (branchIdsStr) {
+      filters.push("(:branchIdsStr = '' OR FIND_IN_SET(b.id, :branchIdsStr))");
+      params.branchIdsStr = branchIdsStr;
+    }
     const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
     const items = await query(`SELECT b.*, c.name as company_name,
@@ -440,6 +445,8 @@ export const createBranch = async (req, res, next) => {
       name,
       code,
       is_active,
+      is_superbranch,
+      parent_branch_id,
       address,
       city,
       state,
@@ -457,11 +464,11 @@ export const createBranch = async (req, res, next) => {
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
 
     const result = await query(`INSERT INTO adm_branches (
-          company_id, name, code, is_active,
+          company_id, name, code, is_active, is_superbranch, parent_branch_id,
           address, city, state, postal_code, country,
           location, telephone, email, remarks
         ) VALUES (
-          :company_id, :name, :code, :is_active,
+          :company_id, :name, :code, :is_active, :is_superbranch, :parent_branch_id,
           :address, :city, :state, :postal_code, :country,
           :location, :telephone, :email, :remarks
         )`,
@@ -470,6 +477,8 @@ export const createBranch = async (req, res, next) => {
         name,
         code,
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
+        is_superbranch: is_superbranch ? 1 : 0,
+        parent_branch_id: parent_branch_id ? Number(parent_branch_id) : null,
         address: address || null,
         city: city || null,
         state: state || null,
@@ -499,6 +508,8 @@ export const updateBranch = async (req, res, next) => {
       name,
       code,
       is_active,
+      is_superbranch,
+      parent_branch_id,
       address,
       city,
       state,
@@ -520,6 +531,8 @@ export const updateBranch = async (req, res, next) => {
              name = :name,
              code = :code,
              is_active = :is_active,
+             is_superbranch = :is_superbranch,
+             parent_branch_id = :parent_branch_id,
              address = :address,
              city = :city,
              state = :state,
@@ -536,6 +549,8 @@ export const updateBranch = async (req, res, next) => {
         name,
         code,
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
+        is_superbranch: is_superbranch ? 1 : 0,
+        parent_branch_id: parent_branch_id ? Number(parent_branch_id) : null,
         address: address || null,
         city: city || null,
         state: state || null,
@@ -583,7 +598,7 @@ export const getDepartments = async (req, res, next) => {
       if (userBranchIds.length && !userBranchIds.includes(effectiveBranchId)) {
         throw httpError(403, "FORBIDDEN", "Branch access denied");
       }
-      queryStr += " AND (d.branch_id = :branchId OR d.branch_id IS NULL)";
+      queryStr += " AND ((:branchId = '' OR FIND_IN_SET(d.branch_id, :branchId)) OR d.branch_id IS NULL)";
       params.branchId = effectiveBranchId;
     } else if (userBranchIds.length) {
       const keys = userBranchIds.map((_, i) => `:bid${i}`);
@@ -703,3 +718,4 @@ export const getCurrentCompany = async (req, res, next) => {
     next(err);
   }
 };
+

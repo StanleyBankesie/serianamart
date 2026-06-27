@@ -1382,20 +1382,7 @@ export default function PurchaseOrdersImportForm() {
                 📋 Purchase Order Information
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5 required">
-                    PO Number
-                  </label>
-                  <input
-                    type="text"
-                    name="po_no"
-                    value={formData.po_no}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10 bg-[#e9ecef] cursor-not-allowed"
-                    readOnly
-                    placeholder="Auto-generated"
-                  />
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
                 <div className="flex flex-col">
                   <label className="text-[13px] font-bold text-[#0E3646] mb-1.5 required">
                     PO Date
@@ -1409,30 +1396,9 @@ export default function PurchaseOrdersImportForm() {
                     required
                   />
                 </div>
-                <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
-                    Order Type
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.po_type}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm bg-[#e9ecef]"
-                    readOnly
-                  />
-                </div>
-                <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
-                    Status
-                  </label>
-                  <div>
-                    <span className="px-4 py-1.5 rounded-full text-xs font-bold bg-[#e9ecef] text-[#495057]">
-                      {formData.status}
-                    </span>
-                  </div>
-                </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
                 <div className="flex flex-col">
                   <label className="text-[13px] font-bold text-[#0E3646] mb-1.5 required">
                     Supplier
@@ -1986,9 +1952,7 @@ export default function PurchaseOrdersImportForm() {
                                       (u) =>
                                         u && (
                                           <option key={u.id} value={u.uom_code}>
-                                            {u.uom_name
-                                              ? `${u.uom_name} (${u.uom_code})`
-                                              : u.uom_code}
+                                            {u.uom_code}
                                           </option>
                                         ),
                                     )}

@@ -235,7 +235,7 @@ export default function StockTransferForm() {
             ];
         setItems(mappedItems);
         const initQueries = {};
-        mappedItems.forEach((i) => { initQueries[i.id] = ""; });
+        mappedItems.forEach((i) => { initQueries[i.id] = i.itemName || ""; });
         setItemQueries(initQueries);
       })
       .catch((e) => {

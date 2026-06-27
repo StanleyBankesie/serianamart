@@ -177,7 +177,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const document_type = String(req.params.documentType || "").trim();
       const template_name = req.query.name
         ? String(req.query.name).trim()
@@ -187,11 +187,11 @@ router.get(
       // Search by synonyms (case-insensitive) so admin can see templates even if type naming differs
       const aliases = docTypeSynonymsLower(document_type);
       const placeholders = aliases.map((_, i) => `:dt${i}`).join(", ");
-      const params = { companyId, branchId };
+      const params = { companyId, branchId, branchIdsStr };
       aliases.forEach((val, i) => (params[`dt${i}`] = val));
 
       // Build WHERE clause - add name filter if provided
-      let whereClause = `WHERE company_id = :companyId AND branch_id = :branchId AND LOWER(document_type) IN (${placeholders})`;
+      let whereClause = `WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND LOWER(document_type) IN (${placeholders})`;
       if (template_name) {
         whereClause += ` AND LOWER(name) = :templateName`;
         params.templateName = template_name.toLowerCase();
@@ -233,7 +233,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [item] = await query(
@@ -242,9 +242,9 @@ router.get(
           u.username AS created_by_name
          FROM document_templates
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
          LIMIT 1`,
-        { id, companyId, branchId },
+        { id, companyId, branchId, branchIdsStr },
       ).catch(() => []);
       if (!item) throw httpError(404, "NOT_FOUND", "Template not found");
       try {
@@ -269,7 +269,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const {
         name,
         document_type,
@@ -306,7 +306,7 @@ router.post(
                 :feature_names)`,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           n,
           dt,
           sanitized,
@@ -328,7 +328,7 @@ router.post(
         await query(
           `UPDATE document_templates 
              SET is_default = 0 
-           WHERE company_id = :companyId AND branch_id = :branchId AND document_type = :dt AND id <> :id`,
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND document_type = :dt AND id <> :id`,
           { companyId, branchId, dt, id: result.insertId },
         );
       }
@@ -348,7 +348,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const {
@@ -372,9 +372,9 @@ router.put(
           u.username AS created_by_name
          FROM document_templates
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           LIMIT 1`,
-        { id, companyId, branchId },
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!existing) throw httpError(404, "NOT_FOUND", "Template not found");
       const dt = existing.document_type;
@@ -399,11 +399,11 @@ router.put(
                header_email = :header_email,
                header_website = :header_website,
                feature_names = :feature_names
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           newName,
           sanitized,
           is_default: Number(Boolean(is_default)),
@@ -455,7 +455,7 @@ router.put(
         await query(
           `UPDATE document_templates 
              SET is_default = 0 
-           WHERE company_id = :companyId AND branch_id = :branchId AND document_type = :dt AND id <> :id`,
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND document_type = :dt AND id <> :id`,
           { companyId, branchId, dt, id },
         );
       }
@@ -475,7 +475,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [existing] = await query(
@@ -484,8 +484,8 @@ router.delete(
           u.username AS created_by_name
          FROM document_templates
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+        { id, companyId, branchId, branchIdsStr },
       ).catch(() => []);
       if (!existing) throw httpError(404, "NOT_FOUND", "Template not found");
       if (Number(existing.is_default) === 1)
@@ -495,8 +495,8 @@ router.delete(
           "Default template cannot be deleted",
         );
       await query(
-        `DELETE FROM document_templates WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId },
+        `DELETE FROM document_templates WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       res.json({ success: true });
     } catch (err) {

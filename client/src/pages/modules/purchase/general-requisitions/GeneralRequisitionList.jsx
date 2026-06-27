@@ -441,7 +441,7 @@ export default function GeneralRequisitionList() {
           <Link to="/purchase" className="text-sm text-brand hover:text-brand-600">
             ← Back to Purchase
           </Link>
-          <h1 className="text-2xl font-bold mt-2">General Requisitions</h1>
+          <h1 className="text-2xl font-bold mt-2">Purchase Requisitions</h1>
           <p className="text-sm text-slate-600">Request items for purchase or services to be rendered</p>
         </div>
         <button className="btn btn-primary" onClick={() => navigate("/purchase/general-requisitions/new")}>
@@ -488,7 +488,6 @@ export default function GeneralRequisitionList() {
                 <SortableHeader label="Department" sortKey="department" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <SortableHeader label="Requested By" sortKey="requested_by" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <SortableHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                <SortableHeader label="Items" sortKey="item_count" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
                 <SortableHeader label="Est. Cost" sortKey="total_estimated_cost" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <th className="text-right">Actions</th>
@@ -499,19 +498,19 @@ export default function GeneralRequisitionList() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="text-center py-8 text-slate-500">
+                  <td colSpan={11} className="text-center py-8 text-slate-500">
                     Loading...
                   </td>
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan={12} className="text-center py-8 text-red-600">
+                  <td colSpan={11} className="text-center py-8 text-red-600">
                     {error}
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="text-center py-8 text-slate-500">
+                  <td colSpan={11} className="text-center py-8 text-slate-500">
                     No requisitions found
                   </td>
                 </tr>
@@ -542,7 +541,6 @@ export default function GeneralRequisitionList() {
                         {r.priority || "-"}
                       </span>
                     </td>
-                    <td className="text-center text-sm font-mono">{r.item_count || 0}</td>
                     <td className="text-right font-mono text-sm">
                       {Number(r.total_estimated_cost || 0).toLocaleString(undefined, {
                         minimumFractionDigits: 2,
@@ -565,18 +563,49 @@ export default function GeneralRequisitionList() {
                           </button>
                         </div>
 
-                        {/* Slot 2: Edit */}
-                        <div className="min-w-[80px]">
-                          {["DRAFT", "REJECTED"].includes(displayStatus) ? (
-                            <Link
-                              to={`/purchase/general-requisitions/${r.id}/edit`}
-                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                            >
-                              Edit
-                            </Link>
-                          ) : (
-                            <div className="w-full h-9" />
-                          )}
+                        {/* Slot 2: Edit + Forward */}
+                        <div className="min-w-[220px]">
+                          <div className="flex items-center gap-2">
+                            {["DRAFT", "REJECTED"].includes(displayStatus) ? (
+                              <Link
+                                to={`/purchase/general-requisitions/${r.id}/edit`}
+                                className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              >
+                                Edit
+                              </Link>
+                            ) : (
+                              <div className="h-9" />
+                            )}
+                            {displayStatus === "APPROVED" ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">
+                                  Approved
+                                </span>
+                                {!autoApproved && canReverseApproval() && (
+                                  <button
+                                    type="button"
+                                    className="list-approval-reverse-btn"
+                                    onClick={() => reverseApproval(r.id)}
+                                  >
+                                    Reverse
+                                  </button>
+                                )}
+                              </div>
+                            ) : r.forwarded_to_username || displayStatus === "PENDING_APPROVAL" ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {r.forwarded_to_username || "Approver"}
+                              </span>
+                            ) : ["DRAFT", "REJECTED"].includes(displayStatus) ? (
+                              <button
+                                type="button"
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(r)}
+                                disabled={workflowDisabled}
+                              >
+                                Forward for Approval
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
 
                         {/* Slot 3: Print */}
@@ -603,42 +632,8 @@ export default function GeneralRequisitionList() {
                           />
                         </div>
 
-                        {/* Slot 6: Workflow */}
-                        <div className="min-w-[160px]">
-                          <div className="list-approval-slot">
-                            {displayStatus === "APPROVED" ? (
-                              <div className="flex items-center gap-2">
-                                <span className="list-approval-approved-pill">
-                                  Approved
-                                </span>
-                                {!autoApproved && canReverseApproval() && (
-                                  <button
-                                    type="button"
-                                    className="list-approval-reverse-btn"
-                                    onClick={() => reverseApproval(r.id)}
-                                  >
-                                    Reverse Approval
-                                  </button>
-                                )}
-                              </div>
-                            ) : r.forwarded_to_username || displayStatus === "PENDING_APPROVAL" ? (
-                              <span className="list-approval-forwarded-pill">
-                                Forwarded to {r.forwarded_to_username || "Approver"}
-                              </span>
-                            ) : ["DRAFT", "REJECTED"].includes(displayStatus) ? (
-                              <button
-                                type="button"
-                                className="list-approval-forward-btn"
-                                onClick={() => openForwardModal(r)}
-                                disabled={workflowDisabled}
-                              >
-                                Forward for Approval
-                              </button>
-                            ) : (
-                              <div className="w-full h-9" />
-                            )}
-                          </div>
-                        </div>
+                        {/* Slot 6: (reserved) */}
+                        <div className="min-w-[80px]" />
 
                         {/* Slot 7: exceptional cancel — fixed cell */}
                         <div className="min-w-[80px]">

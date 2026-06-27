@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Search, ArrowLeft, DollarSign, Calendar, Loader2, Trash2, Edit3 } from "lucide-react";
+import { Plus, Loader2, DollarSign } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
@@ -79,93 +79,80 @@ export default function ExpenseList() {
   const totalExpenses = items.reduce((a, c) => a + Number(c.amount), 0);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex items-center gap-4">
-          <Link to="/project-management" className="btn btn-secondary p-2"><ArrowLeft size={20} /></Link>
-          <div>
-            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Project Expenses</h1>
-            <p className="text-slate-500 text-sm">Track and manage project-related costs</p>
+    <div className="space-y-4">
+      <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">Project Expenses</h1>
+              <p className="text-sm mt-1">Track and manage project-related costs</p>
+            </div>
+            <div className="flex gap-2">
+              <Link to="/project-management" className="btn btn-secondary">Return to Menu</Link>
+              <button onClick={openCreate} className="btn-success flex items-center gap-2"><Plus size={16} />Record Expense</button>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-sm">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Expenses</p>
-            <p className="text-lg font-bold text-brand-600 mt-1">GHS {totalExpenses.toLocaleString()}</p>
-          </div>
-          <button onClick={openCreate} className="btn-success flex items-center gap-2"><Plus size={20} />+ Record Expense</button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-700">
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input type="text" placeholder="Search expenses..." className="input pl-10 pr-4 py-2 w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      <div className="card">
+        <div className="card-body">
+          <div className="flex flex-col md:flex-row gap-4 mb-6">
+            <div className="flex-1">
+              <input type="text" placeholder="Search expenses..." className="input" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 dark:bg-slate-800 rounded-lg border">
+              <DollarSign size={16} className="text-slate-400" />
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Total: GHS {totalExpenses.toLocaleString()}</span>
+            </div>
           </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/50 dark:bg-slate-900/30">
-                <SortableHeader label="Project" sortKey="project_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
-                <SortableHeader label="Date" sortKey="expense_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
-                <SortableHeader label="Category" sortKey="category" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
-                <SortableHeader label="Description" sortKey="description" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
-                <SortableHeader label="Amount" sortKey="amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-right" />
-                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-center" />
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
-              {loading ? (
-                <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse text-slate-400 font-semibold tracking-wider">Loading Expenses...</td></tr>
-              ) : sorted.length > 0 ? sorted.map((item) => (
-                <tr key={item.id} className="group hover:bg-slate-50 dark:hover:bg-slate-900/20 transition-all duration-300">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-slate-900 flex items-center justify-center text-emerald-600 border border-emerald-100 dark:border-slate-700">
-                        <DollarSign size={18} />
-                      </div>
-                      <div>
-                        <div className="font-bold text-slate-900 dark:text-white text-sm">{item.project_name || "—"}</div>
-                        <div className="text-[10px] font-semibold text-slate-400">{item.created_by_name || ""}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                      <Calendar size={12} className="text-slate-400" />{item.expense_date ? new Date(item.expense_date).toLocaleDateString() : "—"}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-900 rounded-lg text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">{item.category}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-[200px] truncate">{item.description || "—"}</p>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <span className="font-bold text-sm text-slate-900 dark:text-white">GHS {Number(item.amount).toLocaleString()}</span>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${
-                      item.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                      item.status === 'REJECTED' ? 'bg-rose-50 text-rose-600 border-rose-100' :
-                      'bg-amber-50 text-amber-600 border-amber-100'
-                    }`}>{item.status || 'PENDING'}</span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => openEdit(item)} className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors" title="Edit"><Edit3 size={16} /></button>
-                      <button onClick={() => handleDelete(item.id)} className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-colors" title="Delete"><Trash2 size={16} /></button>
-                    </div>
-                  </td>
+
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <SortableHeader label="Project" sortKey="project_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="expense_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Category" sortKey="category" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Description" sortKey="description" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Amount" sortKey="amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
+                  <th className="text-right">Actions</th>
                 </tr>
-              )) : (
-                <tr><td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-medium italic opacity-50">No expenses recorded.</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan="7" className="text-center py-8 text-slate-400">Loading...</td></tr>
+                ) : sorted.length > 0 ? sorted.map((item) => (
+                  <tr key={item.id}>
+                    <td className="font-medium">
+                      <div className="font-bold text-sm">{item.project_name || "—"}</div>
+                      <div className="text-[10px] text-slate-400">{item.created_by_name || ""}</div>
+                    </td>
+                    <td className="text-sm whitespace-nowrap">{item.expense_date ? new Date(item.expense_date).toLocaleDateString() : "—"}</td>
+                    <td><span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-semibold uppercase">{item.category}</span></td>
+                    <td className="text-sm text-slate-600 max-w-[200px] truncate">{item.description || "—"}</td>
+                    <td className="text-right font-semibold">GHS {Number(item.amount).toLocaleString()}</td>
+                    <td className="text-center">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                        item.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-600' :
+                        item.status === 'REJECTED' ? 'bg-rose-50 text-rose-600' :
+                        'bg-amber-50 text-amber-600'
+                      }`}>{item.status || 'PENDING'}</span>
+                    </td>
+                    <td className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => openEdit(item)} className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200">Edit</button>
+                        <button onClick={() => handleDelete(item.id)} className="px-3 py-1.5 text-xs font-medium text-white bg-red-700 rounded-lg hover:bg-red-800">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan="7" className="text-center py-8 text-slate-400">No expenses recorded.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

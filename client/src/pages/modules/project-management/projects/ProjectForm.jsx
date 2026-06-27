@@ -43,7 +43,8 @@ export default function ProjectForm() {
     project_status: "PLANNING",
     start_date: "",
     end_date: "",
-    remarks: ""
+    remarks: "",
+    is_active: true,
   });
 
   useEffect(() => {
@@ -53,7 +54,7 @@ export default function ProjectForm() {
 
   const fetchAuxiliaryData = async () => {
     try {
-      const res = await api.get("/administration/users");
+      const res = await api.get("/projects/project-managers");
       setManagers(res.data?.items || []);
     } catch (e) {}
   };
@@ -67,7 +68,8 @@ export default function ProjectForm() {
         setForm({
           ...item,
           start_date: item.start_date ? item.start_date.split('T')[0] : "",
-          end_date: item.end_date ? item.end_date.split('T')[0] : ""
+          end_date: item.end_date ? item.end_date.split('T')[0] : "",
+          is_active: item.is_active !== 'N',
         });
       }
     } catch (e) {
@@ -201,12 +203,12 @@ export default function ProjectForm() {
                     className="w-full pl-4 pr-10 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-medium text-sm appearance-none"
                     value={form.manager_id}
                     onChange={e => {
-                      const m = managers.find(x => x.id == e.target.value);
+                      const m = managers.find(x => String(x.user_id) === String(e.target.value));
                       setForm({...form, manager_id: e.target.value, manager_name: m?.username || ""});
                     }}
                   >
                     <option value="">Select Manager...</option>
-                    {managers.map(m => <option key={m.id} value={m.id}>{m.username}</option>)}
+                    {managers.map(m => <option key={m.user_id} value={m.user_id}>{m.username}</option>)}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
                 </div>
@@ -246,7 +248,7 @@ export default function ProjectForm() {
             </div>
 
             <div className="space-y-1">
-               <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Priority</label>
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Priority</label>
                <select 
                  className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-bold text-xs"
                  value={form.project_priority}
@@ -256,6 +258,18 @@ export default function ProjectForm() {
                     <option key={p} value={p}>{p}</option>
                   ))}
                </select>
+             </div>
+
+             <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Status</label>
+                <select 
+                  className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-bold text-xs"
+                  value={form.is_active ? 'Y' : 'N'}
+                  onChange={e => setForm({...form, is_active: e.target.value === 'Y'})}
+                >
+                   <option value="Y">Active</option>
+                   <option value="N">Inactive</option>
+                </select>
             </div>
           </div>
 

@@ -4,7 +4,7 @@ export default {
   content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
     fontFamily: {
-      sans: ['"Segoe UI"', 'Tahoma', 'Geneva', 'Verdana', 'sans-serif'],
+      sans: ['"Inter"', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
     },
     extend: {
       colors: {

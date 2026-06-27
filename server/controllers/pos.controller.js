@@ -45,7 +45,7 @@ async function ensurePosTables() {
 
 export const listPaymentModes = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr = '' } = req.scope || {};
     await ensurePosTables();
     const items = await query(`
       SELECT
@@ -60,10 +60,10 @@ export const listPaymentModes = async (req, res, next) => {
          FROM pos_payment_modes
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-        AND branch_id = :branchId
+        AND (:branchIdsStr = '' OR FIND_IN_SET(pos_payment_modes.branch_id, :branchIdsStr))
       ORDER BY name
       `,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {

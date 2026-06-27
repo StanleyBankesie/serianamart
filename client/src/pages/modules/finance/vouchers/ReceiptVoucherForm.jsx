@@ -948,7 +948,12 @@ export default function ReceiptVoucherForm() {
     if (!isRV || paymentType !== "DIRECT") return;
     const key = String(rvForm.taxCodeId || "");
     if (key && !rvTaxComponentsByCode[key]) return;
-    autoPopulateRvPostingLines(0, {}, rvForm.items, key ? rvTaxComponentsByCode[key] : []);
+    autoPopulateRvPostingLines(
+      0,
+      {},
+      rvForm.items,
+      key ? rvTaxComponentsByCode[key] : [],
+    );
   }, [isRV, paymentType, rvForm.taxCodeId, rvTaxComponentsByCode]);
 
   useEffect(() => {
@@ -1432,12 +1437,25 @@ export default function ReceiptVoucherForm() {
       };
       const waitForImages = () => {
         const images = doc.querySelectorAll("img");
-        if (images.length === 0) { doPrint(); return; }
+        if (images.length === 0) {
+          doPrint();
+          return;
+        }
         let loaded = 0;
         images.forEach((img) => {
-          if (img.complete) { loaded++; if (loaded === images.length) doPrint(); return; }
-          img.onload = () => { loaded++; if (loaded === images.length) doPrint(); };
-          img.onerror = () => { loaded++; if (loaded === images.length) doPrint(); };
+          if (img.complete) {
+            loaded++;
+            if (loaded === images.length) doPrint();
+            return;
+          }
+          img.onload = () => {
+            loaded++;
+            if (loaded === images.length) doPrint();
+          };
+          img.onerror = () => {
+            loaded++;
+            if (loaded === images.length) doPrint();
+          };
         });
       };
       setTimeout(waitForImages, 200);
@@ -1574,7 +1592,8 @@ export default function ReceiptVoucherForm() {
           chequeDate: rvForm.chequeDate || null,
           paymentMethod: rvForm.paymentMethod || null,
           currencyId: it.currencyId || null,
-          exchangeRate: Number(it.exchangeRate || rvForm.exchangeRate || 1) || 1,
+          exchangeRate:
+            Number(it.exchangeRate || rvForm.exchangeRate || 1) || 1,
         })),
       ];
     } else if (isPAYV && paymentType !== "DIRECT") {
@@ -3104,7 +3123,7 @@ export default function ReceiptVoucherForm() {
                 <div>
                   <label className="label">Voucher Date *</label>
                   <input
-                    className={`input md:w-64 ${disabledClass}`}
+                    className={`input w-64 ${disabledClass}`}
                     type="date"
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
@@ -3436,9 +3455,15 @@ export default function ReceiptVoucherForm() {
                                         <span className="text-slate-600 dark:text-slate-400">
                                           {(() => {
                                             const sel = (currencies || []).find(
-                                              (c) => String(c.id) === String(l.currencyId || ""),
+                                              (c) =>
+                                                String(c.id) ===
+                                                String(l.currencyId || ""),
                                             );
-                                            return sel?.code || sel?.currency_code || "-";
+                                            return (
+                                              sel?.code ||
+                                              sel?.currency_code ||
+                                              "-"
+                                            );
                                           })()}
                                         </span>
                                       ) : (
@@ -3447,12 +3472,16 @@ export default function ReceiptVoucherForm() {
                                           value={l.currencyId}
                                           onChange={(e) => {
                                             const cId = e.target.value;
-                                            updateLine(idx, { currencyId: cId });
+                                            updateLine(idx, {
+                                              currencyId: cId,
+                                            });
                                             autoFetchLineRate(cId, idx);
                                           }}
                                           disabled={readOnly}
                                         >
-                                          <option value="">Base Currency</option>
+                                          <option value="">
+                                            Base Currency
+                                          </option>
                                           {currencies.map((c) => (
                                             <option key={c.id} value={c.id}>
                                               {c.code || c.currency_code}
@@ -3696,7 +3725,7 @@ export default function ReceiptVoucherForm() {
                 <div>
                   <label className="label">Voucher Date *</label>
                   <input
-                    className={`input ${disabledClass}`}
+                    className={`input w-64 ${disabledClass}`}
                     type="date"
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
@@ -3707,12 +3736,12 @@ export default function ReceiptVoucherForm() {
                 <div>
                   <label className="label">Project</label>
                   <select
-                    className="input"
+                    className="input w-64"
                     value={projectId}
                     onChange={(e) => setProjectId(e.target.value)}
                     disabled={readOnly}
                   >
-                    <option value="">-- Select Project --</option>
+                    <option value=""> Select Project </option>
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.project_name || p.name}
@@ -3746,7 +3775,7 @@ export default function ReceiptVoucherForm() {
                   <label className="label">Received From</label>
                   <div className="relative">
                     <input
-                      className={`input ${disabledClass}`}
+                      className={`input w-64 ${disabledClass}`}
                       placeholder="Type to search accounts"
                       value={receivedFromSearch || rvForm.receivedFrom || ""}
                       onChange={(e) => {
@@ -3964,7 +3993,7 @@ export default function ReceiptVoucherForm() {
                 <div>
                   <label className="label">Balance</label>
                   <input
-                    className="input bg-slate-50 dark:bg-slate-800"
+                    className="input w-64 bg-slate-50 dark:bg-slate-800"
                     value={
                       rvForm.depositAccountId
                         ? accountBalances[String(rvForm.depositAccountId)] !==

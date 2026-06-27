@@ -104,4 +104,11 @@ router.post("/assets/downtime", ...auth, mc.createDowntimeLog);
 // ===== REPORTS =====
 router.get("/reports/downtime", ...auth, mc.getDowntimeReport);
 
+// ===== MAINTENANCE MATERIAL REQUISITIONS =====
+router.get("/material-requisitions", ...auth, mc.listMaintMaterialRequisitions);
+router.get("/material-requisitions/:id", ...auth, mc.getMaintMaterialRequisitionById);
+router.post("/material-requisitions", ...auth, mc.createMaintMaterialRequisition);
+router.put("/material-requisitions/:id", ...auth, mc.updateMaintMaterialRequisition);
+router.post("/material-requisitions/:id/submit", ...auth, mc.submitMaintMaterialRequisition);
+
 export default router;

@@ -3,6 +3,8 @@ import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { toast } from "react-toastify";
+import { ListAttachmentIconButton } from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function ServiceOrdersList() {
   const location = useLocation();
@@ -98,7 +100,6 @@ export default function ServiceOrdersList() {
                   <th className="text-right">Actions</th>
                   <th>Created By</th>
                   <th>Created Date</th>
-                  <th>Attachments</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,33 +146,18 @@ export default function ServiceOrdersList() {
                           )}
                         </div>
 
-                        {/* Slot 3 & 4: Print/PDF (Blank) */}
+                        {/* Slot 3: Attachments */}
                         <div className="min-w-[80px]">
-                          <div className="w-full h-9" />
-                        </div>
-                        <div className="min-w-[80px]">
-                          <div className="w-full h-9" />
-                        </div>
-
-                        {/* Slot 6: Workflow (Placeholder) */}
-                        <div className="min-w-[160px]">
-                          <div className="w-full h-9" />
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              toast.info("Attachments functionality coming soon");
+                            }}
+                          />
                         </div>
                       </div>
                     </td>
                     <td>{it.created_by_username || it.created_by_name || "-"}</td>
                     <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="text-brand hover:underline font-medium text-sm"
-                        onClick={() => {
-                          toast.info("Attachments functionality coming soon");
-                        }}
-                      >
-                        View
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>

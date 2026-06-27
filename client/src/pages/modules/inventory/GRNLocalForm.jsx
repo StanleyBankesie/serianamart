@@ -580,6 +580,13 @@ export default function GRNLocalForm() {
             };
           }),
         }));
+        
+        const newQueries = {};
+        details.forEach((d, idx) => {
+          const it = items.find((i) => String(i.id) === String(d.item_id));
+          newQueries[idx] = it ? it.item_name : "";
+        });
+        setItemQueries((prev) => ({ ...prev, ...newQueries }));
       })
       .catch((e) => {
         setError(e?.response?.data?.message || "Failed to load PO details");
@@ -1158,7 +1165,7 @@ export default function GRNLocalForm() {
                                     autoComplete="off"
                                     className="input min-w-[256px] w-[384px]"
                                     placeholder="Scan barcode or type item name"
-                                    value={itemQueries[idx] || ""}
+                                    value={itemQueries[idx] !== undefined ? itemQueries[idx] : (it ? it.item_name || it.name || "" : "")}
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       setItemQueries((prev) => ({

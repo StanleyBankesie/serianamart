@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
 export default function StockAgingAnalysisReportPage() {
-  const [asOf, setAsOf] = useState("");
+  const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 

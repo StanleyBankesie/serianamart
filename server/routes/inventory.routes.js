@@ -672,20 +672,22 @@ async function ensureStockTransferTables() {
 
 async function applyTransferReceiptMovementsTx(
   conn,
-  { companyId, transferId, createdBy = null },
+  { companyId, branchId, transferId, createdBy = null },
 ) {
+  // Use received_qty if set, otherwise fall back to accepted_qty, then original qty
   const [rows] = await conn.execute(
     `
     SELECT
       t.transfer_no,
       t.from_warehouse_id,
       t.to_warehouse_id,
-      COALESCE(tw.company_id, t.company_id) AS to_company_id,
-      COALESCE(tw.branch_id, t.to_branch_id, t.branch_id) AS to_branch_id,
+      COALESCE(fw.branch_id, t.from_branch_id, t.branch_id) AS from_branch_id,
+      COALESCE(tw.branch_id, t.to_branch_id, t.branch_id)   AS to_branch_id,
       d.item_id,
-      COALESCE(d.received_qty, 0) AS received_qty
+      COALESCE(d.received_qty, d.accepted_qty, d.qty, 0) AS effective_qty
     FROM inv_stock_transfers t
     JOIN inv_stock_transfer_details d ON d.transfer_id = t.id
+    LEFT JOIN inv_warehouses fw ON fw.id = t.from_warehouse_id
     LEFT JOIN inv_warehouses tw ON tw.id = t.to_warehouse_id
     WHERE t.id = :transferId
       AND t.company_id = :companyId
@@ -695,103 +697,25 @@ async function applyTransferReceiptMovementsTx(
   );
 
   for (const row of rows || []) {
-    const qtyToMove = Number(row.received_qty || 0);
+    const qtyToMove = Number(row.effective_qty || 0);
     const itemId = Number(row.item_id || 0);
     const fromWarehouseId = Number(row.from_warehouse_id || 0) || null;
     const toWarehouseId = Number(row.to_warehouse_id || 0) || null;
-    const toCompanyId = Number(row.to_company_id || 0) || companyId;
-    const toBranchId = Number(row.to_branch_id || 0) || null;
+    const toBranchId = Number(row.to_branch_id || 0) || branchId || null;
 
     if (!qtyToMove || !itemId || !fromWarehouseId || !toWarehouseId) continue;
 
-    let remainingSourceQty = qtyToMove;
-    const [sourceRows] = await conn.execute(
-      `
-      SELECT id, reserved_qty
-      FROM inv_stock_balances
-      WHERE company_id = :companyId
-        AND warehouse_id = :warehouseId
-        AND item_id = :itemId
-        AND COALESCE(reserved_qty, 0) > 0
-      ORDER BY entry_date ASC, id ASC
-      FOR UPDATE
-      `,
-      {
-        companyId,
-        warehouseId: fromWarehouseId,
-        itemId,
-      },
-    );
-
-    for (const sourceRow of sourceRows || []) {
-      if (remainingSourceQty <= 0) break;
-      const reservedQty = Number(sourceRow.reserved_qty || 0);
-      if (reservedQty <= 0) continue;
-      const deductQty = Math.min(remainingSourceQty, reservedQty);
-      await conn.execute(
-        `
-        UPDATE inv_stock_balances
-        SET reserved_qty = reserved_qty - :deductQty
-        WHERE id = :id
-        `,
-        { deductQty, id: sourceRow.id },
-      );
-      remainingSourceQty -= deductQty;
-    }
-
-    if (remainingSourceQty > 0) {
-      throw httpError(
-        400,
-        "VALIDATION_ERROR",
-        `Received qty exceeds reserved stock for item ${itemId}`,
-      );
-    }
-
-    const [destRows] = await conn.execute(
-      `
-      SELECT id
-      FROM inv_stock_balances
-      WHERE company_id = :companyId
-        AND warehouse_id = :warehouseId
-        AND item_id = :itemId
-      ORDER BY entry_date ASC, id ASC
-      LIMIT 1
-      FOR UPDATE
-      `,
-      {
-        companyId: toCompanyId,
-        warehouseId: toWarehouseId,
-        itemId,
-      },
-    );
-
-    if (destRows?.length) {
-      await conn.execute(
-        `
-        UPDATE inv_stock_balances
-        SET qty = qty + :qtyToMove
-        WHERE id = :id
-        `,
-        { qtyToMove, id: destRows[0].id },
-      );
-    } else {
-      await conn.execute(
-        `
-        INSERT INTO inv_stock_balances
-          (company_id, branch_id, warehouse_id, item_id, qty, reserved_qty, entry_date, source_type, source_id)
-        VALUES
-          (:companyId, :branchId, :warehouseId, :itemId, :qty, 0, NOW(), 'TRANSFER_IN', :sourceId)
-        `,
-        {
-          companyId: toCompanyId,
-          branchId: toBranchId,
-          warehouseId: toWarehouseId,
-          itemId,
-          qty: qtyToMove,
-          sourceId: transferId,
-        },
-      );
-    }
+    // Use the stock service moveReservedStockTx which handles graceful fallback
+    await moveReservedStockTx(conn, {
+      companyId,
+      branchId: toBranchId,
+      fromWarehouseId,
+      toWarehouseId,
+      itemId,
+      qtyToMove,
+      sourceRef: row.transfer_no || String(transferId),
+      createdBy,
+    });
   }
 }
 
@@ -1507,16 +1431,17 @@ router.get(
       const activeOnly = !["0", "false", "all"].includes(activeParam);
       const rows = await query(
         `
-        SELECT id, warehouse_code, warehouse_name, location, is_active,
+        SELECT id, warehouse_code, warehouse_name, location, branch_id, is_active,
           created_at,
           u.username AS created_by_name
          FROM inv_warehouses
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            AND (:activeOnly = 0 OR is_active = 1)
         ORDER BY warehouse_name ASC
         `,
-        { companyId, branchId, activeOnly: activeOnly ? 1 : 0 },
+        { companyId, branchIdsStr: req.scope.branchIdsStr || '', activeOnly: activeOnly ? 1 : 0 },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -1624,6 +1549,11 @@ router.get(
       let where = `
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
           AND COALESCE(r.is_active,'Y') = 'Y'
+          AND NOT EXISTS (
+            SELECT 1 FROM inv_issue_to_requirement i
+            WHERE i.requisition_id = r.id
+              AND i.company_id = :companyId AND i.branch_id = :branchId
+          )
       `;
       const params = { companyId, branchId };
       if (statusFilter) {
@@ -1719,9 +1649,9 @@ router.get(
           i.id AS item_id,
           i.item_code,
           i.item_name,
-          COALESCE(SUM(sb.qty), 0) AS total_qty,
+          COALESCE(SUM(sb.qty), 0) + COALESCE(SUM(sb.reserved_qty), 0) AS total_qty,
           COALESCE(SUM(sb.reserved_qty), 0) AS reserved_qty,
-          COALESCE(SUM(sb.qty), 0) - COALESCE(SUM(sb.reserved_qty), 0) AS available_qty,
+          COALESCE(SUM(sb.qty), 0) AS available_qty,
           i.created_at,
           u.username AS created_by_name
          FROM inv_items i
@@ -6436,6 +6366,145 @@ router.delete(
   },
 );
 
+// PUT status-only update for issue-to-requirement (Post / Revert)
+router.put(
+  "/issue-to-requirement/:id/status",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureIssueToRequirementTables();
+      const { companyId, branchId } = req.scope;
+      const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+      const { status } = req.body;
+      if (!status) throw httpError(400, "VALIDATION_ERROR", "status is required");
+
+      // Fetch existing issue header
+      const [existing] = await query(
+        `SELECT i.*, w.branch_id AS warehouse_branch_id
+           FROM inv_issue_to_requirement i
+           LEFT JOIN inv_warehouses w ON w.id = i.warehouse_id
+          WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
+          LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!existing) throw httpError(404, "NOT_FOUND", "Issue not found");
+
+      const currentStatus = String(existing.status || "").toUpperCase();
+      const newStatus = String(status).trim().toUpperCase();
+
+      // Guard: only allow DRAFT -> POSTED
+      if (newStatus === "POSTED" && currentStatus !== "DRAFT") {
+        throw httpError(400, "VALIDATION_ERROR", `Cannot post an issue that is already ${existing.status}`);
+      }
+
+      await conn.beginTransaction();
+
+      if (newStatus === "POSTED") {
+        // Fetch details to consume stock
+        const details = await query(
+          `SELECT item_id, qty_issued, batch_number
+             FROM inv_issue_to_requirement_details
+            WHERE issue_id = :id`,
+          { id },
+        );
+
+        const warehouseId = toNumber(existing.warehouse_id) || null;
+        const issueType = String(existing.issue_type || "").toUpperCase();
+        const isReserveType = ["PRODUCTION", "MAINTENANCE", "PROJECT"].includes(issueType);
+
+        for (const line of details) {
+          const itemId = toNumber(line.item_id);
+          const qty = Number(line.qty_issued || 0);
+          if (!itemId || qty <= 0 || !warehouseId) continue;
+
+          if (isReserveType) {
+            await conn.execute(
+              `UPDATE inv_stock_balances
+                  SET qty = qty - :qty,
+                      reserved_qty = COALESCE(reserved_qty, 0) + :qty
+                WHERE company_id = :companyId AND branch_id = :branchId
+                  AND warehouse_id = :warehouseId AND item_id = :itemId
+                LIMIT 1`,
+              { companyId, branchId, warehouseId, itemId, qty },
+            );
+          } else {
+            await consumeStockFIFOTx(conn, {
+              companyId,
+              branchId,
+              warehouseId,
+              itemId,
+              transactionType: "ISSUE_TO_REQUIREMENT",
+              qtyToConsume: qty,
+              sourceRef: existing.issue_no,
+              createdBy: userId,
+            });
+          }
+        }
+      }
+
+      // Update the status
+      await conn.execute(
+        `UPDATE inv_issue_to_requirement
+            SET status = :status, updated_at = CURRENT_TIMESTAMP
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { status: newStatus, id, companyId, branchId },
+      );
+
+      await conn.commit();
+      res.json({ ok: true, status: newStatus });
+    } catch (err) {
+      if (conn) await conn.rollback().catch(() => {});
+      next(err);
+    } finally {
+      if (conn) conn.release();
+    }
+  },
+);
+
+// POST cancel issue-to-requirement
+router.post(
+  "/issue-to-requirement/:id/cancel",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureIssueToRequirementTables();
+      const { companyId, branchId } = req.scope;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+      const [existing] = await query(
+        `SELECT id, status FROM inv_issue_to_requirement
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+          LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!existing) throw httpError(404, "NOT_FOUND", "Issue not found");
+      if (String(existing.status).toUpperCase() === "CANCELLED") {
+        throw httpError(400, "VALIDATION_ERROR", "Issue is already cancelled");
+      }
+
+      await query(
+        `UPDATE inv_issue_to_requirement
+            SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // Return to Stores endpoints
 router.get(
   "/return-to-stores/:id",
@@ -7100,18 +7169,24 @@ router.put(
         throw httpError(404, "NOT_FOUND", "Transfer not found");
 
       const transfer = hdr[0];
-      const oldStatus = transfer.status;
+      const oldStatus = String(transfer.status || "").trim().toUpperCase();
+      // Normalize: always store IN_TRANSIT with underscore
+      const normalizedStatus =
+        String(status).trim().toUpperCase() === "IN TRANSIT"
+          ? "IN_TRANSIT"
+          : status;
 
       // Update status
       await conn.execute(
         `UPDATE inv_stock_transfers SET status = :status WHERE id = :id`,
-        { status, id },
+        { status: normalizedStatus, id },
       );
 
-      // If moving from DRAFT to IN_TRANSIT / IN TRANSIT, reserve stock
+      // If dispatching (from DRAFT or APPROVED -> IN_TRANSIT), reserve stock
+      const incomingUpper = String(status).trim().toUpperCase().replace(" ", "_");
       if (
-        oldStatus === "DRAFT" &&
-        ["IN_TRANSIT", "IN TRANSIT"].includes(String(status).toUpperCase())
+        ["DRAFT", "APPROVED"].includes(oldStatus) &&
+        incomingUpper === "IN_TRANSIT"
       ) {
         const [details] = await conn.execute(
           `SELECT item_id, qty FROM inv_stock_transfer_details WHERE transfer_id = :id`,
@@ -9322,7 +9397,6 @@ router.put(
   requireCompanyScope,
   requireBranchScope,
   async (req, res, next) => {
-    // Basic implementation for acceptance
     const conn = await pool.getConnection();
     try {
       const { companyId, branchId } = req.scope;
@@ -9332,68 +9406,77 @@ router.put(
 
       await conn.beginTransaction();
 
+      // Fetch the transfer header scoped to the receiving branch
       const [hdrRows] = await conn.execute(
         `SELECT t.*
          FROM inv_stock_transfers t
          LEFT JOIN inv_warehouses tw ON tw.id = t.to_warehouse_id
-         WHERE (t.id = :id OR t.transfer_no = :id) 
-           AND t.company_id = :companyId 
+         WHERE t.id = :id
+           AND t.company_id = :companyId
            AND (
              COALESCE(tw.branch_id, 0) = :branchId
              OR COALESCE(t.to_branch_id, 0) = :branchId
              OR COALESCE(t.branch_id, 0) = :branchId
            )
          LIMIT 1`,
-        { id: req.params.id, companyId, branchId },
+        { id, companyId, branchId },
       );
       const hdr = hdrRows?.[0];
       if (!hdr) throw httpError(404, "NOT_FOUND", "Transfer not found");
-      const transferId = hdr.id;
+      const transferId = Number(hdr.id);
 
-      for (const d of details) {
-        const lineId = toNumber(d.id);
-        const accQty = Number(d.accepted_qty || 0);
-        const rejQty = Number(d.rejected_qty || 0);
-        const recvQty = Number(d.accepted_qty ?? d.received_qty ?? d.qty ?? 0);
-
-        if (accQty > 0 || rejQty > 0) {
-          await conn.execute(
-            `UPDATE inv_stock_transfer_details 
-             SET accepted_qty = :accQty,
-                 rejected_qty = :rejQty,
-                 received_qty = :recvQty,
-                 acceptance_remarks = :remarks
-             WHERE id = :lineId`,
-            {
-              accQty,
-              rejQty,
-              recvQty,
-              remarks: d.acceptance_remarks || null,
-              lineId,
-            },
-          );
-        }
+      // Guard against double-confirmation
+      const currentStatus = String(hdr.status || "").toUpperCase();
+      if (["RECEIVED", "TRANSFERRED", "CANCELLED"].includes(currentStatus)) {
+        throw httpError(400, "VALIDATION_ERROR", `Transfer is already ${hdr.status}`);
       }
 
+      // If caller supplied per-line quantities, update them first
+      for (const d of details) {
+        const lineId = toNumber(d.id);
+        if (!lineId) continue;
+        const accQty  = Number(d.accepted_qty  ?? d.qty ?? 0);
+        const rejQty  = Number(d.rejected_qty  ?? 0);
+        const recvQty = Number(d.received_qty  ?? d.accepted_qty ?? d.qty ?? 0);
+        await conn.execute(
+          `UPDATE inv_stock_transfer_details
+             SET accepted_qty       = :accQty,
+                 rejected_qty       = :rejQty,
+                 received_qty       = :recvQty,
+                 acceptance_remarks = :remarks
+           WHERE id = :lineId`,
+          {
+            accQty,
+            rejQty,
+            recvQty,
+            remarks: d.acceptance_remarks || null,
+            lineId,
+          },
+        );
+      }
+
+      // Mark the transfer as RECEIVED
       await conn.execute(
-        `UPDATE inv_stock_transfers 
-            SET status = 'RECEIVED', 
-                received_date = CURRENT_TIMESTAMP, 
-                received_by = :userId
-          WHERE id = :id`,
-        { id: transferId, userId },
+        `UPDATE inv_stock_transfers
+            SET status        = 'RECEIVED',
+                received_date = CURRENT_TIMESTAMP,
+                received_by   = :userId
+          WHERE id = :transferId`,
+        { transferId, userId },
       );
 
+      // Move reserved stock from source warehouse to destination warehouse
       await applyTransferReceiptMovementsTx(conn, {
         companyId,
+        branchId,
         transferId,
         createdBy: userId,
       });
 
       await conn.commit();
-      res.json({ ok: true });
+      res.json({ ok: true, message: "Transfer confirmed and stock updated" });
     } catch (err) {
-      if (conn) await conn.rollback();
+      if (conn) await conn.rollback().catch(() => {});
       next(err);
     } finally {
       if (conn) conn.release();

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Plus, Search, ChevronRight, Paperclip } from "lucide-react";
-import { api } from "api/client";
+import { Plus } from "lucide-react";
+import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
@@ -28,19 +28,19 @@ export default function PMMaterialRequisitionList() {
   }, []);
 
   const getStatusBadge = (status) => {
-    const b = { DRAFT: "badge-info", PENDING_APPROVAL: "badge-warning", APPROVED: "badge-success", REJECTED: "badge-error", CANCELLED: "badge-error" };
-    return b[status] || "badge-info";
+    const b = { DRAFT: "bg-slate-100 text-slate-600", PENDING_APPROVAL: "bg-amber-50 text-amber-600", APPROVED: "bg-emerald-50 text-emerald-600", REJECTED: "bg-rose-50 text-rose-600", CANCELLED: "bg-rose-50 text-rose-600" };
+    return b[status] || "bg-slate-100 text-slate-600";
   };
 
-  const handleSubmit = async (id) => {
+  const handleConfirm = async (id) => {
     setForwarding(true);
     try {
       await api.post(`/projects/material-requisitions/${id}/submit`);
-      toast.success("Submitted for approval");
+      toast.success("Confirmed");
       const res = await api.get("/projects/material-requisitions");
       setItems(Array.isArray(res.data?.items) ? res.data.items : []);
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Submit failed");
+      toast.error(e?.response?.data?.message || "Confirm failed");
     } finally { setForwarding(false); }
   };
 
@@ -52,84 +52,82 @@ export default function PMMaterialRequisitionList() {
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/project-management" className="btn btn-secondary p-2"><ArrowLeft size={20} /></Link>
-          <div>
-            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Material Requisitions</h1>
-            <p className="text-slate-500 text-sm">Project material requests with approval workflow</p>
+    <div className="space-y-4">
+      <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">Material Requisitions</h1>
+              <p className="text-sm mt-1">Project material requests with approval workflow</p>
+            </div>
+            <div className="flex gap-2">
+              <Link to="/project-management" className="btn btn-secondary">Return to Menu</Link>
+              <Link to="/project-management/material-requisitions/new" className="btn-success flex items-center gap-2"><Plus size={16} />New Requisition</Link>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link to="/project-management/material-requisitions/new" className="btn-success flex items-center gap-2">
-            <Plus size={20} /> + New Requisition
-          </Link>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-700">
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input type="text" placeholder="Search requisitions..." className="input pl-10 pr-4 py-2 w-full"
-              value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+      <div className="card">
+        <div className="card-body">
+          <div className="flex flex-col md:flex-row gap-4 mb-6">
+            <div className="flex-1">
+              <input type="text" placeholder="Search requisitions..." className="input"
+                value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            </div>
           </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50/50 dark:bg-slate-900/30">
-                <SortableHeader label="Requisition No" sortKey="requisition_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
-                <SortableHeader label="Date" sortKey="requisition_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Project</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Warehouse</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Department</th>
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Priority</th>
-                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-4 text-xs font-semibold uppercase tracking-wider" />
-                <th className="px-6 py-4 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
-              {loading ? (
-                <tr><td colSpan="8" className="px-6 py-20 text-center animate-pulse text-slate-400 dark:text-slate-500 font-semibold">Loading...</td></tr>
-              ) : sorted.length > 0 ? sorted.map(r => (
-                <tr key={r.id} className="group hover:bg-slate-50 dark:hover:bg-slate-900/20 transition-all duration-300">
-                  <td className="px-6 py-4 font-medium text-sm text-slate-900 dark:text-white">{r.requisition_no}</td>
-                  <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{r.requisition_date ? new Date(r.requisition_date).toLocaleDateString() : "—"}</td>
-                  <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{r.project_name || "—"}</td>
-                  <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{r.warehouse_name || "—"}</td>
-                  <td className="px-6 py-4 text-sm text-slate-700 dark:text-slate-300">{r.department_name || "—"}</td>
-                  <td className="px-6 py-4"><span className="text-[10px] font-bold uppercase text-slate-600 dark:text-slate-300">{r.priority}</span></td>
-                  <td className="px-6 py-4"><span className={`badge ${getStatusBadge(r.status)}`}>{r.status}</span></td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button type="button" onClick={() => { setActiveDocId(r.id); setShowAttach(true); }}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg transition-colors" title="Attachments">
-                        <Paperclip size={15} />
-                      </button>
-                      {r.status === "DRAFT" && (
-                        <button type="button" onClick={() => handleSubmit(r.id)} disabled={forwarding}
-                          className="text-xs font-semibold text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300">Submit</button>
-                      )}
-                      {r.status === "DRAFT" && (
-                        <Link to={`/project-management/material-requisitions/${r.id}`}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg transition-colors">
-                          <ChevronRight size={18} />
-                        </Link>
-                      )}
-                      {(r.status === "PENDING_APPROVAL" || r.status === "APPROVED") && (
-                        <Link to={`/project-management/material-requisitions/${r.id}?view=1`}
-                          className="text-xs font-semibold text-brand hover:text-brand-600 dark:text-brand-400">View</Link>
-                      )}
-                    </div>
-                  </td>
+
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <SortableHeader label="Requisition No" sortKey="requisition_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="requisition_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <th>Project</th>
+                  <th>Warehouse</th>
+                  <th>Department</th>
+                  <th>Priority</th>
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <th className="text-center">Actions</th>
                 </tr>
-              )) : (
-                <tr><td colSpan="8" className="px-6 py-20 text-center text-slate-400 dark:text-slate-500 italic">No requisitions found.</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan="8" className="text-center py-8 text-slate-400">Loading...</td></tr>
+                ) : sorted.length > 0 ? sorted.map(r => (
+                  <tr key={r.id}>
+                    <td className="font-medium text-sm">{r.requisition_no}</td>
+                    <td className="text-sm whitespace-nowrap">{r.requisition_date ? new Date(r.requisition_date).toLocaleDateString() : "—"}</td>
+                    <td className="text-sm">{r.project_name || "—"}</td>
+                    <td className="text-sm">{r.warehouse_name || "—"}</td>
+                    <td className="text-sm">{r.department_name || "—"}</td>
+                    <td><span className="text-[10px] font-semibold uppercase text-slate-600">{r.priority}</span></td>
+                    <td><span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${getStatusBadge(r.status)}`}>{r.status}</span></td>
+                    <td className="text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <button type="button" onClick={() => { setActiveDocId(r.id); setShowAttach(true); }}
+                          className="px-2 py-1 text-xs text-slate-600 bg-slate-100 border border-slate-200 rounded hover:bg-slate-200">Attach</button>
+                        {r.status === "DRAFT" && (
+                          <>
+                            <button type="button" onClick={() => handleSubmit(r.id)} disabled={forwarding}
+                              className="px-2 py-1 text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100">Submit</button>
+                            <Link to={`/project-management/material-requisitions/${r.id}`}
+                              className="px-2 py-1 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded hover:bg-slate-200">Edit</Link>
+                          </>
+                        )}
+                        {(r.status === "PENDING_APPROVAL" || r.status === "APPROVED") && (
+                          <Link to={`/project-management/material-requisitions/${r.id}?view=1`}
+                            className="px-2 py-1 text-xs font-medium text-brand bg-brand-50 border border-brand-200 rounded hover:bg-brand-100">View</Link>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan="8" className="text-center py-8 text-slate-400">No requisitions found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

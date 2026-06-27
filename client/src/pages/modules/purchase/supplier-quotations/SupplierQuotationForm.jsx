@@ -375,8 +375,9 @@ export default function SupplierQuotationForm() {
           const newItems = rfqItems.map((d) => ({
             item_id: String(d.item_id),
             item_name: d.item_name || "",
+            uom: d.uom || "PCS",
             qty: Number(d.qty) || 0,
-            unit_price: 0,
+            unit_price: Number(d.estimated_unit_cost) || Number(d.unit_price) || 0,
             tax_code_id: "",
             delivery_date: d.required_date || "",
             line_total: 0,
@@ -637,8 +638,8 @@ export default function SupplierQuotationForm() {
 
       <form onSubmit={handleSubmit}>
         {loading ? (
-          <div className="card mb-6">
-            <div className="card-body">Loading...</div>
+          <div className="bg-white/80 backdrop-blur-xl shadow-xl border border-white/40 rounded-2xl overflow-hidden mb-6">
+            <div className="p-6">Loading...</div>
           </div>
         ) : null}
 
@@ -647,13 +648,13 @@ export default function SupplierQuotationForm() {
             <div className="card-body text-red-600">{error}</div>
           </div>
         ) : null}
-        <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg">
+        <div className="bg-white/80 backdrop-blur-xl shadow-xl border border-white/40 rounded-2xl overflow-hidden mb-6">
+          <div className="bg-gradient-to-r from-[#0E3646] to-[#1a4a5e] p-5 text-white border-b border-white/10">
             <h2 className="text-lg font-semibold text-white dark:text-slate-100">
               Quotation Information
             </h2>
           </div>
-          <div className="card-body">
+          <div className="p-6">
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className="label">Quotation No *</label>
@@ -911,18 +912,22 @@ export default function SupplierQuotationForm() {
           </div>
         </div>
 
-        <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-WHITE dark:text-slate-100">
+        <div className="bg-white/80 backdrop-blur-xl shadow-xl border border-white/40 rounded-2xl overflow-hidden mb-6">
+          <div className="bg-gradient-to-r from-[#0E3646] to-[#1a4a5e] p-5 text-white border-b border-white/10">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-semibold text-white dark:text-slate-100">
                 Quotation Items
               </h2>
-              <button type="button" onClick={addItem} className="btn-success">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={addItem}
+              >
                 + Add Item
               </button>
             </div>
           </div>
-          <div className="card-body overflow-x-auto">
+          <div className="p-6 overflow-x-auto overflow-y-visible">
             <table className="table">
               <thead>
                 <tr>
@@ -952,7 +957,7 @@ export default function SupplierQuotationForm() {
                            id={`sq-item-search-${index}`} autoComplete="off"
                            className="input w-72"
                             placeholder="Scan barcode or type item name"
-                            value={itemQueries[index] || ""}
+                            value={itemQueries[index] !== undefined ? itemQueries[index] : (item.item_id && availableItems.find(i => String(i.id) === String(item.item_id)) ? availableItems.find(i => String(i.id) === String(item.item_id)).item_name || availableItems.find(i => String(i.id) === String(item.item_id)).name : item.item_name || "")}
                             onChange={(e) => {
                               const val = e.target.value;
                               setItemQueries((prev) => ({

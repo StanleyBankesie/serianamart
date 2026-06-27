@@ -8,6 +8,7 @@ import {
   getCurrentUser,
   updateCurrentUserPhoto,
   changePassword,
+  getMyBranches,
 } from "../controllers/auth.controller.js";
 import { requireAuth } from "../middleware/auth.js";
 
@@ -21,6 +22,10 @@ router.put("/auth/me/photo", requireAuth, (req, res, next) => updateCurrentUserP
 
 router.post("/auth/change-password", requireAuth, (req, res, next) =>
   changePassword(req, res, next),
+);
+
+router.get("/auth/user-branches", requireAuth, (req, res, next) =>
+  getMyBranches(req, res, next),
 );
 
 // Request Password Reset OTP

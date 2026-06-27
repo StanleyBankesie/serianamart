@@ -1,263 +1,420 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Save, Loader2, Plus, Trash2, ChevronDown, Calendar, Search } from "lucide-react";
+
 import { api } from "api/client";
-import { toast } from "react-toastify";
+import { useUoms } from "@/hooks/useUoms";
+import { filterByPrefix } from "@/utils/searchUtils.js";
+
+function normalizeDate(v) {
+  if (!v) return new Date().toISOString().split("T")[0];
+  const s = String(v);
+  return s.includes("T") ? s.split("T")[0] : s;
+}
 
 export default function PMMaterialRequisitionForm() {
+  const { uoms, loading: uomsLoading } = useUoms();
   const { id } = useParams();
   const navigate = useNavigate();
-  const isNew = id === "new";
-  const isView = new URLSearchParams(window.location.search).get("view") === "1";
+  const isNew = id === "new" || !id;
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [projects, setProjects] = useState([]);
+  const [error, setError] = useState("");
+  const [availableItems, setAvailableItems] = useState([]);
+  const [users, setUsers] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [availableItems, setAvailableItems] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
 
-  const [form, setForm] = useState({
-    requisition_no: "Auto-generated",
-    requisition_date: new Date().toISOString().split("T")[0],
-    project_id: "",
-    warehouse_id: "",
-    department_id: "",
+  const [formData, setFormData] = useState({
+    requisitionDate: new Date().toISOString().split("T")[0],
+    projectId: "",
+    warehouseId: "",
+    departmentId: "",
     priority: "MEDIUM",
-    requested_by: "",
+    requestedBy: "",
     remarks: "",
-    status: "DRAFT"
+    status: "DRAFT",
   });
 
-  const [details, setDetails] = useState([
-    { id: 1, item_id: "", item_code: "", item_name: "", qty_requested: 0, qty_received: 0, uom: "PCS", batch_no: "" }
+  const [items, setItems] = useState([
+    {
+      id: 1,
+      item_id: "",
+      itemCode: "",
+      itemName: "",
+      qtyRequested: 0,
+      qtyReceived: 0,
+      uom: "PCS",
+      batchNo: "",
+    },
   ]);
 
   useEffect(() => {
-    Promise.all([
-      api.get("/projects/projects").then(r => setProjects(r.data?.items || [])).catch(() => {}),
-      api.get("/inventory/warehouses").then(r => setWarehouses(r.data?.items || [])).catch(() => {}),
-      api.get("/admin/departments").then(r => setDepartments(r.data?.items || [])).catch(() => {}),
-      api.get("/inventory/items").then(r => setAvailableItems(r.data?.items || [])).catch(() => {}),
-    ]);
-    if (!isNew && id) fetchReq();
-  }, [id]);
+    let mounted = true;
 
-  const fetchReq = async () => {
+    api.get("/projects/projects").then(res => {
+      if (!mounted) return;
+      setProjects(Array.isArray(res.data?.items) ? res.data.items : []);
+    }).catch(() => {});
+
+    api.get("/admin/users", { params: { active: 1 } }).then(res => {
+      if (!mounted) return;
+      const items = (res?.data && res.data.data && Array.isArray(res.data.data.items) && res.data.data.items) ||
+        (Array.isArray(res?.data?.items) && res.data.items) || [];
+      setUsers(items);
+    }).catch(() => {});
+
+    api.get("/inventory/warehouses").then(res => {
+      if (!mounted) return;
+      setWarehouses(Array.isArray(res.data?.items) ? res.data.items : []);
+    }).catch(() => {});
+
+    api.get("/admin/departments").then(res => {
+      if (!mounted) return;
+      setDepartments(Array.isArray(res.data?.items) ? res.data.items : []);
+    }).catch(() => {});
+
+    api.get("/inventory/items").then(res => {
+      if (!mounted) return;
+      setAvailableItems(Array.isArray(res.data?.items) ? res.data.items : []);
+    }).catch(e => {
+      if (!mounted) return;
+      setError(e?.response?.data?.message || "Failed to load items");
+    });
+
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (isNew) return;
+    let mounted = true;
     setLoading(true);
-    try {
-      const res = await api.get(`/projects/material-requisitions/${id}`);
-      const d = res.data?.item;
-      if (d) {
-        setForm({
-          requisition_no: d.requisition_no || "",
-          requisition_date: d.requisition_date ? d.requisition_date.split("T")[0] : "",
-          project_id: d.project_id ? String(d.project_id) : "",
-          warehouse_id: d.warehouse_id ? String(d.warehouse_id) : "",
-          department_id: d.department_id ? String(d.department_id) : "",
-          priority: d.priority || "MEDIUM",
-          requested_by: d.requested_by || "",
-          remarks: d.remarks || "",
-          status: d.status || "DRAFT"
-        });
-      }
-      const dets = res.data?.details || [];
-      if (dets.length) {
-        setDetails(dets.map(dd => ({
-          id: dd.id,
-          item_id: dd.item_id ? String(dd.item_id) : "",
-          item_code: dd.item_code || "",
-          item_name: dd.item_name || "",
-          qty_requested: dd.qty_requested || 0,
-          qty_received: dd.qty_received || 0,
-          uom: dd.uom || "PCS",
-          batch_no: dd.batch_no || ""
-        })));
-      }
-    } catch (e) { toast.error("Failed to load"); }
-    finally { setLoading(false); }
-  };
+    setError("");
 
-  const addLine = () => {
-    setDetails(prev => [...prev, { id: Date.now(), item_id: "", item_code: "", item_name: "", qty_requested: 0, qty_received: 0, uom: "PCS", batch_no: "" }]);
-  };
+    api.get(`/projects/material-requisitions/${id}`).then(res => {
+      if (!mounted) return;
+      const r = res.data?.item;
+      const details = Array.isArray(res.data?.details) ? res.data.details : [];
+      if (!r) return;
 
-  const removeLine = (idx) => {
-    if (details.length === 1) return;
-    setDetails(prev => prev.filter((_, i) => i !== idx));
-  };
+      setFormData({
+        requisitionDate: normalizeDate(r.requisition_date),
+        projectId: r.project_id || "",
+        warehouseId: r.warehouse_id || "",
+        departmentId: r.department_id || "",
+        priority: r.priority || "MEDIUM",
+        requestedBy: r.requested_by || "",
+        remarks: r.remarks || "",
+        status: r.status || "DRAFT",
+      });
 
-  const updateLine = (idx, field, val) => {
-    setDetails(prev => prev.map((d, i) => i === idx ? { ...d, [field]: val } : d));
-  };
+      setItems(details.length ? details.map(d => ({
+        id: d.id || Date.now() + Math.random(),
+        item_id: d.item_id ? String(d.item_id) : "",
+        itemCode: d.item_code || "",
+        itemName: d.item_name || "",
+        qtyRequested: Number(d.qty_requested) || 0,
+        qtyReceived: Number(d.qty_received) || 0,
+        uom: d.uom || "PCS",
+        batchNo: d.batch_no || "",
+      })) : [{
+        id: 1, item_id: "", itemCode: "", itemName: "",
+        qtyRequested: 0, qtyReceived: 0, uom: "PCS",
+      }]);
 
-  const onItemSelect = (idx, itemId) => {
-    const item = availableItems.find(i => String(i.id) === itemId);
-    updateLine(idx, "item_id", itemId);
-    if (item) {
-      updateLine(idx, "item_code", item.item_code || "");
-      updateLine(idx, "item_name", item.item_name || "");
-      updateLine(idx, "uom", item.uom || "PCS");
-    }
+      const initQueries = {};
+      (details.length ? details : [{ id: 1 }]).forEach(d => {
+        initQueries[d.id || 1] = d.item_name || "";
+      });
+      setItemQueries(initQueries);
+    }).catch(e => {
+      if (!mounted) return;
+      setError(e?.response?.data?.message || "Failed to load material requisition");
+    }).finally(() => {
+      if (!mounted) return;
+      setLoading(false);
+    });
+
+    return () => { mounted = false; };
+  }, [id, isNew]);
+
+  const normalizedDetails = useMemo(() => {
+    return items.filter(r => r.item_id).map(r => ({
+      item_id: Number(r.item_id),
+      qty_requested: Math.max(0, parseInt(r.qtyRequested, 10) || 0),
+      qty_received: Math.max(0, parseInt(r.qtyReceived, 10) || 0),
+      uom: r.uom || "PCS",
+      batch_no: r.batchNo || null,
+    }));
+  }, [items]);
+
+  const statusColors = {
+    DRAFT: "bg-gray-500 text-white",
+    PENDING: "bg-yellow-400 text-black",
+    PENDING_APPROVAL: "bg-yellow-400 text-black",
+    SUBMITTED: "bg-yellow-300 text-black",
+    APPROVED: "bg-green-500 text-white",
+    REJECTED: "bg-red-500 text-white",
+    CANCELLED: "bg-red-500 text-white",
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setSaving(true);
+    setError("");
+
     try {
-      const payload = { ...form, details: details.filter(d => d.item_id) };
+      const payload = {
+        requisition_date: normalizeDate(formData.requisitionDate),
+        project_id: formData.projectId || null,
+        warehouse_id: formData.warehouseId || null,
+        department_id: formData.departmentId || null,
+        priority: formData.priority,
+        requested_by: formData.requestedBy || null,
+        remarks: formData.remarks || null,
+        status: "DRAFT",
+        details: normalizedDetails,
+      };
+
       if (isNew) {
         await api.post("/projects/material-requisitions", payload);
-        toast.success("Requisition created");
       } else {
         await api.put(`/projects/material-requisitions/${id}`, payload);
-        toast.success("Requisition updated");
       }
-      navigate("/project-management/material-requisitions");
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to save");
-    } finally { setSaving(false); }
+
+      navigate("/project-management/material-requisitions", { state: { refresh: true } });
+    } catch (e2) {
+      setError(e2?.response?.data?.message || "Failed to save material requisition");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  if (loading) return <div className="p-20 text-center animate-pulse font-bold text-slate-300 uppercase italic">Loading...</div>;
+  const addItem = () => {
+    const newId = Date.now();
+    setItems([...items, {
+      id: newId, item_id: "", itemCode: "", itemName: "",
+      qtyRequested: 0, qtyReceived: 0, uom: "PCS", batchNo: "",
+    }]);
+    setItemQueries(prev => ({ ...prev, [newId]: "" }));
+  };
 
-  const readOnly = isView || (form.status !== "DRAFT");
+  const handleSelectItem = (rowId, item) => {
+    setItems(items.map(i =>
+      i.id === rowId ? {
+        ...i, item_id: String(item.id), itemCode: item.item_code || "",
+        itemName: item.item_name || "", uom: item.uom || "PCS",
+      } : i,
+    ));
+    setItemQueries(prev => ({ ...prev, [rowId]: item.item_name || "" }));
+  };
+
+  const removeItem = (id) => {
+    setItems(items.filter(item => item.id !== id));
+  };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/project-management/material-requisitions" className="btn btn-secondary p-2"><ArrowLeft size={20} /></Link>
-          <div>
-            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">{isNew ? "New Material Requisition" : `Requisition ${form.requisition_no}`}</h1>
-            <p className="text-slate-500 text-sm">{isNew ? "Request materials for your project" : `Status: ${form.status}`}</p>
+    <div className="space-y-6">
+      <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center text-white">
+            <div>
+              <h1 className="text-2xl font-bold dark:text-brand-300">
+                {isNew ? "New Material Requisition" : "Edit Material Requisition"}
+              </h1>
+              <p className="text-sm mt-1">Request materials for your project</p>
+            </div>
+            <Link to="/project-management/material-requisitions" className="btn-success">Back to List</Link>
           </div>
         </div>
-        {!readOnly && (
-          <button onClick={handleSubmit} disabled={saving} className="btn-success flex items-center gap-2">
-            {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-            {isNew ? "Create Requisition" : "Update"}
-          </button>
-        )}
-      </div>
+        <div className="card-body">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {loading ? <div className="text-sm">Loading...</div> : null}
+            {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="card p-8 space-y-6">
-            <h2 className="font-bold uppercase text-xs tracking-wider text-brand-600 border-b pb-3">Requisition Details</h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Requisition No</label>
-                <input type="text" className="input w-full bg-slate-50" value={form.requisition_no} readOnly />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="label">Requisition Date *</label>
+                <input type="date" className="input" value={formData.requisitionDate}
+                  onChange={e => setFormData({ ...formData, requisitionDate: e.target.value })} required />
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Date</label>
-                <input type="date" className="input w-full" value={form.requisition_date}
-                  onChange={e => setForm({...form, requisition_date: e.target.value})} disabled={readOnly} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Project</label>
-                <select className="input w-full" value={form.project_id} onChange={e => setForm({...form, project_id: e.target.value})} disabled={readOnly}>
-                  <option value="">Select project</option>
+              <div>
+                <label className="label">Project *</label>
+                <select className="input" value={formData.projectId}
+                  onChange={e => setFormData({ ...formData, projectId: e.target.value })} required>
+                  <option value="">Select Project</option>
                   {projects.map(p => <option key={p.id} value={p.id}>{p.project_name}</option>)}
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Priority</label>
-                <select className="input w-full" value={form.priority} onChange={e => setForm({...form, priority: e.target.value})} disabled={readOnly}>
-                  {["LOW", "MEDIUM", "HIGH", "CRITICAL"].map(p => <option key={p} value={p}>{p}</option>)}
+              <div>
+                <label className="label">Priority</label>
+                <select className="input" value={formData.priority}
+                  onChange={e => setFormData({ ...formData, priority: e.target.value })}>
+                  <option value="LOW">Low</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="HIGH">High</option>
+                  <option value="CRITICAL">Critical</option>
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Warehouse</label>
-                <select className="input w-full" value={form.warehouse_id} onChange={e => setForm({...form, warehouse_id: e.target.value})} disabled={readOnly}>
-                  <option value="">Select warehouse</option>
+              <div>
+                <label className="label">Status</label>
+                <div className="pt-2">
+                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${statusColors[formData.status] || "bg-gray-500 text-white"}`}>
+                    {formData.status}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="label">Source Warehouse</label>
+                <select className="input" value={formData.warehouseId}
+                  onChange={e => setFormData({ ...formData, warehouseId: e.target.value })}>
+                  <option value="">Select Warehouse</option>
                   {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name}</option>)}
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Department</label>
-                <select className="input w-full" value={form.department_id} onChange={e => setForm({...form, department_id: e.target.value})} disabled={readOnly}>
-                  <option value="">Select department</option>
-                  {departments.map(d => <option key={d.id} value={d.id}>{d.dept_name}</option>)}
+              <div>
+                <label className="label">Destination Department</label>
+                <select className="input" value={formData.departmentId}
+                  onChange={e => setFormData({ ...formData, departmentId: e.target.value })}>
+                  <option value="">Select Department</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Requested By</label>
-                <input type="text" className="input w-full" value={form.requested_by} onChange={e => setForm({...form, requested_by: e.target.value})} disabled={readOnly} />
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Remarks</label>
-                <textarea className="input w-full min-h-[60px]" value={form.remarks} onChange={e => setForm({...form, remarks: e.target.value})} disabled={readOnly} />
+              <div>
+                <label className="label">Requested By *</label>
+                <select className="input" value={formData.requestedBy}
+                  onChange={e => setFormData({ ...formData, requestedBy: e.target.value })} required>
+                  <option value="">Select User</option>
+                  {users.map(u => <option key={u.id} value={u.username}>{u.username}</option>)}
+                </select>
               </div>
             </div>
-          </div>
 
-          <div className="card p-8 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-bold uppercase text-xs tracking-wider text-brand-600">Items</h2>
-              {!readOnly && (
-                <button type="button" onClick={addLine} className="btn btn-sm flex items-center gap-1"><Plus size={14} /> Add Item</button>
-              )}
+            <div>
+              <label className="label">Remarks</label>
+              <textarea className="input w-full" rows="3" value={formData.remarks}
+                onChange={e => setFormData({ ...formData, remarks: e.target.value })}
+                placeholder="Enter any additional notes..."></textarea>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead><tr className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                  <th className="px-3 py-2">Item</th>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">UOM</th>
-                  <th className="px-3 py-2 text-right">Qty Requested</th>
-                  <th className="px-3 py-2 text-right">Qty Received</th>
-                  <th className="px-3 py-2">Batch No</th>
-                  {!readOnly && <th className="px-3 py-2"></th>}
-                </tr></thead>
-                <tbody className="divide-y">
-                  {details.map((d, idx) => (
-                    <tr key={d.id}>
-                      <td className="px-3 py-2">
-                        {readOnly ? (
-                          <span>{d.item_name}</span>
-                        ) : (
-                          <select className="input w-48 text-xs py-1" value={d.item_id} onChange={e => onItemSelect(idx, e.target.value)}>
-                            <option value="">Select item</option>
-                            {availableItems.map(i => <option key={i.id} value={i.id}>{i.item_name}</option>)}
-                          </select>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-slate-500">{d.item_code}</td>
-                      <td className="px-3 py-2">{d.uom}</td>
-                      <td className="px-3 py-2">
-                        <input type="number" className="input w-20 text-xs py-1 text-right" value={d.qty_requested}
-                          onChange={e => updateLine(idx, "qty_requested", Number(e.target.value))} disabled={readOnly} />
-                      </td>
-                      <td className="px-3 py-2 text-right">{d.qty_received}</td>
-                      <td className="px-3 py-2">
-                        <input type="text" className="input w-24 text-xs py-1" value={d.batch_no}
-                          onChange={e => updateLine(idx, "batch_no", e.target.value)} disabled={readOnly} />
-                      </td>
-                      {!readOnly && (
-                        <td className="px-3 py-2">
-                          <button type="button" onClick={() => removeLine(idx)} className="p-1 text-rose-500 hover:text-rose-700"><Trash2 size={14} /></button>
-                        </td>
-                      )}
+
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Items</h3>
+                <button type="button" onClick={addItem} className="btn-success text-sm">+ Add Item</button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="table w-full">
+                  <thead>
+                    <tr>
+                      <th className="w-1/2 min-w-[300px]">Item Name</th>
+                      <th className="w-32 min-w-[110px]">Qty Requested</th>
+                      <th className="w-24 min-w-[80px]">UOM</th>
+                      <th className="w-40 min-w-[160px]">Batch No</th>
+                      <th className="w-20">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => {
+                      const itemQuery = itemQueries[item.id] || "";
+                      const showQuery = item.item_id ? item.itemName : itemQuery;
+                      const searchResults = itemQuery.trim() && !item.item_id
+                        ? filterByPrefix(availableItems, { query: itemQuery, searchFields: ["item_code", "item_name", "barcode"] })
+                        : [];
+                      return (
+                        <tr key={item.id}>
+                          <td>
+                            <div className="relative">
+                              <input id={`pm-mr-item-search-${item.id}`} autoComplete="off"
+                                className="input w-full" placeholder="Type to search items"
+                                value={showQuery}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  setItemQueries(prev => ({ ...prev, [item.id]: val }));
+                                  if (item.item_id) {
+                                    setItems(items.map(i =>
+                                      i.id === item.id ? { ...i, item_id: "", itemCode: "", itemName: "" } : i,
+                                    ));
+                                  }
+                                }}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter") {
+                                    const query = (itemQueries[item.id] || "").trim();
+                                    if (!query || !searchResults.length) return;
+                                    handleSelectItem(item.id, searchResults[0]);
+                                  }
+                                }}
+                              />
+                              {searchResults.length ? (() => {
+                                const el = document.getElementById(`pm-mr-item-search-${item.id}`);
+                                const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
+                                return (
+                                  <div className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                    style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}>
+                                    {searchResults.map(o => (
+                                      <button type="button" key={o.id}
+                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                        onClick={() => handleSelectItem(item.id, o)}>
+                                        {o.item_code} - {o.item_name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              })() : null}
+                            </div>
+                          </td>
+                          <td>
+                            <input type="number" className="input" value={item.qtyRequested}
+                              onChange={e => {
+                                setItems(items.map(i =>
+                                  i.id === item.id ? { ...i, qtyRequested: Math.max(0, parseInt(e.target.value, 10) || 0) } : i,
+                                ));
+                              }} min="0" step="1" inputMode="numeric" pattern="[0-9]*" />
+                          </td>
+                          <td>
+                            <select className="input" value={item.uom || ""}
+                              onChange={e => {
+                                setItems(items.map(i => i.id === item.id ? { ...i, uom: e.target.value } : i));
+                              }}>
+                              <option value="">UOM</option>
+                              {(Array.isArray(uoms) && uoms.length ? uoms.map(u => ({ code: u.uom_code || u.code || "", name: u.uom_name || u.name || "" }))
+                                : [{ code: "EA", name: "EA" }, { code: "PCS", name: "PCS" }, { code: "KG", name: "KG" }, { code: "LTR", name: "LTR" }, { code: "MTR", name: "MTR" }]
+                              ).map(u => (
+                                <option key={u.code} value={u.code}>{u.name ? `${u.name} (${u.code})` : u.code}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <input type="text" className="input" placeholder="Batch No" value={item.batchNo || ""}
+                              onChange={e => {
+                                setItems(items.map(i => i.id === item.id ? { ...i, batchNo: e.target.value } : i));
+                              }} />
+                          </td>
+                          <td>
+                            <button type="button" onClick={() => removeItem(item.id)}
+                              className="text-red-600 hover:text-red-800 text-sm font-medium">Remove</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div className="space-y-6">
-          <div className="card p-6 space-y-4">
-            <h2 className="font-bold uppercase text-xs tracking-wider text-slate-500">Summary</h2>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-slate-500">Total Items:</span><span className="font-bold">{details.filter(d => d.item_id).length}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Total Qty:</span><span className="font-bold">{details.reduce((s, d) => s + Number(d.qty_requested || 0), 0)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Status:</span><span className="font-bold uppercase text-xs">{form.status}</span></div>
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+              <Link to="/project-management/material-requisitions"
+                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</Link>
+              <button type="submit" className="btn-success" disabled={saving}>
+                {saving ? "Saving..." : "Save"}
+              </button>
             </div>
-          </div>
+          </form>
         </div>
       </div>
     </div>

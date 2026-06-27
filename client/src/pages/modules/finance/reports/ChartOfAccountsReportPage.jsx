@@ -68,7 +68,7 @@ export default function ChartOfAccountsReportPage() {
               Visual table of accounts grouped by parent groups. Export to Excel.
             </p>
           </div>
-          <Link to="/finance" className="btn-secondary text-sm">
+          <Link to="/finance" className="font-sans btn-secondary text-sm">
             Back to Finance
           </Link>
         </div>

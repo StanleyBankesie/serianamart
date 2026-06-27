@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { Eye } from "lucide-react";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 import { Guard } from "../../../../hooks/usePermissions";
 
 export default function MaintenanceScheduleList() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let m = true;
@@ -52,12 +58,14 @@ export default function MaintenanceScheduleList() {
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Next Due</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assigned To</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {loading && <tr><td colSpan="7" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="7" className="px-4 py-8 text-center text-slate-500">No schedules found</td></tr>}
+                {loading && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
+                {!loading && !filtered.length && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">No schedules found</td></tr>}
                 {!loading && filtered.map(r => (
                   <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="px-4 py-3 text-sm font-medium">{r.schedule_name}</td>
@@ -66,7 +74,9 @@ export default function MaintenanceScheduleList() {
                     <td className="px-4 py-3 text-sm">{r.next_due_date}</td>
                     <td className="px-4 py-3 text-sm">{r.assigned_to}</td>
                     <td className="px-4 py-3 text-sm"><span className={`inline-block px-2 py-0.5 text-xs rounded font-medium ${r.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}>{r.status}</span></td>
-                    <td className="px-4 py-3 text-sm whitespace-nowrap"><Link to={`/maintenance/schedules/${r.id}`} className="text-brand hover:underline font-medium text-sm">Edit</Link></td>
+                    <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
+                    <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="px-4 py-3 text-sm whitespace-nowrap"><div className="flex items-center gap-1"><button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/schedules/${r.id}?mode=view`)}><Eye size={15} /></button><ListPrintIconButton onClick={() => toast.info("Print coming soon")} /><ListPdfIconButton onClick={() => toast.info("PDF coming soon")} /><ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} /><Link to={`/maintenance/schedules/${r.id}`} className="text-brand hover:underline font-medium text-sm">Edit</Link></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -74,6 +84,14 @@ export default function MaintenanceScheduleList() {
           </div>
         </div>
       </div>
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
     </Guard>
   );
 }

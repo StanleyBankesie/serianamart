@@ -46,7 +46,7 @@ export default function RatioAnalysisReportPage() {
         <div>
           <Link
             to="/finance"
-            className="text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors"
+            className="font-sans text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors"
           >
             ← Back to Finance
           </Link>

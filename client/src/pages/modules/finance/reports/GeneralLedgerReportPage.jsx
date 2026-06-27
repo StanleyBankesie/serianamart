@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
-import { filterAndSort } from "../../../../utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
@@ -18,10 +17,13 @@ export default function GeneralLedgerReportPage() {
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState("");
   const [accountQuery, setAccountQuery] = useState("");
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [opening, setOpening] = useState(0);
   const [items, setItems] = useState([]);
   const [accountMeta, setAccountMeta] = useState(null);
   const [loading, setLoading] = useState(false);
+  const accountInputRef = useRef(null);
+  const accountDropdownRef = useRef(null);
 
   function getVoucherPath(row) {
     const code = String(row?.voucher_type_code || "").toUpperCase();
@@ -105,6 +107,13 @@ export default function GeneralLedgerReportPage() {
     Promise.all([loadAccounts(), loadGroups()]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (accountId) {
+      const hit = (accounts || []).find((a) => String(a.id) === String(accountId));
+      if (hit) setAccountQuery(String(hit.name || ""));
+    }
+  }, [accountId, accounts]);
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -155,11 +164,16 @@ export default function GeneralLedgerReportPage() {
     );
   }, [accounts, groupId, groups]);
 
-  const filteredAccounts = useMemo(() => {
-    return filterAndSort(groupFilteredAccounts, {
-      query: accountQuery,
-      getKeys: (a) => [a.code, a.name],
-    });
+  const accountSearchResults = useMemo(() => {
+    const q = String(accountQuery || "").trim().toLowerCase();
+    if (!q) return groupFilteredAccounts || [];
+    return (groupFilteredAccounts || [])
+      .filter((a) => {
+        const code = String(a.code || "").toLowerCase();
+        const name = String(a.name || "").toLowerCase();
+        return code.startsWith(q) || name.startsWith(q);
+      })
+      .slice(0, 20);
   }, [groupFilteredAccounts, accountQuery]);
 
   const selectedAccountLabel = useMemo(() => {
@@ -169,25 +183,42 @@ export default function GeneralLedgerReportPage() {
     return hit ? String(hit.name || "") : "";
   }, [accounts, accountId]);
 
-  function handleAccountInputChange(value) {
+  const handleSelectAccount = useCallback((id, name) => {
+    setAccountId(String(id));
+    setAccountQuery(String(name || ""));
+    setAccountDropdownOpen(false);
+  }, []);
+
+  const handleAccountInputChange = useCallback((value) => {
     setAccountQuery(value);
-    const v = String(value || "")
-      .trim()
-      .toLowerCase();
-    if (!v) {
-      setAccountId("");
-      return;
-    }
-    const hit = (groupFilteredAccounts || []).find((a) => {
-      const label = `${a.name}`.toLowerCase();
-      const code = String(a.code || "").toLowerCase();
-      return label === v || code === v;
-    });
-    if (hit?.id) {
-      setAccountId(String(hit.id));
-      setAccountQuery(String(hit.name || ""));
-    }
-  }
+    setAccountDropdownOpen(true);
+    if (!String(value || "").trim()) { setAccountId(""); }
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        accountDropdownRef.current &&
+        !accountDropdownRef.current.contains(e.target) &&
+        accountInputRef.current &&
+        !accountInputRef.current.contains(e.target)
+      ) {
+        setAccountDropdownOpen(false);
+        const v = String(accountQuery || "").trim().toLowerCase();
+        if (!v) { setAccountId(""); return; }
+        const hit = (groupFilteredAccounts || []).find((a) => {
+          const label = `${a.name}`.toLowerCase();
+          const code = String(a.code || "").toLowerCase();
+          return label === v || code === v;
+        });
+        if (!hit && selectedAccountLabel) {
+          setAccountQuery(selectedAccountLabel);
+        }
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [accountQuery, groupFilteredAccounts, selectedAccountLabel]);
 
   return (
     <div className="space-y-4">
@@ -195,7 +226,7 @@ export default function GeneralLedgerReportPage() {
         <div>
           <Link
             to="/finance"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+            className="font-sans text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Finance
           </Link>
@@ -211,39 +242,60 @@ export default function GeneralLedgerReportPage() {
           <div className="flex flex-wrap items-end gap-6 mb-6">
             <div className="flex-1 min-w-[250px]">
               <label className="label">Account</label>
-              <input
-                className="input"
-                placeholder="Type to search account..."
-                value={accountQuery}
-                onChange={(e) => handleAccountInputChange(e.target.value)}
-                list="gl-account-options"
-                onBlur={() => {
-                  const v = String(accountQuery || "")
-                    .trim()
-                    .toLowerCase();
-                  if (!v) {
-                    setAccountId("");
-                    return;
-                  }
-                  const hit = (groupFilteredAccounts || []).find((a) => {
-                    const label = `${a.name}`.toLowerCase();
-                    const code = String(a.code || "").toLowerCase();
-                    return label === v || code === v;
-                  });
-                  if (hit?.id) {
-                    setAccountId(String(hit.id));
-                    setAccountQuery(String(hit.name || ""));
-                    return;
-                  }
-                  if (selectedAccountLabel)
-                    setAccountQuery(selectedAccountLabel);
-                }}
-              />
-              <datalist id="gl-account-options">
-                {filteredAccounts.map((a) => (
-                  <option key={a.id} value={String(a.name || "")} />
-                ))}
-              </datalist>
+              <div className="relative">
+                <input
+                  ref={accountInputRef}
+                  className="input w-full"
+                  placeholder={accountId ? selectedAccountLabel || "Search account..." : "Search account..."}
+                  value={accountQuery}
+                  onChange={(e) => handleAccountInputChange(e.target.value)}
+                  onFocus={() => { setAccountDropdownOpen(true); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && accountSearchResults.length > 0) {
+                      const first = accountSearchResults[0];
+                      handleSelectAccount(first.id, first.name);
+                    }
+                    if (e.key === "Escape") setAccountDropdownOpen(false);
+                  }}
+                  autoComplete="off"
+                />
+                {accountId ? (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 text-lg leading-none"
+                    onClick={() => { setAccountId(""); setAccountQuery(""); setAccountDropdownOpen(false); }}
+                    title="Clear account"
+                  >
+                    &times;
+                  </button>
+                ) : null}
+                {accountDropdownOpen && accountSearchResults.length > 0 ? (
+                  <div ref={accountDropdownRef} className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg max-h-48 overflow-auto">
+                    {accountSearchResults.map((a) => {
+                      const q = String(accountQuery || "").trim().toLowerCase();
+                      const name = String(a.name || "");
+                      const idx = q ? name.toLowerCase().indexOf(q) : -1;
+                      return (
+                        <button
+                          type="button"
+                          key={a.id}
+                          className="block w-full text-left px-3 py-2 hover:bg-brand-50 dark:hover:bg-brand-900/20 text-sm border-b border-slate-50 dark:border-slate-700/50 last:border-0"
+                          onMouseDown={(e) => { e.preventDefault(); handleSelectAccount(a.id, a.name); }}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span>
+                              {idx >= 0 ? (
+                                <>{name.slice(0, idx)}<strong className="text-brand-600 dark:text-brand-400">{name.slice(idx, idx + q.length)}</strong>{name.slice(idx + q.length)}</>
+                              ) : name}
+                            </span>
+                            <span className="font-semibold text-brand-700 dark:text-brand-300 whitespace-nowrap ml-2 text-xs bg-brand-50 dark:bg-brand-900/30 px-1.5 py-0.5 rounded">{a.code}</span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="w-48">
               <label className="label">Account Group</label>
@@ -260,7 +312,8 @@ export default function GeneralLedgerReportPage() {
                 ))}
               </select>
             </div>
-            <div className="w-40">
+            <div style={{ width: '1px', alignSelf: 'stretch', background: 'transparent', marginLeft: '1rem', marginRight: '1rem' }} />
+            <div className="w-48">
               <label className="label">From</label>
               <input
                 className="input"

@@ -18,7 +18,13 @@ import PMMaterialUtilizationList from "./material-utilization/MaterialUtilizatio
 import PMMaterialUtilizationForm from "./material-utilization/MaterialUtilizationForm.jsx";
 import PMMaterialReceiptList from "./material-receipt/MaterialReceiptList.jsx";
 import PMMaterialReceiptForm from "./material-receipt/MaterialReceiptForm.jsx";
+import ProjectOrderList from "./project-orders/ProjectOrderList.jsx";
+import ProjectOrderForm from "./project-orders/ProjectOrderForm.jsx";
 import ProjectStatusReport from "./reports/ProjectStatusReport.jsx";
+import PMPurchaseRequisitionList from "./purchase-requisitions/PMPurchaseRequisitionList.jsx";
+import PMPurchaseRequisitionForm from "./purchase-requisitions/PMPurchaseRequisitionForm.jsx";
+import ProjectIncomeReport from "./reports/ProjectIncomeReport.jsx";
+import ProjectExpenseReport from "./reports/ProjectExpenseReport.jsx";
 
 function ProjectManagementLanding() {
   const [stats, setStats] = React.useState([
@@ -111,7 +117,7 @@ function ProjectManagementLanding() {
           icon: "📁",
         },
         {
-          title: "Setup",
+          title: "Project Setup",
           path: "/project-management/setup",
           description: "Configure project managers and settings",
           icon: "⚙️",
@@ -129,9 +135,9 @@ function ProjectManagementLanding() {
           icon: "✅",
         },
         {
-          title: "Timesheets",
+          title: "Project Timeline",
           path: "/project-management/timesheets",
-          description: "Log and approve work hours",
+          description: "Log and track work hours",
           icon: "⏱️",
         },
         {
@@ -151,6 +157,18 @@ function ProjectManagementLanding() {
           path: "/project-management/material-receipts",
           description: "Receive materials from inventory",
           icon: "📥",
+        },
+        {
+          title: "Project Orders",
+          path: "/project-management/project-orders",
+          description: "Order materials with approval workflow",
+          icon: "📋",
+        },
+        {
+          title: "Purchase Requisition",
+          path: "/project-management/purchase-requisitions",
+          description: "Request materials for procurement",
+          icon: "📋",
         },
       ],
     },
@@ -179,6 +197,18 @@ function ProjectManagementLanding() {
           path: "/project-management/reports/project-status",
           description: "Completion metrics and task breakdown",
           icon: "📈",
+        },
+        {
+          title: "Project Income Report",
+          path: "/project-management/reports/project-income",
+          description: "Receipt vouchers linked to projects",
+          icon: "💰",
+        },
+        {
+          title: "Project Expense Report",
+          path: "/project-management/reports/project-expense",
+          description: "Payment vouchers linked to projects",
+          icon: "💳",
         },
       ],
     },
@@ -218,6 +248,8 @@ export default function ProjectManagementHome() {
 
       <Route path="/reports" element={<ProjectReports />} />
       <Route path="/reports/project-status" element={<ProjectStatusReport />} />
+      <Route path="/reports/project-income" element={<ProjectIncomeReport />} />
+      <Route path="/reports/project-expense" element={<ProjectExpenseReport />} />
 
       <Route path="/setup" element={<PMSetup />} />
 
@@ -256,6 +288,14 @@ export default function ProjectManagementHome() {
         path="/material-receipts/:id"
         element={<PMMaterialReceiptForm />}
       />
+
+      <Route path="/project-orders" element={<ProjectOrderList />} />
+      <Route path="/project-orders/new" element={<ProjectOrderForm />} />
+      <Route path="/project-orders/:id" element={<ProjectOrderForm />} />
+
+      <Route path="/purchase-requisitions" element={<PMPurchaseRequisitionList />} />
+      <Route path="/purchase-requisitions/new" element={<PMPurchaseRequisitionForm />} />
+      <Route path="/purchase-requisitions/:id" element={<PMPurchaseRequisitionForm />} />
     </Routes>
   );
 }
@@ -275,7 +315,7 @@ export const projectManagementFeatures = [
   },
   {
     module_key: "project-management",
-    label: "Timesheets",
+    label: "Project Timeline",
     path: "/project-management/timesheets",
     type: "feature",
   },
@@ -287,7 +327,7 @@ export const projectManagementFeatures = [
   },
   {
     module_key: "project-management",
-    label: "Setup",
+    label: "Project Setup",
     path: "/project-management/setup",
     type: "feature",
   },
@@ -311,6 +351,18 @@ export const projectManagementFeatures = [
   },
   {
     module_key: "project-management",
+    label: "Project Orders",
+    path: "/project-management/project-orders",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Purchase Requisition",
+    path: "/project-management/purchase-requisitions",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
     label: "Project Reports",
     path: "/project-management/reports",
     type: "dashboard",
@@ -320,5 +372,17 @@ export const projectManagementFeatures = [
     label: "Project Status Report",
     path: "/project-management/reports/project-status",
     type: "dashboard",
+  },
+  {
+    module_key: "project-management",
+    label: "Project Income Report",
+    path: "/project-management/reports/project-income",
+    type: "feature",
+  },
+  {
+    module_key: "project-management",
+    label: "Project Expense Report",
+    path: "/project-management/reports/project-expense",
+    type: "feature",
   },
 ];

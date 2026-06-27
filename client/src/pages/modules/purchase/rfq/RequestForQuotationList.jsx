@@ -182,14 +182,16 @@ export default function RequestForQuotationList() {
                             View
                           </Link>
                         </div>
-                        <div className="min-w-[80px]">
-                          <Link
-                            to={`/purchase/rfqs/${rfq.id}/edit`}
-                            className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                          >
-                            Edit
-                          </Link>
-                        </div>
+                        {rfq.status !== "SENT" && (
+                          <div className="min-w-[80px]">
+                            <Link
+                              to={`/purchase/rfqs/${rfq.id}/edit`}
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              Edit
+                            </Link>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td>{rfq.created_by_name || "-"}</td>

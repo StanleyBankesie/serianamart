@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { ConfigProvider } from "antd";
 
 import { AuthProvider } from "./auth/AuthContext.jsx";
 import { PermissionProvider } from "./auth/PermissionContext.jsx";
@@ -11,14 +12,41 @@ import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import ForgotPasswordRequest from "./pages/ForgotPasswordRequest.jsx";
 import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
-import { Provider } from "react-redux";
+import { Provider, useDispatch } from "react-redux";
 import { store } from "./store/store.js";
 import BranchSelectionPage from "./pages/BranchSelectionPage.jsx";
-
+import { useAuth } from "./auth/AuthContext.jsx";
+import { clearGeneralCache } from "./offline/cache.js";
+import { clearPosCache } from "./offline/db.js";
 
 import AppShell from "./layout/AppShell.jsx";
 
 const LoadingScreen = () => null;
+
+/**
+ * ScopedShell mounts AppShell with a React key derived from branchId.
+ * Whenever the active branch changes, the key changes, React unmounts the
+ * entire AppShell tree and remounts it fresh — ensuring no stale data
+ * (transactions, reports, settings) from the previous branch leaks through.
+ */
+function ScopedShell() {
+  const { scope, initialized } = useAuth();
+  const dispatch = useDispatch();
+
+  React.useEffect(() => {
+    if (initialized && scope?.branchId) {
+      // Clear Redux Store state
+      dispatch({ type: "RESET_STORE" });
+      // Clear IndexedDB offline caches
+      clearGeneralCache().catch(() => {});
+      clearPosCache().catch(() => {});
+    }
+  }, [scope?.branchId, initialized, dispatch]);
+
+  // Only set the key once initialized to avoid an extra remount on first load.
+  const branchKey = initialized ? `branch-${scope?.branchId ?? "none"}` : "branch-init";
+  return <AppShell key={branchKey} />;
+}
 
 export default function App() {
   const base = (import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
@@ -29,41 +57,50 @@ export default function App() {
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
     >
       <Provider store={store}>
-        <ThemeProvider>
-          <AuthProvider>
-            <PermissionProvider>
-              <ToastContainer position="top-right" theme="dark" />
+        <ConfigProvider
+          theme={{
+            token: {
+              fontFamily: '"Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            },
+          }}
+        >
+          <ThemeProvider>
+            <AuthProvider>
 
-              <Routes>
-                <Route path="/login" element={
-                  <ErrorBoundary><LoginPage /></ErrorBoundary>
-                } />
-                <Route
-                  path="/forgot-password"
-                  element={<ErrorBoundary><ForgotPasswordRequest /></ErrorBoundary>}
-                />
-                <Route path="/reset-password" element={<ErrorBoundary><ResetPasswordPage /></ErrorBoundary>} />
-                <Route
-                  path="/select-branch"
-                  element={
-                    <ProtectedRoute>
-                      <ErrorBoundary><BranchSelectionPage /></ErrorBoundary>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/*"
-                  element={
-                    <ProtectedRoute>
-                      <ErrorBoundary><AppShell /></ErrorBoundary>
-                    </ProtectedRoute>
-                  }
-                />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </PermissionProvider>
-          </AuthProvider>
-        </ThemeProvider>
+              <PermissionProvider>
+                <ToastContainer position="top-right" theme="dark" />
+
+                <Routes>
+                  <Route path="/login" element={
+                    <ErrorBoundary><LoginPage /></ErrorBoundary>
+                  } />
+                  <Route
+                    path="/forgot-password"
+                    element={<ErrorBoundary><ForgotPasswordRequest /></ErrorBoundary>}
+                  />
+                  <Route path="/reset-password" element={<ErrorBoundary><ResetPasswordPage /></ErrorBoundary>} />
+                  <Route
+                    path="/select-branch"
+                    element={
+                      <ProtectedRoute>
+                        <ErrorBoundary><BranchSelectionPage /></ErrorBoundary>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/*"
+                    element={
+                      <ProtectedRoute>
+                        <ErrorBoundary><ScopedShell /></ErrorBoundary>
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </PermissionProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </ConfigProvider>
       </Provider>
     </BrowserRouter>
   );

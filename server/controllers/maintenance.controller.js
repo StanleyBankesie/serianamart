@@ -1,4 +1,4 @@
-import { query } from "../db/pool.js";
+﻿import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 
 function toNumber(v, fallback = null) {
@@ -270,6 +270,24 @@ async function ensureTables(companyId, branchId) {
   await query(`ALTER TABLE maint_downtime_logs
     ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'UNPLANNED' AFTER impact_level`
   ).catch(() => {});
+
+  const auditTables = [
+    "maint_requests", "maint_assets", "maint_job_orders", "maint_rfqs",
+    "maint_rfq_suppliers", "maint_supplier_quotations", "maint_quotation_lines",
+    "maint_job_executions", "maint_bills", "maint_bill_lines", "maint_schedules",
+    "maint_rosters", "maint_equipment", "maint_parameters", "maint_contracts",
+    "maint_contract_assets", "maint_setup_items", "maint_section_users",
+    "maint_asset_meters", "maint_downtime_logs",
+  ];
+  for (const t of auditTables) {
+    await query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS created_by BIGINT UNSIGNED NULL`).catch(() => {});
+    await query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP`).catch(() => {});
+    await query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS updated_by BIGINT UNSIGNED NULL`).catch(() => {});
+  }
+  const noCreatedAt = ["maint_rfq_suppliers", "maint_quotation_lines", "maint_bill_lines", "maint_parameters", "maint_contract_assets"];
+  for (const t of noCreatedAt) {
+    await query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
+  }
 }
 
 // ===== HELPERS =====
@@ -326,7 +344,7 @@ async function getNextMaintenanceRequestNo(companyId, branchId) {
          FROM maint_requests
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-       AND branch_id = :branchId`,
+       AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
     { companyId, branchId },
   );
   return nextNo("MTR", existing);
@@ -365,12 +383,12 @@ function resolveSetupItemType(kind) {
 }
 
 async function listSetupItems(companyId, branchId, itemType = null) {
-  const params = { companyId, branchId };
+  const params = { companyId, branchId, branchIdsStr };
   let sql = `
     SELECT id, item_type, item_name, description, sort_order, is_active
     FROM maint_setup_items
     WHERE company_id = :companyId
-      AND branch_id = :branchId
+      AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
   `;
   if (itemType) {
     sql += ` AND item_type = :itemType`;
@@ -388,7 +406,7 @@ async function getSetupSummary(companyId, branchId) {
          FROM maint_parameters
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-         AND branch_id = :branchId`,
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       { companyId, branchId },
     ),
     listSetupItems(companyId, branchId),
@@ -412,10 +430,9 @@ async function getSetupSummary(companyId, branchId) {
        JOIN adm_users uw
          ON uw.id = su.user_id
         LEFT JOIN adm_users cu ON cu.id = su.created_by
-         WHERE su.company_id = :companyId
-         AND su.branch_id = :branchId
+         WHERE su.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(su.branch_id, :branchIdsStr))
        ORDER BY si.item_name ASC, COALESCE(uw.full_name, uw.username) ASC`,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     ),
     query(`SELECT id, username, email, full_name, is_active,
           created_at,
@@ -534,7 +551,7 @@ async function hasColumn(tableName, columnName) {
 // ===== ASSETS =====
 export const listAssets = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT *,
           created_at,
@@ -542,9 +559,9 @@ export const listAssets = async (req, res, next) => {
          FROM maint_assets
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-         AND branch_id = :branchId
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
        ORDER BY asset_name ASC, id ASC`,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -554,7 +571,7 @@ export const listAssets = async (req, res, next) => {
 
 export const getAssetById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -564,9 +581,9 @@ export const getAssetById = async (req, res, next) => {
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id
          AND company_id = :companyId
-         AND branch_id = :branchId
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
        LIMIT 1`,
-      { id, companyId, branchId },
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     res.json({ item: rows[0] });
@@ -577,7 +594,7 @@ export const getAssetById = async (req, res, next) => {
 
 export const createAsset = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const r = await query(`INSERT INTO maint_assets
@@ -586,7 +603,7 @@ export const createAsset = async (req, res, next) => {
         (:companyId, :branchId, :asset_no, :asset_name, :location, :status, :notes)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         asset_no: cleanText(b.asset_no),
         asset_name: cleanText(b.asset_name),
         location: cleanText(b.location),
@@ -602,7 +619,7 @@ export const createAsset = async (req, res, next) => {
 
 export const updateAsset = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
     await ensureTables(companyId, branchId);
@@ -614,11 +631,11 @@ export const updateAsset = async (req, res, next) => {
            notes = :notes
        WHERE id = :id
          AND company_id = :companyId
-         AND branch_id = :branchId`,
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         asset_no: cleanText(b.asset_no),
         asset_name: cleanText(b.asset_name),
         location: cleanText(b.location),
@@ -635,7 +652,7 @@ export const updateAsset = async (req, res, next) => {
 // ===== MAINTENANCE REQUESTS =====
 export const listRequests = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT r.*,
           r.created_at,
@@ -646,8 +663,8 @@ export const listRequests = async (req, res, next) => {
         LEFT JOIN adm_users u ON u.id = r.created_by
         LEFT JOIN adm_document_workflows dw ON dw.document_id = r.id AND dw.document_type = 'MAINT_REQUEST' AND dw.status = 'PENDING'
         LEFT JOIN adm_users au ON au.id = dw.assigned_to_user_id
-         WHERE r.company_id=:companyId AND r.branch_id=:branchId ORDER BY r.created_at DESC LIMIT 200`,
-      { companyId, branchId },
+         WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)) ORDER BY r.created_at DESC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -657,7 +674,7 @@ export const listRequests = async (req, res, next) => {
 
 export const getRequestById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -665,8 +682,8 @@ export const getRequestById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_requests
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     res.json({ item: rows[0] });
@@ -677,7 +694,7 @@ export const getRequestById = async (req, res, next) => {
 
 export const getNextRequestNo = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const request_no = await getNextMaintenanceRequestNo(companyId, branchId);
     res.json({ request_no });
@@ -688,7 +705,7 @@ export const getNextRequestNo = async (req, res, next) => {
 
 export const createRequest = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const requesterName = await getCurrentUserName(req, companyId);
     const payload = parseRequestPayload(req.body, requesterName);
@@ -699,7 +716,7 @@ export const createRequest = async (req, res, next) => {
         (company_id, branch_id, request_no, request_date, breakdown_date, maintenance_section_id, maintenance_section_name, location_item_id, location, requester_name, department, asset_id, asset_name, maintenance_type, priority, description, status, notes)
        VALUES
         (:companyId, :branchId, :request_no, :request_date, :breakdown_date, :maintenance_section_id, :maintenance_section_name, :location_item_id, :location, :requester_name, :department, :asset_id, :asset_name, :maintenance_type, :priority, :description, :status, :notes)`,
-      { companyId, branchId, ...payload, request_no },
+      { companyId, branchId, branchIdsStr, ...payload, request_no },
     );
     res.status(201).json({ id: r.insertId, request_no });
   } catch (err) {
@@ -709,7 +726,7 @@ export const createRequest = async (req, res, next) => {
 
 export const updateRequest = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const requesterName = await getCurrentUserName(req, companyId);
@@ -732,8 +749,8 @@ export const updateRequest = async (req, res, next) => {
            notes = :notes
        WHERE id = :id
          AND company_id = :companyId
-         AND branch_id = :branchId`,
-      { id, companyId, branchId, ...payload },
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr, ...payload },
     );
     res.json({ ok: true });
   } catch (err) {
@@ -743,12 +760,12 @@ export const updateRequest = async (req, res, next) => {
 
 export const submitRequest = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
 
-    const [doc] = await query(`SELECT id, status, request_no FROM maint_requests WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+    const [doc] = await query(`SELECT id, status, request_no FROM maint_requests WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!doc) throw httpError(404, "NOT_FOUND", "Not found");
     if (doc.status !== "DRAFT") throw httpError(400, "BAD_REQUEST", "Can only submit DRAFT requests");
@@ -795,15 +812,15 @@ export const submitRequest = async (req, res, next) => {
 // ===== JOB ORDERS =====
 export const listJobOrders = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT *,
           created_at,
           u.username AS created_by_name
          FROM maint_job_orders
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId ORDER BY created_at DESC LIMIT 200`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) ORDER BY created_at DESC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -813,7 +830,7 @@ export const listJobOrders = async (req, res, next) => {
 
 export const getJobOrderById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -821,8 +838,8 @@ export const getJobOrderById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_job_orders
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     res.json({ item: rows[0] });
@@ -833,7 +850,7 @@ export const getJobOrderById = async (req, res, next) => {
 
 export const createJobOrder = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const existing = await query(`SELECT order_no AS no,
@@ -841,14 +858,14 @@ export const createJobOrder = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_job_orders
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
     );
     const order_no = b.order_no || nextNo("MJO", existing);
     const r = await query(`INSERT INTO maint_job_orders (company_id,branch_id,order_no,order_date,request_id,asset_id,asset_name,order_type,job_order_type,assigned_team,assigned_technician,location,supervisor,service_provider,scheduled_date,instructions,status,notes) VALUES (:companyId,:branchId,:order_no,:order_date,:request_id,:asset_id,:asset_name,:order_type,:job_order_type,:assigned_team,:assigned_technician,:location,:supervisor,:service_provider,:scheduled_date,:instructions,:status,:notes)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         order_no,
         order_date: b.order_date || null,
         request_id: toNumber(b.request_id),
@@ -875,14 +892,14 @@ export const createJobOrder = async (req, res, next) => {
 
 export const updateJobOrder = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_job_orders SET order_date=:order_date,request_id=:request_id,asset_id=:asset_id,asset_name=:asset_name,order_type=:order_type,job_order_type=:job_order_type,assigned_team=:assigned_team,assigned_technician=:assigned_technician,location=:location,supervisor=:supervisor,service_provider=:service_provider,scheduled_date=:scheduled_date,instructions=:instructions,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_job_orders SET order_date=:order_date,request_id=:request_id,asset_id=:asset_id,asset_name=:asset_name,order_type=:order_type,job_order_type=:job_order_type,assigned_team=:assigned_team,assigned_technician=:assigned_technician,location=:location,supervisor=:supervisor,service_provider=:service_provider,scheduled_date=:scheduled_date,instructions=:instructions,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         order_date: b.order_date || null,
         request_id: toNumber(b.request_id),
         asset_id: toNumber(b.asset_id),
@@ -909,15 +926,15 @@ export const updateJobOrder = async (req, res, next) => {
 // ===== RFQ =====
 export const listRFQs = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT r.*, GROUP_CONCAT(s.supplier_name) AS supplier_names,
           r.created_at,
           u.username AS created_by_name
          FROM maint_rfqs r LEFT JOIN maint_rfq_suppliers s ON s.rfq_id=r.id
         LEFT JOIN adm_users u ON u.id = r.created_by
-         WHERE r.company_id=:companyId AND r.branch_id=:branchId GROUP BY r.id ORDER BY r.created_at DESC LIMIT 200`,
-      { companyId, branchId },
+         WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)) GROUP BY r.id ORDER BY r.created_at DESC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -927,7 +944,7 @@ export const listRFQs = async (req, res, next) => {
 
 export const getRFQById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -935,8 +952,8 @@ export const getRFQById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_rfqs
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     const suppliers = await query(`SELECT *,
@@ -955,7 +972,7 @@ export const getRFQById = async (req, res, next) => {
 
 export const createRFQ = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const existing = await query(`SELECT rfq_no AS no,
@@ -963,14 +980,14 @@ export const createRFQ = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_rfqs
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
     );
     const rfq_no = b.rfq_no || nextNo("MRFQ", existing);
     const r = await query(`INSERT INTO maint_rfqs (company_id,branch_id,rfq_no,rfq_date,request_id,scope_of_work,response_deadline,status,notes) VALUES (:companyId,:branchId,:rfq_no,:rfq_date,:request_id,:scope_of_work,:response_deadline,:status,:notes)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         rfq_no,
         rfq_date: b.rfq_date || null,
         request_id: toNumber(b.request_id),
@@ -1000,14 +1017,14 @@ export const createRFQ = async (req, res, next) => {
 
 export const updateRFQ = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_rfqs SET rfq_date=:rfq_date,request_id=:request_id,scope_of_work=:scope_of_work,response_deadline=:response_deadline,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_rfqs SET rfq_date=:rfq_date,request_id=:request_id,scope_of_work=:scope_of_work,response_deadline=:response_deadline,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         rfq_date: b.rfq_date || null,
         request_id: toNumber(b.request_id),
         scope_of_work: b.scope_of_work || null,
@@ -1037,15 +1054,15 @@ export const updateRFQ = async (req, res, next) => {
 // ===== SUPPLIER QUOTATIONS =====
 export const listSupplierQuotations = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT *,
           created_at,
           u.username AS created_by_name
          FROM maint_supplier_quotations
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId ORDER BY created_at DESC LIMIT 200`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) ORDER BY created_at DESC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -1055,7 +1072,7 @@ export const listSupplierQuotations = async (req, res, next) => {
 
 export const getSupplierQuotationById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -1063,8 +1080,8 @@ export const getSupplierQuotationById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_supplier_quotations
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     const lines = await query(`SELECT *,
@@ -1083,7 +1100,7 @@ export const getSupplierQuotationById = async (req, res, next) => {
 
 export const createSupplierQuotation = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const existing = await query(`SELECT quotation_no AS no,
@@ -1091,14 +1108,14 @@ export const createSupplierQuotation = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_supplier_quotations
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
     );
     const quotation_no = b.quotation_no || nextNo("MSQ", existing);
     const r = await query(`INSERT INTO maint_supplier_quotations (company_id,branch_id,quotation_no,quotation_date,rfq_id,supplier_id,supplier_name,subtotal,tax_amount,total_amount,currency,exchange_rate,status,notes) VALUES (:companyId,:branchId,:quotation_no,:quotation_date,:rfq_id,:supplier_id,:supplier_name,:subtotal,:tax_amount,:total_amount,:currency,:exchange_rate,:status,:notes)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         quotation_no,
         quotation_date: b.quotation_date || null,
         rfq_id: toNumber(b.rfq_id),
@@ -1137,14 +1154,14 @@ export const createSupplierQuotation = async (req, res, next) => {
 
 export const updateSupplierQuotation = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_supplier_quotations SET quotation_date=:quotation_date,rfq_id=:rfq_id,supplier_id=:supplier_id,supplier_name=:supplier_name,subtotal=:subtotal,tax_amount=:tax_amount,total_amount=:total_amount,currency=:currency,exchange_rate=:exchange_rate,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_supplier_quotations SET quotation_date=:quotation_date,rfq_id=:rfq_id,supplier_id=:supplier_id,supplier_name=:supplier_name,subtotal=:subtotal,tax_amount=:tax_amount,total_amount=:total_amount,currency=:currency,exchange_rate=:exchange_rate,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         quotation_date: b.quotation_date || null,
         rfq_id: toNumber(b.rfq_id),
         supplier_id: toNumber(b.supplier_id),
@@ -1185,15 +1202,15 @@ export const updateSupplierQuotation = async (req, res, next) => {
 // ===== JOB EXECUTIONS =====
 export const listJobExecutions = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT e.*, o.order_no,
           e.created_at,
           u.username AS created_by_name
          FROM maint_job_executions e LEFT JOIN maint_job_orders o ON o.id=e.job_order_id
         LEFT JOIN adm_users u ON u.id = e.created_by
-         WHERE e.company_id=:companyId AND e.branch_id=:branchId ORDER BY e.created_at DESC LIMIT 200`,
-      { companyId, branchId },
+         WHERE e.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr)) ORDER BY e.created_at DESC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -1203,7 +1220,7 @@ export const listJobExecutions = async (req, res, next) => {
 
 export const getJobExecutionById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -1211,8 +1228,8 @@ export const getJobExecutionById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_job_executions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     res.json({ item: rows[0] });
@@ -1223,7 +1240,7 @@ export const getJobExecutionById = async (req, res, next) => {
 
 export const createJobExecution = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const existing = await query(`SELECT execution_no AS no,
@@ -1231,14 +1248,14 @@ export const createJobExecution = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_job_executions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
     );
     const execution_no = b.execution_no || nextNo("MJE", existing);
     const r = await query(`INSERT INTO maint_job_executions (company_id,branch_id,execution_no,job_order_id,start_date,end_date,technicians,work_done,materials_used,completion_status,sign_off_by,status,notes) VALUES (:companyId,:branchId,:execution_no,:job_order_id,:start_date,:end_date,:technicians,:work_done,:materials_used,:completion_status,:sign_off_by,:status,:notes)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         execution_no,
         job_order_id: toNumber(b.job_order_id),
         start_date: b.start_date || null,
@@ -1260,14 +1277,14 @@ export const createJobExecution = async (req, res, next) => {
 
 export const updateJobExecution = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_job_executions SET job_order_id=:job_order_id,start_date=:start_date,end_date=:end_date,technicians=:technicians,work_done=:work_done,materials_used=:materials_used,completion_status=:completion_status,sign_off_by=:sign_off_by,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_job_executions SET job_order_id=:job_order_id,start_date=:start_date,end_date=:end_date,technicians=:technicians,work_done=:work_done,materials_used=:materials_used,completion_status=:completion_status,sign_off_by=:sign_off_by,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         job_order_id: toNumber(b.job_order_id),
         start_date: b.start_date || null,
         end_date: b.end_date || null,
@@ -1289,15 +1306,15 @@ export const updateJobExecution = async (req, res, next) => {
 // ===== MAINTENANCE BILLS =====
 export const listBills = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT *,
           created_at,
           u.username AS created_by_name
          FROM maint_bills
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId ORDER BY created_at DESC LIMIT 200`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) ORDER BY created_at DESC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -1307,7 +1324,7 @@ export const listBills = async (req, res, next) => {
 
 export const getBillById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -1315,8 +1332,8 @@ export const getBillById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_bills
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     const lines = await query(`SELECT *,
@@ -1335,15 +1352,15 @@ export const getBillById = async (req, res, next) => {
 
 export const getNextBillNo = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const existing = await query(`SELECT bill_no AS no,
           created_at,
           u.username AS created_by_name
          FROM maint_bills
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ nextNo: nextNo("MBL", existing) });
   } catch (err) {
@@ -1353,7 +1370,7 @@ export const getNextBillNo = async (req, res, next) => {
 
 export const createBill = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const existing = await query(`SELECT bill_no AS no,
@@ -1361,14 +1378,14 @@ export const createBill = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_bills
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
     );
     const bill_no = b.bill_no || nextNo("MBL", existing);
     const r = await query(`INSERT INTO maint_bills (company_id,branch_id,bill_no,bill_date,due_date,execution_id,supplier_id,supplier_name,subtotal,discount_amount,tax_amount,other_charges,total_amount,currency,exchange_rate,payment_terms,payment_method,payment_reference,payment_status,status,notes) VALUES (:companyId,:branchId,:bill_no,:bill_date,:due_date,:execution_id,:supplier_id,:supplier_name,:subtotal,:discount_amount,:tax_amount,:other_charges,:total_amount,:currency,:exchange_rate,:payment_terms,:payment_method,:payment_reference,:payment_status,:status,:notes)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         bill_no,
         bill_date: b.bill_date || null,
         due_date: b.due_date || null,
@@ -1415,14 +1432,14 @@ export const createBill = async (req, res, next) => {
 
 export const updateBill = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_bills SET bill_date=:bill_date,due_date=:due_date,execution_id=:execution_id,supplier_id=:supplier_id,supplier_name=:supplier_name,subtotal=:subtotal,discount_amount=:discount_amount,tax_amount=:tax_amount,other_charges=:other_charges,total_amount=:total_amount,currency=:currency,exchange_rate=:exchange_rate,payment_terms=:payment_terms,payment_method=:payment_method,payment_reference=:payment_reference,payment_status=:payment_status,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_bills SET bill_date=:bill_date,due_date=:due_date,execution_id=:execution_id,supplier_id=:supplier_id,supplier_name=:supplier_name,subtotal=:subtotal,discount_amount=:discount_amount,tax_amount=:tax_amount,other_charges=:other_charges,total_amount=:total_amount,currency=:currency,exchange_rate=:exchange_rate,payment_terms=:payment_terms,payment_method=:payment_method,payment_reference=:payment_reference,payment_status=:payment_status,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         bill_date: b.bill_date || null,
         due_date: b.due_date || null,
         execution_id: toNumber(b.execution_id),
@@ -1469,15 +1486,15 @@ export const updateBill = async (req, res, next) => {
 // ===== SCHEDULES =====
 export const listSchedules = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT *,
           created_at,
           u.username AS created_by_name
          FROM maint_schedules
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId ORDER BY next_due_date ASC LIMIT 200`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) ORDER BY next_due_date ASC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -1487,7 +1504,7 @@ export const listSchedules = async (req, res, next) => {
 
 export const getScheduleById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -1495,8 +1512,8 @@ export const getScheduleById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_schedules
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     res.json({ item: rows[0] });
@@ -1507,13 +1524,13 @@ export const getScheduleById = async (req, res, next) => {
 
 export const createSchedule = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const r = await query(`INSERT INTO maint_schedules (company_id,branch_id,schedule_name,asset_id,asset_name,frequency,next_due_date,assigned_to,description,status) VALUES (:companyId,:branchId,:schedule_name,:asset_id,:asset_name,:frequency,:next_due_date,:assigned_to,:description,:status)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         schedule_name: b.schedule_name || null,
         asset_id: toNumber(b.asset_id),
         asset_name: b.asset_name || null,
@@ -1532,14 +1549,14 @@ export const createSchedule = async (req, res, next) => {
 
 export const updateSchedule = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_schedules SET schedule_name=:schedule_name,asset_id=:asset_id,asset_name=:asset_name,frequency=:frequency,next_due_date=:next_due_date,assigned_to=:assigned_to,description=:description,status=:status WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_schedules SET schedule_name=:schedule_name,asset_id=:asset_id,asset_name=:asset_name,frequency=:frequency,next_due_date=:next_due_date,assigned_to=:assigned_to,description=:description,status=:status WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         schedule_name: b.schedule_name || null,
         asset_id: toNumber(b.asset_id),
         asset_name: b.asset_name || null,
@@ -1559,15 +1576,15 @@ export const updateSchedule = async (req, res, next) => {
 // ===== ROSTERS =====
 export const listRosters = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT *,
           created_at,
           u.username AS created_by_name
          FROM maint_rosters
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId ORDER BY period_start DESC LIMIT 200`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) ORDER BY period_start DESC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -1577,7 +1594,7 @@ export const listRosters = async (req, res, next) => {
 
 export const getRosterById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -1585,8 +1602,8 @@ export const getRosterById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_rosters
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     res.json({ item: rows[0] });
@@ -1597,13 +1614,13 @@ export const getRosterById = async (req, res, next) => {
 
 export const createRoster = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const r = await query(`INSERT INTO maint_rosters (company_id,branch_id,roster_name,period_start,period_end,team_members,shift_details,status) VALUES (:companyId,:branchId,:roster_name,:period_start,:period_end,:team_members,:shift_details,:status)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         roster_name: b.roster_name || null,
         period_start: b.period_start || null,
         period_end: b.period_end || null,
@@ -1620,14 +1637,14 @@ export const createRoster = async (req, res, next) => {
 
 export const updateRoster = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_rosters SET roster_name=:roster_name,period_start=:period_start,period_end=:period_end,team_members=:team_members,shift_details=:shift_details,status=:status WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_rosters SET roster_name=:roster_name,period_start=:period_start,period_end=:period_end,team_members=:team_members,shift_details=:shift_details,status=:status WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         roster_name: b.roster_name || null,
         period_start: b.period_start || null,
         period_end: b.period_end || null,
@@ -1645,15 +1662,15 @@ export const updateRoster = async (req, res, next) => {
 // ===== EQUIPMENT =====
 export const listEquipment = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT *,
           created_at,
           u.username AS created_by_name
          FROM maint_equipment
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId ORDER BY equipment_name ASC LIMIT 500`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) ORDER BY equipment_name ASC LIMIT 500`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -1663,7 +1680,7 @@ export const listEquipment = async (req, res, next) => {
 
 export const getEquipmentById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -1671,8 +1688,8 @@ export const getEquipmentById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_equipment
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     res.json({ item: rows[0] });
@@ -1683,13 +1700,13 @@ export const getEquipmentById = async (req, res, next) => {
 
 export const createEquipment = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const r = await query(`INSERT INTO maint_equipment (company_id,branch_id,equipment_code,equipment_name,category,location,brand,group_name,classification,manufacturer,model,serial_number,purchase_date,warranty_expiry,status,notes) VALUES (:companyId,:branchId,:equipment_code,:equipment_name,:category,:location,:brand,:group_name,:classification,:manufacturer,:model,:serial_number,:purchase_date,:warranty_expiry,:status,:notes)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         equipment_code: b.equipment_code || null,
         equipment_name: b.equipment_name || null,
         category: b.category || null,
@@ -1714,14 +1731,14 @@ export const createEquipment = async (req, res, next) => {
 
 export const updateEquipment = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_equipment SET equipment_code=:equipment_code,equipment_name=:equipment_name,category=:category,location=:location,brand=:brand,group_name=:group_name,classification=:classification,manufacturer=:manufacturer,model=:model,serial_number=:serial_number,purchase_date=:purchase_date,warranty_expiry=:warranty_expiry,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_equipment SET equipment_code=:equipment_code,equipment_name=:equipment_name,category=:category,location=:location,brand=:brand,group_name=:group_name,classification=:classification,manufacturer=:manufacturer,model=:model,serial_number=:serial_number,purchase_date=:purchase_date,warranty_expiry=:warranty_expiry,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         equipment_code: b.equipment_code || null,
         equipment_name: b.equipment_name || null,
         category: b.category || null,
@@ -1747,15 +1764,15 @@ export const updateEquipment = async (req, res, next) => {
 // ===== PARAMETERS/SETUP =====
 export const getParameters = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT param_key, param_value,
           created_at,
           u.username AS created_by_name
          FROM maint_parameters
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
     );
     const params = {};
     for (const r of rows) params[r.param_key] = r.param_value;
@@ -1767,13 +1784,13 @@ export const getParameters = async (req, res, next) => {
 
 export const saveParameters = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const { params } = req.body || {};
     if (params && typeof params === "object") {
       for (const [k, v] of Object.entries(params)) {
         await query(`INSERT INTO maint_parameters (company_id,branch_id,param_key,param_value) VALUES (:companyId,:branchId,:k,:v) ON DUPLICATE KEY UPDATE param_value=:v`,
-          { companyId, branchId, k, v: v != null ? String(v) : null },
+          { companyId, branchId, branchIdsStr, k, v: v != null ? String(v) : null },
         );
       }
     }
@@ -1785,7 +1802,7 @@ export const saveParameters = async (req, res, next) => {
 
 export const getSetupCatalog = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const data = await getSetupSummary(companyId, branchId);
     res.json(data);
@@ -1796,7 +1813,7 @@ export const getSetupCatalog = async (req, res, next) => {
 
 export const createSetupItem = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const itemType = resolveSetupItemType(req.params.kind);
     const body = req.body || {};
     const itemName = cleanText(body.item_name);
@@ -1813,7 +1830,7 @@ export const createSetupItem = async (req, res, next) => {
         (:companyId, :branchId, :itemType, :itemName, :description, :sortOrder, :isActive)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         itemType,
         itemName,
         description: cleanText(body.description),
@@ -1829,7 +1846,7 @@ export const createSetupItem = async (req, res, next) => {
 
 export const updateSetupItem = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const itemType = resolveSetupItemType(req.params.kind);
     const id = toNumber(req.params.id);
     const body = req.body || {};
@@ -1848,12 +1865,12 @@ export const updateSetupItem = async (req, res, next) => {
            is_active = :isActive
        WHERE id = :id
          AND company_id = :companyId
-         AND branch_id = :branchId
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
          AND item_type = :itemType`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         itemType,
         itemName,
         description: cleanText(body.description),
@@ -1869,7 +1886,7 @@ export const updateSetupItem = async (req, res, next) => {
 
 export const deleteSetupItem = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const itemType = resolveSetupItemType(req.params.kind);
     const id = toNumber(req.params.id);
     if (!itemType || !id)
@@ -1879,7 +1896,7 @@ export const deleteSetupItem = async (req, res, next) => {
     if (itemType === "SECTION") {
       await query(`DELETE FROM maint_section_users
          WHERE company_id = :companyId
-           AND branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            AND section_item_id = :id`,
         { companyId, branchId, id },
       );
@@ -1887,9 +1904,9 @@ export const deleteSetupItem = async (req, res, next) => {
     await query(`DELETE FROM maint_setup_items
        WHERE id = :id
          AND company_id = :companyId
-         AND branch_id = :branchId
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
          AND item_type = :itemType`,
-      { id, companyId, branchId, itemType },
+      { id, companyId, branchId, branchIdsStr, itemType },
     );
     res.json({ ok: true });
   } catch (err) {
@@ -1899,7 +1916,7 @@ export const deleteSetupItem = async (req, res, next) => {
 
 export const createSectionUser = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const sectionItemId = toNumber(req.body?.section_item_id);
     const userId = toNumber(req.body?.user_id);
     const assignWork = Number(req.body?.assign_work) === 1 ? 1 : 0;
@@ -1916,10 +1933,10 @@ export const createSectionUser = async (req, res, next) => {
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :sectionItemId
          AND company_id = :companyId
-         AND branch_id = :branchId
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
          AND item_type = 'SECTION'
        LIMIT 1`,
-      { sectionItemId, companyId, branchId },
+      { sectionItemId, companyId, branchId, branchIdsStr },
     );
     if (!section) {
       throw httpError(400, "VALIDATION_ERROR", "Invalid maintenance section");
@@ -1932,7 +1949,7 @@ export const createSectionUser = async (req, res, next) => {
        ON DUPLICATE KEY UPDATE
         assign_work = VALUES(assign_work),
         is_active = 1`,
-      { companyId, branchId, sectionItemId, userId, assignWork },
+      { companyId, branchId, branchIdsStr, sectionItemId, userId, assignWork },
     );
     res.status(201).json({ id: result.insertId || null, ok: true });
   } catch (err) {
@@ -1942,7 +1959,7 @@ export const createSectionUser = async (req, res, next) => {
 
 export const updateSectionUser = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const sectionItemId = toNumber(req.body?.section_item_id);
     const userId = toNumber(req.body?.user_id);
@@ -1961,8 +1978,8 @@ export const updateSectionUser = async (req, res, next) => {
            is_active = :isActive
        WHERE id = :id
          AND company_id = :companyId
-         AND branch_id = :branchId`,
-      { id, companyId, branchId, sectionItemId, userId, assignWork, isActive },
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr, sectionItemId, userId, assignWork, isActive },
     );
     res.json({ ok: true });
   } catch (err) {
@@ -1972,7 +1989,7 @@ export const updateSectionUser = async (req, res, next) => {
 
 export const deleteSectionUser = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -1980,8 +1997,8 @@ export const deleteSectionUser = async (req, res, next) => {
     await query(`DELETE FROM maint_section_users
        WHERE id = :id
          AND company_id = :companyId
-         AND branch_id = :branchId`,
-      { id, companyId, branchId },
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr },
     );
     res.json({ ok: true });
   } catch (err) {
@@ -1992,15 +2009,15 @@ export const deleteSectionUser = async (req, res, next) => {
 // ===== CONTRACTS =====
 export const listContracts = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT c.*, GROUP_CONCAT(a.asset_name) AS asset_names,
           c.created_at,
           u.username AS created_by_name
          FROM maint_contracts c LEFT JOIN maint_contract_assets a ON a.contract_id=c.id
         LEFT JOIN adm_users u ON u.id = c.created_by
-         WHERE c.company_id=:companyId AND c.branch_id=:branchId GROUP BY c.id ORDER BY c.created_at DESC LIMIT 200`,
-      { companyId, branchId },
+         WHERE c.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(c.branch_id, :branchIdsStr)) GROUP BY c.id ORDER BY c.created_at DESC LIMIT 200`,
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -2010,7 +2027,7 @@ export const listContracts = async (req, res, next) => {
 
 export const getContractById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     await ensureTables(companyId, branchId);
     const rows = await query(`SELECT *,
@@ -2018,8 +2035,8 @@ export const getContractById = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_contracts
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id=:id AND company_id=:companyId AND branch_id=:branchId LIMIT 1`,
-      { id, companyId, branchId },
+         WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Not found");
     const assets = await query(`SELECT *,
@@ -2038,7 +2055,7 @@ export const getContractById = async (req, res, next) => {
 
 export const createContract = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
     const b = req.body || {};
     const existing = await query(`SELECT contract_no AS no,
@@ -2046,14 +2063,14 @@ export const createContract = async (req, res, next) => {
           u.username AS created_by_name
          FROM maint_contracts
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND branch_id=:branchId`,
-      { companyId, branchId },
+         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
     );
     const contract_no = b.contract_no || nextNo("MCT", existing);
     const r = await query(`INSERT INTO maint_contracts (company_id,branch_id,contract_no,supplier_id,supplier_name,start_date,end_date,contract_value,scope,payment_terms,renewal_alert_days,status,notes,contract_file_url,contract_file_name) VALUES (:companyId,:branchId,:contract_no,:supplier_id,:supplier_name,:start_date,:end_date,:contract_value,:scope,:payment_terms,:renewal_alert_days,:status,:notes,:contract_file_url,:contract_file_name)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         contract_no,
         supplier_id: toNumber(b.supplier_id),
         supplier_name: b.supplier_name || null,
@@ -2089,14 +2106,14 @@ export const createContract = async (req, res, next) => {
 
 export const updateContract = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_contracts SET supplier_id=:supplier_id,supplier_name=:supplier_name,start_date=:start_date,end_date=:end_date,contract_value=:contract_value,scope=:scope,payment_terms=:payment_terms,renewal_alert_days=:renewal_alert_days,status=:status,notes=:notes,contract_file_url=:contract_file_url,contract_file_name=:contract_file_name WHERE id=:id AND company_id=:companyId AND branch_id=:branchId`,
+    await query(`UPDATE maint_contracts SET supplier_id=:supplier_id,supplier_name=:supplier_name,start_date=:start_date,end_date=:end_date,contract_value=:contract_value,scope=:scope,payment_terms=:payment_terms,renewal_alert_days=:renewal_alert_days,status=:status,notes=:notes,contract_file_url=:contract_file_url,contract_file_name=:contract_file_name WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         supplier_id: toNumber(b.supplier_id),
         supplier_name: b.supplier_name || null,
         start_date: b.start_date || null,
@@ -2135,24 +2152,24 @@ export const updateContract = async (req, res, next) => {
 
 export const getMaintenanceStats = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     await ensureTables(companyId, branchId);
 
     const [requests] = await query(
-      "SELECT COUNT(*) as count FROM maint_requests WHERE company_id = :companyId AND branch_id = :branchId AND status = 'DRAFT'",
-      { companyId, branchId }
+      "SELECT COUNT(*) as count FROM maint_requests WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND status = 'DRAFT'",
+      { companyId, branchId, branchIdsStr }
     );
     const [activeJobs] = await query(
-      "SELECT COUNT(*) as count FROM maint_job_orders WHERE company_id = :companyId AND branch_id = :branchId AND status = 'IN_PROGRESS'",
-      { companyId, branchId }
+      "SELECT COUNT(*) as count FROM maint_job_orders WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND status = 'IN_PROGRESS'",
+      { companyId, branchId, branchIdsStr }
     );
     const [assets] = await query(
-      "SELECT COUNT(*) as count FROM maint_assets WHERE company_id = :companyId AND branch_id = :branchId AND status = 'ACTIVE'",
-      { companyId, branchId }
+      "SELECT COUNT(*) as count FROM maint_assets WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND status = 'ACTIVE'",
+      { companyId, branchId, branchIdsStr }
     );
     const [overduePm] = await query(
-      "SELECT COUNT(*) as count FROM maint_schedules WHERE company_id = :companyId AND branch_id = :branchId AND next_due_date < CURDATE() AND status = 'ACTIVE'",
-      { companyId, branchId }
+      "SELECT COUNT(*) as count FROM maint_schedules WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND next_due_date < CURDATE() AND status = 'ACTIVE'",
+      { companyId, branchId, branchIdsStr }
     );
 
     res.json({
@@ -2171,14 +2188,14 @@ export const getMaintenanceStats = async (req, res, next) => {
 
 export const listAssetMeters = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { asset_id } = req.query;
     await ensureTables(companyId, branchId);
     const items = await query(
-      "SELECT * FROM maint_asset_meters WHERE company_id = :companyId AND branch_id = :branchId " +
+      "SELECT * FROM maint_asset_meters WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) " +
       (asset_id ? "AND asset_id = :asset_id " : "") +
       "ORDER BY reading_date DESC, id DESC",
-      { companyId, branchId, asset_id }
+      { companyId, branchId, branchIdsStr, asset_id }
     );
     res.json({ items });
   } catch (err) {
@@ -2188,14 +2205,14 @@ export const listAssetMeters = async (req, res, next) => {
 
 export const createAssetMeter = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = req.user?.id;
     await ensureTables(companyId, branchId);
     const { asset_id, reading_date, reading_value, uom } = req.body;
     
     const r = await query(
       "INSERT INTO maint_asset_meters (company_id, branch_id, asset_id, reading_date, reading_value, uom, recorded_by) VALUES (:companyId, :branchId, :asset_id, :reading_date, :reading_value, :uom, :userId)",
-      { companyId, branchId, asset_id, reading_date, reading_value, uom, userId }
+      { companyId, branchId, branchIdsStr, asset_id, reading_date, reading_value, uom, userId }
     );
     res.status(201).json({ id: r.insertId });
   } catch (err) {
@@ -2207,16 +2224,16 @@ export const createAssetMeter = async (req, res, next) => {
 
 export const listDowntimeLogs = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { asset_id } = req.query;
     await ensureTables(companyId, branchId);
     const items = await query(
       "SELECT dl.*, a.asset_name FROM maint_downtime_logs dl " +
       "JOIN maint_assets a ON dl.asset_id = a.id " +
-      "WHERE dl.company_id = :companyId AND dl.branch_id = :branchId " +
+      "WHERE dl.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(dl.branch_id, :branchIdsStr)) " +
       (asset_id ? "AND dl.asset_id = :asset_id " : "") +
       "ORDER BY dl.start_time DESC",
-      { companyId, branchId, asset_id }
+      { companyId, branchId, branchIdsStr, asset_id }
     );
     res.json({ items });
   } catch (err) {
@@ -2226,14 +2243,14 @@ export const listDowntimeLogs = async (req, res, next) => {
 
 export const createDowntimeLog = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = req.user?.id;
     await ensureTables(companyId, branchId);
     const { asset_id, start_time, end_time, reason, category, impact_level } = req.body;
     
     const r = await query(
       "INSERT INTO maint_downtime_logs (company_id, branch_id, asset_id, start_time, end_time, reason, category, impact_level, recorded_by) VALUES (:companyId, :branchId, :asset_id, :start_time, :end_time, :reason, :category, :impact_level, :userId)",
-      { companyId, branchId, asset_id, start_time, end_time, reason, category, impact_level, userId }
+      { companyId, branchId, branchIdsStr, asset_id, start_time, end_time, reason, category, impact_level, userId }
     );
     res.status(201).json({ id: r.insertId });
   } catch (err) {
@@ -2245,7 +2262,7 @@ export const createDowntimeLog = async (req, res, next) => {
 
 export const getDowntimeReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { start_date, end_date } = req.query;
 
     const data = await query(
@@ -2257,10 +2274,10 @@ export const getDowntimeReport = async (req, res, next) => {
         AVG(TIMESTAMPDIFF(MINUTE, dl.start_time, COALESCE(dl.end_time, NOW()))) as avg_downtime_mins
        FROM maint_assets a
        LEFT JOIN maint_downtime_logs dl ON a.id = dl.asset_id
-       WHERE a.company_id = :companyId AND a.branch_id = :branchId
+       WHERE a.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(a.branch_id, :branchIdsStr))
        ${start_date && end_date ? 'AND dl.start_time BETWEEN :start_date AND :end_date' : ''}
        GROUP BY a.id`,
-      { companyId, branchId, start_date, end_date }
+      { companyId, branchId, branchIdsStr, start_date, end_date }
     );
 
     res.json({ data });
@@ -2268,3 +2285,204 @@ export const getDowntimeReport = async (req, res, next) => {
     next(err);
   }
 };
+
+// ============================================================
+// MAINTENANCE MATERIAL REQUISITIONS
+// ============================================================
+
+async function ensureMaintMaterialRequisitionTables() {
+  await query(`CREATE TABLE IF NOT EXISTS maint_material_requisitions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    company_id BIGINT UNSIGNED NOT NULL,
+    branch_id BIGINT UNSIGNED NOT NULL,
+    requisition_no VARCHAR(50) NOT NULL,
+    requisition_date DATE NOT NULL,
+    warehouse_id BIGINT UNSIGNED DEFAULT NULL,
+    department_id BIGINT UNSIGNED DEFAULT NULL,
+    priority VARCHAR(20) DEFAULT 'MEDIUM',
+    requested_by VARCHAR(255) DEFAULT NULL,
+    remarks TEXT,
+    status VARCHAR(30) DEFAULT 'DRAFT',
+    created_by BIGINT UNSIGNED DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_maint_mr_scope_no (company_id, branch_id, requisition_no)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  await query(`CREATE TABLE IF NOT EXISTS maint_material_requisition_items (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    requisition_id BIGINT UNSIGNED NOT NULL,
+    item_id BIGINT UNSIGNED NOT NULL,
+    qty_requested DECIMAL(18,3) NOT NULL DEFAULT 0,
+    qty_received DECIMAL(18,3) NOT NULL DEFAULT 0,
+    uom VARCHAR(20) DEFAULT 'PCS',
+    batch_no VARCHAR(100) DEFAULT NULL,
+    PRIMARY KEY (id),
+    KEY idx_maint_mri_req (requisition_id),
+    CONSTRAINT fk_maint_mri_req FOREIGN KEY (requisition_id) REFERENCES maint_material_requisitions (id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  try { await query(`ALTER TABLE maint_material_requisitions ADD COLUMN IF NOT EXISTS is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'`); } catch (e) {}
+  try { await query(`ALTER TABLE maint_material_requisitions ADD COLUMN IF NOT EXISTS deleted_at DATETIME NULL`); } catch (e) {}
+}
+
+async function nextMaintMRNo(companyId, branchId) {
+  const rows = await query(`SELECT requisition_no FROM maint_material_requisitions WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND requisition_no LIKE 'MMR-%' ORDER BY CAST(SUBSTRING(requisition_no, 5) AS UNSIGNED) DESC LIMIT 1`, { companyId, branchId });
+  let nextNum = 1;
+  if (rows.length > 0) {
+    const prev = String(rows[0].requisition_no || "");
+    const numPart = prev.slice(4);
+    const n = parseInt(numPart, 10);
+    if (Number.isFinite(n)) nextNum = n + 1;
+  }
+  return `MMR-${String(nextNum).padStart(6, "0")}`;
+}
+
+export const listMaintMaterialRequisitions = async (req, res, next) => {
+  try {
+    const { companyId, branchId, branchIdsStr } = req.scope;
+    await ensureMaintMaterialRequisitionTables();
+    const rows = await query(`SELECT r.*, w.warehouse_name, d.dept_name AS department_name, u.username AS created_by_name
+      FROM maint_material_requisitions r
+      LEFT JOIN inv_warehouses w ON r.warehouse_id = w.id
+      LEFT JOIN hr_departments d ON r.department_id = d.id
+      LEFT JOIN adm_users u ON r.created_by = u.id
+      WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)) AND COALESCE(r.is_active,'Y') = 'Y'
+      ORDER BY r.created_at DESC`, { companyId, branchId, branchIdsStr });
+    res.json({ items: rows });
+  } catch (err) { next(err); }
+};
+
+export const getMaintMaterialRequisitionById = async (req, res, next) => {
+  try {
+    const { companyId, branchId, branchIdsStr } = req.scope;
+    const id = toNumber(req.params.id);
+    if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+    await ensureMaintMaterialRequisitionTables();
+    const [hdr] = await query(`SELECT r.*, w.warehouse_name, d.dept_name AS department_name, u.username AS created_by_name
+      FROM maint_material_requisitions r
+      LEFT JOIN inv_warehouses w ON r.warehouse_id = w.id
+      LEFT JOIN hr_departments d ON r.department_id = d.id
+      LEFT JOIN adm_users u ON r.created_by = u.id
+      WHERE r.id = :id LIMIT 1`, { id });
+    if (!hdr) throw httpError(404, "NOT_FOUND", "Material requisition not found");
+    const details = await query(`SELECT d.*, i.item_code, i.item_name FROM maint_material_requisition_items d LEFT JOIN inv_items i ON d.item_id = i.id WHERE d.requisition_id = :id ORDER BY d.id`, { id });
+    res.json({ item: hdr, details });
+  } catch (err) { next(err); }
+};
+
+export const createMaintMaterialRequisition = async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    const { companyId, branchId, branchIdsStr } = req.scope;
+    await ensureMaintMaterialRequisitionTables();
+    const b = req.body || {};
+    const reqNo = b.requisition_no || await nextMaintMRNo(companyId, branchId);
+    const details = Array.isArray(b.details) ? b.details : [];
+    await conn.beginTransaction();
+    const [hdr] = await conn.execute(`INSERT INTO maint_material_requisitions (company_id, branch_id, requisition_no, requisition_date, warehouse_id, department_id, priority, requested_by, remarks, status, created_by)
+      VALUES (:companyId, :branchId, :reqNo, :reqDate, :warehouseId, :departmentId, :priority, :requestedBy, :remarks, :status, :createdBy)`, {
+      companyId, branchId, branchIdsStr, reqNo,
+      reqDate: b.requisition_date || new Date().toISOString().split('T')[0],
+      warehouseId: toNumber(b.warehouse_id),
+      departmentId: toNumber(b.department_id),
+      priority: b.priority || 'MEDIUM',
+      requestedBy: b.requested_by || null,
+      remarks: b.remarks || null,
+      status: b.status || 'DRAFT',
+      createdBy: req.user?.sub || null
+    });
+    const reqId = hdr.insertId;
+    for (const d of details) {
+      const itemId = toNumber(d.item_id);
+      if (!itemId || !Number(d.qty_requested)) continue;
+      await conn.execute(`INSERT INTO maint_material_requisition_items (requisition_id, item_id, qty_requested, qty_received, uom, batch_no) VALUES (:reqId, :itemId, :qtyReq, :qtyRecv, :uom, :batchNo)`, {
+        reqId, itemId,
+        qtyReq: Number(d.qty_requested) || 0,
+        qtyRecv: Number(d.qty_received || 0),
+        uom: d.uom || 'PCS',
+        batchNo: d.batch_no || null
+      });
+    }
+    await conn.commit();
+    res.status(201).json({ id: reqId, requisition_no: reqNo });
+  } catch (err) { try { await conn.rollback(); } catch {} next(err); } finally { conn.release(); }
+};
+
+export const updateMaintMaterialRequisition = async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    const { companyId, branchId, branchIdsStr } = req.scope;
+    const id = toNumber(req.params.id);
+    if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+    await ensureMaintMaterialRequisitionTables();
+    const b = req.body || {};
+    const details = Array.isArray(b.details) ? b.details : [];
+    await conn.beginTransaction();
+    await conn.execute(`UPDATE maint_material_requisitions SET requisition_date = :reqDate, warehouse_id = :warehouseId, department_id = :departmentId, priority = :priority, requested_by = :requestedBy, remarks = :remarks, status = :status WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`, {
+      id, companyId, branchId, branchIdsStr,
+      reqDate: b.requisition_date || null,
+      warehouseId: toNumber(b.warehouse_id),
+      departmentId: toNumber(b.department_id),
+      priority: b.priority || 'MEDIUM',
+      requestedBy: b.requested_by || null,
+      remarks: b.remarks || null,
+      status: b.status || 'DRAFT'
+    });
+    if (b.status === 'CANCELLED') {
+      await conn.execute(`UPDATE maint_material_requisitions SET is_active = 'N', deleted_at = NOW() WHERE id = :id`, { id });
+    }
+    await conn.execute(`DELETE FROM maint_material_requisition_items WHERE requisition_id = :id`, { id });
+    for (const d of details) {
+      const itemId = toNumber(d.item_id);
+      if (!itemId || !Number(d.qty_requested)) continue;
+      await conn.execute(`INSERT INTO maint_material_requisition_items (requisition_id, item_id, qty_requested, qty_received, uom, batch_no) VALUES (:id, :itemId, :qtyReq, :qtyRecv, :uom, :batchNo)`, {
+        id, itemId,
+        qtyReq: Number(d.qty_requested) || 0,
+        qtyRecv: Number(d.qty_received || 0),
+        uom: d.uom || 'PCS',
+        batchNo: d.batch_no || null
+      });
+    }
+    await conn.commit();
+    res.json({ ok: true });
+  } catch (err) { try { await conn.rollback(); } catch {} next(err); } finally { conn.release(); }
+};
+
+export const submitMaintMaterialRequisition = async (req, res, next) => {
+  try {
+    const { companyId } = req.scope;
+    const id = toNumber(req.params.id);
+    if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+    await query(`UPDATE maint_material_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId`, { id, companyId });
+    const wfByRoute = await query(`SELECT * FROM adm_workflows WHERE company_id = :companyId AND document_route = '/maintenance/material-requisitions' ORDER BY id ASC`, { companyId });
+    const wfDefs = await query(`SELECT * FROM adm_workflows WHERE company_id = :companyId AND (document_type = 'MAINT_MATERIAL_REQUISITION' OR document_type = 'MAINT Material Requisition') ORDER BY id ASC`, { companyId });
+    let activeWf = null;
+    for (const list of [wfByRoute, wfDefs]) {
+      for (const wf of list) {
+        if (Number(wf.is_active) !== 1) continue;
+        activeWf = wf; break;
+      } if (activeWf) break;
+    }
+    if (!activeWf) {
+      await query(`UPDATE maint_material_requisitions SET status = 'APPROVED' WHERE id = :id`, { id });
+      return res.json({ status: 'APPROVED' });
+    }
+    const [firstStep] = await query(`SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`, { wf: activeWf.id });
+    if (!firstStep || !firstStep.approver_user_id) {
+      await query(`UPDATE maint_material_requisitions SET status = 'APPROVED' WHERE id = :id`, { id });
+      return res.json({ status: 'APPROVED' });
+    }
+    await query(`INSERT INTO adm_document_workflows (company_id, workflow_id, document_id, document_type, current_step_order, status, assigned_to_user_id)
+      VALUES (:companyId, :wfId, :docId, 'MAINT_MATERIAL_REQUISITION', :stepOrder, 'PENDING', :assignedTo)`, {
+      companyId, wfId: activeWf.id, docId: id, stepOrder: firstStep.step_order, assignedTo: firstStep.approver_user_id
+    });
+    await query(`INSERT INTO adm_workflow_tasks (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+      VALUES (:companyId, :wfId, LAST_INSERT_ID(), :docId, 'MAINT_MATERIAL_REQUISITION', :stepOrder, :assignedTo, 'PENDING')`, {
+      companyId, wfId: activeWf.id, docId: id, stepOrder: firstStep.step_order, assignedTo: firstStep.approver_user_id
+    });
+    res.json({ status: 'PENDING_APPROVAL' });
+  } catch (err) { next(err); }
+};
+

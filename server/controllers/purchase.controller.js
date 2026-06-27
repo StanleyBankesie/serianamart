@@ -312,7 +312,7 @@ async function nextSequentialNo(table, column, prefix) {
 export const listServiceConfirmations = async (req, res, next) => {
   try {
     await ensureServiceConfirmationTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const rows = await query(
       `
       SELECT c.id,
@@ -327,10 +327,10 @@ export const listServiceConfirmations = async (req, res, next) => {
       JOIN pur_suppliers s ON s.id = c.supplier_id
         LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE c.company_id = :companyId
-        AND c.branch_id = :branchId
+        AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       ORDER BY c.sc_date DESC, c.id DESC
       `,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items: rows });
   } catch (err) {
@@ -341,7 +341,7 @@ export const listServiceConfirmations = async (req, res, next) => {
 export const getServiceConfirmationById = async (req, res, next) => {
   try {
     await ensureServiceConfirmationTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -351,10 +351,10 @@ export const getServiceConfirmationById = async (req, res, next) => {
           u.username AS created_by_name
          FROM inv_service_confirmations c
         LEFT JOIN adm_users u ON u.id = c.created_by
-         WHERE c.id = :id AND c.company_id = :companyId AND c.branch_id = :branchId
+         WHERE c.id = :id AND c.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(c.branch_id, :branchIdsStr))
       LIMIT 1
       `,
-      { id, companyId, branchId },
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length)
       throw httpError(404, "NOT_FOUND", "Service confirmation not found");
@@ -380,7 +380,7 @@ export const createServiceConfirmation = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensureServiceConfirmationTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const body = req.body || {};
     const scNo = body.sc_no || nextDocNo("SC");
     const scDate = body.sc_date;
@@ -420,7 +420,7 @@ export const createServiceConfirmation = async (req, res, next) => {
       `,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         scNo,
         scDate,
         supplierId,
@@ -564,7 +564,7 @@ export const getNextSupplierCode = async (req, res, next) => {
 
 export const listShippingAdvices = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { status, po_type } = req.query;
     if (!(await hasColumn("pur_shipping_advices", "is_active"))) {
       await query(
@@ -587,12 +587,12 @@ export const listShippingAdvices = async (req, res, next) => {
          FROM pur_shipping_advices sa
          JOIN pur_suppliers s ON s.id = sa.supplier_id
          JOIN pur_orders p ON p.id = sa.po_id
-         WHERE sa.company_id = :companyId AND sa.branch_id = :branchId
+         WHERE sa.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(sa.branch_id, :branchIdsStr))
            AND COALESCE(sa.is_active,'Y') = 'Y'`;
     if (status) sql += ` AND sa.status = :status`;
     if (po_type) sql += ` AND p.po_type = :po_type`;
     sql += ` ORDER BY sa.advice_date DESC, sa.id DESC`;
-    const rows = await query(sql, { companyId, branchId, status, po_type });
+    const rows = await query(sql, { companyId, branchId, branchIdsStr, status, po_type });
     res.json({ items: rows });
   } catch (err) {
     next(err);
@@ -601,7 +601,7 @@ export const listShippingAdvices = async (req, res, next) => {
 
 export const getNextShippingAdviceNo = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const rows = await query(
       `SELECT MAX(CAST(SUBSTRING(advice_no, 4) AS UNSIGNED)) AS maxnum,
           created_at,
@@ -609,9 +609,9 @@ export const getNextShippingAdviceNo = async (req, res, next) => {
          FROM pur_shipping_advices
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-         AND branch_id = :branchId
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
          AND advice_no REGEXP '^SA-[0-9]{6}$'`,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     const maxnum = Number(rows?.[0]?.maxnum || 0);
     const next = maxnum + 1;
@@ -624,7 +624,7 @@ export const getNextShippingAdviceNo = async (req, res, next) => {
 
 export const getShippingAdviceById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -635,8 +635,8 @@ export const getShippingAdviceById = async (req, res, next) => {
        JOIN pur_suppliers s ON s.id = sa.supplier_id
        JOIN pur_orders p ON p.id = sa.po_id
         LEFT JOIN adm_users u ON u.id = sa.created_by
-         WHERE sa.id = :id AND sa.company_id = :companyId AND sa.branch_id = :branchId`,
-      { id, companyId, branchId },
+         WHERE sa.id = :id AND sa.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(sa.branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length)
       throw httpError(404, "NOT_FOUND", "Shipping Advice not found");
@@ -659,7 +659,7 @@ export const getShippingAdviceById = async (req, res, next) => {
 export const createShippingAdvice = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const body = req.body || {};
     await ensureShippingAdviceStatusEnum();
     await ensureShippingAdviceETDColumn();
@@ -680,7 +680,7 @@ export const createShippingAdvice = async (req, res, next) => {
         :bl, :vessel, :container, :etd, :eta, :status, :remarks, :createdBy)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         adviceNo,
         adviceDate,
         poId,
@@ -703,7 +703,7 @@ export const createShippingAdvice = async (req, res, next) => {
       await conn.execute(
         `INSERT INTO pur_shipping_advice_details (advice_id, item_id, qty_shipped, remarks)
          VALUES (:adviceId, :itemId, :qty, :remarks)`,
-        { adviceId, itemId, qty, remarks: d.remarks },
+        { adviceId, itemId, qty, remarks: d.remarks || null },
       );
     }
     await conn.commit();
@@ -719,7 +719,7 @@ export const createShippingAdvice = async (req, res, next) => {
 export const updateShippingAdvice = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -733,8 +733,8 @@ export const updateShippingAdvice = async (req, res, next) => {
     await conn.beginTransaction();
     const [exists] = await conn.execute(
       `SELECT id FROM pur_shipping_advices 
-       WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-      { id, companyId, branchId },
+       WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!Array.isArray(exists) || !exists.length) {
       throw httpError(404, "NOT_FOUND", "Shipping Advice not found");
@@ -751,11 +751,11 @@ export const updateShippingAdvice = async (req, res, next) => {
          eta_date = :eta,
          status = :status,
          remarks = :remarks
-       WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+       WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         adviceDate,
         poId,
         supplierId,
@@ -795,7 +795,7 @@ export const updateShippingAdvice = async (req, res, next) => {
 
 export const listPortClearances = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { status } = req.query;
     if (!(await hasColumn("pur_port_clearances", "is_active"))) {
       await query(
@@ -819,11 +819,11 @@ export const listPortClearances = async (req, res, next) => {
          LEFT JOIN pur_shipping_advices sa ON sa.id = pc.advice_id
          LEFT JOIN pur_orders p ON p.id = sa.po_id
          LEFT JOIN pur_suppliers s ON s.id = sa.supplier_id
-         WHERE pc.company_id = :companyId AND pc.branch_id = :branchId
+         WHERE pc.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(pc.branch_id, :branchIdsStr))
            AND COALESCE(pc.is_active,'Y') = 'Y'`;
     if (status) sql += ` AND pc.status = :status`;
     sql += ` ORDER BY pc.clearance_date DESC, pc.id DESC`;
-    const rows = await query(sql, { companyId, branchId, status });
+    const rows = await query(sql, { companyId, branchId, branchIdsStr, status });
     res.json({ items: rows });
   } catch (err) {
     next(err);
@@ -832,7 +832,7 @@ export const listPortClearances = async (req, res, next) => {
 
 export const getNextPortClearanceNo = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const rows = await query(
       `SELECT MAX(CAST(SUBSTRING(clearance_no, 4) AS UNSIGNED)) AS maxnum,
           created_at,
@@ -840,9 +840,9 @@ export const getNextPortClearanceNo = async (req, res, next) => {
          FROM pur_port_clearances
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-         AND branch_id = :branchId
+         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
          AND clearance_no REGEXP '^CC-[0-9]{6}$'`,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     const maxnum = Number(rows?.[0]?.maxnum || 0);
     const next = maxnum + 1;
@@ -855,7 +855,7 @@ export const getNextPortClearanceNo = async (req, res, next) => {
 
 export const getPortClearanceById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -865,8 +865,8 @@ export const getPortClearanceById = async (req, res, next) => {
          FROM pur_port_clearances pc
        LEFT JOIN pur_shipping_advices sa ON sa.id = pc.advice_id
         LEFT JOIN adm_users u ON u.id = pc.created_by
-         WHERE pc.id = :id AND pc.company_id = :companyId AND pc.branch_id = :branchId`,
-      { id, companyId, branchId },
+         WHERE pc.id = :id AND pc.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(pc.branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length)
       throw httpError(404, "NOT_FOUND", "Port Clearance not found");
@@ -879,7 +879,7 @@ export const getPortClearanceById = async (req, res, next) => {
 export const createPortClearance = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const body = req.body || {};
     await ensurePortClearanceStatusEnum();
     let clearanceNo = body.clearance_no || null;
@@ -915,7 +915,7 @@ export const createPortClearance = async (req, res, next) => {
         :customsEntry, :agent, :duty, :other, :status, :remarks, :createdBy)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         clearanceNo,
         clearanceDate,
         adviceId: adviceId || null,
@@ -943,7 +943,7 @@ export const createPortClearance = async (req, res, next) => {
 export const updatePortClearance = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -952,8 +952,8 @@ export const updatePortClearance = async (req, res, next) => {
     const adviceId = toNumber(body.advice_id ?? body.shipping_advice_id);
     const [exists] = await conn.execute(
       `SELECT id FROM pur_port_clearances 
-       WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-      { id, companyId, branchId },
+       WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!Array.isArray(exists) || !exists.length) {
       throw httpError(404, "NOT_FOUND", "Port Clearance not found");
@@ -969,11 +969,11 @@ export const updatePortClearance = async (req, res, next) => {
          other_charges = :other,
          status = :status,
          remarks = :remarks
-       WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+       WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         clearanceDate: (() => {
           const cd2 = body.clearance_date;
           return cd2
@@ -996,8 +996,8 @@ export const updatePortClearance = async (req, res, next) => {
       await conn.execute(
         `UPDATE pur_shipping_advices 
            SET status = 'CLEARED' 
-         WHERE id = :adviceId AND company_id = :companyId AND branch_id = :branchId`,
-        { adviceId, companyId, branchId },
+         WHERE id = :adviceId AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { adviceId, companyId, branchId, branchIdsStr },
       );
     }
     await conn.commit();
@@ -1013,7 +1013,7 @@ export const updateServiceConfirmation = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensureServiceConfirmationTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -1052,12 +1052,12 @@ export const updateServiceConfirmation = async (req, res, next) => {
           total_amount = :totalAmount,
           status = :status,
           remarks = :remarks
-      WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+      WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       `,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         scDate,
         supplierId,
         totalAmount,
@@ -1255,32 +1255,32 @@ async function ensureProspectCustomersTable() {
 export const listServiceRequests = async (req, res, next) => {
   try {
     await ensureServiceRequestTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const rows = await query(
       `
       SELECT r.id, r.request_no, r.request_date, r.requester_full_name, r.service_type, r.priority, r.status,
              u.username AS forwarded_to_username,
-          r.created_at,
-          u.username AS created_by_name
-         FROM pur_service_requests r
+             r.created_at,
+             uc.username AS created_by_username
+      FROM pur_service_requests r
       LEFT JOIN (
         SELECT t.document_id, t.assigned_to_user_id
         FROM adm_document_workflows t
         JOIN (
           SELECT document_id, MAX(id) AS max_id
           FROM adm_document_workflows
-        LEFT JOIN adm_users u ON u.id = r.created_by
-         WHERE company_id = :companyId
+          WHERE company_id = :companyId
             AND status = 'PENDING'
             AND (document_type = 'SERVICE_REQUEST' OR document_type = 'Service Request')
           GROUP BY document_id
         ) m ON m.max_id = t.id
       ) x ON x.document_id = r.id
       LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
-      WHERE r.company_id = :companyId AND r.branch_id = :branchId
+      LEFT JOIN adm_users uc ON uc.id = r.created_by
+      WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))
       ORDER BY r.request_date DESC, r.id DESC
       `,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items: rows });
   } catch (err) {
@@ -1291,7 +1291,7 @@ export const listServiceRequests = async (req, res, next) => {
 export const getServiceRequestById = async (req, res, next) => {
   try {
     await ensureServiceRequestTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -1301,10 +1301,10 @@ export const getServiceRequestById = async (req, res, next) => {
           u.username AS created_by_name
          FROM pur_service_requests
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       LIMIT 1
       `,
-      { id, companyId, branchId },
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length)
       throw httpError(404, "NOT_FOUND", "Service request not found");
@@ -1333,7 +1333,7 @@ export const createServiceRequest = async (req, res, next) => {
   try {
     await ensureServiceRequestTables();
     await ensureProspectCustomersTable();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const body = req.body || {};
     const requestNo =
       body.request_no ||
@@ -1381,9 +1381,7 @@ export const createServiceRequest = async (req, res, next) => {
     const createdBy = req.user?.sub ? Number(req.user.sub) : null;
 
     if (
-      !fullName ||
-      !email ||
-      !phone ||
+      (body.customer_type !== "existing" && (!fullName || !email || !phone)) ||
       !serviceType ||
       !requestTitle ||
       !description
@@ -1413,7 +1411,7 @@ export const createServiceRequest = async (req, res, next) => {
       `,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         requestNo,
         requestDate,
         fullName,
@@ -1483,7 +1481,7 @@ export const updateServiceRequest = async (req, res, next) => {
   try {
     await ensureServiceRequestTables();
     await ensureProspectCustomersTable();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -1527,9 +1525,7 @@ export const updateServiceRequest = async (req, res, next) => {
         : null);
 
     if (
-      !fullName ||
-      !email ||
-      !phone ||
+      (body.customer_type !== "existing" && (!fullName || !email || !phone)) ||
       !serviceType ||
       !requestTitle ||
       !description
@@ -1540,10 +1536,10 @@ export const updateServiceRequest = async (req, res, next) => {
     const [exists] = await conn.execute(
       `
       SELECT id FROM pur_service_requests
-      WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+      WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       LIMIT 1
       `,
-      { id, companyId, branchId },
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!exists.length)
       throw httpError(404, "NOT_FOUND", "Service request not found");
@@ -1568,12 +1564,12 @@ export const updateServiceRequest = async (req, res, next) => {
         additional_notes = :additionalNotes,
         agreed_terms = :agreedTerms,
         attachments_json = :attachmentsJson
-      WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+      WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       `,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         fullName,
         email,
         phone,
@@ -1638,7 +1634,7 @@ export const updateServiceRequest = async (req, res, next) => {
 export const listServiceBills = async (req, res, next) => {
   try {
     await ensureServiceBillTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const status = String(req.query.status || "")
       .trim()
       .toUpperCase();
@@ -1650,9 +1646,9 @@ export const listServiceBills = async (req, res, next) => {
     let sql = `
       SELECT id, bill_no, bill_date, status, payment, total_amount, amount_paid, client_name
       FROM pur_service_bills
-      WHERE company_id = :companyId AND branch_id = :branchId
+      WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
     `;
-    const params = { companyId, branchId };
+    const params = { companyId, branchId, branchIdsStr };
     if (status) {
       sql += " AND status = :status";
       params.status = status;
@@ -1702,7 +1698,7 @@ export const listServiceBills = async (req, res, next) => {
 export const getServiceBillById = async (req, res, next) => {
   try {
     await ensureServiceBillTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const rows = await query(
@@ -1712,10 +1708,10 @@ export const getServiceBillById = async (req, res, next) => {
           u.username AS created_by_name
          FROM pur_service_bills
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       LIMIT 1
       `,
-      { id, companyId, branchId },
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length)
       throw httpError(404, "NOT_FOUND", "Service bill not found");
@@ -1761,7 +1757,7 @@ export const createServiceBill = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensureServiceBillTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const body = req.body || {};
     const supplierId = body.supplier_id || body.supplierId || null;
     const billNo =
@@ -1845,7 +1841,7 @@ export const createServiceBill = async (req, res, next) => {
       `,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         supplierId,
         billNo,
         billDate,
@@ -1929,7 +1925,7 @@ export const createServiceBill = async (req, res, next) => {
         (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, :ba, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         fiscalYearId,
         voucherTypeId,
         voucherNo,
@@ -2015,7 +2011,7 @@ export const updateServiceBill = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     await ensureServiceBillTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const body = req.body || {};
@@ -2081,10 +2077,10 @@ export const updateServiceBill = async (req, res, next) => {
       `
       SELECT id, bill_no
       FROM pur_service_bills
-      WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+      WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       LIMIT 1
       `,
-      { id, companyId, branchId },
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!(exists && exists.length)) {
       throw httpError(404, "NOT_FOUND", "Service bill not found");
@@ -2114,12 +2110,12 @@ export const updateServiceBill = async (req, res, next) => {
              discount_amount = :discountAmount,
              tax_amount = :taxAmount,
              total_amount = :totalAmount
-       WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+       WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       `,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         billNo,
         billDate,
         dueDate,
@@ -2185,3 +2181,4 @@ export const updateServiceBill = async (req, res, next) => {
     conn.release();
   }
 };
+

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
+import { toast } from "react-toastify";
 import { api } from "api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import {
@@ -1122,7 +1123,7 @@ export default function QuotationForm() {
         await api.post("/sales/quotations", cleanedPayload);
       }
 
-      setSuccessMessage(
+      toast.success(
         isEditMode
           ? "Quotation updated successfully."
           : "Quotation created successfully.",

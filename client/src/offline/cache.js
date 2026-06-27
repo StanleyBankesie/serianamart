@@ -46,3 +46,24 @@ export async function getCache(key) {
     return null;
   }
 }
+
+export async function clearGeneralCache() {
+  try {
+    const db = await openDB();
+
+    if (!db.objectStoreNames.contains(CACHE_STORE)) {
+      return false;
+    }
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(CACHE_STORE, "readwrite");
+      const store = tx.objectStore(CACHE_STORE);
+      store.clear();
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (error) {
+    console.warn("Failed to clear cache:", error);
+    return false;
+  }
+}

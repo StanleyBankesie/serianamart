@@ -1,4 +1,4 @@
-import { query } from "../db/pool.js";
+﻿import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 
 async function hasColumn(tableName, columnName) {
@@ -275,7 +275,7 @@ async function resolveOrCreateGroupId(companyId, raw) {
 export const listItems = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const groupCol = (await hasColumn("inv_items", "group_id"))
       ? "group_id"
       : "item_group_id";
@@ -322,13 +322,13 @@ export const listItems = async (req, res, next) => {
         GROUP BY company_id, branch_id, item_id
       ) sb
         ON sb.company_id = i.company_id
-       AND sb.branch_id = :branchId
+       AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
        AND sb.item_id = i.id
         LEFT JOIN adm_users u ON u.id = i.created_by
          WHERE i.company_id = :companyId
       ORDER BY i.item_name ASC
       `,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items: rows });
   } catch (err) {
@@ -338,17 +338,17 @@ export const listItems = async (req, res, next) => {
 
 export const listWarehouses = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const rows = await query(`
       SELECT w.id, w.warehouse_code, w.warehouse_name, w.location, w.is_active, w.branch_id,
           w.created_at,
           u.username AS created_by_name
          FROM inv_warehouses w
         LEFT JOIN adm_users u ON u.id = w.created_by
-         WHERE w.company_id = :companyId AND w.branch_id = :branchId
+         WHERE w.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(w.branch_id, :branchIdsStr))
       ORDER BY w.warehouse_name ASC
       `,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items: rows });
   } catch (err) {
@@ -358,7 +358,7 @@ export const listWarehouses = async (req, res, next) => {
 
 export const bulkUpdateStockBalances = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const body = req.body || {};
     const rows = Array.isArray(body.rows) ? body.rows : [];
     const warehouseId =
@@ -374,7 +374,7 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
           u.username AS created_by_name
          FROM inv_warehouses
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId 
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) 
            AND UPPER(warehouse_code) = :code 
          LIMIT 1`,
         { companyId, branchId, code: warehouseCode.toUpperCase() },
@@ -435,7 +435,7 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
            ON DUPLICATE KEY UPDATE qty = :qty`,
           {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             warehouseId: resolvedWarehouseId,
             itemId,
             qty,
@@ -1119,7 +1119,7 @@ export const bulkUpsertItems = async (req, res, next) => {
 
 export const getWarehouseById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1129,10 +1129,10 @@ export const getWarehouseById = async (req, res, next) => {
           u.username AS created_by_name
          FROM inv_warehouses w
         LEFT JOIN adm_users u ON u.id = w.created_by
-         WHERE w.id = :id AND w.company_id = :companyId AND w.branch_id = :branchId
+         WHERE w.id = :id AND w.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(w.branch_id, :branchIdsStr))
       LIMIT 1
       `,
-      { id, companyId, branchId },
+      { id, companyId, branchId, branchIdsStr },
     );
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Warehouse not found");
     res.json({ item: rows[0] });
@@ -1143,7 +1143,7 @@ export const getWarehouseById = async (req, res, next) => {
 
 export const createWarehouse = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const body = req.body || {};
     const warehouseCode = String(body.warehouse_code || "").trim();
     const warehouseName = String(body.warehouse_name || "").trim();
@@ -1162,7 +1162,7 @@ export const createWarehouse = async (req, res, next) => {
       `,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         warehouseCode,
         warehouseName,
         location,
@@ -1177,7 +1177,7 @@ export const createWarehouse = async (req, res, next) => {
 
 export const updateWarehouse = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1199,12 +1199,12 @@ export const updateWarehouse = async (req, res, next) => {
           warehouse_name = :warehouseName,
           location = :location,
           is_active = :isActive
-      WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+      WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       `,
       {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         warehouseCode,
         warehouseName,
         location,
@@ -1242,7 +1242,7 @@ export const linkWarehouseBranch = async (req, res, next) => {
          WHERE id = :branchId
       LIMIT 1
       `,
-      { branchId: targetBranchId },
+      { branchId, branchIdsStr: targetBranchId },
     );
     const branch = branchRow?.[0];
     if (!branch) throw httpError(404, "NOT_FOUND", "Target branch not found");
@@ -1272,10 +1272,10 @@ export const linkWarehouseBranch = async (req, res, next) => {
       throw httpError(403, "FORBIDDEN", "Branch access denied");
     const upd = await query(`
       UPDATE inv_warehouses
-      SET branch_id = :branchId
+      SET (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       WHERE id = :id AND company_id = :companyId
       `,
-      { id, companyId, branchId: targetBranchId },
+      { id, companyId, branchId, branchIdsStr: targetBranchId },
     );
     if (!upd.affectedRows)
       throw httpError(404, "NOT_FOUND", "Warehouse not found");
@@ -1869,3 +1869,4 @@ export const createUom = async (req, res, next) => {
     next(err);
   }
 };
+

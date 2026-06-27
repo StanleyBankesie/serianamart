@@ -1381,7 +1381,7 @@ export default function GRNImportForm() {
                                     autoComplete="off"
                                     className="input min-w-[256px] w-[384px]"
                                     placeholder="Scan barcode or type item name"
-                                    value={itemQueries[idx] || ""}
+                                    value={itemQueries[idx] !== undefined ? itemQueries[idx] : (it ? it.item_name || it.name || "" : "")}
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       setItemQueries((prev) => ({

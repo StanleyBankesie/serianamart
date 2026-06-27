@@ -32,6 +32,8 @@ import MaintenanceSetupPage from "./setup/MaintenanceSetupPage";
 import DowntimeLogList from "./assets/DowntimeLogList.jsx";
 import DowntimeLogForm from "./assets/DowntimeLogForm.jsx";
 import DowntimeAnalysisReport from "./reports/DowntimeAnalysisReport.jsx";
+import MaintenanceMaterialRequisitionList from "./material-requisitions/MaintenanceMaterialRequisitionList.jsx";
+import MaintenanceMaterialRequisitionForm from "./material-requisitions/MaintenanceMaterialRequisitionForm.jsx";
 
 function MaintenanceLanding() {
   const [stats, setStats] = React.useState([
@@ -145,6 +147,12 @@ function MaintenanceLanding() {
           "/maintenance/job-orders",
           "Create and track job orders",
           "🛠",
+        ),
+        buildFeature(
+          "Material Requisitions",
+          "/maintenance/material-requisitions",
+          "Request materials from warehouse",
+          "📦",
         ),
       ],
     },
@@ -301,6 +309,10 @@ export default function MaintenanceHome() {
       <Route path="/contracts/new" element={<MaintenanceContractForm />} />
       <Route path="/contracts/:id" element={<MaintenanceContractForm />} />
 
+      <Route path="/material-requisitions" element={<MaintenanceMaterialRequisitionList />} />
+      <Route path="/material-requisitions/new" element={<MaintenanceMaterialRequisitionForm />} />
+      <Route path="/material-requisitions/:id" element={<MaintenanceMaterialRequisitionForm />} />
+
       <Route path="/pm-schedules" element={<PmScheduleList />} />
       <Route path="/pm-schedules/new" element={<PmScheduleForm />} />
       <Route path="/pm-schedules/:id" element={<PmScheduleForm />} />
@@ -390,6 +402,12 @@ export const maintenanceFeatures = [
     module_key: "maintenance",
     label: "Maintenance Contracts",
     path: "/maintenance/contracts",
+    type: "feature",
+  },
+  {
+    module_key: "maintenance",
+    label: "Material Requisitions",
+    path: "/maintenance/material-requisitions",
     type: "feature",
   },
   {

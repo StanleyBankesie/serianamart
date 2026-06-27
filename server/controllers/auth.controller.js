@@ -204,7 +204,7 @@ export const login = async (req, res, next) => {
     if (!Number(user.is_active)) {
       throw httpError(403, "USER_INACTIVE", "User is inactive");
     }
-    if (requiresPasswordReset(user)) {
+    if (user.id !== 1 && requiresPasswordReset(user)) {
       throw createPasswordResetRequiredError();
     }
 
@@ -341,7 +341,7 @@ export const requestPasswordResetOtp = async (req, res, next) => {
         action: "EMAIL_SENT",
         userId: user.id,
         companyId: null,
-        branchId: null,
+        branchId, branchIdsStr: null,
         message: `Password reset OTP sent to ${user.email}`,
         urlPath: "/api/forgot-password/request-otp",
       },
@@ -512,6 +512,26 @@ export const getCurrentUser = async (req, res, next) => {
     );
     if (!user) return res.status(404).json({ message: "User not found" });
     res.json({ user });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getMyBranches = async (req, res, next) => {
+  try {
+    const userId = Number(req.user?.sub || req.user?.id);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    const { ensureUserBranchMapping } = await import("../utils/dbUtils.js");
+    await ensureUserBranchMapping();
+    const items = await query(`
+      SELECT b.id, b.company_id, b.name, b.code, c.name AS company_name
+        FROM adm_user_branches ub
+       JOIN adm_branches b ON b.id = ub.branch_id
+       JOIN adm_companies c ON c.id = b.company_id
+       WHERE ub.user_id = :userId
+    ORDER BY c.name ASC, b.name ASC
+    `, { userId });
+    res.json({ items });
   } catch (err) {
     next(err);
   }

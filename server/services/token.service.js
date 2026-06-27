@@ -118,7 +118,7 @@ function buildRefreshCookieOptions({ rememberMe = false, expiresAt = null } = {}
   const options = {
     httpOnly: true,
     secure: isProduction(),
-    sameSite: "strict",
+    sameSite: isProduction() ? "none" : "lax",
     path: "/api",
   };
   if (rememberMe && expiresAt instanceof Date) {
@@ -293,7 +293,7 @@ export async function getUserPermissions(userId) {
 
   const allPerms = [
     ...permRows.map((row) => row.code),
-    ...legacyRows.map((row) => row.code)
+    ...legacyRows.map((row) => row.code),
   ];
 
   return Array.from(new Set(allPerms.filter(Boolean)));
@@ -327,7 +327,31 @@ export async function getUserForAuth(userId) {
   return rows[0] || null;
 }
 
-export function buildAuthUserPayload(user, permissions = []) {
+export async function buildAuthUserPayload(user, permissions = []) {
+  // Fetch ALL branches this user is assigned to from adm_user_branches
+  let allBranchIds = [];
+  let allCompanyIds = [];
+  try {
+    const branchRows = await query(
+      `SELECT branch_id, company_id FROM adm_user_branches WHERE user_id = :userId`,
+      { userId: Number(user.id) },
+    );
+    if (branchRows && branchRows.length > 0) {
+      allBranchIds = [...new Set(branchRows.map((r) => Number(r.branch_id)).filter(Boolean))];
+      allCompanyIds = [...new Set(branchRows.map((r) => Number(r.company_id)).filter(Boolean))];
+    }
+  } catch {
+    // fallback to default branch_id if query fails
+  }
+
+  // Fallback to user's default branch_id / company_id if no rows found in adm_user_branches
+  if (allBranchIds.length === 0 && user.branch_id) {
+    allBranchIds = [Number(user.branch_id)];
+  }
+  if (allCompanyIds.length === 0 && user.company_id) {
+    allCompanyIds = [Number(user.company_id)];
+  }
+
   const payload = {
     sub: Number(user.id),
     id: Number(user.id),
@@ -335,8 +359,8 @@ export function buildAuthUserPayload(user, permissions = []) {
     email: user.email,
     full_name: user.full_name || "",
     permissions: Array.isArray(permissions) ? permissions : [],
-    companyIds: user.company_id ? [Number(user.company_id)] : [],
-    branchIds: user.branch_id ? [Number(user.branch_id)] : [],
+    companyIds: allCompanyIds,
+    branchIds: allBranchIds,
     companyName: user.company_name || "",
     branchName: user.branch_name || "",
     profile_picture_url: profilePictureToDataUrl(user.profile_picture),
@@ -352,7 +376,7 @@ export function buildAuthUserPayload(user, permissions = []) {
 
 export async function createSessionTokens({ user, rememberMe = false, permissions = [] }) {
   await ensureAuthTables();
-  const authUser = buildAuthUserPayload(user, permissions);
+  const authUser = await buildAuthUserPayload(user, permissions);
   const accessToken = signAccessToken(authUser);
   const refreshToken = generateRefreshToken();
   const refreshTokenHash = hashRefreshToken(refreshToken);
@@ -420,7 +444,18 @@ export async function consumeRefreshToken(rawToken) {
   };
 }
 
+const recentlyRotatedTokens = new Map();
+
 export async function rotateRefreshSession(rawToken) {
+  const tokenHash = hashRefreshToken(rawToken);
+
+  if (recentlyRotatedTokens.has(tokenHash)) {
+    const cached = recentlyRotatedTokens.get(tokenHash);
+    if (Date.now() < cached.expiresAt) {
+      return cached.newTokens;
+    }
+  }
+
   const refreshRecord = await consumeRefreshToken(rawToken);
   const user = await getUserForAuth(refreshRecord.user_id);
   if (!user || !Number(user.is_active)) {
@@ -431,11 +466,22 @@ export async function rotateRefreshSession(rawToken) {
   const permissions = await getUserPermissions(user.id);
   await revokeRefreshToken(rawToken);
 
-  return createSessionTokens({
+  const newTokens = await createSessionTokens({
     user,
     rememberMe: refreshRecord.remember_me,
     permissions,
   });
+
+  recentlyRotatedTokens.set(tokenHash, {
+    newTokens,
+    expiresAt: Date.now() + 30000,
+  });
+
+  for (const [k, v] of recentlyRotatedTokens.entries()) {
+    if (Date.now() >= v.expiresAt) recentlyRotatedTokens.delete(k);
+  }
+
+  return newTokens;
 }
 
 export async function resetFailedLoginAttempts(userId) {

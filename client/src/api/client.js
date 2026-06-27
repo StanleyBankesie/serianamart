@@ -321,13 +321,7 @@ api.interceptors.response.use(
         });
     }
 
-    if (
-      error.response?.status === 401 &&
-      isUnauthenticatedEndpoint(requestUrl)
-    ) {
-      clearStoredAuth();
-      setAuthToken(null);
-    }
+
 
     return Promise.reject({
       message: error.message,

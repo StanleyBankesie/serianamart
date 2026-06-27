@@ -7,12 +7,18 @@ import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.
 import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { ListAttachmentIconButton } from "@/components/list/ListDocActionIconButtons.jsx";
 
 export default function ServiceRequestsList() {
   const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sortKey, setSortKey] = useState("request_date");
+  const [sortDir, setSortDir] = useState("desc");
+  const [activeDocId, setActiveDocId] = useState(null);
+  const [showAttach, setShowAttach] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [viewItem, setViewItem] = useState(null);
   const { canPerformAction } = usePermission();
@@ -118,7 +124,7 @@ export default function ServiceRequestsList() {
     });
   }, [items, searchTerm]);
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
+  const { sorted: sortedItems, sortKey: currentSortKey, sortDir: currentSortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   return (
     <div className="p-6 space-y-6">
@@ -159,15 +165,15 @@ export default function ServiceRequestsList() {
             <table className="table">
               <thead>
                 <tr>
-                  <SortableHeader label="No" sortKey="request_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Date" sortKey="request_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Customer" sortKey="requester_company" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Service" sortKey="service_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="No" sortKey="request_no" currentKey={currentSortKey} direction={currentSortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="request_date" currentKey={currentSortKey} direction={currentSortDir} onToggle={toggle} />
+                  <SortableHeader label="Customer" sortKey="requester_company" currentKey={currentSortKey} direction={currentSortDir} onToggle={toggle} />
+                  <SortableHeader label="Service" sortKey="service_type" currentKey={currentSortKey} direction={currentSortDir} onToggle={toggle} />
+                  <SortableHeader label="Priority" sortKey="priority" currentKey={currentSortKey} direction={currentSortDir} onToggle={toggle} />
+                  <SortableHeader label="Status" sortKey="status" currentKey={currentSortKey} direction={currentSortDir} onToggle={toggle} />
                   <th className="text-right">Actions</th>
-                  <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Created By" sortKey="created_by_username" currentKey={currentSortKey} direction={currentSortDir} onToggle={toggle} />
+                  <SortableHeader label="Created Date" sortKey="created_at" currentKey={currentSortKey} direction={currentSortDir} onToggle={toggle} />
                   <th>Attachments</th>
                 </tr>
               </thead>
@@ -175,7 +181,7 @@ export default function ServiceRequestsList() {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan="7"
+                      colSpan="9"
                       className="text-center py-8 text-slate-500 dark:text-slate-400"
                     >
                       Loading...
@@ -185,7 +191,7 @@ export default function ServiceRequestsList() {
 
                 {!loading && !filtered.length ? (
                   <tr>
-                    <td colSpan="7" className="text-center py-8 text-slate-500">
+                    <td colSpan="9" className="text-center py-8 text-slate-500">
                       No service requests found
                     </td>
                   </tr>
@@ -206,103 +212,57 @@ export default function ServiceRequestsList() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {/* Slot 1: View */}
-                          <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            onClick={async () => {
+                              try {
+                                const resp = await api.get(`/purchase/service-requests/${r.id}`);
+                                setViewItem(resp.data?.item || null);
+                              } catch (e) {
+                                toast.error("Failed to load request");
+                              }
+                            }}
+                          >
+                            View
+                          </button>
+
+                          {canPerformAction("service-management:service-requests", "edit") && !["APPROVED", "POSTED"].includes(String(r.status || "").toUpperCase()) && (
+                            <Link
+                              to={`/service-management/service-requests/new?id=${r.id}`}
+                              className="btn btn-sm btn-outline"
+                            >
+                              Edit
+                            </Link>
+                          )}
+
+                          {String(r.status || "").toUpperCase() === "PENDING" && (
                             <button
                               type="button"
-                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              className="btn btn-sm btn-success"
                               onClick={async () => {
+                                if (!window.confirm("Approve this request?")) return;
                                 try {
-                                  const resp = await api.get(`/purchase/service-requests/${r.id}`);
-                                  setViewItem(resp.data?.item || null);
-                                } catch (e) {
-                                  toast.error("Failed to load request");
-                                }
+                                  await api.post(`/workflows/approve`, { document_type: "SERVICE_REQUEST", document_id: r.id });
+                                  setItems(prev => prev.map(x => x.id === r.id ? {...x, status: "APPROVED"} : x));
+                                  toast.success("Approved");
+                                } catch (e) { toast.error("Failed"); }
                               }}
                             >
-                              View
+                              Confirm
                             </button>
-                          </div>
-
-                          {/* Slot 2: Edit */}
-                          <div className="min-w-[80px]">
-                            {canPerformAction("service-management:service-requests", "edit") && !["APPROVED", "POSTED"].includes(String(r.status || "").toUpperCase()) ? (
-                              <Link
-                                to={`/service-management/service-requests/new?id=${r.id}`}
-                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                              >
-                                Edit
-                              </Link>
-                            ) : (
-                              <div className="w-full h-9" />
-                            )}
-                          </div>
-
-                          {/* Slot 3 & 4: Print/PDF (Not implemented in this file) */}
-                          <div className="min-w-[80px]">
-                            <div className="w-full h-9" />
-                          </div>
-                          <div className="min-w-[80px]">
-                            <div className="w-full h-9" />
-                          </div>
-
-                          {/* Slot 6: Workflow */}
-                          <div className="min-w-[160px]">
-                            <div className="list-approval-slot">
-                              {String(r.status || "").toUpperCase() === "APPROVED" ? (
-                                <div className="flex items-center gap-2">
-                                  <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#10B981] text-white cursor-default h-9">
-                                    Approved
-                                  </span>
-                                  {/* Slot 7: Reverse Approval */}
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
-                                    onClick={async () => {
-                                      if (!window.confirm("Reverse approval for this request?")) return;
-                                      try {
-                                        await api.post(`/workflows/reverse-approval`, {
-                                          document_type: "SERVICE_REQUEST",
-                                          document_id: r.id
-                                        });
-                                        setItems((prev) =>
-                                          prev.map((x) =>
-                                            x.id === r.id ? { ...x, status: "REVERSED", forwarded_to_username: null } : x
-                                          )
-                                        );
-                                        toast.success("Approval reversed");
-                                      } catch (e) {
-                                        toast.error("Failed to reverse approval");
-                                      }
-                                    }}
-                                  >
-                                    Reverse Approval
-                                  </button>
-                                </div>
-                              ) : r.forwarded_to_username ? (
-                                <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-amber-500 text-white whitespace-nowrap overflow-hidden text-ellipsis h-9">
-                                  Forwarded to {r.forwarded_to_username}
-                                </span>
-                              ) : (
-                                <div className="w-full h-9" />
-                              )}
-                            </div>
-                          </div>
+                          )}
                         </div>
                       </td>
                       <td>{r.created_by_username || r.created_by_name || "-"}</td>
                       <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="text-brand hover:underline font-medium text-sm"
+                        <ListAttachmentIconButton
                           onClick={() => {
-                            // Assuming AttachmentsModal exists or just placeholder for now
-                            toast.info("Attachments functionality coming soon");
+                            setActiveDocId(r.id);
+                            setShowAttach(true);
                           }}
-                        >
-                          View
-                        </button>
+                        />
                       </td>
                     </tr>
                   ))}
@@ -373,6 +333,15 @@ export default function ServiceRequestsList() {
           </div>
         </div>
       )}
+      <DocumentAttachmentsModal
+        open={showAttach}
+        onClose={() => {
+          setShowAttach(false);
+          setActiveDocId(null);
+        }}
+        docType="service-request"
+        docId={activeDocId}
+      />
     </div>
   );
 }

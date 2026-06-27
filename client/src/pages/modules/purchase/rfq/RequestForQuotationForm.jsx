@@ -299,12 +299,6 @@ export default function RequestForQuotationForm() {
 
         <div className="flex flex-wrap gap-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
           <button
-            onClick={() => setShowSupplierModal(true)}
-            className="px-4 py-2 bg-[#17a2b8] text-white rounded hover:bg-cyan-700 transition flex items-center gap-2"
-          >
-            👥 Select Suppliers
-          </button>
-          <button
             onClick={() => navigate("/purchase/rfqs")}
             className="px-4 py-2  text-white rounded transition flex items-center gap-2 ml-auto btn-success"
           >
@@ -421,10 +415,38 @@ export default function RequestForQuotationForm() {
 
           {/* Selected Suppliers */}
           <section>
-            <div className="flex items-center gap-2 border-b-2 border-[#0E3646] pb-2 mb-4">
+            <div className="flex items-center justify-between border-b-2 border-[#0E3646] pb-2 mb-4">
               <h2 className="text-lg font-semibold text-[#0E3646]">
                 👥 Selected Suppliers ({selectedSuppliers.length})
               </h2>
+              <div className="flex items-center gap-3">
+                <select 
+                  className="p-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-[#0E3646] outline-none"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) return;
+                    const supplier = allSuppliers.find((s) => String(s.id) === val);
+                    if (supplier && !selectedSuppliers.find((s) => s.id === supplier.id)) {
+                      toggleSupplier(supplier);
+                    }
+                    e.target.value = "";
+                  }}
+                >
+                  <option value="">+ Quick Add Supplier...</option>
+                  {allSuppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.supplier_name} {s.supplier_code ? `(${s.supplier_code})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-sm text-gray-400">or</span>
+                <button
+                  onClick={() => setShowSupplierModal(true)}
+                  className="px-3 py-1.5 bg-[#17a2b8] text-white text-sm rounded hover:bg-cyan-700 transition flex items-center gap-2"
+                >
+                  Browse Directory
+                </button>
+              </div>
             </div>
 
             {selectedSuppliers.length === 0 ? (
@@ -487,7 +509,10 @@ export default function RequestForQuotationForm() {
               </button>
             </div>
 
-            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+            <div
+              className="border border-gray-200 rounded-lg"
+              style={{ overflow: "visible" }}
+            >
               <table className="w-full text-sm text-left">
                 <thead className="bg-[#0E3646] text-white">
                   <tr>
@@ -517,7 +542,7 @@ export default function RequestForQuotationForm() {
                               id={`rfq-item-search-${idx}`} autoComplete="off"
                               className="w-full p-1 border border-gray-300 rounded focus:ring-2 focus:ring-[#0E3646] focus:border-transparent outline-none"
                               placeholder="Scan barcode or type item name"
-                              value={itemQueries[idx] || ""}
+                              value={itemQueries[idx] !== undefined ? itemQueries[idx] : (item.item_name || "")}
                               onChange={(e) => {
                                 const val = e.target.value;
                                 setItemQueries((prev) => ({

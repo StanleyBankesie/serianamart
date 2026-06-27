@@ -39,7 +39,7 @@ const EMPTY_ITEM = {
   is_active: true,
 };
 
-function ModalForm({ open, title, hideDescription, draft, onDraftChange, onClose, onSubmit }) {
+function ModalForm({ open, title, hideDescription, draft, onDraftChange, onClose, onSubmit, nameOptions }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -51,7 +51,20 @@ function ModalForm({ open, title, hideDescription, draft, onDraftChange, onClose
         <div className="space-y-3">
           <div>
             <label className="label">Name</label>
-            <input className="input w-full" value={draft.item_name} onChange={e => onDraftChange("item_name", e.target.value)} />
+            {nameOptions?.length ? (
+              <select
+                className="input w-full"
+                value={draft.item_name}
+                onChange={e => onDraftChange("item_name", e.target.value)}
+              >
+                <option value="">-- Select --</option>
+                {nameOptions.map((opt) => (
+                  <option key={opt.id} value={opt.name}>{opt.name}</option>
+                ))}
+              </select>
+            ) : (
+              <input className="input w-full" value={draft.item_name} onChange={e => onDraftChange("item_name", e.target.value)} />
+            )}
           </div>
           {!hideDescription && (
             <div>
@@ -229,6 +242,16 @@ export default function MaintenanceSetupPage() {
     assign_work: true,
   });
   const [saving, setSaving] = useState(false);
+  const [supplierNameOptions, setSupplierNameOptions] = useState([]);
+
+  useEffect(() => {
+    let m = true;
+    api.get("/purchase/suppliers?contractor=Y").then((r) => {
+      const items = Array.isArray(r.data?.items) ? r.data.items : [];
+      if (m) setSupplierNameOptions(items.map((s) => ({ id: s.id, name: s.supplier_name })));
+    }).catch(() => {});
+    return () => { m = false; };
+  }, []);
 
   async function loadSetup() {
     const [catalogRes, paramRes] = await Promise.all([
@@ -861,6 +884,7 @@ export default function MaintenanceSetupPage() {
         onDraftChange={setModalField}
         onClose={closeModal}
         onSubmit={submitModal}
+        nameOptions={modalKind === "service-providers" ? supplierNameOptions : undefined}
       />
     </div>
   );

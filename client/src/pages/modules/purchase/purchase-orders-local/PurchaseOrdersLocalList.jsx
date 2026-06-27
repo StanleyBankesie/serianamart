@@ -33,8 +33,9 @@ export default function PurchaseOrdersLocalList() {
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [firstApprover, setFirstApprover] = useState(null);
   const [workflowsCache, setWorkflowsCache] = useState(null);
-  const [targetApproverId, setTargetApproverId] = useState(null);
   const [submittingForward, setSubmittingForward] = useState(false);
+  const [forwardedTo, setForwardedTo] = useState({});
+  const [targetApproverId, setTargetApproverId] = useState(null);
   const [selectedPO, setSelectedPO] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
@@ -515,6 +516,10 @@ export default function PurchaseOrdersLocalList() {
           : po,
       ),
     );
+    setForwardedTo((prev) => ({
+      ...prev,
+      [selectedPO.id]: optimisticApprover || "Approver",
+    }));
     setShowForwardModal(false);
     setSelectedPO(null);
     try {
@@ -809,9 +814,9 @@ export default function PurchaseOrdersLocalList() {
                                   </ReverseApprovalButton>
                                 )}
                               </div>
-                            ) : po.forwarded_to_username ? (
+                            ) : po.status === "PENDING_APPROVAL" || po.forwarded_to_username || forwardedTo[po.id] ? (
                               <span className="list-approval-forwarded-pill">
-                                Forwarded to {po.forwarded_to_username}
+                                Forwarded to {po.forwarded_to_username || forwardedTo[po.id] || "Approver"}
                               </span>
                             ) : (
                               <button

@@ -1,4 +1,4 @@
-import { query, pool } from "../db/pool.js";
+﻿import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { consumeStockFIFOTx, recordMovementTx } from "../services/stock.service.js";
 
@@ -152,16 +152,16 @@ export const deleteBom = async (req, res, next) => {
 
 export const listWorkOrders = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const items = await query(
       `SELECT wo.*, b.bom_name, i.item_name, i.item_code, u.username AS created_by_name
        FROM prod_work_orders wo
        JOIN prod_boms b ON b.id = wo.bom_id
        JOIN inv_items i ON i.id = b.item_id
        LEFT JOIN adm_users u ON u.id = wo.created_by
-       WHERE wo.company_id = :companyId AND wo.branch_id = :branchId
+       WHERE wo.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(wo.branch_id, :branchIdsStr))
        ORDER BY wo.work_order_date DESC, wo.id DESC`,
-      { companyId, branchId }
+      { companyId, branchId, branchIdsStr }
     );
     res.json({ items });
   } catch (err) {
@@ -171,7 +171,7 @@ export const listWorkOrders = async (req, res, next) => {
 
 export const getWorkOrderById = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -180,8 +180,8 @@ export const getWorkOrderById = async (req, res, next) => {
        FROM prod_work_orders wo
        JOIN prod_boms b ON b.id = wo.bom_id
        JOIN inv_items i ON i.id = b.item_id
-       WHERE wo.id = :id AND wo.company_id = :companyId AND wo.branch_id = :branchId`,
-      { id, companyId, branchId }
+       WHERE wo.id = :id AND wo.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(wo.branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr }
     );
     if (!wo) throw httpError(404, "NOT_FOUND", "Work order not found");
 
@@ -202,7 +202,7 @@ export const getWorkOrderById = async (req, res, next) => {
 export const createWorkOrder = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = req.user?.sub || req.user?.id;
     const { work_order_no, work_order_date, bom_id, qty_to_produce, warehouse_id, remarks } = req.body || {};
 
@@ -215,7 +215,7 @@ export const createWorkOrder = async (req, res, next) => {
     const [result] = await conn.execute(
       `INSERT INTO prod_work_orders (company_id, branch_id, work_order_no, work_order_date, bom_id, qty_to_produce, warehouse_id, status, remarks, created_by)
        VALUES (:companyId, :branchId, :work_order_no, :work_order_date, :bom_id, :qty_to_produce, :warehouse_id, 'DRAFT', :remarks, :userId)`,
-      { companyId, branchId, work_order_no, work_order_date, bom_id, qty_to_produce, warehouse_id, remarks, userId }
+      { companyId, branchId, branchIdsStr, work_order_no, work_order_date, bom_id, qty_to_produce, warehouse_id, remarks, userId }
     );
     const woId = result.insertId;
 
@@ -253,7 +253,7 @@ export const createWorkOrder = async (req, res, next) => {
 export const updateWorkOrderStatus = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = req.user?.sub || req.user?.id;
     const id = toNumber(req.params.id);
     const { status, actual_items } = req.body || {};
@@ -261,8 +261,8 @@ export const updateWorkOrderStatus = async (req, res, next) => {
     if (!id || !status) throw httpError(400, "VALIDATION_ERROR", "Missing required fields");
 
     const [wo] = await query(
-      `SELECT * FROM prod_work_orders WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-      { id, companyId, branchId }
+      `SELECT * FROM prod_work_orders WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { id, companyId, branchId, branchIdsStr }
     );
     if (!wo) throw httpError(404, "NOT_FOUND", "Work order not found");
 
@@ -299,7 +299,7 @@ export const updateWorkOrderStatus = async (req, res, next) => {
         if (Number(item.actual_qty) > 0) {
           await consumeStockFIFOTx(conn, {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             warehouseId: wo.warehouse_id,
             itemId: item.item_id,
             transactionType: "PRODUCTION_CONSUMPTION",
@@ -318,7 +318,7 @@ export const updateWorkOrderStatus = async (req, res, next) => {
       if (bom[0]) {
         await recordMovementTx(conn, {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           warehouseId: wo.warehouse_id,
           itemId: bom[0].item_id,
           transactionType: "PRODUCTION_OUTPUT",
@@ -1118,3 +1118,4 @@ export const getEfficiencyReport = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+

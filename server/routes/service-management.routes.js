@@ -1,4 +1,4 @@
-import express from "express";
+﻿import express from "express";
 import {
   requireAuth,
   requireCompanyScope,
@@ -29,14 +29,14 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const status = String(req.query.status || "").trim();
       const priority = String(req.query.priority || "").trim();
       const customerLike = String(req.query.customer || "").trim();
-      const clauses = ["r.company_id = :companyId", "r.branch_id = :branchId"];
-      const params = { companyId, branchId };
+      const clauses = ["r.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))"];
+      const params = { companyId, branchId, branchIdsStr };
       if (from && to) {
         clauses.push("r.request_date BETWEEN :from AND :to");
         params.from = from;
@@ -89,14 +89,14 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const status = String(req.query.status || "").trim();
       const tech = String(req.query.technician || "").trim();
       const svcType = String(req.query.serviceType || "").trim();
-      const clauses = ["o.company_id = :companyId", "o.branch_id = :branchId"];
-      const params = { companyId, branchId };
+      const clauses = ["o.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))"];
+      const params = { companyId, branchId, branchIdsStr };
       if (from && to) {
         clauses.push("o.order_date BETWEEN :from AND :to");
         params.from = from;
@@ -150,11 +150,11 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const tech = String(req.query.technician || "").trim();
-      const params = { companyId, branchId };
+      const params = { companyId, branchId, branchIdsStr };
       const dateClause =
         from && to ? " AND o.order_date BETWEEN :from AND :to" : "";
       if (from && to) {
@@ -171,7 +171,7 @@ router.get(
           u.username AS created_by_name
          FROM pur_service_orders o
         LEFT JOIN adm_users u ON u.id = o.created_by
-         WHERE o.company_id = :companyId AND o.branch_id = :branchId
+         WHERE o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
         ${dateClause}
         GROUP BY COALESCE(o.assigned_supervisor_username, 'Unassigned')
         `,
@@ -209,10 +209,10 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
-      const params = { companyId, branchId };
+      const params = { companyId, branchId, branchIdsStr };
       const dateClause =
         from && to ? " AND o.order_date BETWEEN :from AND :to" : "";
       if (from && to) {
@@ -230,7 +230,7 @@ router.get(
           u.username AS created_by_name
          FROM pur_service_orders o
         LEFT JOIN adm_users u ON u.id = o.created_by
-         WHERE o.company_id = :companyId AND o.branch_id = :branchId
+         WHERE o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
         ${dateClause}
         ORDER BY o.order_date DESC, o.id DESC
         `,
@@ -262,13 +262,13 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
       const svcType = String(req.query.serviceType || "").trim();
       const customerLike = String(req.query.customer || "").trim();
-      const clauses = ["b.company_id = :companyId", "b.branch_id = :branchId"];
-      const params = { companyId, branchId };
+      const clauses = ["b.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))"];
+      const params = { companyId, branchId, branchIdsStr };
       if (from && to) {
         clauses.push("b.bill_date BETWEEN :from AND :to");
         params.from = from;
@@ -328,7 +328,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const items = await query(`
         SELECT 
           b.bill_no,
@@ -351,11 +351,11 @@ router.get(
          FROM pur_service_bills b
         LEFT JOIN pur_service_orders o ON o.id = b.order_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
           AND COALESCE(b.amount_paid,0) < COALESCE(b.total_amount,0)
         ORDER BY b.due_date ASC NULLS FIRST, b.bill_date DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items });
     } catch (err) {
@@ -373,7 +373,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const items = await query(`
         SELECT 
           o.order_no,
@@ -387,10 +387,10 @@ router.get(
          FROM inv_service_confirmations c
         LEFT JOIN pur_service_orders o ON o.id = c.order_id
         LEFT JOIN adm_users u ON u.id = c.created_by
-         WHERE c.company_id = :companyId AND c.branch_id = :branchId
+         WHERE c.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(c.branch_id, :branchIdsStr))
         ORDER BY c.confirmation_date DESC, c.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items });
     } catch (err) {
@@ -408,10 +408,10 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const from = toDateOnly(req.query.from);
       const to = toDateOnly(req.query.to);
-      const params = { companyId, branchId };
+      const params = { companyId, branchId, branchIdsStr };
       const dateClause =
         from && to ? " AND o.order_date BETWEEN :from AND :to" : "";
       if (from && to) {
@@ -433,7 +433,7 @@ router.get(
           u.username AS created_by_name
          FROM pur_service_orders o
         LEFT JOIN adm_users u ON u.id = o.created_by
-         WHERE o.company_id = :companyId AND o.branch_id = :branchId
+         WHERE o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
         ${dateClause}
         GROUP BY COALESCE(o.assigned_supervisor_username, 'Unassigned')
         ORDER BY technician ASC
@@ -456,7 +456,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const items = await query(`
         SELECT 
           o.order_no,
@@ -476,10 +476,10 @@ router.get(
           COALESCE(b.total_amount, 0) - COALESCE(o.estimated_cost,0) AS profit_loss
         FROM pur_service_orders o
         LEFT JOIN pur_service_bills b ON b.order_id = o.id
-        WHERE o.company_id = :companyId AND o.branch_id = :branchId
+        WHERE o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
         ORDER BY o.order_date DESC, o.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items });
     } catch (err) {
@@ -497,7 +497,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const items = await query(`
         SELECT 
           COALESCE(o.customer_name, 'UNSPECIFIED') AS customer,
@@ -509,11 +509,11 @@ router.get(
           u.username AS created_by_name
          FROM pur_service_orders o
         LEFT JOIN adm_users u ON u.id = o.created_by
-         WHERE o.company_id = :companyId AND o.branch_id = :branchId
+         WHERE o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
         GROUP BY COALESCE(o.customer_name, 'UNSPECIFIED'), COALESCE(o.service_category, 'UNSPECIFIED')
         ORDER BY num_requests DESC, last_service_date DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items });
     } catch (err) {
@@ -531,7 +531,7 @@ router.get(
   requireAnyPermission(["SERVICE.MANAGE", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const items = await query(`
         SELECT 
           COALESCE(o.service_category, 'UNSPECIFIED') AS service_type,
@@ -544,11 +544,11 @@ router.get(
          FROM pur_service_orders o
         LEFT JOIN pur_service_bills b ON b.order_id = o.id
         LEFT JOIN adm_users u ON u.id = o.created_by
-         WHERE o.company_id = :companyId AND o.branch_id = :branchId
+         WHERE o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
         GROUP BY COALESCE(o.service_category, 'UNSPECIFIED')
         ORDER BY total_revenue DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items });
     } catch (err) {

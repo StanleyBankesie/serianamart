@@ -1,231 +1,256 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Save, Loader2, Calendar, User, Layout, ChevronDown, Paperclip, Percent, AlertTriangle, AlignLeft } from "lucide-react";
 import { api } from "../../../../api/client.js";
-import { toast } from "react-toastify";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 
 export default function TaskForm() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const isEdit = Boolean(id);
+  const isNew = !id || id === "new";
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
 
-  const [form, setForm] = useState({
-    project_id: "", task_title: "", description: "", priority: "MEDIUM", status: "PENDING",
-    estimated_hours: 0, due_date: "", start_date: "", reason_for_delay: "",
-    completion_percent: 0, assigned_to_id: "", assigned_to_name: ""
+  const [formData, setFormData] = useState({
+    projectId: "",
+    taskTitle: "",
+    description: "",
+    priority: "MEDIUM",
+    status: "PENDING",
+    estimatedHours: 0,
+    dueDate: "",
+    startDate: "",
+    reasonForDelay: "",
+    completionPercent: 0,
+    assignedToId: "",
+    assignedToName: "",
   });
 
   const [showAttach, setShowAttach] = useState(false);
 
-  useEffect(() => {
-    fetchProjects();
-    fetchUsers();
-    if (isEdit) fetchTask();
-  }, [id]);
-
-  const fetchProjects = async () => {
-    try { const res = await api.get("/projects/projects"); setProjects(res.data?.items || []); } catch {}
+  const statusColors = {
+    PENDING: "bg-gray-500 text-white",
+    IN_PROGRESS: "bg-blue-500 text-white",
+    COMPLETED: "bg-green-500 text-white",
+    BLOCKED: "bg-red-500 text-white",
   };
 
-  const fetchUsers = async () => {
-    try {
-      const res = await api.get("/admin/users", { params: { active: 1 } });
+  useEffect(() => {
+    let mounted = true;
+    api.get("/projects/projects").then(res => {
+      if (!mounted) return;
+      setProjects(Array.isArray(res.data?.items) ? res.data.items : []);
+    }).catch(() => {});
+    api.get("/admin/users", { params: { active: 1 } }).then(res => {
+      if (!mounted) return;
       const items = (res?.data?.data?.items) || (res?.data?.items) || [];
       setUsers(items);
-    } catch {}
-  };
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
-  const fetchTask = async () => {
+  useEffect(() => {
+    if (isNew) return;
+    let mounted = true;
     setLoading(true);
-    try {
-      const res = await api.get(`/projects/tasks/${id}`);
-      if (res.data?.item) {
-        const item = res.data.item;
-        setForm({
-          project_id: item.project_id || "", task_title: item.task_title || "",
-          description: item.task_description || "", priority: item.priority || "MEDIUM",
-          status: item.status || "PENDING", estimated_hours: item.estimated_hours || 0,
-          due_date: item.end_date ? item.end_date.split('T')[0] : "",
-          start_date: item.start_date ? item.start_date.split('T')[0] : "",
-          reason_for_delay: item.reason_for_delay || "", completion_percent: item.completion_percent || 0,
-          assigned_to_id: item.assigned_to_id || "", assigned_to_name: item.assigned_to_name || ""
-        });
-      }
-    } catch { toast.error("Failed to load task details"); }
-    finally { setLoading(false); }
-  };
+    setError("");
+
+    api.get(`/projects/tasks/${id}`).then(res => {
+      if (!mounted) return;
+      const item = res.data?.item;
+      if (!item) return;
+      setFormData({
+        projectId: item.project_id || "",
+        taskTitle: item.task_title || "",
+        description: item.task_description || "",
+        priority: item.priority || "MEDIUM",
+        status: item.status || "PENDING",
+        estimatedHours: item.estimated_hours || 0,
+        dueDate: item.end_date ? item.end_date.split("T")[0] : "",
+        startDate: item.start_date ? item.start_date.split("T")[0] : "",
+        reasonForDelay: item.reason_for_delay || "",
+        completionPercent: item.completion_percent || 0,
+        assignedToId: item.assigned_to_id || "",
+        assignedToName: item.assigned_to_name || "",
+      });
+    }).catch(e => {
+      if (!mounted) return;
+      setError(e?.response?.data?.message || "Failed to load task");
+    }).finally(() => {
+      if (!mounted) return;
+      setLoading(false);
+    });
+
+    return () => { mounted = false; };
+  }, [id, isNew]);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setSaving(true);
+    setError("");
+
     try {
       const payload = {
-        ...form, task_description: form.description, end_date: form.due_date,
-        completion_percent: form.status === "COMPLETED" ? 100 : form.completion_percent
+        project_id: formData.projectId || null,
+        task_title: formData.taskTitle,
+        task_description: formData.description,
+        priority: formData.priority,
+        status: formData.status,
+        estimated_hours: formData.estimatedHours || 0,
+        end_date: formData.dueDate || null,
+        start_date: formData.startDate || null,
+        reason_for_delay: formData.reasonForDelay || null,
+        completion_percent: formData.status === "COMPLETED" ? 100 : (formData.completionPercent || 0),
+        assigned_to_id: formData.assignedToId || null,
+        assigned_to_name: formData.assignedToName || null,
       };
-      delete payload.description; delete payload.due_date;
 
-      if (isEdit) { await api.put(`/projects/tasks/${id}`, payload); toast.success("Task updated"); }
-      else { await api.post("/projects/tasks", payload); toast.success("Task added to workboard"); }
-      navigate("/project-management/tasks");
-    } catch { toast.error("Failed to save task"); }
-    finally { setSaving(false); }
+      if (isNew) {
+        await api.post("/projects/tasks", payload);
+      } else {
+        await api.put(`/projects/tasks/${id}`, payload);
+      }
+      navigate("/project-management/tasks", { state: { refresh: true } });
+    } catch (e2) {
+      setError(e2?.response?.data?.message || "Failed to save task");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleStatusChange = (newStatus) => {
-    const updates = { status: newStatus };
-    if (newStatus === "COMPLETED") updates.completion_percent = 100;
-    setForm({ ...form, ...updates });
+    setFormData(prev => ({
+      ...prev,
+      status: newStatus,
+      completionPercent: newStatus === "COMPLETED" ? 100 : prev.completionPercent,
+    }));
   };
 
-  if (loading) return <div className="p-20 text-center animate-pulse font-bold text-slate-300 text-2xl uppercase tracking-widest italic">Loading Task...</div>;
-
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/project-management/tasks" className="btn btn-secondary p-2"><ArrowLeft size={20} /></Link>
-          <div>
-            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">{isEdit ? "Refine Task" : "Add Task"}</h1>
-            <p className="text-slate-500 text-sm">WBS Item Specification</p>
+    <div className="space-y-6">
+      <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center text-white">
+            <div>
+              <h1 className="text-2xl font-bold dark:text-brand-300">
+                {isNew ? "New Task" : "Edit Task"}
+              </h1>
+              <p className="text-sm mt-1">WBS Item Specification</p>
+            </div>
+              <Link to="/project-management/tasks" className="btn-success">Back to List</Link>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {isEdit && (
-            <button type="button" onClick={() => setShowAttach(true)} className="btn btn-secondary flex items-center gap-2">
-              <Paperclip size={18} />Attachments
-            </button>
-          )}
-          <button onClick={handleSubmit} disabled={saving} className="btn-success flex items-center gap-2">
-            {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-            {isEdit ? "Update Task" : "Add Task"}
-          </button>
-        </div>
-      </div>
+        <div className="card-body">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {loading ? <div className="text-sm">Loading...</div> : null}
+            {error ? <div className="text-sm text-red-600">{error}</div> : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="card p-8 space-y-6">
-            <div className="space-y-6">
-              <div className="flex items-center gap-3 text-brand-600 border-b border-slate-50 dark:border-slate-700 pb-3">
-                <Layout size={18} /><h2 className="font-bold uppercase text-xs tracking-wider">Task Definition</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="label">Project *</label>
+                <select className="input" value={formData.projectId}
+                  onChange={e => setFormData({ ...formData, projectId: e.target.value })} required>
+                  <option value="">Select Project</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.project_name}</option>)}
+                </select>
               </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Target Project</label>
-                <div className="relative">
-                  <select required className="w-full input pr-10 appearance-none" value={form.project_id} onChange={e => setForm({...form, project_id: e.target.value})}>
-                    <option value="">Select Project</option>
-                    {projects.map(p => <option key={p.id} value={p.id}>{p.project_name} ({p.project_code})</option>)}
-                  </select>
-                  <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <div>
+                <label className="label">Task Title *</label>
+                <input type="text" className="input" value={formData.taskTitle}
+                  onChange={e => setFormData({ ...formData, taskTitle: e.target.value })} required />
+              </div>
+              <div>
+                <label className="label">Priority</label>
+                <select className="input" value={formData.priority}
+                  onChange={e => setFormData({ ...formData, priority: e.target.value })}>
+                  <option value="LOW">Low</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="HIGH">High</option>
+                  <option value="CRITICAL">Critical</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Status</label>
+                <div className="pt-2">
+                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${statusColors[formData.status] || "bg-gray-500 text-white"}`}>
+                    {formData.status === "IN_PROGRESS" ? "In Progress" : formData.status}
+                  </span>
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Task Summary</label>
-                <input type="text" required className="input w-full" placeholder="What needs to be done?" value={form.task_title} onChange={e => setForm({...form, task_title: e.target.value})} />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="label">Start Date</label>
+                <input type="date" className="input" value={formData.startDate}
+                  onChange={e => setFormData({ ...formData, startDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Due Date</label>
+                <input type="date" className="input" value={formData.dueDate}
+                  onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Estimated Hours</label>
+                <input type="number" step="0.5" min="0" className="input" value={formData.estimatedHours}
+                  onChange={e => setFormData({ ...formData, estimatedHours: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Completion %</label>
+                <input type="number" min="0" max="100" className="input" value={formData.completionPercent}
+                  onChange={e => setFormData({ ...formData, completionPercent: Number(e.target.value) })} />
               </div>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block"><AlignLeft size={14} className="inline mr-1" />Execution Details</label>
-              <textarea className="input w-full min-h-[100px]" placeholder="Specify task scope and deliverables..." value={form.description} onChange={e => setForm({...form, description: e.target.value})} />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block"><AlertTriangle size={14} className="inline mr-1" />Reason for Delay</label>
-              <textarea className="input w-full min-h-[80px]" placeholder="If task is delayed, describe the reason..." value={form.reason_for_delay} onChange={e => setForm({...form, reason_for_delay: e.target.value})} />
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="card p-6 space-y-4">
-            <div className="flex items-center gap-3 text-brand-600">
-              <User size={18} /><h2 className="font-bold uppercase text-xs tracking-wider">Assignment</h2>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Assignee</label>
-              <div className="relative">
-                <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                <select className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand-500 outline-none font-medium text-sm appearance-none" value={form.assigned_to_id} onChange={e => {
-                  const u = users.find(x => x.id == e.target.value);
-                  setForm({...form, assigned_to_id: e.target.value, assigned_to_name: u?.username || ""});
-                }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Assignee</label>
+                <select className="input" value={formData.assignedToId}
+                  onChange={e => {
+                    const u = users.find(x => x.id == e.target.value);
+                    setFormData({ ...formData, assignedToId: e.target.value, assignedToName: u?.username || "" });
+                  }}>
                   <option value="">Unassigned</option>
                   {users.map(u => <option key={u.id} value={u.id}>{u.username}</option>)}
                 </select>
               </div>
-            </div>
-          </div>
-
-          <div className="card p-6 space-y-4">
-            <div className="flex items-center gap-3 text-brand-600">
-              <Layout size={18} /><h2 className="font-bold uppercase text-xs tracking-wider">Timeline</h2>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Start Date</label>
-              <div className="relative">
-                <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                <input type="date" className="input w-full pl-9" value={form.start_date} onChange={e => setForm({...form, start_date: e.target.value})} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Due Date</label>
-              <div className="relative">
-                <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                <input type="date" className="input w-full pl-9" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Estimated Hours</label>
-              <input type="number" step="0.5" min="0" className="input w-full" placeholder="0" value={form.estimated_hours} onChange={e => setForm({...form, estimated_hours: e.target.value})} />
-            </div>
-          </div>
-
-          <div className="card p-6 space-y-4">
-            <div className="flex items-center gap-3 text-brand-600">
-              <Percent size={18} /><h2 className="font-bold uppercase text-xs tracking-wider">Completion</h2>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Task Progress: {form.completion_percent}%</label>
-              <div className="relative pt-2">
-                <div className="w-full h-3 bg-slate-100 dark:bg-slate-900 rounded-full overflow-hidden">
-                  <div className={`h-full rounded-full transition-all duration-300 ${form.completion_percent >= 100 ? 'bg-emerald-500' : form.completion_percent >= 50 ? 'bg-blue-500' : form.completion_percent >= 25 ? 'bg-amber-500' : 'bg-slate-400'}`} style={{ width: `${form.completion_percent}%` }} />
-                </div>
-                <input type="range" min="0" max="100" step="1" value={form.completion_percent} onChange={e => setForm({...form, completion_percent: Number(e.target.value)})} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-              </div>
-            </div>
-          </div>
-
-          <div className="card p-6 space-y-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Task Priority</label>
-              <div className="grid grid-cols-1 gap-1.5 mt-2">
-                {['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map(p => (
-                  <button key={p} type="button" onClick={() => setForm({...form, priority: p})}
-                    className={`px-3 py-2 rounded-lg text-[10px] font-bold transition-all text-left ${form.priority === p ? 'bg-brand-600 text-white shadow-sm' : 'bg-slate-50 dark:bg-slate-900 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>{p}</button>
-                ))}
+              <div>
+                <label className="label">Work Stage</label>
+                <select className="input" value={formData.status}
+                  onChange={e => handleStatusChange(e.target.value)}>
+                  <option value="PENDING">Pending</option>
+                  <option value="IN_PROGRESS">In Progress</option>
+                  <option value="COMPLETED">Completed</option>
+                  <option value="BLOCKED">Blocked</option>
+                </select>
               </div>
             </div>
 
-            <div className="space-y-1 pt-2">
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Work Stage</label>
-              <div className="grid grid-cols-1 gap-1.5 mt-2">
-                {['PENDING', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED'].map(s => (
-                  <button key={s} type="button" onClick={() => handleStatusChange(s)}
-                    className={`px-3 py-2 rounded-lg text-[10px] font-bold transition-all text-left ${form.status === s ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm' : 'bg-slate-50 dark:bg-slate-900 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>{s.replace('_', ' ')}</button>
-                ))}
-              </div>
+            <div>
+              <label className="label">Execution Details</label>
+              <textarea className="input w-full" rows="3" value={formData.description}
+                onChange={e => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Specify task scope and deliverables..."></textarea>
             </div>
-          </div>
+
+            <div>
+              <label className="label">Reason for Delay</label>
+              <textarea className="input w-full" rows="2" value={formData.reasonForDelay}
+                onChange={e => setFormData({ ...formData, reasonForDelay: e.target.value })}
+                placeholder="If task is delayed, describe the reason..."></textarea>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+              <Link to="/project-management/tasks"
+                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</Link>
+              <button type="submit" className="btn-success" disabled={saving}>
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
 

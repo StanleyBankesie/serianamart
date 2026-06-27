@@ -14,6 +14,7 @@ export default function BranchForm() {
     code: "",
     name: "",
     isActive: true,
+    is_superbranch: false,
     address: "",
     city: "",
     state: "",
@@ -41,7 +42,8 @@ export default function BranchForm() {
           company_id: item.company_id,
           code: item.code,
           name: item.name,
-          isActive: item.is_active,
+          isActive: Boolean(item.is_active),
+          is_superbranch: Boolean(Number(item.is_superbranch)),
           address: item.address || "",
           city: item.city || "",
           state: item.state || "",
@@ -73,7 +75,8 @@ export default function BranchForm() {
         company_id: form.company_id,
         name: form.name,
         code: form.code,
-        is_active: form.isActive,
+        is_active: form.isActive ? 1 : 0,
+        is_superbranch: form.is_superbranch ? 1 : 0,
         address: form.address || null,
         city: form.city || null,
         state: form.state || null,
@@ -157,6 +160,36 @@ export default function BranchForm() {
                   <option value="0">Inactive</option>
                 </select>
               </div>
+
+              {/* Superbranch toggle */}
+              <div className="flex items-center gap-3 pt-4">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.is_superbranch}
+                  onClick={() => update("is_superbranch", !form.is_superbranch)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 ${
+                    form.is_superbranch ? "bg-brand" : "bg-slate-300 dark:bg-slate-600"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      form.is_superbranch ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+                <div>
+                  <label className="text-sm font-semibold text-slate-800 dark:text-slate-200 cursor-pointer" onClick={() => update("is_superbranch", !form.is_superbranch)}>
+                    Superbranch
+                  </label>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {form.is_superbranch
+                      ? "Users assigned here can also be given access to child branches."
+                      : "This is a regular standalone branch."}
+                  </p>
+                </div>
+              </div>
+
               <div>
                 <label className="label">Address</label>
                 <input
@@ -182,7 +215,7 @@ export default function BranchForm() {
                 />
               </div>
               <div>
-                <label className="label">State</label>
+                <label className="label">State / Region</label>
                 <input
                   className="input"
                   value={form.state}
@@ -226,20 +259,28 @@ export default function BranchForm() {
                 <label className="label">Remarks</label>
                 <textarea
                   className="input"
-                  rows="3"
+                  rows={3}
                   value={form.remarks}
                   onChange={(e) => update("remarks", e.target.value)}
                 />
               </div>
             </div>
 
-            <div className="flex justify-end gap-3">
-              <Link to="/administration/branches" className="btn-success">
+            {error && (
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading}
+              >
+                {loading ? "Saving..." : isEdit ? "Update Branch" : "Create Branch"}
+              </button>
+              <Link to="/administration/branches" className="btn btn-secondary">
                 Cancel
               </Link>
-              <button className="btn-success" type="submit" disabled={loading}>
-                {loading ? "Saving..." : isEdit ? "Update" : "Create"}
-              </button>
             </div>
           </div>
         </div>

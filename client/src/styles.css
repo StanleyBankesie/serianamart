@@ -26,6 +26,7 @@
   /* ERP Theme Base Styles */
   body {
     @apply antialiased font-sans;
+    font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
   }
   :root {
     --success-color: #28a745;

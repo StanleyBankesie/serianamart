@@ -28,6 +28,7 @@ export default function GeneralRequisitionForm() {
     priority: "MEDIUM",
     required_date: "",
     remarks: "",
+    timeline: "",
   });
 
   const [lines, setLines] = useState([
@@ -115,6 +116,7 @@ export default function GeneralRequisitionForm() {
             ? String(data.required_date).slice(0, 10)
             : "",
           remarks: data.remarks || "",
+          timeline: data.timeline || "",
         });
         const existingItems = Array.isArray(data.items) ? data.items : [];
         setLines(
@@ -253,9 +255,9 @@ export default function GeneralRequisitionForm() {
             <h1 className="text-2xl font-bold">
               {grId
                 ? isEditMode
-                  ? "Edit General Requisition"
-                  : "View General Requisition"
-                : "New General Requisition"}
+                  ? "Edit Purchase Requisition"
+                  : "View Purchase Requisition"
+                : "New Purchase Requisition"}
             </h1>
             <p className="text-sm mt-1 opacity-90">
               {headerData?.requisition_no
@@ -380,22 +382,36 @@ export default function GeneralRequisitionForm() {
                 <option value="URGENT">Urgent</option>
               </select>
             </div>
-            <div className="md:col-span-3 flex flex-col gap-1">
+            <div className="flex flex-col gap-1">
+              <label className="label">Timeline</label>
+              <input
+                type="text"
+                className="input"
+                placeholder="e.g. 2 Weeks, Next Quarter..."
+                value={form.timeline || ""}
+                onChange={(e) => updateForm("timeline", e.target.value)}
+                disabled={disabled}
+              />
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1">
               <label className="label">Purpose / Justification</label>
               <textarea
-                className="input"
-                rows="2"
+                className="input w-full"
+                rows="4"
                 placeholder="Why is this needed?"
                 value={form.purpose}
                 onChange={(e) => updateForm("purpose", e.target.value)}
                 disabled={disabled}
               />
             </div>
-            <div className="md:col-span-3 flex flex-col gap-1">
+            <div className="flex flex-col gap-1">
               <label className="label">Remarks</label>
               <textarea
-                className="input"
-                rows="2"
+                className="input w-full"
+                rows="4"
                 value={form.remarks}
                 onChange={(e) => updateForm("remarks", e.target.value)}
                 disabled={disabled}
@@ -409,23 +425,26 @@ export default function GeneralRequisitionForm() {
               {form.requisition_type === "SERVICE" ? "Services" : "Items"}{" "}
               Requested
             </h3>
-            <div className="overflow-x-auto rounded border border-[#dee2e6]">
-              <table className="table">
+            <div
+              className="rounded border border-[#dee2e6]"
+              style={{ overflow: "visible" }}
+            >
+              <table className="table w-full" style={{ tableLayout: "auto" }}>
                 <thead>
                   <tr>
                     {form.requisition_type === "ITEM" && (
-                      <th style={{ width: 200 }}>Description</th>
+                      <th className="w-full min-w-[300px]">Description</th>
                     )}
                     {form.requisition_type === "SERVICE" && (
-                      <th style={{ minWidth: 200 }}>Description</th>
+                      <th className="w-full min-w-[300px]">Description</th>
                     )}
-                    <th style={{ width: 90 }}>Qty</th>
-                    <th style={{ width: 100 }}>UOM</th>
-                    <th style={{ width: 130 }}>Est. Unit Cost</th>
-                    <th style={{ width: 130 }} className="text-right">
+                    <th className="w-20">Qty</th>
+                    <th className="w-24">UOM</th>
+                    <th className="w-32">Est. Unit Cost</th>
+                    <th className="w-32 text-right">
                       Est. Total
                     </th>
-                    {canEdit && <th style={{ width: 80 }}></th>}
+                    {canEdit && <th className="w-20"></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -438,13 +457,21 @@ export default function GeneralRequisitionForm() {
                           <td>
                             <div className="relative">
                               <input
-                                id={`gr-item-search-${i}`} autoComplete="off"
+                                id={`gr-item-search-${i}`}
+                                autoComplete="off"
                                 className="input text-sm w-full"
                                 placeholder="Type to search items"
-                                value={itemQueries[`item-${i}`] || ""}
+                                value={
+                                  itemQueries[`item-${i}`] !== undefined
+                                    ? itemQueries[`item-${i}`]
+                                    : l.description || ""
+                                }
                                 onChange={(e) => {
                                   const val = e.target.value;
-                                  setItemQueries((prev) => ({ ...prev, [`item-${i}`]: val }));
+                                  setItemQueries((prev) => ({
+                                    ...prev,
+                                    [`item-${i}`]: val,
+                                  }));
                                   if (!val && lines[i].item_id) {
                                     updateLine(i, "item_id", "");
                                     updateLine(i, "description", "");
@@ -454,22 +481,60 @@ export default function GeneralRequisitionForm() {
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
-                                    const query = (itemQueries[`item-${i}`] || "").trim();
-                                    const results = query ? filterByPrefix(itemOptions, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                                    const query = (
+                                      itemQueries[`item-${i}`] || ""
+                                    ).trim();
+                                    const results = query
+                                      ? filterByPrefix(itemOptions, {
+                                          query,
+                                          searchFields: [
+                                            "item_code",
+                                            "item_name",
+                                            "barcode",
+                                          ],
+                                        })
+                                      : [];
                                     if (!query || !results.length) return;
                                     onItemChange(i, String(results[0].id));
-                                    setItemQueries((prev) => ({ ...prev, [`item-${i}`]: "" }));
+                                    setItemQueries((prev) => {
+                                      const next = { ...prev };
+                                      delete next[`item-${i}`];
+                                      return next;
+                                    });
                                   }
                                 }}
                                 disabled={disabled}
                               />
                               {(() => {
-                                const query = (itemQueries[`item-${i}`] || "").trim();
-                                const results = query ? filterByPrefix(itemOptions, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                                const query = (
+                                  itemQueries[`item-${i}`] || ""
+                                ).trim();
+                                const results = query
+                                  ? filterByPrefix(itemOptions, {
+                                      query,
+                                      searchFields: [
+                                        "item_code",
+                                        "item_name",
+                                        "barcode",
+                                      ],
+                                    })
+                                  : [];
                                 return results.length ? (
                                   <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
                                     {results.map((o) => (
-                                      <button type="button" key={o.id} className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs" onClick={() => { onItemChange(i, String(o.id)); setItemQueries((prev) => ({ ...prev, [`item-${i}`]: "" })); }}>
+                                      <button
+                                        type="button"
+                                        key={o.id}
+                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                        onClick={() => {
+                                          onItemChange(i, String(o.id));
+                                          setItemQueries((prev) => {
+                                            const next = { ...prev };
+                                            delete next[`item-${i}`];
+                                            return next;
+                                          });
+                                        }}
+                                      >
                                         {o.item_code} - {o.item_name}
                                       </button>
                                     ))}
@@ -487,10 +552,17 @@ export default function GeneralRequisitionForm() {
                                 autoComplete="off"
                                 className="input text-sm w-full"
                                 placeholder="Type to search services"
-                                value={itemQueries[`svc-${i}`] || ""}
+                                value={
+                                  itemQueries[`svc-${i}`] !== undefined
+                                    ? itemQueries[`svc-${i}`]
+                                    : l.description || ""
+                                }
                                 onChange={(e) => {
                                   const val = e.target.value;
-                                  setItemQueries((prev) => ({ ...prev, [`svc-${i}`]: val }));
+                                  setItemQueries((prev) => ({
+                                    ...prev,
+                                    [`svc-${i}`]: val,
+                                  }));
                                   if (!val && lines[i].item_id) {
                                     updateLine(i, "item_id", "");
                                     updateLine(i, "description", "");
@@ -500,22 +572,60 @@ export default function GeneralRequisitionForm() {
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
-                                    const query = (itemQueries[`svc-${i}`] || "").trim();
-                                    const results = query ? filterByPrefix(serviceOptions, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                                    const query = (
+                                      itemQueries[`svc-${i}`] || ""
+                                    ).trim();
+                                    const results = query
+                                      ? filterByPrefix(serviceOptions, {
+                                          query,
+                                          searchFields: [
+                                            "item_code",
+                                            "item_name",
+                                            "barcode",
+                                          ],
+                                        })
+                                      : [];
                                     if (!query || !results.length) return;
                                     onItemChange(i, String(results[0].id));
-                                    setItemQueries((prev) => ({ ...prev, [`svc-${i}`]: "" }));
+                                    setItemQueries((prev) => {
+                                      const next = { ...prev };
+                                      delete next[`svc-${i}`];
+                                      return next;
+                                    });
                                   }
                                 }}
                                 disabled={disabled}
                               />
                               {(() => {
-                                const query = (itemQueries[`svc-${i}`] || "").trim();
-                                const results = query ? filterByPrefix(serviceOptions, { query, searchFields: ["item_code", "item_name", "barcode"] }) : [];
+                                const query = (
+                                  itemQueries[`svc-${i}`] || ""
+                                ).trim();
+                                const results = query
+                                  ? filterByPrefix(serviceOptions, {
+                                      query,
+                                      searchFields: [
+                                        "item_code",
+                                        "item_name",
+                                        "barcode",
+                                      ],
+                                    })
+                                  : [];
                                 return results.length ? (
                                   <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto">
                                     {results.map((o) => (
-                                      <button type="button" key={o.id} className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs" onClick={() => { onItemChange(i, String(o.id)); setItemQueries((prev) => ({ ...prev, [`svc-${i}`]: "" })); }}>
+                                      <button
+                                        type="button"
+                                        key={o.id}
+                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                        onClick={() => {
+                                          onItemChange(i, String(o.id));
+                                          setItemQueries((prev) => {
+                                            const next = { ...prev };
+                                            delete next[`svc-${i}`];
+                                            return next;
+                                          });
+                                        }}
+                                      >
                                         {o.item_name}
                                       </button>
                                     ))}
@@ -594,7 +704,7 @@ export default function GeneralRequisitionForm() {
             </div>
             {canEdit && (
               <div className="mt-3">
-                <button className="btn btn-outline" onClick={addLine}>
+                <button className="btn btn-success" onClick={addLine}>
                   + Add Line
                 </button>
               </div>
@@ -616,7 +726,7 @@ export default function GeneralRequisitionForm() {
 
           {/* Actions */}
           {canEdit && (
-            <div className="mt-6 flex flex-wrap gap-3 items-center">
+            <div className="mt-6 flex justify-end gap-3 items-center">
               <button
                 type="button"
                 className="inline-flex items-center justify-center px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-brand hover:opacity-90 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
@@ -637,7 +747,7 @@ export default function GeneralRequisitionForm() {
 
           {isViewMode &&
             !["DRAFT", "SUBMITTED"].includes(headerData?.status) && (
-              <div className="mt-6">
+              <div className="mt-6 flex justify-end">
                 <button
                   className="btn"
                   onClick={() => navigate("/purchase/general-requisitions")}

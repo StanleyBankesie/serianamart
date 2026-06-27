@@ -465,7 +465,7 @@ export default function EmployeeForm() {
                   <h3 className="text-lg font-semibold mb-4 border-b pb-2">
                     Contact Details
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className="label">Email</label>
                       <input
@@ -483,7 +483,7 @@ export default function EmployeeForm() {
                         onChange={(e) => update("phone", e.target.value)}
                       />
                     </div>
-                    <div className="md:col-span-2">
+                    <div>
                       <label className="label">Address</label>
                       <input
                         className="input"

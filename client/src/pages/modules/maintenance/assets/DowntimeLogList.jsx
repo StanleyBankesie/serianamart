@@ -11,11 +11,14 @@ import {
   Filter,
   Activity,
   Zap,
-  ZapOff
+  ZapOff,
+  Eye
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 const StatusBadge = ({ level }) => {
   const colors = {
@@ -32,8 +35,11 @@ const StatusBadge = ({ level }) => {
 };
 
 export default function DowntimeLogList() {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   const fetchLogs = async () => {
     try {
@@ -118,11 +124,14 @@ export default function DowntimeLogList() {
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Timeframe</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Duration</th>
                 <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Impact</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Created By</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Created Date</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
-              {loading ? (
-                <tr><td colSpan="4" className="px-6 py-20 text-center animate-pulse font-bold text-slate-400 uppercase">Analyzing downtime cycles...</td></tr>
+                {loading ? (
+                <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse font-bold text-slate-400 uppercase">Analyzing downtime cycles...</td></tr>
               ) : items.length > 0 ? items.map((item) => (
                 <tr key={item.id} className="group hover:bg-slate-50/80 transition-colors">
                   <td className="px-6 py-5">
@@ -158,10 +167,20 @@ export default function DowntimeLogList() {
                   <td className="px-6 py-5">
                     <StatusBadge level={item.impact_level} />
                   </td>
+                    <td className="px-6 py-5 text-sm">{item.created_by_name || "-"}</td>
+                    <td className="px-6 py-5 text-sm">{item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="px-6 py-5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/assets/downtime/${item.id}?mode=view`)}><Eye size={15} /></button>
+                        <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
+                        <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
+                        <ListAttachmentIconButton onClick={() => { setActiveDocId(item.id); setShowAttach(true); }} />
+                      </div>
+                    </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="4" className="px-6 py-20 text-center text-slate-400 font-medium">
+                  <td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-medium">
                     Excellent! No downtime incidents recorded recently.
                   </td>
                 </tr>
@@ -170,6 +189,14 @@ export default function DowntimeLogList() {
           </table>
         </div>
       </div>
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
     </div>
   );
 }

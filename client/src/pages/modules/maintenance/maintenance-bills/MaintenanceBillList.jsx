@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { Eye } from "lucide-react";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 const paymentColors = { UNPAID:"bg-amber-100 text-amber-700", PAID:"bg-green-100 text-green-700", OVERDUE:"bg-red-100 text-red-700" };
 const statusColors = { DRAFT:"bg-slate-100 text-slate-600", PENDING:"bg-amber-100 text-amber-700", APPROVED:"bg-green-100 text-green-700" };
@@ -11,10 +14,13 @@ function Badge({ value, colorMap }) {
 }
 
 export default function MaintenanceBillList() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -51,8 +57,8 @@ export default function MaintenanceBillList() {
                     <th>Created Date</th>
                     </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan="9" className="text-center py-8 text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="9" className="text-center py-8 text-slate-500">No bills found</td></tr>}
+                {loading && <tr><td colSpan="11" className="text-center py-8 text-slate-500">Loading...</td></tr>}
+                {!loading && !filtered.length && <tr><td colSpan="11" className="text-center py-8 text-slate-500">No bills found</td></tr>}
                 {!loading && filtered.map(r => (
                   <tr key={r.id}>
                     <td className="font-mono text-sm">{r.bill_no}</td>
@@ -63,7 +69,9 @@ export default function MaintenanceBillList() {
                     <td>{r.currency}</td>
                     <td><Badge value={r.payment_status} colorMap={paymentColors} /></td>
                     <td><Badge value={r.status} colorMap={statusColors} /></td>
-                    <td><Link to={`/maintenance/bills/${r.id}`} className="btn-secondary btn-sm">Edit</Link></td>
+                    <td>{r.created_by_name || "-"}</td>
+                    <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                    <td><div className="flex items-center gap-1"><button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/bills/${r.id}?mode=view`)}><Eye size={15} /></button><ListPrintIconButton onClick={() => toast.info("Print coming soon")} /><ListPdfIconButton onClick={() => toast.info("PDF coming soon")} /><ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} /><Link to={`/maintenance/bills/${r.id}`} className="btn-secondary btn-sm">Edit</Link></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -71,6 +79,14 @@ export default function MaintenanceBillList() {
           </div>
         </div>
       </div>
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
     </div>
   );
 }

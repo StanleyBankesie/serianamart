@@ -191,7 +191,7 @@ export default function MaterialRequisitionForm() {
         );
         const initQueries = {};
         (details.length ? details : [{ id: 1 }]).forEach((d) => {
-          initQueries[d.id || 1] = "";
+          initQueries[d.id || 1] = d.item_name || "";
         });
         setItemQueries(initQueries);
       })
@@ -365,7 +365,7 @@ export default function MaterialRequisitionForm() {
           : i,
       ),
     );
-    setItemQueries((prev) => ({ ...prev, [rowId]: "" }));
+    setItemQueries((prev) => ({ ...prev, [rowId]: item.item_name || "" }));
   };
 
   const removeItem = (id) => {

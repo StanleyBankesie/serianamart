@@ -5,25 +5,38 @@ import * as XLSX from "xlsx";
 import { autosizeWorksheetColumns } from "../../../utils/xlsxUtils";
 import { api } from "../../../api/client.js";
 import { Download } from "lucide-react";
+import { useAuth } from "../../../auth/AuthContext.jsx";
 
 export default function StockUploadPage() {
+  const { scope } = useAuth();
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
+  const [branches, setBranches] = useState([]);
   const [warehouseId, setWarehouseId] = useState("");
+  const [branchId, setBranchId] = useState("");
   const [loading, setLoading] = useState(false);
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (scope?.branchId && !branchId) {
+      setBranchId(String(scope.branchId));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope?.branchId]);
 
   useEffect(() => {
     let mounted = true;
     async function load() {
       try {
-        const [itRes, whRes] = await Promise.all([
+        const [itRes, whRes, brRes] = await Promise.all([
           api.get("/inventory/items"),
           api.get("/inventory/warehouses"),
+          api.get("/admin/branches")
         ]);
         if (!mounted) return;
         setItems(Array.isArray(itRes.data?.items) ? itRes.data.items : []);
         setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
+        setBranches(Array.isArray(brRes.data?.items) ? brRes.data.items : []);
       } catch (e) {
         toast.error(e?.response?.data?.message || "Failed to load data");
       }
@@ -77,10 +90,16 @@ export default function StockUploadPage() {
         toast.error("No valid rows found in the Excel file");
         return;
       }
-      const resp = await api.post("/inventory/stock-balances/bulk-upload", {
-        rows: normalized,
-        warehouseId: warehouseId || null,
-      });
+      const resp = await api.post(
+        "/inventory/stock-balances/bulk-upload",
+        {
+          rows: normalized,
+          warehouseId: warehouseId || null,
+        },
+        {
+          headers: branchId ? { "x-branch-id": String(branchId) } : {},
+        }
+      );
       const updated = Number(resp?.data?.updated || 0);
       const failed = Number(resp?.data?.failed || 0);
       toast.success(
@@ -115,7 +134,25 @@ export default function StockUploadPage() {
 
       <div className="card">
         <div className="card-body space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="label">Branch</label>
+              <select
+                className="input"
+                value={branchId}
+                onChange={(e) => {
+                  setBranchId(e.target.value);
+                  setWarehouseId("");
+                }}
+              >
+                <option value="">Select Branch</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.branch_name || b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="label">Warehouse</label>
               <select
@@ -124,11 +161,13 @@ export default function StockUploadPage() {
                 onChange={(e) => setWarehouseId(e.target.value)}
               >
                 <option value="">None / Branch-level</option>
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.warehouse_name || w.warehouse_code}
-                  </option>
-                ))}
+                {warehouses
+                  .filter((w) => !branchId || String(w.branch_id) === String(branchId))
+                  .map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.warehouse_name || w.warehouse_code}
+                    </option>
+                  ))}
               </select>
             </div>
             <div className="flex items-end">

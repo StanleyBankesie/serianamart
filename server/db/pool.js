@@ -348,13 +348,37 @@ function wrapConnection(connection) {
   return new Proxy(connection, {
     get(target, prop, receiver) {
       if (prop === "query") {
-        return (sql, params) =>
-          withQueryTimeout(() => target.query(sql, params), sql);
+        return (sql, params) => {
+          let cleanParams = params;
+          if (params) {
+            if (Array.isArray(params)) {
+              cleanParams = params.map(v => v === undefined ? null : v);
+            } else if (typeof params === 'object') {
+              cleanParams = {};
+              for (const key in params) {
+                cleanParams[key] = params[key] === undefined ? null : params[key];
+              }
+            }
+          }
+          return withQueryTimeout(() => target.query(sql, cleanParams), sql);
+        };
       }
 
       if (prop === "execute") {
-        return (sql, params) =>
-          withQueryTimeout(() => target.execute(sql, params), sql);
+        return (sql, params) => {
+          let cleanParams = params;
+          if (params) {
+            if (Array.isArray(params)) {
+              cleanParams = params.map(v => v === undefined ? null : v);
+            } else if (typeof params === 'object') {
+              cleanParams = {};
+              for (const key in params) {
+                cleanParams[key] = params[key] === undefined ? null : params[key];
+              }
+            }
+          }
+          return withQueryTimeout(() => target.execute(sql, cleanParams), sql);
+        };
       }
 
       if (prop === "release" || prop === "destroy") {
@@ -421,6 +445,18 @@ export const pool = new Proxy(
 );
 
 export async function query(sql, params = {}) {
+  if (params) {
+    if (Array.isArray(params)) {
+      params = params.map(v => v === undefined ? null : v);
+    } else if (typeof params === 'object') {
+      const newParams = {};
+      for (const key in params) {
+        newParams[key] = params[key] === undefined ? null : params[key];
+      }
+      params = newParams;
+    }
+  }
+
   const isMetadata = /^\s*(SHOW|ALTER|CREATE|DROP|DESCRIBE)\s/i.test(sql);
 
   try {

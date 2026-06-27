@@ -1,5 +1,6 @@
 import { httpError } from "../utils/httpError.js";
 import { verifyAccessToken } from "../services/token.service.js";
+import { query } from "../db/pool.js";
 import "../utils/loadServerEnv.js";
 
 function allowDevBypass() {
@@ -61,6 +62,13 @@ export function requireCompanyScope(req, res, next) {
     return next(httpError(401, "UNAUTHORIZED", "Authentication required"));
   }
 
+  if (Number(req.user.id) === 1) {
+    const companyId = Number(req.headers["x-company-id"] || req.query.companyId || 1);
+    req.scope = req.scope || {};
+    req.scope.companyId = companyId;
+    return next();
+  }
+
   const companyId = Number(
     req.headers["x-company-id"] ||
       req.query.companyId ||
@@ -81,24 +89,59 @@ export function requireCompanyScope(req, res, next) {
   return next();
 }
 
-export function requireBranchScope(req, res, next) {
-  if (!req.user) {
-    return next(httpError(401, "UNAUTHORIZED", "Authentication required"));
-  }
+export async function requireBranchScope(req, res, next) {
+  try {
+    if (!req.user) {
+      return next(httpError(401, "UNAUTHORIZED", "Authentication required"));
+    }
 
-  const branchId = Number(
-    req.headers["x-branch-id"] ||
-      req.query.branchId ||
-      req.user?.branchIds?.[0] ||
-      1
-  );
-  req.scope = req.scope || {};
-  req.scope.branchId = branchId;
-  const allowedBranches = Array.isArray(req.user?.branchIds)
-    ? req.user.branchIds.map(Number)
-    : [];
-  if (allowedBranches.length && !allowedBranches.includes(Number(branchId))) {
-    return next(httpError(403, "FORBIDDEN", "Branch access denied"));
+    const rawBranchId = req.headers["x-branch-id"] || req.query.branchId;
+    req.scope = req.scope || {};
+
+    const branchId = Number(rawBranchId || req.user?.branchIds?.[0] || 1);
+    req.scope.branchId = branchId;
+    
+    // For admin, just use the branchId or empty string for all
+    if (Number(req.user.id) === 1) {
+      if (rawBranchId === "all") {
+        req.scope.branchId = "all";
+        req.scope.branchIdsStr = "";
+        return next();
+      }
+      req.scope.branchIdsStr = String(branchId);
+      
+      // Let's also support superbranch for admin dynamically!
+      const [b] = await query("SELECT is_superbranch FROM adm_branches WHERE id = :branchId", { branchId });
+      if (b?.is_superbranch) {
+         const childBranches = await query("SELECT id FROM adm_branches WHERE parent_branch_id = :branchId", { branchId });
+         const allRelated = [branchId, ...childBranches.map(x => x.id)];
+         req.scope.branchIdsStr = allRelated.join(",");
+      }
+      return next();
+    }
+
+    const allowedBranches = Array.isArray(req.user?.branchIds)
+      ? req.user.branchIds.map(Number)
+      : [];
+
+    if (allowedBranches.length && !allowedBranches.includes(Number(branchId))) {
+      return next(httpError(403, "FORBIDDEN", "Branch access denied"));
+    }
+
+    req.scope.branchIdsStr = String(branchId);
+
+    // Superbranch logic
+    const [b] = await query("SELECT is_superbranch FROM adm_branches WHERE id = :branchId", { branchId });
+    if (b?.is_superbranch) {
+       const childBranches = await query("SELECT id FROM adm_branches WHERE parent_branch_id = :branchId", { branchId });
+       const childIds = childBranches.map(x => Number(x.id));
+       // Intersection: user's allowed branches that are either the superbranch or its children
+       const validIds = [branchId, ...childIds].filter(id => allowedBranches.includes(id));
+       req.scope.branchIdsStr = validIds.join(",");
+    }
+
+    return next();
+  } catch (err) {
+    return next(err);
   }
-  return next();
 }

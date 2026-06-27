@@ -63,9 +63,6 @@ export default function TransferAcceptanceForm() {
         if (d.id === detailId) {
           const transferable = Number(d.remaining_qty ?? d.qty);
           const rejected = Math.max(0, transferable - received);
-          // variance = received + rejected - transferred (should be 0 if we follow the rule)
-          // However, user usually wants Variance to show if they are receiving LESS than transferred total
-          // But here, whatever is not received is rejected.
           return {
             ...d,
             received_qty: received,
@@ -103,23 +100,21 @@ export default function TransferAcceptanceForm() {
     );
   };
 
-  const acceptTransfer = async () => {
+  const confirmTransfer = async () => {
     setSaving(true);
     setError("");
 
     try {
-      // Send the accepted details with variance and remarks
       const payload = {
         details: details.map((d) => {
-          const remaining = Math.max(0, Number(d.remaining_qty || d.qty));
           const accepted = Math.max(0, Number(d.received_qty || 0));
           const rejected = Math.max(0, Number(d.rejected_now || 0));
-          
+
           return {
             id: d.id,
             item_id: d.item_id,
             qty: Number(d.qty),
-            received_qty: Number(d.qty), // "Transferred" value
+            received_qty: Number(d.qty),
             accepted_qty: accepted,
             rejected_qty: rejected,
             acceptance_remarks: d.remarks,
@@ -128,14 +123,29 @@ export default function TransferAcceptanceForm() {
       };
 
       await api.put(`/inventory/transfer-acceptance/${id}`, payload);
-      toast.success("Transfer accepted successfully!");
-      navigate("/inventory");
+      toast.success("Transfer confirmed successfully!");
+      navigate("/inventory/transfer-acceptance");
     } catch (e) {
-      setError(e?.response?.data?.message || "Failed to accept transfer");
+      setError(e?.response?.data?.message || "Failed to confirm transfer");
     } finally {
       setSaving(false);
     }
   };
+
+  const getStatusBadge = (status) => {
+    const map = {
+      DRAFT: "badge-info",
+      IN_TRANSIT: "badge-warning",
+      "IN TRANSIT": "badge-warning",
+      PARTIALLY_RECEIVED: "badge-warning",
+      TRANSFERRED: "badge-success",
+      RECEIVED: "badge-success",
+      CANCELLED: "badge-error",
+    };
+    return map[status] || "badge-info";
+  };
+
+  const isConfirmed = transfer?.status === "TRANSFERRED" || transfer?.status === "RECEIVED";
 
   return (
     <div className="space-y-6">
@@ -147,7 +157,7 @@ export default function TransferAcceptanceForm() {
                 Transfer Acceptance
               </h1>
               <p className="text-sm mt-1">
-                Review items and accept inbound transfer
+                Review items and confirm inbound transfer
               </p>
             </div>
             <Link to="/inventory/transfer-acceptance" className="btn-success">
@@ -193,13 +203,7 @@ export default function TransferAcceptanceForm() {
               <div>
                 <div className="text-xs text-slate-500">Status</div>
                 <div>
-                  <span
-                    className={`badge ${
-                      ["IN_TRANSIT", "IN TRANSIT"].includes(transfer.status)
-                        ? "badge-warning"
-                        : "badge-info"
-                    }`}
-                  >
+                  <span className={`badge ${getStatusBadge(transfer.status)}`}>
                     {transfer.status}
                   </span>
                 </div>
@@ -232,7 +236,7 @@ export default function TransferAcceptanceForm() {
                     {!details.length ? (
                       <tr>
                         <td
-                          colSpan="6"
+                          colSpan="8"
                           className="text-center py-6 text-slate-500 dark:text-slate-400"
                         >
                           No items
@@ -246,7 +250,7 @@ export default function TransferAcceptanceForm() {
                         </td>
                         <td>{d.item_name}</td>
                         <td>{d.qty}</td>
-                        <td>{Math.max(0, Number(d.rejected_now || 0))}</td>
+                        <td>{Number(d.remaining_qty ?? d.qty)}</td>
                         <td>
                           <input
                             type="number"
@@ -258,7 +262,7 @@ export default function TransferAcceptanceForm() {
                             min=""
                             step="1"
                             max={Number(d.remaining_qty ?? d.qty)}
-                            disabled={transfer?.status === "RECEIVED"}
+                            disabled={isConfirmed}
                           />
                         </td>
                         <td>
@@ -272,7 +276,7 @@ export default function TransferAcceptanceForm() {
                             min=""
                             step="1"
                             max={Number(d.remaining_qty ?? d.qty)}
-                            disabled={transfer?.status === "RECEIVED"}
+                            disabled={isConfirmed}
                           />
                         </td>
                         <td>
@@ -298,7 +302,7 @@ export default function TransferAcceptanceForm() {
                               handleRemarksChange(d.id, e.target.value)
                             }
                             placeholder="Variance reason..."
-                            disabled={transfer?.status === "RECEIVED"}
+                            disabled={isConfirmed}
                           />
                         </td>
                       </tr>
@@ -313,14 +317,20 @@ export default function TransferAcceptanceForm() {
             <Link to="/inventory/transfer-acceptance" className="btn-success">
               Close
             </Link>
-            <button
-              type="button"
-              className="btn-success"
-              onClick={acceptTransfer}
-              disabled={saving || !transfer || transfer.status === "RECEIVED"}
-            >
-              {saving ? "Accepting..." : "Accept Transfer"}
-            </button>
+            {!isConfirmed ? (
+              <button
+                type="button"
+                className="btn-success"
+                onClick={confirmTransfer}
+                disabled={saving || !transfer}
+              >
+                {saving ? "Confirming..." : "Confirm Transfer"}
+              </button>
+            ) : (
+              <span className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-700 bg-green-100 rounded-lg">
+                ✓ Transfer Confirmed
+              </span>
+            )}
           </div>
         </div>
       </div>

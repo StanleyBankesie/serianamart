@@ -123,7 +123,7 @@ export default function BankReconciliationList() {
         <div className="flex gap-2">
           <Link
             to="/finance"
-            className="btn btn-sm btn-outline text-white border-white hover:bg-white/20"
+            className="font-sans btn btn-sm btn-outline text-white border-white hover:bg-white/20"
           >
             Return to Menu
           </Link>

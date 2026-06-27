@@ -1,10 +1,11 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
 import { api } from "api/client";
 
 const TEMPLATE_HEADERS = [
+  "branch_id",
   "voucher_id",
   "voucher_type_code",
   "voucher_date",
@@ -24,19 +25,31 @@ export default function VoucherImportPage() {
   const [preview, setPreview] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
+  const [branches, setBranches] = useState([]);
+  const [selectedBranch, setSelectedBranch] = useState("");
+
+  useEffect(() => {
+    api.get("/admin/branches").then((r) => {
+      const items = r.data?.items || [];
+      setBranches(items);
+      if (items.length === 1) setSelectedBranch(String(items[0].id));
+    }).catch(() => {});
+  }, []);
 
   const downloadTemplate = () => {
+    const bId = selectedBranch || "";
     const rows = [
       TEMPLATE_HEADERS,
-      ["VOUCH-001", "Journal Entry", "2026-01-15", "US Dollar", "1", "Sales Revenue", "January sales", "5000", "", "", ""],
-      ["", "", "", "", "", "Cash in Hand", "January sales", "", "5000", "", ""],
-      ["VOUCH-002", "Payment Voucher", "2026-01-16", "Ghana Cedis", "1", "Rent Expense", "Office rent Q1", "2000", "", "CHQ-00123", "2026-01-16"],
-      ["", "", "", "", "", "Bank Account", "Office rent Q1", "", "2000", "", ""],
-      ["VOUCH-003", "Receipt Voucher", "2026-01-17", "", "1", "Bank Account", "Customer payment", "3500", "", "", ""],
-      ["", "", "", "", "", "Accounts Receivable", "Customer payment", "", "3500", "", ""],
+      [bId, "VOUCH-001", "Journal Entry", "2026-01-15", "US Dollar", "1", "Sales Revenue", "January sales", "5000", "", "", ""],
+      ["", "", "", "", "", "", "Cash in Hand", "January sales", "", "5000", "", ""],
+      [bId, "VOUCH-002", "Payment Voucher", "2026-01-16", "Ghana Cedis", "1", "Rent Expense", "Office rent Q1", "2000", "", "CHQ-00123", "2026-01-16"],
+      ["", "", "", "", "", "", "Bank Account", "Office rent Q1", "", "2000", "", ""],
+      [bId, "VOUCH-003", "Receipt Voucher", "2026-01-17", "", "1", "Bank Account", "Customer payment", "3500", "", "", ""],
+      ["", "", "", "", "", "", "Accounts Receivable", "Customer payment", "", "3500", "", ""],
     ];
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!cols"] = [
+      { wch: 10 },
       { wch: 15 }, { wch: 20 }, { wch: 12 }, { wch: 15 },
       { wch: 12 }, { wch: 25 }, { wch: 25 }, { wch: 12 }, { wch: 12 },
       { wch: 18 }, { wch: 12 },
@@ -72,6 +85,11 @@ export default function VoucherImportPage() {
     e.target.value = "";
   };
 
+  const branchName = (id) => {
+    const b = branches.find((x) => String(x.id) === String(id));
+    return b ? b.name : id || "-";
+  };
+
   const groupRows = (rawRows) => {
     const vouchers = [];
     let current = null;
@@ -84,7 +102,9 @@ export default function VoucherImportPage() {
 
       // If voucher_type_code is present, start a new voucher header
       if (vtc) {
+        const rawBid = row.branch_id !== undefined ? row.branch_id : row.branchId;
         current = {
+          branch_id: rawBid ? Number(rawBid) : null,
           voucher_id: voucherId || null,
           voucher_type_code: vtc.toUpperCase(),
           voucher_date: vDate || new Date().toISOString().slice(0, 10),
@@ -117,6 +137,7 @@ export default function VoucherImportPage() {
     try {
       const res = await api.post("/finance/vouchers/bulk-import", {
         vouchers: parsedRows,
+        defaultBranchId: selectedBranch ? Number(selectedBranch) : undefined,
       });
       setResult(res.data);
       const msg = `Created: ${res.data.created}, Failed: ${res.data.failed}`;
@@ -143,7 +164,7 @@ export default function VoucherImportPage() {
                 Download a template, fill in your data, and upload to bulk import vouchers
               </p>
             </div>
-            <Link to="/finance" className="btn btn-secondary">
+            <Link to="/finance" className="font-sans btn btn-secondary">
               Return to Menu
             </Link>
           </div>
@@ -161,8 +182,24 @@ export default function VoucherImportPage() {
             </ol>
           </div>
 
-          {/* Template download */}
-          <div className="flex items-center gap-4">
+          {/* Branch selector */}
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Branch:
+              <select
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+                className="ml-2 rounded border px-3 py-2 text-sm"
+              >
+                <option value="">-- Select Branch --</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={String(b.id)}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <button
               type="button"
               onClick={downloadTemplate}
@@ -221,6 +258,7 @@ export default function VoucherImportPage() {
                   <thead className="sticky top-0 bg-gray-100 z-10">
                     <tr>
                       <th>#</th>
+                      <th>Branch</th>
                       <th>Voucher ID</th>
                       <th>Voucher Type</th>
                       <th>Date</th>
@@ -242,6 +280,7 @@ export default function VoucherImportPage() {
                             className={li === 0 ? "border-t-2 border-gray-300" : ""}
                           >
                             <td className="font-medium">{li === 0 ? vi + 1 : ""}</td>
+                            <td>{li === 0 ? branchName(v.branch_id) : ""}</td>
                             <td>{li === 0 ? v.voucher_id || "-" : ""}</td>
                             <td className="font-medium">
                               {li === 0 ? (
@@ -279,6 +318,7 @@ export default function VoucherImportPage() {
                       ) : (
                         <tr key={`${vi}-0`} className="border-t-2 border-gray-300">
                           <td>{vi + 1}</td>
+                          <td>{branchName(v.branch_id)}</td>
                           <td>{v.voucher_id || "-"}</td>
                           <td className="font-medium">
                             <span className="badge badge-info">{v.voucher_type_code}</span>

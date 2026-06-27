@@ -279,7 +279,7 @@ export default function AccountsPage() {
               <p className="text-sm mt-1">Create and manage ledger accounts</p>
             </div>
             <div className="flex gap-2 items-center">
-              <Link to="/finance" className="btn btn-secondary">
+              <Link to="/finance" className="font-sans btn btn-secondary">
                 Return to Menu
               </Link>
               <input

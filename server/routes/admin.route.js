@@ -1818,9 +1818,9 @@ router.get(
 
 router.get("/departments/:id", requireAuth, getDepartmentById);
 
-router.post("/departments", requireAuth, createDepartment);
+router.post("/departments", requireAuth, requireCompanyScope, createDepartment);
 
-router.put("/departments/:id", requireAuth, updateDepartment);
+router.put("/departments/:id", requireAuth, requireCompanyScope, updateDepartment);
 
 // ===== PAGES =====
 
@@ -2165,7 +2165,7 @@ router.get("/system-status", requireAuth, async (req, res, next) => {
 // ===== Activity Logging & Reports =====
 router.post("/activity/log", requireAuth, async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope || {};
+    const { companyId, branchId, branchIdsStr } = req.scope || {};
     const userId = Number(req.user?.id) || Number(req.user?.sub) || null;
     const { module_name, action, ref_no, message, url_path, event_time } =
       req.body || {};
@@ -2181,7 +2181,7 @@ router.post("/activity/log", requireAuth, async (req, res, next) => {
       `,
       {
         company_id: Number(companyId) || null,
-        branch_id: Number(branchId) || null,
+        branch_id: Number(branchId, branchIdsStr) || null,
         user_id: userId || null,
         module_name: module_name || null,
         action: action || "VIEW",
@@ -2571,7 +2571,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureSystemSettingsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT setting_key, setting_value,
@@ -2580,11 +2580,11 @@ router.get(
          FROM adm_system_settings
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE (company_id = :companyId OR company_id IS NULL)
-          AND (branch_id = :branchId OR branch_id IS NULL)
+          AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
           AND setting_key IN ('CLOUDINARY_CLOUD_NAME','CLOUDINARY_API_KEY','CLOUDINARY_API_SECRET','CLOUDINARY_UPLOAD_FOLDER')
         ORDER BY company_id DESC, branch_id DESC
         `,
-        { companyId: companyId ?? null, branchId: branchId ?? null },
+        { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr },
       );
       const map = {};
       for (const r of rows) map[r.setting_key] = r.setting_value;
@@ -2609,7 +2609,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureSystemSettingsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
       const cloud_name = String(body.cloud_name || "").trim();
       const api_key = String(body.api_key || "").trim();
@@ -2631,7 +2631,7 @@ router.post(
         `,
         {
           companyId: companyId ?? null,
-          branchId: branchId ?? null,
+          branchId: branchId ?? null, branchIdsStr,
           cloud_name,
           api_key,
           api_secret,
@@ -2643,7 +2643,7 @@ router.post(
         VALUES (:companyId, :branchId, 'CLOUDINARY_UPLOAD_FOLDER', :folder)
         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
         `,
-        { companyId: companyId ?? null, branchId: branchId ?? null, folder },
+        { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr, folder },
       );
       res.json({ success: true });
     } catch (err) {

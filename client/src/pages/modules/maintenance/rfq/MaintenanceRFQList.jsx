@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { Eye } from "lucide-react";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 import { Guard } from "../../../../hooks/usePermissions";
 
 const statusColors = { DRAFT:"bg-slate-100 text-slate-600", SENT:"bg-blue-100 text-blue-700", RESPONDED:"bg-green-100 text-green-700", CLOSED:"bg-slate-200 text-slate-700" };
@@ -11,10 +14,13 @@ function Badge({ value, colorMap }) {
 }
 
 export default function MaintenanceRFQList() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -58,12 +64,14 @@ export default function MaintenanceRFQList() {
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Suppliers Invited</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Deadline</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {loading && <tr><td colSpan="7" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="7" className="px-4 py-8 text-center text-slate-500">No RFQs found</td></tr>}
+                {loading && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
+                {!loading && !filtered.length && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">No RFQs found</td></tr>}
                 {!loading && filtered.map(r => (
                   <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="px-4 py-3 font-mono text-sm">{r.rfq_no}</td>
@@ -72,9 +80,17 @@ export default function MaintenanceRFQList() {
                     <td className="px-4 py-3 text-sm">{r.supplier_names}</td>
                     <td className="px-4 py-3 text-sm">{r.response_deadline}</td>
                     <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
-                    <td className="px-4 py-3 text-sm whitespace-nowrap space-x-2">
-                      <Link to={`/maintenance/rfq/${r.id}`} className="text-brand hover:underline mr-3">Edit</Link>
-                      <Link to={`/maintenance/supplier-quotations/new?rfq_id=${r.id}&rfq_no=${r.rfq_no}`} className="text-emerald-600 hover:underline">Record Quotation</Link>
+                    <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
+                    <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/rfq/${r.id}?mode=view`)}><Eye size={15} /></button>
+                        <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
+                        <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
+                        <ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} />
+                        <Link to={`/maintenance/rfq/${r.id}`} className="text-brand hover:underline mr-3">Edit</Link>
+                        <Link to={`/maintenance/supplier-quotations/new?rfq_id=${r.id}&rfq_no=${r.rfq_no}`} className="text-emerald-600 hover:underline">Record Quotation</Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -83,6 +99,14 @@ export default function MaintenanceRFQList() {
           </div>
         </div>
       </div>
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
     </Guard>
   );
 }

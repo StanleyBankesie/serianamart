@@ -1,17 +1,23 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 
+const TABS = [
+  { key: "general", label: "General" },
+  { key: "notifications", label: "Notifications" },
+  { key: "templates", label: "Templates" },
+  { key: "departments", label: "Departments" },
+];
+
 export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState("general");
   const [pushEnabled, setPushEnabled] = useState(() => {
     try {
       const raw = localStorage.getItem("push_enabled");
       if (raw === null) return true;
       return String(raw) === "1";
-    } catch {
-      return true;
-    }
+    } catch { return true; }
   });
   const [permissionStatus, setPermissionStatus] = useState(() => {
     try {
@@ -21,31 +27,7 @@ export default function SettingsPage() {
     } catch {}
     return "default";
   });
-  const [companyInfo, setCompanyInfo] = useState({
-    name: "",
-    address: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    country: "",
-    phone: "",
-    email: "",
-    website: "",
-    taxId: "",
-    registrationNo: "",
-    logoUrl: "",
-    logoVersion: 0,
-  });
-  const [companyLogoDataUrl, setCompanyLogoDataUrl] = useState("");
-  const [companyLogoObjectUrl, setCompanyLogoObjectUrl] = useState("");
-  const logoObjectUrlRef = useRef(null);
-  const [cloud, setCloud] = useState({
-    cloud_name: "",
-    api_key: "",
-    api_secret: "",
-    folder: "",
-    has_secret: false,
-  });
+  const [cloud, setCloud] = useState({ cloud_name: "", api_key: "", api_secret: "", folder: "", has_secret: false });
   const [cloudLoading, setCloudLoading] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
   const [emailTestTo, setEmailTestTo] = useState("");
@@ -53,7 +35,6 @@ export default function SettingsPage() {
   const [loginBackgroundUrl, setLoginBackgroundUrl] = useState("");
   const [loginBackgroundVersion, setLoginBackgroundVersion] = useState("");
   const [loginBackgroundSaving, setLoginBackgroundSaving] = useState(false);
-  
   const [inactivityTimeout, setInactivityTimeout] = useState(() => {
     try {
       if (typeof localStorage !== "undefined") {
@@ -64,28 +45,15 @@ export default function SettingsPage() {
     return "60";
   });
 
-  function setLogoObjectUrl(nextUrl) {
-    try {
-      const prev = logoObjectUrlRef.current;
-      if (prev && prev !== nextUrl) URL.revokeObjectURL(prev);
-    } catch {}
-    logoObjectUrlRef.current = nextUrl || null;
-    setCompanyLogoObjectUrl(String(nextUrl || ""));
-  }
-
   useEffect(() => {
     try {
       if (typeof window !== "undefined" && "Notification" in window) {
-        setPermissionStatus(
-          String(window.Notification.permission || "default"),
-        );
+        setPermissionStatus(String(window.Notification.permission || "default"));
       }
     } catch {}
   }, []);
   useEffect(() => {
-    try {
-      localStorage.setItem("push_enabled", pushEnabled ? "1" : "0");
-    } catch {}
+    try { localStorage.setItem("push_enabled", pushEnabled ? "1" : "0"); } catch {}
   }, [pushEnabled]);
   useEffect(() => {
     let mounted = true;
@@ -95,61 +63,37 @@ export default function SettingsPage() {
         const res = await api.get("/admin/settings/cloudinary");
         const d = res?.data?.data || {};
         if (!mounted) return;
-        setCloud((p) => ({
-          ...p,
-          cloud_name: d.cloud_name || "",
-          api_key: d.api_key || "",
-          folder: d.folder || "",
-          has_secret: !!d.has_secret,
-        }));
-      } catch {
-      } finally {
-        if (mounted) setCloudLoading(false);
-      }
+        setCloud(p => ({ ...p, cloud_name: d.cloud_name || "", api_key: d.api_key || "", folder: d.folder || "", has_secret: !!d.has_secret }));
+      } catch {} finally { if (mounted) setCloudLoading(false); }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
+
   async function saveCloudinary() {
     try {
       setCloudSaving(true);
       await api.post("/admin/settings/cloudinary", {
-        cloud_name: cloud.cloud_name,
-        api_key: cloud.api_key,
-        api_secret: cloud.api_secret || undefined,
-        folder: cloud.folder || undefined,
+        cloud_name: cloud.cloud_name, api_key: cloud.api_key,
+        api_secret: cloud.api_secret || undefined, folder: cloud.folder || undefined,
       });
       toast.success("Cloudinary settings saved");
-      setCloud((p) => ({ ...p, has_secret: true, api_secret: "" }));
+      setCloud(p => ({ ...p, has_secret: true, api_secret: "" }));
     } catch (e) {
-      toast.error(
-        e?.response?.data?.message || e?.message || "Failed to save settings",
-      );
-    } finally {
-      setCloudSaving(false);
-    }
+      toast.error(e?.response?.data?.message || e?.message || "Failed to save settings");
+    } finally { setCloudSaving(false); }
   }
+
   async function sendTestEmail() {
     try {
       setEmailTesting(true);
-      const res = await api.post("/admin/email/test", {
-        to: emailTestTo || undefined,
-      });
+      const res = await api.post("/admin/email/test", { to: emailTestTo || undefined });
       const configured = !!res?.data?.configured;
       const sent = !!res?.data?.sent;
-      if (!configured) {
-        toast.error("Mailer not configured");
-      } else if (sent) {
-        toast.success("Test email sent");
-      } else {
-        toast.error("Mailer configured but send failed");
-      }
-    } catch (e) {
-      toast.error("Failed to send test email");
-    } finally {
-      setEmailTesting(false);
-    }
+      if (!configured) toast.error("Mailer not configured");
+      else if (sent) toast.success("Test email sent");
+      else toast.error("Mailer configured but send failed");
+    } catch { toast.error("Failed to send test email"); }
+    finally { setEmailTesting(false); }
   }
 
   async function loadLoginBackgroundMeta() {
@@ -158,22 +102,14 @@ export default function SettingsPage() {
       const hasBackground = !!res?.data?.hasBackground;
       const version = res?.data?.updatedAt || Date.now();
       setLoginBackgroundVersion(String(version || ""));
-      setLoginBackgroundUrl(
-        hasBackground
-          ? `/api/admin/settings/login-background?v=${encodeURIComponent(
-              String(version),
-            )}`
-          : "",
-      );
+      setLoginBackgroundUrl(hasBackground ? `/api/admin/settings/login-background?v=${encodeURIComponent(String(version))}` : "");
     } catch {
       setLoginBackgroundUrl("");
       setLoginBackgroundVersion("");
     }
   }
 
-  useEffect(() => {
-    loadLoginBackgroundMeta();
-  }, []);
+  useEffect(() => { loadLoginBackgroundMeta(); }, []);
 
   async function uploadLoginBackground(file) {
     if (!file) return;
@@ -186,19 +122,17 @@ export default function SettingsPage() {
           const url = URL.createObjectURL(file);
           img.onload = () => {
             URL.revokeObjectURL(url);
-            let w = img.naturalWidth;
-            let h = img.naturalHeight;
+            let w = img.naturalWidth, h = img.naturalHeight;
             const maxDim = 1920;
             if (w > maxDim || h > maxDim) {
               if (w > h) { h = (h / w) * maxDim; w = maxDim; }
               else { w = (w / h) * maxDim; h = maxDim; }
             }
             const c = document.createElement("canvas");
-            c.width = w;
-            c.height = h;
+            c.width = w; c.height = h;
             const ctx = c.getContext("2d");
             ctx.drawImage(img, 0, 0, w, h);
-            c.toBlob((blob) => resolve(blob), "image/jpeg", 0.8);
+            c.toBlob(blob => resolve(blob), "image/jpeg", 0.8);
           };
           img.src = url;
         });
@@ -206,20 +140,12 @@ export default function SettingsPage() {
       }
       const fd = new FormData();
       fd.append("background", uploadFile);
-      await api.post("/admin/settings/login-background", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      await api.post("/admin/settings/login-background", fd, { headers: { "Content-Type": "multipart/form-data" } });
       toast.success("Login background updated");
       await loadLoginBackgroundMeta();
     } catch (e) {
-      toast.error(
-        e?.response?.data?.message ||
-          e?.message ||
-          "Failed to update login background",
-      );
-    } finally {
-      setLoginBackgroundSaving(false);
-    }
+      toast.error(e?.response?.data?.message || e?.message || "Failed to update login background");
+    } finally { setLoginBackgroundSaving(false); }
   }
 
   async function clearLoginBackground() {
@@ -230,199 +156,60 @@ export default function SettingsPage() {
       setLoginBackgroundVersion("");
       toast.success("Login background reset");
     } catch (e) {
-      toast.error(
-        e?.response?.data?.message ||
-          e?.message ||
-          "Failed to reset login background",
-      );
-    } finally {
-      setLoginBackgroundSaving(false);
-    }
+      toast.error(e?.response?.data?.message || e?.message || "Failed to reset login background");
+    } finally { setLoginBackgroundSaving(false); }
   }
+
   async function requestPushPermission() {
     try {
       if (typeof window === "undefined" || !("Notification" in window)) return;
       const res = await window.Notification.requestPermission();
       setPermissionStatus(String(res || "default"));
-      toast[res === "granted" ? "success" : "info"](
-        res === "granted"
-          ? "Notifications enabled"
-          : "Notifications permission denied or dismissed",
-      );
+      toast[res === "granted" ? "success" : "info"](res === "granted" ? "Notifications enabled" : "Notifications permission denied or dismissed");
     } catch {}
   }
+
   async function subscribePushNow() {
     try {
       if (typeof window === "undefined") return;
-      if (!("serviceWorker" in navigator)) return;
-      if (!("PushManager" in window)) return;
-      if (!("Notification" in window)) return;
-      if (window.Notification.permission !== "granted") {
-        toast.info("Grant notification permission first");
-        return;
-      }
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
+      if (window.Notification.permission !== "granted") { toast.info("Grant notification permission first"); return; }
       const reg = await navigator.serviceWorker.ready;
       const res = await api.get("/push/public-key");
       const publicKey = String(res.data?.publicKey || "");
-      if (!publicKey) {
-        toast.error("Missing VAPID public key");
-        return;
-      }
+      if (!publicKey) { toast.error("Missing VAPID public key"); return; }
       function urlBase64ToUint8Array(base64String) {
         const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-        const base64 = (base64String + padding)
-          .replace(/-/g, "+")
-          .replace(/_/g, "/");
+        const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
         const rawData = window.atob(base64);
         const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) {
-          outputArray[i] = rawData.charCodeAt(i);
-        }
+        for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
         return outputArray;
       }
       const applicationServerKey = urlBase64ToUint8Array(publicKey);
       const existing = await reg.pushManager.getSubscription();
       if (existing && existing.endpoint) {
         await api.post("/push/subscribe", { subscription: existing.toJSON() });
-        toast.success("Push subscription saved");
-        return;
+        toast.success("Push subscription saved"); return;
       }
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey,
-      });
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
       await api.post("/push/subscribe", { subscription: sub.toJSON() });
       toast.success("Subscribed to push notifications");
-    } catch {
-      toast.error("Failed to subscribe");
-    }
+    } catch { toast.error("Failed to subscribe"); }
   }
+
   async function unsubscribePushNow() {
     try {
-      if (typeof window === "undefined" || !("serviceWorker" in navigator))
-        return;
+      if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
       const reg = await navigator.serviceWorker.ready;
       const existing = await reg.pushManager.getSubscription();
       if (existing && existing.endpoint) {
-        try {
-          await api.delete("/push/unsubscribe", {
-            data: { subscription: existing.toJSON() },
-          });
-        } catch {}
-        try {
-          await existing.unsubscribe();
-        } catch {}
+        try { await api.delete("/push/unsubscribe", { data: { subscription: existing.toJSON() } }); } catch {}
+        try { await existing.unsubscribe(); } catch {}
         toast.success("Unsubscribed");
-      } else {
-        toast.info("No active subscription");
-      }
-    } catch {
-      toast.error("Failed to unsubscribe");
-    }
+      } else toast.info("No active subscription");
+    } catch { toast.error("Failed to unsubscribe"); }
   }
-  useEffect(() => {
-    let mounted = true;
-    async function loadCompany() {
-      try {
-        const meResp = await api.get("/admin/me");
-        const companyId = meResp.data?.scope?.companyId;
-        if (!companyId) return;
-        const cResp = await api.get(`/admin/companies/${companyId}`);
-        const item = cResp.data?.item || {};
-        let logoUrl =
-          item.has_logo === 1 || item.has_logo === true
-            ? `/api/admin/companies/${companyId}/logo`
-            : "";
-        if (!mounted) return;
-        setCompanyInfo({
-          name: item.name || "",
-          address: item.address || "",
-          city: item.city || "",
-          state: item.state || "",
-          postalCode: item.postal_code || "",
-          country: item.country || "",
-          phone: item.telephone || "",
-          email: item.email || "",
-          website: item.website || "",
-          taxId: item.tax_id || "",
-          registrationNo: item.registration_no || "",
-          logoUrl,
-          logoVersion: Date.now(),
-        });
-      } catch {}
-    }
-    loadCompany();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    function onCompanyUpdated(e) {
-      const d = e?.detail || {};
-      setCompanyInfo((prev) => ({
-        ...prev,
-        ...d,
-        logoVersion: d.logoVersion || Date.now(),
-      }));
-      try {
-        if (d.logoDataUrl) {
-          setCompanyLogoDataUrl(String(d.logoDataUrl));
-        }
-        if (d.logoObjectUrl) {
-          setLogoObjectUrl(String(d.logoObjectUrl));
-        }
-      } catch {}
-    }
-    window.addEventListener("company_info_updated", onCompanyUpdated);
-    return () =>
-      window.removeEventListener("company_info_updated", onCompanyUpdated);
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    async function loadLogoDataUrl() {
-      try {
-        const baseUrl = String(companyInfo.logoUrl || "").trim();
-        if (!baseUrl) {
-          setCompanyLogoDataUrl("");
-          setLogoObjectUrl("");
-          return;
-        }
-        const v = companyInfo.logoVersion || Date.now();
-        const url = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}v=${encodeURIComponent(
-          String(v),
-        )}`;
-        const resp = await fetch(url, { credentials: "include" });
-        if (!resp.ok) {
-          setCompanyLogoDataUrl("");
-          setLogoObjectUrl("");
-          return;
-        }
-        const blob = await resp.blob();
-        if (!active) return;
-        const objUrl = URL.createObjectURL(blob);
-        setLogoObjectUrl(objUrl);
-        setCompanyLogoDataUrl("");
-      } catch {
-        setCompanyLogoDataUrl("");
-        setLogoObjectUrl("");
-      }
-    }
-    loadLogoDataUrl();
-    return () => {
-      active = false;
-    };
-  }, [companyInfo.logoUrl, companyInfo.logoVersion]);
-
-  useEffect(() => {
-    return () => {
-      try {
-        const prev = logoObjectUrlRef.current;
-        if (prev) URL.revokeObjectURL(prev);
-      } catch {}
-    };
-  }, []);
 
   return (
     <div className="space-y-4">
@@ -430,345 +217,163 @@ export default function SettingsPage() {
         <div className="card-header bg-brand text-white rounded-t-lg">
           <div className="flex justify-between items-center text-white">
             <div>
-              <h1 className="text-2xl font-bold dark:text-brand-300">
-                Administration Settings
-              </h1>
-              <p className="text-sm mt-1">Notifications and document setup</p>
+              <h1 className="text-2xl font-bold dark:text-brand-300">Administration Settings</h1>
+              <p className="text-sm mt-1">Notifications, branding, and document setup</p>
             </div>
-            <div className="flex gap-2">
-              <Link to="/administration" className="btn btn-secondary">
-                Return to Menu
-              </Link>
-            </div>
+            <Link to="/administration" className="btn btn-secondary">Return to Menu</Link>
           </div>
         </div>
       </div>
-      <div className="card">
-        <div className="card-body space-y-3">
-          <div className="flex justify-between items-start gap-4">
-            <div>
-              <div className="text-lg font-semibold">Login Background</div>
-              <div className="text-sm text-slate-500 dark:text-slate-400">
-                Change the image shown behind the login form.
-              </div>
-            </div>
-            {loginBackgroundUrl ? (
-              <div
-                className="w-40 h-24 rounded border border-slate-200 bg-cover bg-center"
-                style={{ backgroundImage: `url(${loginBackgroundUrl})` }}
-              />
-            ) : (
-              <div className="w-40 h-24 rounded border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-500">
-                Default image
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <label className="btn-primary cursor-pointer">
-              {loginBackgroundSaving ? "Saving..." : "Upload Background"}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={loginBackgroundSaving}
-                onChange={(e) => {
-                  const file = e.target.files?.[0] || null;
-                  e.target.value = "";
-                  uploadLoginBackground(file);
-                }}
-              />
-            </label>
-            <button
-              type="button"
-              className="btn-outline"
-              disabled={loginBackgroundSaving || !loginBackgroundUrl}
-              onClick={clearLoginBackground}
-            >
-              Reset to Default
-            </button>
-          </div>
-        </div>
+
+      <div className="flex border-b mb-4 overflow-x-auto">
+        {TABS.map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2 text-sm font-medium capitalize whitespace-nowrap ${activeTab === tab.key ? "border-b-2 border-brand text-brand" : "text-slate-500 hover:text-slate-700"}`}>
+            {tab.label}
+          </button>
+        ))}
       </div>
-      <div className="card">
-        <div className="card-body space-y-3">
-          <div className="flex justify-between items-start gap-4">
-            <div>
-              <div className="text-lg font-semibold">Security & Inactivity</div>
-              <div className="text-sm text-slate-500 dark:text-slate-400">
-                Set how many minutes until an inactive user is automatically logged out. Set to 0 to disable.
+
+      {activeTab === "general" && (
+        <div className="space-y-4">
+          <div className="card">
+            <div className="card-body space-y-3">
+              <div className="flex justify-between items-start gap-4">
+                <div>
+                  <div className="text-lg font-semibold">Login Background</div>
+                  <div className="text-sm text-slate-500">Change the image shown behind the login form.</div>
+                </div>
+                {loginBackgroundUrl ? (
+                  <div className="w-40 h-24 rounded border border-slate-200 bg-cover bg-center" style={{ backgroundImage: `url(${loginBackgroundUrl})` }} />
+                ) : (
+                  <div className="w-40 h-24 rounded border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-500">Default image</div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <label className="btn-primary cursor-pointer">
+                  {loginBackgroundSaving ? "Saving..." : "Upload Background"}
+                  <input type="file" accept="image/*" className="hidden" disabled={loginBackgroundSaving} onChange={e => { const file = e.target.files?.[0] || null; e.target.value = ""; uploadLoginBackground(file); }} />
+                </label>
+                <button type="button" className="btn-outline" disabled={loginBackgroundSaving || !loginBackgroundUrl} onClick={clearLoginBackground}>Reset to Default</button>
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <input
-              type="number"
-              min="0"
-              className="input w-32"
-              value={inactivityTimeout}
-              onChange={(e) => {
-                const val = e.target.value;
-                setInactivityTimeout(val);
-                try {
-                  if (typeof localStorage !== "undefined") {
-                    localStorage.setItem("omnisuite.inactivityTimeout", val);
-                  }
-                } catch {}
-              }}
-            />
-            <span className="text-sm text-slate-600">minutes</span>
-          </div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-body space-y-3">
-          <div className="flex justify-between items-center">
-            <div>
-              <div className="text-lg font-semibold">Push Notifications</div>
-              <div className="text-sm text-slate-500 dark:text-slate-400">
-                Permission: {permissionStatus}
+          <div className="card">
+            <div className="card-body space-y-3">
+              <div className="flex justify-between items-start gap-4">
+                <div>
+                  <div className="text-lg font-semibold">Security & Inactivity</div>
+                  <div className="text-sm text-slate-500">Set how many minutes until an inactive user is automatically logged out. Set to 0 to disable.</div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <input type="number" min="0" className="input w-32" value={inactivityTimeout}
+                  onChange={e => { const val = e.target.value; setInactivityTimeout(val); try { if (typeof localStorage !== "undefined") localStorage.setItem("omnisuite.inactivityTimeout", val); } catch {} }} />
+                <span className="text-sm text-slate-600">minutes</span>
               </div>
             </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <span className="text-sm">Enabled</span>
-              <input
-                type="checkbox"
-                className="toggle"
-                checked={pushEnabled}
-                onChange={(e) => setPushEnabled(e.target.checked)}
-              />
-            </label>
           </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={requestPushPermission}
-            >
-              Request Permission
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={subscribePushNow}
-              disabled={!pushEnabled}
-            >
-              Subscribe Now
-            </button>
-            <button
-              type="button"
-              className="btn-outline"
-              onClick={unsubscribePushNow}
-            >
-              Unsubscribe
-            </button>
-          </div>
-          <div className="text-xs text-slate-500">
-            When enabled, the app registers for push after login and delivers
-            background alerts.
-          </div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-body space-y-3">
-          <div className="text-lg font-semibold">Document Templates</div>
-          <div className="text-sm text-slate-500 dark:text-slate-400">
-            Manage print and PDF templates for Sales Order, Invoice, and more.
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <Link
-              to="/administration/settings/templates?type=general-template"
-              className="btn-outline"
-            >
-              Report Header
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=sales-order"
-              className="btn-outline"
-            >
-              Sales Order
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=invoice"
-              className="btn-outline"
-            >
-              Invoice
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=delivery-note"
-              className="btn-outline"
-            >
-              Delivery Note
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=payment-voucher"
-              className="btn-outline"
-            >
-              Payment Voucher
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=salary-slip"
-              className="btn-outline"
-            >
-              Salary Slip
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=receipt-voucher"
-              className="btn-outline"
-            >
-              Receipt Voucher
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=quotation"
-              className="btn-outline"
-            >
-              Quotation
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=purchase-order"
-              className="btn-outline"
-            >
-              Purchase Order
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=grn"
-              className="btn-outline"
-            >
-              GRN
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=purchase-bill"
-              className="btn-outline"
-            >
-              Purchase Bill
-            </Link>
-            <Link
-              to="/administration/settings/templates?type=direct-purchase"
-              className="btn-outline"
-            >
-              Direct Purchase
-            </Link>
-          </div>
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-body space-y-3">
-          <div className="text-lg font-semibold">Email</div>
-          <div className="text-sm text-slate-500 dark:text-slate-400">
-            Send a test email to verify SMTP settings.
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-slate-700">
-                Recipient
-              </label>
-              <input
-                className="input w-full"
-                value={emailTestTo}
-                onChange={(e) => setEmailTestTo(e.target.value)}
-                placeholder="user@example.com (optional)"
-              />
+          <div className="card">
+            <div className="card-body space-y-3">
+              <div className="text-lg font-semibold">Email</div>
+              <div className="text-sm text-slate-500">Send a test email to verify SMTP settings.</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-700">Recipient</label>
+                  <input className="input w-full" value={emailTestTo} onChange={e => setEmailTestTo(e.target.value)} placeholder="user@example.com (optional)" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className="btn-primary" onClick={sendTestEmail} disabled={emailTesting}>{emailTesting ? "Sending..." : "Send Test Email"}</button>
+              </div>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={sendTestEmail}
-              disabled={emailTesting}
-            >
-              {emailTesting ? "Sending..." : "Send Test Email"}
-            </button>
+          <div className="card">
+            <div className="card-body space-y-3">
+              <div className="text-lg font-semibold">Cloudinary Storage</div>
+              <div className="text-sm text-slate-500">Store attachments in Cloudinary; links are saved to document records.</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-700">Cloud Name</label>
+                  <input className="input w-full" value={cloud.cloud_name} onChange={e => setCloud(p => ({ ...p, cloud_name: e.target.value }))} disabled={cloudLoading || cloudSaving} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-700">API Key</label>
+                  <input className="input w-full" value={cloud.api_key} onChange={e => setCloud(p => ({ ...p, api_key: e.target.value }))} disabled={cloudLoading || cloudSaving} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-700">API Secret</label>
+                  <input type="password" placeholder={cloud.has_secret && !cloud.api_secret ? "•••••••• (unchanged)" : ""} className="input w-full" value={cloud.api_secret} onChange={e => setCloud(p => ({ ...p, api_secret: e.target.value }))} disabled={cloudLoading || cloudSaving} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-700">Folder (optional)</label>
+                  <input className="input w-full" value={cloud.folder} onChange={e => setCloud(p => ({ ...p, folder: e.target.value }))} disabled={cloudLoading || cloudSaving} />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className="btn-primary" onClick={saveCloudinary} disabled={cloudSaving}>{cloudSaving ? "Saving..." : "Save Cloudinary Settings"}</button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-      <div className="card">
-        <div className="card-body space-y-3">
-          <div className="text-lg font-semibold">Low Stock Notifications</div>
-          <div className="text-sm text-slate-500 dark:text-slate-400">
-            Configure how users receive low stock alerts
-          </div>
-          <LowStockNotificationSection />
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-body space-y-3">
-          <div className="text-lg font-semibold">Cloudinary Storage</div>
-          <div className="text-sm text-slate-500 dark:text-slate-400">
-            Store attachments in Cloudinary; links are saved to document
-            records.
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-slate-700">
-                Cloud Name
-              </label>
-              <input
-                className="input w-full"
-                value={cloud.cloud_name}
-                onChange={(e) =>
-                  setCloud((p) => ({ ...p, cloud_name: e.target.value }))
-                }
-                disabled={cloudLoading || cloudSaving}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-700">
-                API Key
-              </label>
-              <input
-                className="input w-full"
-                value={cloud.api_key}
-                onChange={(e) =>
-                  setCloud((p) => ({ ...p, api_key: e.target.value }))
-                }
-                disabled={cloudLoading || cloudSaving}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-700">
-                API Secret
-              </label>
-              <input
-                type="password"
-                placeholder={
-                  cloud.has_secret && !cloud.api_secret
-                    ? "•••••••• (unchanged)"
-                    : ""
-                }
-                className="input w-full"
-                value={cloud.api_secret}
-                onChange={(e) =>
-                  setCloud((p) => ({ ...p, api_secret: e.target.value }))
-                }
-                disabled={cloudLoading || cloudSaving}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-700">
-                Folder (optional)
-              </label>
-              <input
-                className="input w-full"
-                value={cloud.folder}
-                onChange={(e) =>
-                  setCloud((p) => ({ ...p, folder: e.target.value }))
-                }
-                disabled={cloudLoading || cloudSaving}
-              />
+      )}
+
+      {activeTab === "notifications" && (
+        <div className="space-y-4">
+          <div className="card">
+            <div className="card-body space-y-3">
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-lg font-semibold">Push Notifications</div>
+                  <div className="text-sm text-slate-500">Permission: {permissionStatus}</div>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <span className="text-sm">Enabled</span>
+                  <input type="checkbox" className="toggle" checked={pushEnabled} onChange={e => setPushEnabled(e.target.checked)} />
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className="btn-secondary" onClick={requestPushPermission}>Request Permission</button>
+                <button type="button" className="btn-primary" onClick={subscribePushNow} disabled={!pushEnabled}>Subscribe Now</button>
+                <button type="button" className="btn-outline" onClick={unsubscribePushNow}>Unsubscribe</button>
+              </div>
+              <div className="text-xs text-slate-500">When enabled, the app registers for push after login and delivers background alerts.</div>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={saveCloudinary}
-              disabled={cloudSaving}
-            >
-              {cloudSaving ? "Saving..." : "Save Cloudinary Settings"}
-            </button>
+          <div className="card">
+            <div className="card-body space-y-3">
+              <div className="text-lg font-semibold">Low Stock Notifications</div>
+              <div className="text-sm text-slate-500">Configure how users receive low stock alerts</div>
+              <LowStockNotificationSection />
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {activeTab === "templates" && (
+        <div className="card">
+          <div className="card-body space-y-3">
+            <div className="text-lg font-semibold">Document Templates</div>
+            <div className="text-sm text-slate-500">Manage print and PDF templates for Sales Order, Invoice, and more.</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <Link to="/administration/settings/templates?type=general-template" className="btn-outline">Report Header</Link>
+              <Link to="/administration/settings/templates?type=sales-order" className="btn-outline">Sales Order</Link>
+              <Link to="/administration/settings/templates?type=invoice" className="btn-outline">Invoice</Link>
+              <Link to="/administration/settings/templates?type=delivery-note" className="btn-outline">Delivery Note</Link>
+              <Link to="/administration/settings/templates?type=payment-voucher" className="btn-outline">Payment Voucher</Link>
+              <Link to="/administration/settings/templates?type=salary-slip" className="btn-outline">Salary Slip</Link>
+              <Link to="/administration/settings/templates?type=receipt-voucher" className="btn-outline">Receipt Voucher</Link>
+              <Link to="/administration/settings/templates?type=quotation" className="btn-outline">Quotation</Link>
+              <Link to="/administration/settings/templates?type=purchase-order" className="btn-outline">Purchase Order</Link>
+              <Link to="/administration/settings/templates?type=grn" className="btn-outline">GRN</Link>
+              <Link to="/administration/settings/templates?type=purchase-bill" className="btn-outline">Purchase Bill</Link>
+              <Link to="/administration/settings/templates?type=direct-purchase" className="btn-outline">Direct Purchase</Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "departments" && <DepartmentsSection />}
     </div>
   );
 }
@@ -801,12 +406,8 @@ function LowStockNotificationSection() {
         const item = res?.data?.item || null;
         setPushEnabled(Boolean(item?.push_enabled));
         setEmailEnabled(Boolean(item?.email_enabled));
-      } catch {
-        setPushEnabled(false);
-        setEmailEnabled(false);
-      } finally {
-        setLoading(false);
-      }
+      } catch { setPushEnabled(false); setEmailEnabled(false); }
+      finally { setLoading(false); }
     }
     loadPref();
   }, [selectedUserId]);
@@ -815,11 +416,7 @@ function LowStockNotificationSection() {
     if (!selectedUserId) return;
     try {
       setSaving(true);
-      await api.put(`/access/notification-prefs/low-stock`, {
-        user_id: Number(selectedUserId),
-        push_enabled: pushEnabled ? 1 : 0,
-        email_enabled: emailEnabled ? 1 : 0,
-      });
+      await api.put(`/access/notification-prefs/low-stock`, { user_id: Number(selectedUserId), push_enabled: pushEnabled ? 1 : 0, email_enabled: emailEnabled ? 1 : 0 });
     } catch {}
     setSaving(false);
   }
@@ -828,32 +425,26 @@ function LowStockNotificationSection() {
     <div className="space-y-3">
       <div className="max-w-md">
         <label className="text-xs font-medium text-slate-700">User</label>
-        <select className="input w-full" value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
-          <option value="">Choose a user…</option>
-          {users.map((u) => (
-            <option key={u.id} value={u.id}>{u.username || u.full_name || `User #${u.id}`}</option>
-          ))}
+        <select className="input w-full" value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}>
+          <option value="">Choose a user...</option>
+          {users.map(u => <option key={u.id} value={u.id}>{u.username || u.full_name || `User #${u.id}`}</option>)}
         </select>
       </div>
       {selectedUserId && (
         <div className="space-y-3">
-          {loading ? (
-            <div className="text-sm text-slate-500">Loading preferences...</div>
-          ) : (
+          {loading ? <div className="text-sm text-slate-500">Loading preferences...</div> : (
             <>
               <div className="flex items-center gap-6">
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" className="checkbox" checked={pushEnabled} onChange={(e) => setPushEnabled(e.target.checked)} />
+                  <input type="checkbox" className="checkbox" checked={pushEnabled} onChange={e => setPushEnabled(e.target.checked)} />
                   <span className="text-sm">Push notification + app notification</span>
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" className="checkbox" checked={emailEnabled} onChange={(e) => setEmailEnabled(e.target.checked)} />
+                  <input type="checkbox" className="checkbox" checked={emailEnabled} onChange={e => setEmailEnabled(e.target.checked)} />
                   <span className="text-sm">Email notification</span>
                 </label>
               </div>
-              <button className="btn-primary" disabled={saving} onClick={save}>
-                {saving ? "Saving..." : "Save Preference"}
-              </button>
+              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? "Saving..." : "Save Preference"}</button>
             </>
           )}
         </div>
@@ -862,318 +453,119 @@ function LowStockNotificationSection() {
   );
 }
 
-function CompanyBrandingEditor({ setLogoObjectUrl, setCompanyInfo }) {
+function DepartmentsSection() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [info, setInfo] = useState({
-    name: "",
-    address: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    country: "",
-    phone: "",
-    email: "",
-    website: "",
-    logoUrl: "",
-    logoVersion: 0,
-  });
-  const [companyId, setCompanyId] = useState(null);
+  const [form, setForm] = useState({ name: "", code: "", is_active: 1 });
+  const [editingId, setEditingId] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const me = await api.get("/admin/me");
-        const cid = me.data?.scope?.companyId || null;
-        if (!cid) return;
-        setCompanyId(cid);
-        const cResp = await api.get(`/admin/companies/${cid}`);
-        const item = cResp.data?.item || {};
-        const logoUrl =
-          item.has_logo === 1 || item.has_logo === true
-            ? `/api/admin/companies/${cid}/logo`
-            : "";
-        if (!mounted) return;
-        setInfo({
-          name: item.name || "",
-          address: item.address || "",
-          city: item.city || "",
-          state: item.state || "",
-          postalCode: item.postal_code || "",
-          country: item.country || "",
-          phone: item.telephone || "",
-          email: item.email || "",
-          website: item.website || "",
-          logoUrl,
-        });
-      } catch {}
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  async function uploadLogo(file) {
-    if (!file || !companyId) return;
+  const loadData = async () => {
+    setLoading(true);
     try {
-      setSaving(true);
-      setError("");
+      const res = await api.get("/admin/departments");
+      setItems(Array.isArray(res.data?.items) ? res.data.items : []);
+    } catch { toast.error("Failed to load departments"); }
+    finally { setLoading(false); }
+  };
 
-      const objUrl = URL.createObjectURL(file);
-      setLogoObjectUrl(objUrl);
-      setInfo((p) => ({ ...p, logoUrl: objUrl, logoVersion: Date.now() }));
+  useEffect(() => { loadData(); }, []);
 
-      // Upload to server
-      const fd = new FormData();
-      fd.append("logo", file);
-      const resp = await api.post(`/admin/companies/${companyId}/logo`, fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+  const resetForm = () => { setForm({ name: "", code: "", is_active: 1 }); setEditingId(null); };
 
-      // Fetch the logo back from server with cache-busting
-      const timestamp = new Date().getTime();
-      const logoResp = await api.get(
-        `/admin/companies/${companyId}/logo?t=${timestamp}`,
-        {
-          responseType: "blob",
-        },
-      );
-
-      if (logoResp.data && logoResp.data.size > 0) {
-        const serverUrl = URL.createObjectURL(logoResp.data);
-        setLogoObjectUrl(serverUrl);
-
-        const version = Date.now();
-        const serverLogoUrl = `/api/admin/companies/${companyId}/logo?v=${encodeURIComponent(String(version))}`;
-        setInfo((p) => ({
-          ...p,
-          logoUrl: serverLogoUrl,
-          logoVersion: version,
-        }));
-
-        // Update parent component
-        if (setCompanyInfo) {
-          setCompanyInfo((p) => ({
-            ...p,
-            logoUrl: serverLogoUrl,
-            logoVersion: version,
-          }));
-        }
-
-        toast.success("Logo uploaded successfully");
-      } else {
-        throw new Error("Logo upload failed: empty response");
-      }
-    } catch (e) {
-      console.error("Logo upload error:", e);
-      setError(e?.response?.data?.message || e?.message || "Failed to upload");
-      toast.error("Failed to upload logo");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveInfo() {
+  const handleSubmit = async () => {
+    if (!form.name.trim() || !form.code.trim()) { toast.error("Name and Code are required"); return; }
+    setSaving(true);
     try {
-      setSaving(true);
-      setError("");
-      if (companyId) {
-        await api.put(`/admin/companies/${companyId}`, {
-          name: info.name || null,
-          address: info.address || null,
-          city: info.city || null,
-          state: info.state || null,
-          postal_code: info.postalCode || null,
-          country: info.country || null,
-          telephone: info.phone || null,
-          email: info.email || null,
-          website: info.website || null,
-        });
-        toast.success("Company information saved");
+      if (editingId) {
+        await api.put(`/admin/departments/${editingId}`, form);
+        toast.success("Department updated");
       } else {
-        toast.success("Company information updated");
+        await api.post("/admin/departments", form);
+        toast.success("Department created");
       }
+      resetForm();
+      loadData();
+    } catch (e) { toast.error(e?.response?.data?.message || "Failed to save"); }
+    finally { setSaving(false); }
+  };
 
-      // Update parent component
-      if (setCompanyInfo) {
-        setCompanyInfo((p) => ({
-          ...p,
-          name: info.name,
-          address: info.address,
-          city: info.city,
-          state: info.state,
-          postalCode: info.postalCode,
-          country: info.country,
-          phone: info.phone,
-          email: info.email,
-          website: info.website,
-          logoUrl: info.logoUrl,
-          logoVersion: info.logoVersion || Date.now(),
-        }));
-      }
+  const handleEdit = (item) => {
+    setForm({ name: item.name, code: item.code, is_active: item.is_active });
+    setEditingId(item.id);
+  };
 
-      try {
-        window.dispatchEvent(
-          new CustomEvent("company_info_updated", {
-            detail: {
-              name: info.name,
-              address: info.address,
-              city: info.city,
-              state: info.state,
-              postalCode: info.postalCode,
-              country: info.country,
-              phone: info.phone,
-              email: info.email,
-              website: info.website,
-              logoUrl: info.logoUrl,
-              logoVersion: info.logoVersion || Date.now(),
-            },
-          }),
-        );
-      } catch {}
-    } catch (e) {
-      setError(e?.response?.data?.message || e?.message || "Failed to save");
-      toast.error("Failed to save company information");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const handleCancel = () => resetForm();
 
   return (
-    <div className="space-y-3">
-      {error ? (
-        <div className="alert alert-error">
-          <span>{error}</span>
-        </div>
-      ) : null}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-xs font-medium text-slate-700">Name</label>
-          <input
-            className="input"
-            value={info.name}
-            onChange={(e) => setInfo((p) => ({ ...p, name: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-700">Phone</label>
-          <input
-            className="input"
-            value={info.phone}
-            onChange={(e) => setInfo((p) => ({ ...p, phone: e.target.value }))}
-          />
-        </div>
-        <div className="col-span-2">
-          <label className="text-xs font-medium text-slate-700">Address</label>
-          <input
-            className="input"
-            value={info.address}
-            onChange={(e) =>
-              setInfo((p) => ({ ...p, address: e.target.value }))
-            }
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-700">City</label>
-          <input
-            className="input"
-            value={info.city}
-            onChange={(e) => setInfo((p) => ({ ...p, city: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-700">State</label>
-          <input
-            className="input"
-            value={info.state}
-            onChange={(e) => setInfo((p) => ({ ...p, state: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-700">Country</label>
-          <input
-            className="input"
-            value={info.country}
-            onChange={(e) =>
-              setInfo((p) => ({ ...p, country: e.target.value }))
-            }
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-700">
-            Postal Code
-          </label>
-          <input
-            className="input"
-            value={info.postalCode}
-            onChange={(e) =>
-              setInfo((p) => ({ ...p, postalCode: e.target.value }))
-            }
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-700">Email</label>
-          <input
-            className="input"
-            value={info.email}
-            onChange={(e) => setInfo((p) => ({ ...p, email: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-700">Website</label>
-          <input
-            className="input"
-            value={info.website}
-            onChange={(e) =>
-              setInfo((p) => ({ ...p, website: e.target.value }))
-            }
-          />
-        </div>
-        <div className="col-span-2">
-          <label className="text-xs font-medium text-slate-700">Logo</label>
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => uploadLogo(e.target.files?.[0])}
-                disabled={saving}
-              />
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-1">
+        <div className="card p-4">
+          <h3 className="font-medium mb-4">{editingId ? "Edit Department" : "Add Department"}</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm mb-1">Name</label>
+              <input className="input w-full" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
             </div>
-            {info.logoUrl ? (
-              <div className="flex-shrink-0 border rounded p-1">
-                <img
-                  src={`${info.logoUrl}${
-                    info.logoUrl.includes("?") ? "&" : "?"
-                  }v=${encodeURIComponent(String(info.logoVersion || 0))}`}
-                  alt="Logo"
-                  className="h-12 w-12 object-contain"
-                  key={String(info.logoVersion || 0)}
-                  onError={(e) => {
-                    console.error("Logo image failed to load:", e);
-                    e.target.src = "";
-                  }}
-                />
-              </div>
-            ) : (
-              <div className="flex-shrink-0 border rounded p-1 bg-gray-100 h-12 w-12 flex items-center justify-center text-xs text-gray-500">
-                No logo
-              </div>
-            )}
+            <div>
+              <label className="block text-sm mb-1">Code</label>
+              <input className="input w-full" value={form.code} onChange={e => setForm(p => ({ ...p, code: e.target.value }))} />
+            </div>
+            <div>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" className="checkbox" checked={form.is_active === 1 || form.is_active === true} onChange={e => setForm(p => ({ ...p, is_active: e.target.checked ? 1 : 0 }))} />
+                <span className="text-sm">Active</span>
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <button className="btn-primary" disabled={saving} onClick={handleSubmit}>
+                {saving ? "Saving..." : editingId ? "Update" : "Create"}
+              </button>
+              {editingId && (
+                <button className="btn-outline" onClick={handleCancel}>Cancel</button>
+              )}
+            </div>
           </div>
         </div>
       </div>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          className="btn-primary"
-          onClick={saveInfo}
-          disabled={saving}
-        >
-          {saving ? "Saving..." : "Save Company Info"}
-        </button>
+      <div className="lg:col-span-2">
+        <div className="card">
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="bg-slate-50">
+                <tr className="text-left text-xs font-bold text-slate-500 uppercase">
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Code</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>
+                ) : items.length > 0 ? items.map(item => (
+                  <tr key={item.id} className="border-t hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium">{item.name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500">{item.code}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${item.is_active ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-600"}`}>
+                        {item.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => handleEdit(item)} className="text-brand hover:text-brand-700 text-sm font-medium">Edit</button>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-500">No departments found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+
+

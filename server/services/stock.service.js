@@ -358,19 +358,34 @@ export async function consumeStockFIFOTx(conn, params) {
 
   // If still remaining after consuming all available batches, record negative balance
   if (remaining > 0) {
-    await conn.execute(
-      `INSERT INTO inv_stock_balances
-        (company_id, branch_id, warehouse_id, item_id, qty, entry_date)
-       VALUES
-        (:companyId, :branchId, :warehouseId, :itemId, :remaining, NOW())`,
-      {
-        companyId,
-        branchId,
-        warehouseId,
-        itemId,
-        remaining: -remaining,
-      },
+    const [existingNeg] = await conn.execute(
+      `SELECT id FROM inv_stock_balances
+       WHERE company_id = :companyId
+         AND warehouse_id = :warehouseId
+         AND item_id = :itemId
+       LIMIT 1`,
+      { companyId, warehouseId, itemId },
     );
+    if (existingNeg.length > 0) {
+      await conn.execute(
+        `UPDATE inv_stock_balances SET qty = qty - :remaining WHERE id = :id`,
+        { remaining, id: existingNeg[0].id },
+      );
+    } else {
+      await conn.execute(
+        `INSERT INTO inv_stock_balances
+          (company_id, branch_id, warehouse_id, item_id, qty, entry_date)
+         VALUES
+          (:companyId, :branchId, :warehouseId, :itemId, :remaining, NOW())`,
+        {
+          companyId,
+          branchId,
+          warehouseId,
+          itemId,
+          remaining: -remaining,
+        },
+      );
+    }
     await conn.execute(
       `INSERT INTO inv_stock_ledger
         (company_id, branch_id, warehouse_id, item_id, transaction_type,

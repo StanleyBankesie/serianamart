@@ -65,7 +65,7 @@ export const listRoles = async (req, res, next) => {
 
 export const getRoleById = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId, branchIdsStr } = req.scope;
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensurePagesTable();

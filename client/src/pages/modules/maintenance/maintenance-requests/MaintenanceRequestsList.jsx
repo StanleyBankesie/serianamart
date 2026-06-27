@@ -6,6 +6,8 @@ import { api } from "../../../../api/client";
 import { Guard } from "../../../../hooks/usePermissions";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 function Badge({ value, colorMap }) {
   const v = String(value || "").toUpperCase();
@@ -36,6 +38,8 @@ export default function MaintenanceRequestsList() {
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [submittingForward, setSubmittingForward] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   const route = "/maintenance/maintenance-requests";
   const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
@@ -351,12 +355,14 @@ export default function MaintenanceRequestsList() {
                   <th>Type</th>
                   <th>Priority</th>
                   <th>Status</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
                 {loading ? (
-                  <tr><td colSpan="6" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Fetching Tickets...</td></tr>
+                  <tr><td colSpan="8" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Fetching Tickets...</td></tr>
                 ) : filtered.length > 0 ? filtered.map(r => {
                   const upperStatus = String(r.status || "").toUpperCase();
                   const autoApproved = workflowDisabled && upperStatus !== "CANCELLED" && upperStatus !== "RETURNED";
@@ -368,6 +374,8 @@ export default function MaintenanceRequestsList() {
                       <td className="px-4 py-3 text-sm text-slate-500">{r.maintenance_type}</td>
                       <td className="px-4 py-3 text-sm"><Badge value={r.priority} colorMap={priorityColors} /></td>
                       <td className="px-4 py-3 text-sm"><Badge value={displayStatus} colorMap={statusColors} /></td>
+                      <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
+                      <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
@@ -377,6 +385,9 @@ export default function MaintenanceRequestsList() {
                           >
                             <Eye size={14} /> View
                           </button>
+                          <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
+                          <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
+                          <ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} />
                           {displayStatus !== "APPROVED" && displayStatus !== "PENDING_APPROVAL" && (
                             <button
                               type="button"
@@ -423,7 +434,7 @@ export default function MaintenanceRequestsList() {
                     </tr>
                   );
                 }) : (
-                  <tr><td colSpan="6" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No maintenance tickets found.</td></tr>
+                  <tr><td colSpan="8" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No maintenance tickets found.</td></tr>
                 )}
               </tbody>
             </table>
@@ -431,6 +442,14 @@ export default function MaintenanceRequestsList() {
         </div>
       </div>
 
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
       {showForwardModal && (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-erp w-full max-w-md overflow-hidden">

@@ -1,4 +1,4 @@
-import express from "express";
+﻿import express from "express";
 import Handlebars from "handlebars";
 import sanitizeHtml from "sanitize-html";
 import {
@@ -1019,7 +1019,7 @@ async function loadData(type, id, companyId, branchId) {
       LEFT JOIN sal_customers c
         ON c.id = o.customer_id AND c.company_id = o.company_id
         LEFT JOIN adm_users u ON u.id = o.created_by
-         WHERE o.id = :id AND o.company_id = :companyId AND o.branch_id = :branchId
+         WHERE o.id = :id AND o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1251,7 +1251,7 @@ async function loadData(type, id, companyId, branchId) {
       LEFT JOIN sal_customers c
         ON c.id = i.customer_id AND c.company_id = i.company_id
         LEFT JOIN adm_users u ON u.id = i.created_by
-         WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
+         WHERE i.id = :id AND i.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(i.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1417,7 +1417,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_orders p
       LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE p.id = :id AND p.company_id = :companyId AND p.branch_id = :branchId
+         WHERE p.id = :id AND p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1497,7 +1497,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_direct_purchase_hdr h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
         LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+         WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1594,7 +1594,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_bills b
       LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.id = :id AND b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1677,7 +1677,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM inv_goods_receipt_notes g
       LEFT JOIN pur_suppliers s ON s.id = g.supplier_id
         LEFT JOIN adm_users u ON u.id = g.created_by
-         WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
+         WHERE g.id = :id AND g.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(g.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1776,7 +1776,7 @@ async function loadData(type, id, companyId, branchId) {
       LEFT JOIN sal_customers c
         ON c.id = d.customer_id AND c.company_id = d.company_id
         LEFT JOIN adm_users u ON u.id = d.created_by
-         WHERE d.id = :id AND d.company_id = :companyId AND d.branch_id = :branchId
+         WHERE d.id = :id AND d.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(d.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2007,7 +2007,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_orders h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
         LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+         WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2080,7 +2080,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM inv_grn h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
         LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+         WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2144,7 +2144,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_direct_purchase_hdr h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
         LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+         WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2235,7 +2235,7 @@ async function loadData(type, id, companyId, branchId) {
       LEFT JOIN sal_customers c
         ON c.id = q.customer_id AND c.company_id = q.company_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
+         WHERE q.id = :id AND q.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2471,7 +2471,7 @@ async function loadData(type, id, companyId, branchId) {
         LEFT JOIN adm_users u ON u.id = v.created_by
         LEFT JOIN adm_users approver ON approver.id = v.approved_by
         LEFT JOIN fin_currencies cur ON cur.id = v.currency_id
-         WHERE v.id = :id AND v.company_id = :companyId AND v.branch_id = :branchId
+         WHERE v.id = :id AND v.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2592,7 +2592,7 @@ async function loadData(type, id, companyId, branchId) {
         LEFT JOIN adm_users u ON u.id = v.created_by
         LEFT JOIN adm_users approver ON approver.id = v.approved_by
         LEFT JOIN fin_currencies cur ON cur.id = v.currency_id
-         WHERE v.id = :id AND v.company_id = :companyId AND v.branch_id = :branchId
+         WHERE v.id = :id AND v.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2865,7 +2865,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM maint_bills b
       LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.id = :id AND b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2925,7 +2925,7 @@ async function loadData(type, id, companyId, branchId) {
           u.username AS created_by_name
          FROM pur_service_bills b
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.id = :id AND b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2987,7 +2987,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM maint_supplier_quotations q
       LEFT JOIN pur_suppliers s ON s.id = q.supplier_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
+         WHERE q.id = :id AND q.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -3052,7 +3052,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const type = canonicalDocumentType(String(req.params.type || "").trim());
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -3476,7 +3476,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const type = canonicalDocumentType(String(req.params.type || "").trim());
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -3791,7 +3791,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const type = String(req.params.type || "").trim();
       if (!type) throw httpError(400, "VALIDATION_ERROR", "Invalid request");
 
@@ -4107,7 +4107,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -4120,12 +4120,12 @@ router.get(
          FROM adm_document_attachments
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND document_type = :type
           AND document_id = :id
         ORDER BY id DESC
         `,
-        { companyId, branchId, type, id },
+        { companyId, branchId, branchIdsStr, type, id },
       ).catch(() => []);
       const origin = `${req.protocol}://${req.get("host")}`;
       const items = Array.isArray(rawItems)
@@ -4160,7 +4160,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -4186,7 +4186,7 @@ router.post(
         `,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           type,
           id,
           fileUrl,
@@ -4225,7 +4225,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       const attId = toNumber(req.params.attId);
@@ -4239,23 +4239,23 @@ router.delete(
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :attId
           AND company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND document_type = :type
           AND document_id = :id
         LIMIT 1
         `,
-        { attId, companyId, branchId, type, id },
+        { attId, companyId, branchId, branchIdsStr, type, id },
       );
       const fileUrl = rows?.[0]?.file_url || null;
       await query(`
         DELETE FROM adm_document_attachments
         WHERE id = :attId
           AND company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND document_type = :type
           AND document_id = :id
         `,
-        { attId, companyId, branchId, type, id },
+        { attId, companyId, branchId, branchIdsStr, type, id },
       ).catch(() => null);
 
       // Attempt Cloudinary deletion if URL is a Cloudinary asset
@@ -4273,7 +4273,7 @@ router.delete(
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE setting_key = :key
                 AND (company_id = :companyId OR company_id IS NULL)
-                AND (branch_id = :branchId OR branch_id IS NULL)
+                AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
               ORDER BY company_id DESC, branch_id DESC
               LIMIT 1
               `,
@@ -4395,3 +4395,4 @@ router.post("/raw-html-to-pdf", requireAuth, async (req, res, next) => {
 });
 
 export default router;
+

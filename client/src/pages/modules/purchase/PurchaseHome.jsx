@@ -145,7 +145,7 @@ function PurchaseHomeIndex() {
       title: "Procurement",
       items: [
         {
-          title: "General Requisition",
+          title: "Purchase Requisition",
           description: "Request items or services to be purchased",
           path: "/purchase/general-requisitions",
           icon: "📋",
@@ -521,7 +521,7 @@ export default function PurchaseHome() {
 export const purchaseFeatures = [
   {
     module_key: "purchase",
-    label: "General Requisition",
+    label: "Purchase Requisition",
     path: "/purchase/general-requisitions",
     type: "feature",
     icon: "📋",

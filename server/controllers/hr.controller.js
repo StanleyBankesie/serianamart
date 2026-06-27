@@ -1,4 +1,4 @@
-import { query, pool } from "../db/pool.js";
+﻿import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import {
   ensureWorkflowTables,
@@ -15,11 +15,11 @@ import { sendMail } from "../utils/mailer.js";
 export async function listEmployees(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { dept_id, status, q } = req.query;
 
-    const clauses = ["e.company_id = :companyId", "e.deleted_at IS NULL"];
-    const params = { companyId };
+    const clauses = ["e.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))", "e.deleted_at IS NULL"];
+    const params = { companyId, branchId, branchIdsStr };
 
     if (dept_id && dept_id !== "ALL") {
       clauses.push("e.dept_id = :dept_id");
@@ -634,7 +634,7 @@ export async function saveEmployee(req, res, next) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = req.user?.id || req.user?.sub;
     const body = req.body;
 
@@ -728,7 +728,7 @@ export async function saveEmployee(req, res, next) {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           body.emp_code,
           body.first_name,
           body.last_name,
@@ -809,7 +809,7 @@ export async function saveEmployeesBulk(req, res, next) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = req.user?.id || req.user?.sub;
     const items = Array.isArray(req.body?.items) ? req.body.items : [];
     let created = 0;
@@ -885,7 +885,7 @@ export async function saveEmployeesBulk(req, res, next) {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             b.emp_code,
             b.first_name,
             b.last_name,
@@ -982,7 +982,7 @@ export async function listPositions(req, res, next) {
 export async function saveDepartment(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { id, dept_code, dept_name, manager_id, parent_dept_id } = req.body;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
 
@@ -1005,7 +1005,7 @@ export async function saveDepartment(req, res, next) {
     } else {
       const result = await query(`INSERT INTO hr_departments (company_id, branch_id, dept_code, dept_name, manager_id, parent_dept_id, created_by)
          VALUES (:companyId, :branchId, :dept_code, :dept_name, :manager_id, :parent_dept_id, :userId)`,
-        { ...params, branchId },
+        { ...params, branchId, branchIdsStr },
       );
       res
         .status(201)
@@ -1022,7 +1022,7 @@ export async function saveDepartment(req, res, next) {
 export async function savePosition(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { id, pos_code, pos_name, dept_id } = req.body;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
 
@@ -1044,7 +1044,7 @@ export async function savePosition(req, res, next) {
     } else {
       const result = await query(`INSERT INTO hr_positions (company_id, branch_id, pos_code, pos_name, dept_id, created_by)
          VALUES (:companyId, :branchId, :pos_code, :pos_name, :dept_id, :userId)`,
-        { ...params, branchId },
+        { ...params, branchId, branchIdsStr },
       );
       res
         .status(201)
@@ -1075,14 +1075,14 @@ export async function getNextRequisitionNo(req, res, next) {
 
 export async function listRequisitions(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const items = await query(`SELECT r.*, d.dept_name, p.pos_name,
           r.created_at FROM hr_job_requisitions r
        LEFT JOIN hr_departments d ON d.id = r.dept_id
        LEFT JOIN hr_positions p ON p.id = r.pos_id
-         WHERE r.company_id = :companyId
+         WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))
        ORDER BY r.created_at DESC`,
-      { companyId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -1113,7 +1113,7 @@ export async function getRequisitionById(req, res, next) {
  */
 export async function saveRequisition(req, res, next) {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = req.user?.id || req.user?.sub;
     const {
       id,
@@ -1159,7 +1159,7 @@ export async function saveRequisition(req, res, next) {
          VALUES (:companyId, :branchId, :req_no, :title, :dept_id, :pos_id, :vacancies, :employment_type, :recruitment_type, :from_date, :to_date, :reason, :requirements, :status, :userId)`,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           req_no,
           title,
           dept_id,
@@ -1866,10 +1866,10 @@ export async function saveTimesheet(req, res, next) {
 
 export async function listTimesheets(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { employee_id, from_date, to_date } = req.query;
-    const clauses = ["t.company_id = :companyId"];
-    const params = { companyId };
+    const clauses = ["t.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(t.branch_id, :branchIdsStr))"];
+    const params = { companyId, branchId, branchIdsStr };
 
     if (employee_id) {
       clauses.push("t.employee_id = :employee_id");
@@ -2939,10 +2939,10 @@ export async function mapSalaryComponentAccount(req, res, next) {
 
 export async function listPayslips(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { period_id, employee_id } = req.query;
-    const clauses = ["e.company_id = :companyId"];
-    const params = { companyId };
+    const clauses = ["e.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))"];
+    const params = { companyId, branchId, branchIdsStr };
     if (period_id) {
       clauses.push("p.period_id = :period_id");
       params.period_id = period_id;
@@ -3356,7 +3356,7 @@ export async function getMedicalPolicy(req, res, next) {
 export async function saveMedicalPolicy(req, res, next) {
   try {
     await ensureMedicalPolicyAttachmentColumns();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
     const {
       id,
@@ -3418,7 +3418,7 @@ export async function saveMedicalPolicy(req, res, next) {
           :description, :coverage_details, :attachment_url, :attachment_name, :premium_amount, :renewal_date,
           :is_active, :userId
         )`,
-        { ...params, branchId },
+        { ...params, branchId, branchIdsStr },
       );
       res
         .status(201)
@@ -3449,7 +3449,7 @@ export async function listAllowances(req, res, next) {
 
 export async function saveAllowance(req, res, next) {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
     const {
       id,
@@ -3484,7 +3484,7 @@ export async function saveAllowance(req, res, next) {
     } else {
       const result = await query(`INSERT INTO hr_allowances (company_id, branch_id, allowance_code, allowance_name, amount_type, amount, is_taxable, is_active, created_by)
          VALUES (:companyId, :branchId, :allowance_code, :allowance_name, :amount_type, :amount, :is_taxable, :is_active, :userId)`,
-        { ...params, branchId },
+        { ...params, branchId, branchIdsStr },
       );
       res
         .status(201)
@@ -3500,7 +3500,7 @@ export async function saveAllowance(req, res, next) {
  */
 export async function listLoans(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
 
     // Auto-activate loans reaching their start date
     try {
@@ -3512,8 +3512,8 @@ export async function listLoans(req, res, next) {
     }
 
     const { employee_id } = req.query;
-    const clauses = ["l.company_id = :companyId"];
-    const params = { companyId };
+    const clauses = ["l.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(l.branch_id, :branchIdsStr))"];
+    const params = { companyId, branchId, branchIdsStr };
 
     if (employee_id) {
       clauses.push("l.employee_id = :employee_id");
@@ -3537,7 +3537,7 @@ export async function listLoans(req, res, next) {
 
 export async function saveLoan(req, res, next) {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
     const {
       id,
@@ -3626,7 +3626,7 @@ export async function saveLoan(req, res, next) {
     } else {
       const result = await query(`INSERT INTO hr_loans (company_id, branch_id, employee_id, loan_type, loan_id, amount, interest_rate, repayment_period_months, monthly_installment, start_date, status, end_date, amount_due, created_by)
          VALUES (:companyId, :branchId, :employee_id, :loan_type, :loan_id, :amount, :interest_rate, :repayment_period_months, :monthly_installment, :start_date, :status, :endDate, :amountDue, :userId)`,
-        { ...finalParams, branchId },
+        { ...finalParams, branchId, branchIdsStr },
       );
 
       if (params.loan_id) {
@@ -4536,7 +4536,7 @@ export async function saveLocation(req, res, next) {
       await query(`INSERT INTO hr_locations (company_id, branch_id, location_name, address, is_active, created_by) VALUES (:companyId, :branchId, :location_name, :address, :is_active, :userId)`,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           location_name,
           address,
           is_active: is_active === false ? 0 : 1,
@@ -4592,10 +4592,10 @@ export async function saveParameters(req, res, next) {
 export async function reportEmployees(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { dept_id, q } = req.query;
-    const clauses = ["e.company_id = :companyId", "e.deleted_at IS NULL"];
-    const params = { companyId };
+    const clauses = ["e.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))", "e.deleted_at IS NULL"];
+    const params = { companyId, branchId, branchIdsStr };
     if (dept_id) {
       clauses.push("e.dept_id = :dept_id");
       params.dept_id = dept_id;
@@ -4623,10 +4623,10 @@ export async function reportEmployees(req, res, next) {
 
 export async function reportSSF(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { period_id, from_date, to_date } = req.query;
-    const clauses = ["pp.company_id = :companyId"];
-    const params = { companyId };
+    const clauses = ["pp.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(pp.branch_id, :branchIdsStr))"];
+    const params = { companyId, branchId, branchIdsStr };
     if (period_id) {
       clauses.push("pp.id = :period_id");
       params.period_id = period_id;
@@ -4659,10 +4659,10 @@ export async function reportSSF(req, res, next) {
 
 export async function reportPAYE(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { period_id, from_date, to_date } = req.query;
-    const clauses = ["pp.company_id = :companyId"];
-    const params = { companyId };
+    const clauses = ["pp.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(pp.branch_id, :branchIdsStr))"];
+    const params = { companyId, branchId, branchIdsStr };
     if (period_id) {
       clauses.push("pp.id = :period_id");
       params.period_id = period_id;
@@ -4693,13 +4693,13 @@ export async function reportPAYE(req, res, next) {
 
 export async function reportEmployeeLoans(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const items = await query(`SELECT l.id, e.emp_code, e.first_name, e.last_name, l.loan_type, l.amount, l.monthly_installment, l.start_date, l.status,
           l.created_at FROM hr_loans l
        JOIN hr_employees e ON e.id = l.employee_id
-         WHERE l.company_id = :companyId
+         WHERE l.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(l.branch_id, :branchIdsStr))
        ORDER BY l.start_date DESC`,
-      { companyId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items });
   } catch (err) {
@@ -5473,12 +5473,12 @@ export async function saveLeaveRoster(req, res, next) {
 export async function listLeaveRecords(req, res, next) {
   try {
     await ensureLeaveTables();
-    const { companyId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const { employee_id, source, status, start_date, end_date, dept_id, q } =
       req.query;
 
-    const clauses = ["lr.company_id = :companyId"];
-    const params = { companyId };
+    const clauses = ["lr.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(lr.branch_id, :branchIdsStr))"];
+    const params = { companyId, branchId, branchIdsStr };
 
     if (employee_id) {
       clauses.push("lr.employee_id = :employee_id");
@@ -5694,3 +5694,4 @@ export async function listLeaveBalances(req, res, next) {
     next(err);
   }
 }
+

@@ -1169,25 +1169,7 @@ export default function PurchaseBillsForm() {
         <div className="card-header bg-brand text-white rounded-t-lg px-4 py-2">
           <h3 className="font-semibold">Invoice Information</h3>
         </div>
-        <div className="card-body p-4 grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
-          <div className="form-group">
-            <label className="label">Invoice Type</label>
-            <select className="input" value={formData.bill_type} disabled>
-              <option value="LOCAL">Local</option>
-              <option value="IMPORT">Import</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="label">Bill No</label>
-            <input
-              className="input bg-gray-100"
-              value={formData.bill_no}
-              placeholder="Auto-generated"
-              disabled
-            />
-          </div>
-
+        <div className="card-body p-4 grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
           <div className="form-group">
             <label className="label required">Bill Date</label>
             <input
@@ -1341,9 +1323,7 @@ export default function PurchaseBillsForm() {
             />
           </div>
 
-          <div className="form-group">
-            {/* Status field removed as requested */}
-          </div>
+
         </div>
       </div>
 

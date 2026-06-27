@@ -74,10 +74,6 @@ export async function applyStockVerificationApprovalTx(
     if (existingRows.length > 0) {
       const firstRowId = Number(existingRows[0].id);
       await conn.execute(
-        `UPDATE inv_stock_balances SET qty = 0 WHERE company_id = :companyId AND warehouse_id = :warehouseId AND item_id = :itemId`,
-        { companyId, warehouseId, itemId },
-      );
-      await conn.execute(
         `UPDATE inv_stock_balances SET qty = :verifiedQty WHERE id = :id`,
         { verifiedQty, id: firstRowId },
       );

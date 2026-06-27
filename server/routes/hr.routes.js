@@ -774,10 +774,10 @@ router.get("/dashboard/metrics", requireAuth, requireCompanyScope, async (req, r
 // ===== DASHBOARD STATS =====
 router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr } = req.scope;
     const [employees] = await query(
-      "SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND branch_id = :branchId AND status IN ('ACTIVE','PROBATION') AND deleted_at IS NULL",
-      { companyId, branchId },
+      "SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND status IN ('ACTIVE','PROBATION') AND deleted_at IS NULL",
+      { companyId, branchId, branchIdsStr },
     ).catch(() => [{ count: 0 }]);
     const [onLeave] = await query(
       "SELECT COUNT(*) as count FROM hr_attendance WHERE company_id = :companyId AND attendance_date = CURDATE() AND status = 'ON_LEAVE'",

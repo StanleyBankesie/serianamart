@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { 
-  Link 
+  Link, useNavigate 
 } from "react-router-dom";
 import { 
   Plus, 
@@ -13,17 +13,23 @@ import {
   ChevronRight,
   MoreVertical,
   Activity,
-  AlertCircle
+  AlertCircle,
+  Eye
 } from "lucide-react";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 export default function PmScheduleList() {
   const { canPerformAction } = usePermission();
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   const fetchSchedules = async () => {
     try {
@@ -127,12 +133,14 @@ export default function PmScheduleList() {
                 <th>Frequency</th>
                 <th>Next Due</th>
                 <th className="text-right">Status</th>
+                <th>Created By</th>
+                <th>Created Date</th>
                 <th className="text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
               {loading ? (
-                <tr><td colSpan="6" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold tracking-widest uppercase">Syncing Registry...</td></tr>
+                <tr><td colSpan="8" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold tracking-widest uppercase">Syncing Registry...</td></tr>
               ) : filteredItems.length > 0 ? filteredItems.map((item) => (
                 <tr key={item.id} className="group">
                   <td className="px-6 py-4">
@@ -170,18 +178,26 @@ export default function PmScheduleList() {
                        {item.status}
                     </span>
                   </td>
+                  <td className="px-6 py-4 text-sm">{item.created_by_name || "-"}</td>
+                  <td className="px-6 py-4 text-sm">{item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}</td>
                   <td className="px-6 py-4 text-right">
-                    <Link 
-                      to={`/maintenance/pm-schedules/${item.id}`}
-                      className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors inline-block"
-                    >
-                      <ChevronRight size={20} />
-                    </Link>
+                    <div className="flex items-center justify-end gap-1">
+                      <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/pm-schedules/${item.id}?mode=view`)}><Eye size={15} /></button>
+                      <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
+                      <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
+                      <ListAttachmentIconButton onClick={() => { setActiveDocId(item.id); setShowAttach(true); }} />
+                      <Link 
+                        to={`/maintenance/pm-schedules/${item.id}`}
+                        className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors inline-block"
+                      >
+                        <ChevronRight size={20} />
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="6" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">
+                  <td colSpan="8" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">
                     No active PM plans identified.
                   </td>
                 </tr>
@@ -190,6 +206,14 @@ export default function PmScheduleList() {
           </table>
         </div>
       </div>
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
     </div>
   );
 }

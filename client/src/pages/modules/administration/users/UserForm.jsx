@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Building2, X } from "lucide-react";
 
 export default function UserForm() {
   const navigate = useNavigate();
@@ -31,6 +31,7 @@ export default function UserForm() {
   const [branches, setBranches] = useState([]);
   const [roles, setRoles] = useState([]);
   const [showPassword, setShowPassword] = useState(false);
+  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
 
   useEffect(() => {
     fetchDependencies();
@@ -229,6 +230,9 @@ export default function UserForm() {
     ? branches.filter((b) => String(b.company_id) === String(form.companyId))
     : [];
 
+  const superbranches = filteredBranches.filter((b) => Number(b.is_superbranch) === 1);
+  const regularBranches = filteredBranches.filter((b) => Number(b.is_superbranch) !== 1);
+
   // Filter roles based on selected company (assuming roles are company-specific)
   const filteredRoles = roles.filter((r) => {
     if (Number(r.is_active) === 0) return false;
@@ -256,8 +260,9 @@ export default function UserForm() {
           <div className="card-body space-y-4">
             {error && <div className="alert alert-error mb-4">{error}</div>}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Company & Branch */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+              {/* Company */}
               <div>
                 <label className="label">Company *</label>
                 <select
@@ -278,43 +283,8 @@ export default function UserForm() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="label">Branches *</label>
-                <div className="space-y-2 border rounded-md p-2 max-h-48 overflow-auto">
-                  {filteredBranches.map((b) => {
-                    const checked = form.branchIds.includes(String(b.id));
-                    return (
-                      <label key={b.id} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4 text-brand rounded focus:ring-brand"
-                          checked={checked}
-                          onChange={(e) => {
-                            const isChecked = e.target.checked;
-                            setForm((prev) => {
-                              const arr = new Set(prev.branchIds);
-                              if (isChecked) arr.add(String(b.id));
-                              else arr.delete(String(b.id));
-                              return { ...prev, branchIds: Array.from(arr) };
-                            });
-                          }}
-                          disabled={!form.companyId}
-                        />
-                        <span className="text-sm">
-                          {b.name} ({b.code})
-                        </span>
-                      </label>
-                    );
-                  })}
-                  {filteredBranches.length === 0 ? (
-                    <div className="text-xs text-slate-500">
-                      Select a company to see branches
-                    </div>
-                  ) : null}
-                </div>
-              </div>
 
-              {/* User Details */}
+              {/* Username */}
               <div>
                 <label className="label">Username *</label>
                 <input
@@ -324,6 +294,8 @@ export default function UserForm() {
                   required
                 />
               </div>
+
+              {/* Email */}
               <div>
                 <label className="label">Email *</label>
                 <input
@@ -335,6 +307,7 @@ export default function UserForm() {
                 />
               </div>
 
+              {/* Full Name */}
               <div>
                 <label className="label">Full Name *</label>
                 <input
@@ -345,6 +318,7 @@ export default function UserForm() {
                 />
               </div>
 
+              {/* Role */}
               <div>
                 <label className="label">Role</label>
                 <select
@@ -362,36 +336,7 @@ export default function UserForm() {
                 </select>
               </div>
 
-              <div>
-                <label className="label">Profile Picture</label>
-                <div className="flex items-center gap-4">
-                  {form.profilePicture && (
-                    <div className="w-16 h-16 rounded-full overflow-hidden border border-slate-200">
-                      <img
-                        src={form.profilePicture}
-                        alt="Profile"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <input
-                      type="file"
-                      className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 text-sm text-slate-500"
-                      onChange={handleFileChange}
-                      accept="image/*"
-                      disabled={uploading}
-                    />
-                    {uploading && (
-                      <span className="text-xs text-brand ml-2">
-                        Uploading...
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <input type="hidden" value={form.profilePicture} />
-              </div>
-
+              {/* User Type */}
               <div>
                 <label className="label">User Type</label>
                 <select
@@ -407,30 +352,61 @@ export default function UserForm() {
                 </select>
               </div>
 
-              {/* Checkboxes */}
-              <div className="flex items-center gap-6 mt-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.isEmployee}
-                    onChange={(e) => update("isEmployee", e.target.checked)}
-                    className="w-4 h-4 text-brand rounded focus:ring-brand"
-                  />
-                  <span className="text-sm font-medium">Is Employee</span>
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.isActive}
-                    onChange={(e) => update("isActive", e.target.checked)}
-                    className="w-4 h-4 text-brand rounded focus:ring-brand"
-                  />
-                  <span className="text-sm font-medium">Active Status</span>
-                </label>
+              {/* Profile Picture */}
+              <div>
+                <label className="label">Profile Picture</label>
+                <div className="flex items-center gap-3">
+                  {form.profilePicture && (
+                    <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 flex-shrink-0">
+                      <img
+                        src={form.profilePicture}
+                        alt="Profile"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <input
+                      type="file"
+                      className="file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 text-xs text-slate-500 w-full"
+                      onChange={handleFileChange}
+                      accept="image/*"
+                      disabled={uploading}
+                    />
+                    {uploading && (
+                      <span className="text-xs text-brand">Uploading...</span>
+                    )}
+                  </div>
+                </div>
+                <input type="hidden" value={form.profilePicture} />
               </div>
 
-              {/* Validity Dates */}
+              {/* Is Employee & Active Status */}
+              <div>
+                <label className="label">Status</label>
+                <div className="flex flex-col gap-3 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.isEmployee}
+                      onChange={(e) => update("isEmployee", e.target.checked)}
+                      className="w-4 h-4 text-brand rounded focus:ring-brand"
+                    />
+                    <span className="text-sm font-medium">Is Employee</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.isActive}
+                      onChange={(e) => update("isActive", e.target.checked)}
+                      className="w-4 h-4 text-brand rounded focus:ring-brand"
+                    />
+                    <span className="text-sm font-medium">Active Status</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Valid From */}
               <div>
                 <label className="label">Valid From</label>
                 <input
@@ -440,6 +416,8 @@ export default function UserForm() {
                   onChange={(e) => update("validFrom", e.target.value)}
                 />
               </div>
+
+              {/* Valid To */}
               <div>
                 <label className="label">Valid To</label>
                 <input
@@ -450,7 +428,8 @@ export default function UserForm() {
                 />
               </div>
 
-              <div className="md:col-span-2 border-t pt-4 mt-2">
+              {/* Password */}
+              <div>
                 <label className="label">
                   {isEdit
                     ? "New Password (leave blank to keep current)"
@@ -471,19 +450,221 @@ export default function UserForm() {
                     type="button"
                     className="absolute inset-y-0 right-2 flex items-center text-slate-500"
                     onClick={() => setShowPassword((v) => !v)}
-                    aria-label={
-                      showPassword ? "Hide password" : "Show password"
-                    }
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  Must be at least 8 characters, include 1 uppercase, 1 number,
-                  and 1 special character.
+                  Min 8 chars, 1 uppercase, 1 number, 1 special character.
                 </p>
               </div>
+
+              {/* Branches - Modal Trigger */}
+              <div>
+                <label className="label">Branches *</label>
+                <button
+                  type="button"
+                  onClick={() => setIsBranchModalOpen(true)}
+                  className="w-full text-left px-4 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex justify-between items-center hover:border-brand transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!form.companyId}
+                >
+                  <span className="text-sm">
+                    {form.branchIds.length > 0
+                      ? `${form.branchIds.length} branch(es) selected`
+                      : form.companyId
+                      ? "Click to select branches..."
+                      : "Select a company first"}
+                  </span>
+                  <Building2 className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                </button>
+              </div>
+
             </div>
+
+            {/* Branch Selection Modal */}
+            {isBranchModalOpen && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+                <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+                  {/* Modal Header */}
+                  <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center flex-shrink-0">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                      Assign Branches
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setIsBranchModalOpen(false)}
+                      className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Modal Body */}
+                  <div className="p-6 overflow-y-auto space-y-4 flex-1">
+                    {filteredBranches.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500">
+                        No branches available for this company.
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {/* Superbranches */}
+                        {superbranches.length > 0 && (
+                          <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                            <div className="bg-brand/5 dark:bg-brand/10 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700">
+                              <span className="text-xs font-bold uppercase tracking-wider text-brand-700 dark:text-brand-300">
+                                Superbranches
+                              </span>
+                            </div>
+                            <div className="p-4 space-y-4">
+                              {superbranches.map((b) => {
+                                const checked = form.branchIds.includes(String(b.id));
+                                return (
+                                  <div key={b.id} className="space-y-2">
+                                    <label className="flex items-center gap-3 cursor-pointer p-1 rounded hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                      <input
+                                        type="checkbox"
+                                        className="w-4 h-4 text-brand rounded focus:ring-brand"
+                                        checked={checked}
+                                        onChange={(e) => {
+                                          const isChecked = e.target.checked;
+                                          setForm((prev) => {
+                                            const arr = new Set(prev.branchIds);
+                                            if (isChecked) {
+                                              arr.add(String(b.id));
+                                            } else {
+                                              arr.delete(String(b.id));
+                                              regularBranches.forEach((c) =>
+                                                arr.delete(String(c.id))
+                                              );
+                                            }
+                                            return { ...prev, branchIds: Array.from(arr) };
+                                          });
+                                        }}
+                                      />
+                                      <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                        {b.name}
+                                        <span className="ml-2 text-xs font-normal text-slate-500">
+                                          ({b.code})
+                                        </span>
+                                      </span>
+                                    </label>
+                                    {checked && regularBranches.length > 0 && (
+                                      <div className="ml-7 border-l-2 border-brand/20 pl-4 py-1 space-y-2">
+                                        <p className="text-xs text-slate-500 font-medium mb-2">
+                                          Sub-branches accessible via {b.name}:
+                                        </p>
+                                        {regularBranches.map((child) => {
+                                          const childChecked = form.branchIds.includes(
+                                            String(child.id)
+                                          );
+                                          return (
+                                            <label
+                                              key={child.id}
+                                              className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                className="w-3.5 h-3.5 text-brand rounded focus:ring-brand"
+                                                checked={childChecked}
+                                                onChange={(e) => {
+                                                  const isChecked = e.target.checked;
+                                                  setForm((prev) => {
+                                                    const arr = new Set(prev.branchIds);
+                                                    if (isChecked)
+                                                      arr.add(String(child.id));
+                                                    else
+                                                      arr.delete(String(child.id));
+                                                    return {
+                                                      ...prev,
+                                                      branchIds: Array.from(arr),
+                                                    };
+                                                  });
+                                                }}
+                                              />
+                                              <span className="text-sm text-slate-700 dark:text-slate-300">
+                                                {child.name}{" "}
+                                                <span className="text-xs text-slate-400">
+                                                  ({child.code})
+                                                </span>
+                                              </span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Regular Branches */}
+                        {regularBranches.length > 0 && (
+                          <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                            <div className="bg-slate-50 dark:bg-slate-800/50 px-4 py-2.5 border-b border-slate-200 dark:border-slate-700">
+                              <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                                Regular Branches
+                              </span>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                User can switch between these directly from their profile
+                              </p>
+                            </div>
+                            <div className="p-4 space-y-2 max-h-60 overflow-auto">
+                              {regularBranches.map((b) => {
+                                const checked = form.branchIds.includes(String(b.id));
+                                return (
+                                  <label
+                                    key={b.id}
+                                    className="flex items-center gap-3 cursor-pointer p-1.5 rounded hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="w-4 h-4 text-brand rounded focus:ring-brand"
+                                      checked={checked}
+                                      onChange={(e) => {
+                                        const isChecked = e.target.checked;
+                                        setForm((prev) => {
+                                          const arr = new Set(prev.branchIds);
+                                          if (isChecked) arr.add(String(b.id));
+                                          else arr.delete(String(b.id));
+                                          return { ...prev, branchIds: Array.from(arr) };
+                                        });
+                                      }}
+                                    />
+                                    <span className="text-sm text-slate-700 dark:text-slate-300">
+                                      {b.name}{" "}
+                                      <span className="text-xs text-slate-400">
+                                        ({b.code})
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 rounded-b-xl flex justify-between items-center flex-shrink-0">
+                    <span className="text-sm text-slate-500">
+                      {form.branchIds.length} branch(es) selected
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsBranchModalOpen(false)}
+                      className="btn btn-primary px-8"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 mt-6">
               <Link to="/administration/users" className="btn-success">

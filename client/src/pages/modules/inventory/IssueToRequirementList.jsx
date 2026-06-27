@@ -203,7 +203,31 @@ export default function IssueToRequirementList() {
                         {/* Slot 6: Workflow */}
                         <div className="min-w-[160px]">
                           <div className="list-approval-slot">
-                            {d.status === "POSTED" ? (
+                            {d.status === "DRAFT" ? (
+                              <button
+                                onClick={async () => {
+                                   try {
+                                    await api.put(`/inventory/issue-to-requirement/${d.id}/status`, { status: "POSTED" });
+                                    setDocs((prev) =>
+                                      prev.map((x) =>
+                                        x.id === d.id
+                                          ? { ...x, status: "POSTED" }
+                                          : x,
+                                      ),
+                                    );
+                                    toast.success("Issue posted");
+                                  } catch (e) {
+                                    toast.error(
+                                      e?.response?.data?.message ||
+                                        "Failed to post issue",
+                                    );
+                                  }
+                                }}
+                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-[#3C3E6E] text-white hover:bg-[#2C2E5E] transition-colors whitespace-nowrap h-9"
+                              >
+                                Post Issue
+                              </button>
+                            ) : d.status === "POSTED" ? (
                               <div className="flex items-center gap-2">
                                 <span className="list-approval-approved-pill">
                                   Posted
@@ -213,8 +237,7 @@ export default function IssueToRequirementList() {
                                     type="button"
                                     className="list-approval-reverse-btn"
                                     onClick={async () => {
-                                      if (!window.confirm("Cancel this issue?")) return;
-                                      try {
+                                       try {
                                         await api.post(`/inventory/issue-to-requirement/${d.id}/cancel`);
                                         setDocs((prev) =>
                                           prev.map((x) =>

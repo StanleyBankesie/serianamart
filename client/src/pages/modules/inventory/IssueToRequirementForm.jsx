@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useUoms } from "@/hooks/useUoms";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 
+import { toast } from "react-toastify";
 import { api } from "api/client";
 
 export default function IssueToRequirementForm() {
@@ -44,7 +45,7 @@ export default function IssueToRequirementForm() {
       item_id: "",
       itemCode: "",
       itemName: "",
-      qtyIssued: 0,
+      qtyIssued: "",
       uom: "",
       batchNumber: "",
       serialNumber: "",
@@ -95,6 +96,11 @@ export default function IssueToRequirementForm() {
           };
         });
         setLines(populatedLines);
+        const initQueries = {};
+        populatedLines.forEach((l) => {
+          initQueries[l.id] = l.itemName || "";
+        });
+        setItemQueries(initQueries);
       }
     } catch (e) {
       // keep existing form; surface error for visibility
@@ -130,9 +136,10 @@ export default function IssueToRequirementForm() {
           );
           setRequisitions(
             Array.isArray(reqRes.data?.items)
-              ? reqRes.data.items.filter(
-                  (r) => String(r.status || "").toUpperCase() === "APPROVED",
-                )
+              ? reqRes.data.items.filter((r) => {
+                  const s = String(r.status || "").toUpperCase();
+                  return s === "APPROVED" || s === "POSTED";
+                })
               : [],
           );
         }
@@ -205,7 +212,9 @@ export default function IssueToRequirementForm() {
               ],
         );
         const initQueries = {};
-        (details.length ? details : [{ id: 1 }]).forEach(d => { initQueries[d.id || 1] = ""; });
+        (details.length ? details : [{ id: 1 }]).forEach((d) => {
+          initQueries[d.id || 1] = "";
+        });
         setItemQueries(initQueries);
       })
       .catch((e) => {
@@ -251,22 +260,24 @@ export default function IssueToRequirementForm() {
         serialNumber: "",
       },
     ]);
-    setItemQueries(prev => ({ ...prev, [newId]: "" }));
+    setItemQueries((prev) => ({ ...prev, [newId]: "" }));
   };
 
   const handleSelectItem = (lineId, item) => {
-    setLines(lines.map(l =>
-      l.id === lineId
-        ? {
-            ...l,
-            item_id: String(item.id),
-            itemCode: item.item_code || "",
-            itemName: item.item_name || "",
-            uom: item.uom || "",
-          }
-        : l
-    ));
-    setItemQueries(prev => ({ ...prev, [lineId]: item.item_name || "" }));
+    setLines(
+      lines.map((l) =>
+        l.id === lineId
+          ? {
+              ...l,
+              item_id: String(item.id),
+              itemCode: item.item_code || "",
+              itemName: item.item_name || "",
+              uom: item.uom || "",
+            }
+          : l,
+      ),
+    );
+    setItemQueries((prev) => ({ ...prev, [lineId]: item.item_name || "" }));
   };
 
   const removeLine = (lineId) => {
@@ -282,7 +293,7 @@ export default function IssueToRequirementForm() {
 
     try {
       const payload = {
-        issue_no: isNew ? undefined : formData.issueNo,
+        issue_no: isNew ? null : formData.issueNo,
         issue_date: formData.issueDate,
         warehouse_id: formData.warehouseId
           ? Number(formData.warehouseId)
@@ -306,6 +317,9 @@ export default function IssueToRequirementForm() {
         await api.put(`/inventory/issue-to-requirement/${id}`, payload);
       }
 
+      toast.success(
+        isNew ? "Issue created successfully" : "Issue updated successfully",
+      );
       navigate("/inventory/issue-to-requirement");
     } catch (e2) {
       setError(
@@ -376,10 +390,11 @@ export default function IssueToRequirementForm() {
                   <option value="GENERAL">General</option>
                   <option value="PRODUCTION">Production</option>
                   <option value="MAINTENANCE">Maintenance</option>
+                  <option value="PROJECT">Project</option>
                 </select>
               </div>
               <div>
-                <label className="label">Department</label>
+                <label className="label">Destination Department</label>
                 <select
                   className="input"
                   value={formData.departmentId}
@@ -396,7 +411,7 @@ export default function IssueToRequirementForm() {
                 </select>
               </div>
               <div>
-                <label className="label">Warehouse</label>
+                <label className="label">Source Warehouse</label>
                 <select
                   className="input"
                   value={formData.warehouseId}
@@ -477,146 +492,177 @@ export default function IssueToRequirementForm() {
                   <tbody>
                     {lines.map((line, index) => {
                       const itemQuery = itemQueries[line.id] || "";
-                      const searchResults = itemQuery.trim()
-                        ? filterByPrefix(availableItems, {
-                            query: itemQuery,
-                            searchFields: ["item_code", "item_name", "barcode"],
-                          })
-                        : [];
+                      const showQuery = line.item_id
+                        ? line.itemName
+                        : itemQuery;
+                      const searchResults =
+                        itemQuery.trim() && !line.item_id
+                          ? filterByPrefix(availableItems, {
+                              query: itemQuery,
+                              searchFields: [
+                                "item_code",
+                                "item_name",
+                                "barcode",
+                              ],
+                            })
+                          : [];
                       return (
-                      <tr key={line.id}>
-                        <td className="text-center text-slate-500">
-                          {index + 1}
-                        </td>
-                        <td>
-                          <div className="relative">
-                            <input
-                              id={`ir-item-search-${line.id}`} autoComplete="off"
-                              className="input w-full"
-                              placeholder="Scan barcode or type item name"
-                              value={itemQueries[line.id] || ""}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setItemQueries((prev) => ({
-                                  ...prev,
-                                  [line.id]: val,
-                                }));
-                                if (line.item_id) {
-                                  setLines(lines.map(l =>
-                                    l.id === line.id ? { ...l, item_id: "", itemCode: "", itemName: "", uom: "" } : l
-                                  ));
-                                }
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  const query = (itemQueries[line.id] || "").trim();
-                                  if (!query || !searchResults.length) return;
-                                  handleSelectItem(line.id, searchResults[0]);
-                                }
-                              }}
-                            />
-                            {searchResults.length && !line.item_id ? (
-                              (() => {
-                                const el = document.getElementById(`ir-item-search-${line.id}`);
-                                const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
-                                return (
-                                  <div
-                                    className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
-                                    style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
-                                  >
-                                    {searchResults.map((o) => (
-                                      <button
-                                        type="button"
-                                        key={o.id}
-                                        className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
-                                        onClick={() => {
-                                          handleSelectItem(line.id, o);
+                        <tr key={line.id}>
+                          <td className="text-center text-slate-500">
+                            {index + 1}
+                          </td>
+                          <td>
+                            <div className="relative">
+                              <input
+                                id={`ir-item-search-${line.id}`}
+                                autoComplete="off"
+                                className="input w-full"
+                                placeholder="Scan barcode or type item name"
+                                value={showQuery}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setItemQueries((prev) => ({
+                                    ...prev,
+                                    [line.id]: val,
+                                  }));
+                                  if (line.item_id) {
+                                    setLines(
+                                      lines.map((l) =>
+                                        l.id === line.id
+                                          ? {
+                                              ...l,
+                                              item_id: "",
+                                              itemCode: "",
+                                              itemName: "",
+                                              uom: "",
+                                            }
+                                          : l,
+                                      ),
+                                    );
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    const query = (
+                                      itemQueries[line.id] || ""
+                                    ).trim();
+                                    if (!query || !searchResults.length) return;
+                                    handleSelectItem(line.id, searchResults[0]);
+                                  }
+                                }}
+                              />
+                              {searchResults.length
+                                ? (() => {
+                                    const el = document.getElementById(
+                                      `ir-item-search-${line.id}`,
+                                    );
+                                    const r = el
+                                      ? el.getBoundingClientRect()
+                                      : { bottom: 0, left: 0, width: 0 };
+                                    return (
+                                      <div
+                                        className="bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                        style={{
+                                          position: "fixed",
+                                          top: `${r.bottom + 4}px`,
+                                          left: `${r.left}px`,
+                                          width: `${r.width}px`,
+                                          zIndex: 9999,
                                         }}
                                       >
-                                        {o.item_code} - {o.item_name}
-                                      </button>
-                                    ))}
-                                  </div>
+                                        {searchResults.map((o) => (
+                                          <button
+                                            type="button"
+                                            key={o.id}
+                                            className="block w-full text-left px-3 py-2 hover:bg-slate-50 text-xs"
+                                            onClick={() => {
+                                              handleSelectItem(line.id, o);
+                                            }}
+                                          >
+                                            {o.item_code} - {o.item_name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()
+                                : null}
+                            </div>
+                          </td>
+                          <td className="w-24">
+                            <input
+                              type="number"
+                              className="input"
+                              value={line.qtyIssued}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value);
+                                setLines(
+                                  lines.map((l) =>
+                                    l.id === line.id
+                                      ? {
+                                          ...l,
+                                          qtyIssued: Number.isFinite(v) ? v : 0,
+                                        }
+                                      : l,
+                                  ),
                                 );
-                              })()
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="w-24">
-                          <input
-                            type="number"
-                            className="input"
-                            value={line.qtyIssued}
-                            onChange={(e) => {
-                              const v = parseFloat(e.target.value);
-                              setLines(
-                                lines.map((l) =>
-                                  l.id === line.id
-                                    ? {
-                                        ...l,
-                                        qtyIssued: Number.isFinite(v) ? v : 0,
-                                      }
-                                    : l,
-                                ),
-                              );
-                            }}
-                            min="0"
-                            step="0.001"
-                          />
-                        </td>
-                        <td className="w-24">
-                          <input
-                            type="text"
-                            className="input bg-slate-100 dark:bg-slate-700"
-                            value={line.uom || ""}
-                            readOnly
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            className="input"
-                            value={line.batchNumber}
-                            onChange={(e) =>
-                              setLines(
-                                lines.map((l) =>
-                                  l.id === line.id
-                                    ? { ...l, batchNumber: e.target.value }
-                                    : l,
-                                ),
-                              )
-                            }
-                            placeholder="Batch No"
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            className="input"
-                            value={line.serialNumber}
-                            onChange={(e) =>
-                              setLines(
-                                lines.map((l) =>
-                                  l.id === line.id
-                                    ? { ...l, serialNumber: e.target.value }
-                                    : l,
-                                ),
-                              )
-                            }
-                            placeholder="Serial No"
-                          />
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            onClick={() => removeLine(line.id)}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Remove
-                          </button>
-                        </td>
-                       </tr>
+                              }}
+                              min="0"
+                              step="0.001"
+                            />
+                          </td>
+                          <td className="w-24">
+                            <input
+                              type="text"
+                              className="input bg-slate-100 dark:bg-slate-700"
+                              value={line.uom || ""}
+                              readOnly
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              className="input"
+                              value={line.batchNumber}
+                              onChange={(e) =>
+                                setLines(
+                                  lines.map((l) =>
+                                    l.id === line.id
+                                      ? { ...l, batchNumber: e.target.value }
+                                      : l,
+                                  ),
+                                )
+                              }
+                              placeholder="Batch No"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="text"
+                              className="input"
+                              value={line.serialNumber}
+                              onChange={(e) =>
+                                setLines(
+                                  lines.map((l) =>
+                                    l.id === line.id
+                                      ? { ...l, serialNumber: e.target.value }
+                                      : l,
+                                  ),
+                                )
+                              }
+                              placeholder="Serial No"
+                            />
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => removeLine(line.id)}
+                              className="text-red-600 hover:text-red-800 text-sm font-medium"
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
                       );
                     })}
                   </tbody>

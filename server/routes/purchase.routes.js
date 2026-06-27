@@ -77,12 +77,12 @@ async function nextServiceExecutionNo(companyId, branchId) {
           u.username AS created_by_name
          FROM pur_service_executions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       AND execution_no REGEXP '^SVEX-[0-9]{6}$'
     ORDER BY CAST(SUBSTRING(execution_no, 6) AS UNSIGNED) DESC
     LIMIT 1
     `,
-    { companyId, branchId },
+    { companyId, branchId, branchIdsStr },
   );
   let nextNum = 1;
   if (rows.length > 0) {
@@ -638,6 +638,17 @@ async function ensureServiceBillTables() {
 
 async function ensureServiceSetupTables() {
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS svc_time_slots (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_ts_scope_name (company_id, name),
+      KEY idx_ts_scope (company_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS svc_work_locations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -1145,7 +1156,7 @@ async function resolveFxGainLossAccountsAuto(conn, { companyId }) {
 }
 async function postGrnAccrualTx(
   conn,
-  { companyId, branchId, grnId, inventoryAccountRef, grnClearingAccountRef },
+  { companyId, branchId, branchIdsStr, grnId, inventoryAccountRef, grnClearingAccountRef },
 ) {
   const safeCompanyId = toNumber(companyId);
   const safeBranchId = toNumber(branchId);
@@ -1154,7 +1165,7 @@ async function postGrnAccrualTx(
     throw httpError(
       400,
       "VALIDATION_ERROR",
-      "companyId, branchId and grnId are required",
+      "companyId, branchId, branchIdsStr and grnId are required",
     );
   }
   companyId = safeCompanyId;
@@ -1219,8 +1230,8 @@ async function postGrnAccrualTx(
     return Number(ins?.insertId || 0) || 0;
   }
   const [hdrRows] = await conn.execute(
-    "SELECT grn_no, grn_type, po_id, supplier_id, port_clearance_id, clearing_id FROM inv_goods_receipt_notes WHERE company_id = :companyId AND branch_id = :branchId AND id = :id LIMIT 1",
-    { companyId, branchId, id: grnId },
+    "SELECT grn_no, grn_type, po_id, supplier_id, port_clearance_id, clearing_id FROM inv_goods_receipt_notes WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND id = :id LIMIT 1",
+    { companyId, branchId, branchIdsStr, id: grnId },
   );
   const hdr = hdrRows?.[0] || null;
   if (!hdr) throw httpError(404, "NOT_FOUND", "GRN not found");
@@ -1244,7 +1255,7 @@ async function postGrnAccrualTx(
     Number(hdr.clearing_id || hdr.port_clearance_id || 0) || 0;
   if (clearanceId) {
     const [pcRows] = await conn.execute(
-      "SELECT duty_amount, other_charges FROM pur_port_clearances WHERE company_id = :companyId AND branch_id = :branchId AND id = :id LIMIT 1",
+      "SELECT duty_amount, other_charges FROM pur_port_clearances WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND id = :id LIMIT 1",
       { companyId, branchId, id: clearanceId },
     );
     const pc = pcRows?.[0] || null;
@@ -1291,7 +1302,7 @@ async function postGrnAccrualTx(
       (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
     {
       companyId,
-      branchId,
+      branchId, branchIdsStr,
       fiscalYearId,
       voucherTypeId,
       voucherNo,
@@ -1547,7 +1558,7 @@ async function createDebitNoteForReturnTx(
   conn,
   {
     companyId,
-    branchId,
+    branchId, branchIdsStr,
     return_id,
     return_no,
     return_date,
@@ -1593,7 +1604,7 @@ async function createDebitNoteForReturnTx(
       (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
     {
       companyId,
-      branchId,
+      branchId, branchIdsStr,
       fiscalYearId,
       voucherTypeId,
       voucherNo,
@@ -1701,7 +1712,7 @@ async function createDebitNoteForReturnTx(
 
 async function createDebitNoteForReturnApprovalTx(
   conn,
-  { id, companyId, branchId },
+  { id, companyId, branchId, branchIdsStr },
 ) {
   const [hdrRows] = await conn.execute(
     `SELECT * FROM pur_returns WHERE id = :id AND company_id = :companyId`,
@@ -1737,7 +1748,7 @@ async function createDebitNoteForReturnApprovalTx(
 
   return createDebitNoteForReturnTx(conn, {
     companyId,
-    branchId,
+    branchId, branchIdsStr,
     return_id: id,
     return_no,
     return_date,
@@ -1752,7 +1763,7 @@ async function createDebitNoteForReturnApprovalTx(
 
 async function postPurchaseBillVoucherTx(
   conn,
-  { companyId, branchId, billId, userId, isDirectPurchase = false },
+  { companyId, branchId, branchIdsStr, billId, userId, isDirectPurchase = false },
 ) {
   const safeCompanyId = toNumber(companyId);
   const safeBranchId = toNumber(branchId);
@@ -1762,7 +1773,7 @@ async function postPurchaseBillVoucherTx(
     throw httpError(
       400,
       "VALIDATION_ERROR",
-      "companyId, branchId and billId are required",
+      "companyId, branchId, branchIdsStr and billId are required",
     );
   }
   companyId = safeCompanyId;
@@ -1833,11 +1844,11 @@ async function postPurchaseBillVoucherTx(
        JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
        JOIN fin_voucher_lines l ON l.voucher_id = v.id
       WHERE v.company_id = :companyId
-        AND v.branch_id = :branchId
+        AND (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr))
         AND vt.code = 'PV'
         AND l.reference_no = :ref
       LIMIT 1`,
-    { companyId, branchId, ref: hdr.bill_no },
+    { companyId, branchId, branchIdsStr, ref: hdr.bill_no },
   );
   const existingId = Number(existingRows?.[0]?.id || 0) || 0;
   if (existingId) {
@@ -1980,7 +1991,7 @@ async function postPurchaseBillVoucherTx(
       (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :td, :tc, :ba, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
     {
       companyId,
-      branchId,
+      branchId, branchIdsStr,
       fiscalYearId,
       voucherTypeId: pvTypeId,
       voucherNo,
@@ -2261,7 +2272,7 @@ router.get(
   ]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await ensureDirectPurchaseTables();
@@ -2272,9 +2283,9 @@ router.get(
         `SELECT h.*, s.supplier_name
            FROM pur_direct_purchase_hdr h
            LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
-          WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+          WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
           LIMIT 1`,
-        { id, companyId, branchId },
+        { id, companyId, branchId, branchIdsStr },
       );
       const hdr = hdrRows?.[0] || null;
       if (!hdr) throw httpError(404, "NOT_FOUND", "Direct purchase not found");
@@ -2342,7 +2353,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -2382,9 +2393,9 @@ router.put(
       const [hdrRows] = await conn.execute(
         `SELECT id, dp_no, status, grn_id, bill_id
            FROM pur_direct_purchase_hdr
-          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+          WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           LIMIT 1`,
-        { id, companyId, branchId },
+        { id, companyId, branchId, branchIdsStr },
       );
       const hdr = hdrRows?.[0] || null;
       if (!hdr) throw httpError(404, "NOT_FOUND", "Direct purchase not found");
@@ -2440,7 +2451,7 @@ router.put(
         tableName: "pur_direct_purchase_hdr",
         companyId,
         currency: body.currency,
-        currencyId: body.currency_id,
+        currencyId: body.currency_id || null,
         exchangeRate: body.exchange_rate,
       });
 
@@ -2452,7 +2463,7 @@ router.put(
                 supplier_invoice_number = :supplierInvoiceNumber, supplier_invoice_date = :supplierInvoiceDate,
                 remarks = :remarks, subtotal = :subtotal, discount_amount = :discountAmount,
                 tax_amount = :taxAmount, net_amount = :netAmount
-          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           dpDate: dpDateYmd,
           companyId,
@@ -2468,7 +2479,7 @@ router.put(
           taxAmount: totalTax,
           netAmount,
           id,
-          branchId,
+          branchId, branchIdsStr,
           ...currencyBindings.params,
         },
       );
@@ -2521,7 +2532,7 @@ router.put(
          (:companyId, :branchId, :grnNo, :grnDate, 'LOCAL', NULL, :supplierId, :warehouseId, 'APPROVED', :remarks, :createdBy)`,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           grnNo,
           grnDate: dpDateYmd,
           supplierId,
@@ -2558,7 +2569,7 @@ router.put(
         );
         await updateItemAverageCostTx(conn, {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           warehouseId,
           itemId: d.itemId,
           purchaseQty: d.qty,
@@ -2568,13 +2579,13 @@ router.put(
         const [ex] = await conn.execute(
           `
           SELECT id FROM inv_item_batches
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND item_id = :itemId AND batch_no = :batchNo
            LIMIT 1
           `,
           {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             itemId: d.itemId,
             batchNo,
           },
@@ -2602,7 +2613,7 @@ router.put(
             `,
             {
               companyId,
-              branchId,
+              branchId, branchIdsStr,
               itemId: d.itemId,
               batchNo,
               cost: d.unitPrice,
@@ -2617,7 +2628,7 @@ router.put(
           // Record movement in StockService
           await recordMovementTx(conn, {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             warehouseId: d.warehouseId || null,
             itemId: d.itemId,
             transactionType: "DIRECT_PURCHASE",
@@ -2638,7 +2649,7 @@ router.put(
             `,
             {
               companyId,
-              branchId,
+              branchId, branchIdsStr,
               itemId: d.itemId,
               batchId,
               qty: d.qty,
@@ -2651,7 +2662,7 @@ router.put(
       const { voucherId: grnVoucherId, voucherNo: grnVoucherNo } =
         await postGrnAccrualTx(conn, {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           grnId,
           inventoryAccountRef: "1200",
           grnClearingAccountRef: "2100",
@@ -2670,7 +2681,7 @@ router.put(
            'DRAFT', :createdBy)`,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           billNo,
           billDate: dpDateYmd,
           supplierId,
@@ -2719,15 +2730,15 @@ router.put(
         conn,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           billId: billId,
           userId: req.user?.sub,
           isDirectPurchase: false,
         },
       );
       await conn.execute(
-        "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
-        { id: billId, companyId, branchId },
+        "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))",
+        { id: billId, companyId, branchId, branchIdsStr },
       );
       await conn.execute(
         `UPDATE pur_direct_purchase_hdr
@@ -2738,11 +2749,11 @@ router.put(
                bill_voucher_id = :billVoucherId,
                approved_by = :userId,
                posted_by = :userId
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           grnId,
           billId,
           grnVoucherId,
@@ -2963,7 +2974,7 @@ router.get(
   ]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       await ensureDirectPurchaseTables();
       await ensureDirectPurchasePaymentTypeColumn();
       await ensureDirectPurchaseExtendedColumns();
@@ -2977,6 +2988,7 @@ router.get(
             h.supplier_id,
             s.supplier_name,
             h.payment_type,
+            h.status,
             h.net_amount AS grand_total,
             h.grn_id,
             g.grn_no,
@@ -2990,10 +3002,10 @@ router.get(
           LEFT JOIN pur_bills b ON b.id = h.bill_id
         LEFT JOIN adm_users u ON u.id = h.created_by
          WHERE h.company_id = :companyId
-           AND h.branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
          ORDER BY h.dp_date DESC, h.id DESC
           `,
-          { companyId, branchId },
+          { companyId, branchId, branchIdsStr },
         ).catch(() => [])) || [];
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (err) {
@@ -3262,6 +3274,67 @@ router.delete(
 );
 
 router.get(
+  "/service-setup/time-slots",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      await ensureServiceSetupTables();
+      const items = await query(
+        "SELECT id, name FROM svc_time_slots WHERE company_id = :companyId ORDER BY name ASC",
+        { companyId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.post(
+  "/service-setup/time-slots",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const name = String(req.body?.name || "").trim();
+      if (!name) throw httpError(400, "VALIDATION_ERROR", "Name required");
+      await ensureServiceSetupTables();
+      const [result] = await pool.execute(
+        "INSERT INTO svc_time_slots (company_id, name) VALUES (:companyId, :name)",
+        { companyId, name },
+      );
+      const id = Number(result?.insertId || 0);
+      res.json({ item: { id, name } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.delete(
+  "/service-setup/time-slots/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const id = toNumber(req.params.id, 0);
+      await ensureServiceSetupTables();
+      await pool.execute(
+        "DELETE FROM svc_time_slots WHERE id = :id AND company_id = :companyId",
+        { id, companyId },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
   "/service-orders",
   requireAuth,
   requireCompanyScope,
@@ -3269,7 +3342,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       await ensureServiceOrderTables();
       await ensureServiceOrderColumns();
       const type =
@@ -3283,15 +3356,15 @@ router.get(
            customer_name, service_category AS service_type,
            status, work_location, total_amount,
            assigned_supervisor_user_id, assigned_supervisor_username,
-          created_at,
-          u.username AS created_by_name
+           pur_service_orders.created_at,
+           u.username AS created_by_name
          FROM pur_service_orders
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            ${type ? "AND order_type = :type" : ""}
          ORDER BY order_date DESC, id DESC
          LIMIT 200`,
-        { companyId, branchId, type },
+        { companyId, branchId, branchIdsStr, type },
       );
       res.json({ items });
     } catch (err) {
@@ -3336,7 +3409,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId, userId } = req.scope;
+      const { companyId, branchId, branchIdsStr = '', userId } = req.scope;
       const body = req.body || {};
       await ensureServiceOrderTables();
       await ensureServiceOrderColumns();
@@ -3367,6 +3440,7 @@ router.post(
            :total_amount, 'SUBMITTED', :assigned_supervisor_user_id, :assigned_supervisor_username, :created_by
          )`,
         {
+          companyId,
           branchId,
           orderNo,
           orderDate,
@@ -3454,7 +3528,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id, 0);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -3463,8 +3537,8 @@ router.put(
       await conn.beginTransaction();
       const [exists] = await conn.execute(
         `SELECT id FROM pur_service_orders 
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!Array.isArray(exists) || !exists.length)
         throw httpError(404, "NOT_FOUND", "Service order not found");
@@ -3500,10 +3574,11 @@ router.put(
            total_amount = COALESCE(:total_amount, total_amount),
            assigned_supervisor_user_id = COALESCE(:assigned_supervisor_user_id, assigned_supervisor_user_id),
            assigned_supervisor_username = COALESCE(:assigned_supervisor_username, assigned_supervisor_username)
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
-          branchId,
+          companyId,
+          branchId, branchIdsStr,
           orderDate: body.order_date || null,
           orderType:
             body.order_type === undefined
@@ -3651,11 +3726,11 @@ async function nextPurchaseReturnNo(companyId, branchId) {
           u.username AS created_by_name
          FROM pur_returns
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
        AND return_no REGEXP '^PR-[0-9]{6}$'
      ORDER BY CAST(SUBSTRING(return_no, 4) AS UNSIGNED) DESC
      LIMIT 1`,
-    { companyId, branchId },
+    { companyId, branchId, branchIdsStr },
   ).catch(() => []);
   let nextNum = 1;
   if (rows.length) {
@@ -3789,7 +3864,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.RFQ.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const to = toDateOnly(req.query.to) || toDateOnly(new Date());
       const from =
         toDateOnly(req.query.from) ||
@@ -3816,16 +3891,16 @@ router.get(
                  MAX(sa.status) AS status
           FROM pur_shipping_advices sa
         LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE sa.company_id = :companyId AND sa.branch_id = :branchId
+         WHERE sa.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(sa.branch_id, :branchIdsStr))
           GROUP BY sa.po_id
         ) x ON x.po_id = p.id
         WHERE p.company_id = :companyId
-          AND p.branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
           AND UPPER(p.po_type) = 'IMPORT'
           AND p.po_date BETWEEN :from AND :to
         ORDER BY p.po_date DESC, p.id DESC
         `,
-        { companyId, branchId, from, to },
+        { companyId, branchId, branchIdsStr, from, to },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -3842,7 +3917,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const to = toDateOnly(req.query.to) || toDateOnly(new Date());
       const from =
         toDateOnly(req.query.from) ||
@@ -3862,12 +3937,12 @@ router.get(
         JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
-          AND p.branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
           AND UPPER(p.po_type) = 'LOCAL'
           AND p.po_date BETWEEN :from AND :to
         ORDER BY p.po_date DESC, p.id DESC
         `,
-        { companyId, branchId, from, to },
+        { companyId, branchId, branchIdsStr, from, to },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -3888,7 +3963,7 @@ router.get(
   ]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const to = toDateOnly(req.query.to) || toDateOnly(new Date());
       const from =
         toDateOnly(req.query.from) ||
@@ -3909,7 +3984,7 @@ router.get(
             JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
-             AND p.branch_id = :branchId
+             AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
              AND p.po_date BETWEEN :from AND :to
           UNION ALL
           SELECT 'GRN' AS stage,
@@ -3922,7 +3997,7 @@ router.get(
             JOIN inv_goods_receipt_note_details d ON d.grn_id = g.id
             JOIN pur_suppliers s ON s.id = g.supplier_id
            WHERE g.company_id = :companyId
-             AND g.branch_id = :branchId
+             AND (:branchIdsStr = '' OR FIND_IN_SET(g.branch_id, :branchIdsStr))
              AND g.grn_date BETWEEN :from AND :to
            GROUP BY g.id
           UNION ALL
@@ -3935,12 +4010,12 @@ router.get(
             FROM pur_bills b
             JOIN pur_suppliers s ON s.id = b.supplier_id
            WHERE b.company_id = :companyId
-             AND b.branch_id = :branchId
+             AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
              AND b.bill_date BETWEEN :from AND :to
         ) x
         ORDER BY txn_date ASC
         `,
-        { companyId, branchId, from, to },
+        { companyId, branchId, branchIdsStr, from, to },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -3957,7 +4032,7 @@ router.get(
   requireAnyPermission(["PURCHASE.RFQ.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const to = toDateOnly(req.query.to) || toDateOnly(new Date());
       const from =
         toDateOnly(req.query.from) ||
@@ -3977,12 +4052,12 @@ router.get(
         LEFT JOIN pur_supplier_quotation_details d ON d.quotation_id = q.id
         LEFT JOIN adm_users u ON u.id = q.created_by
          WHERE q.company_id = :companyId
-          AND q.branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr))
           AND q.quotation_date BETWEEN :from AND :to
         GROUP BY q.id
         ORDER BY q.quotation_date DESC, q.id DESC
         `,
-        { companyId, branchId, from, to },
+        { companyId, branchId, branchIdsStr, from, to },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -3999,7 +4074,7 @@ router.get(
   requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.GRN.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT g.grn_no,
@@ -4014,13 +4089,13 @@ router.get(
         LEFT JOIN pur_bills b ON b.grn_id = g.id
         LEFT JOIN adm_users u ON u.id = g.created_by
          WHERE g.company_id = :companyId
-          AND g.branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(g.branch_id, :branchIdsStr))
           AND g.grn_type = 'LOCAL'
           AND b.id IS NULL
         GROUP BY g.id
         ORDER BY g.grn_date DESC, g.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -4037,7 +4112,7 @@ router.get(
   requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.GRN.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT g.grn_no,
@@ -4052,13 +4127,13 @@ router.get(
         LEFT JOIN pur_bills b ON b.grn_id = g.id
         LEFT JOIN adm_users u ON u.id = g.created_by
          WHERE g.company_id = :companyId
-          AND g.branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(g.branch_id, :branchIdsStr))
           AND g.grn_type = 'IMPORT'
           AND b.id IS NULL
         GROUP BY g.id
         ORDER BY g.grn_date DESC, g.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -4075,7 +4150,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const to = toDateOnly(req.query.to) || toDateOnly(new Date());
       const from =
         toDateOnly(req.query.from) ||
@@ -4093,12 +4168,12 @@ router.get(
           JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
-           AND p.branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
            AND UPPER(p.po_type) = 'IMPORT'
            AND p.po_date BETWEEN :from AND :to
          ORDER BY p.po_date DESC, p.id DESC
         `,
-        { companyId, branchId, from, to },
+        { companyId, branchId, branchIdsStr, from, to },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -4115,7 +4190,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       await ensureShippingAdviceETDColumn();
       await ensureShippingAdviceStatusEnum();
       const rows = await query(
@@ -4134,11 +4209,11 @@ router.get(
           JOIN pur_suppliers s ON s.id = sa.supplier_id
         LEFT JOIN adm_users u ON u.id = sa.created_by
          WHERE sa.company_id = :companyId
-           AND sa.branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(sa.branch_id, :branchIdsStr))
            AND sa.status IN ('IN_TRANSIT','ARRIVED')
          ORDER BY sa.advice_date DESC, sa.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -4155,7 +4230,7 @@ router.get(
   requireAnyPermission(["PURCHASE.BILL.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const to = toDateOnly(req.query.to) || toDateOnly(new Date());
       const from =
         toDateOnly(req.query.from) ||
@@ -4174,12 +4249,12 @@ router.get(
           JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
          WHERE b.company_id = :companyId
-           AND b.branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
            AND b.status IN ('POSTED','DRAFT','APPROVED')
            AND b.bill_date BETWEEN :from AND :to
          ORDER BY b.bill_date DESC, b.id DESC
         `,
-        { companyId, branchId, from, to },
+        { companyId, branchId, branchIdsStr, from, to },
       ).catch(() => []);
       res.json({ items: rows });
     } catch (err) {
@@ -4198,7 +4273,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT 
@@ -4209,18 +4284,18 @@ router.get(
           u.username AS created_by_name
          FROM pur_bills b
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.company_id = :companyId AND b.branch_id = :branchId) AS total_bills,
-          (SELECT COUNT(*) FROM pur_orders x WHERE x.company_id = :companyId AND x.branch_id = :branchId AND x.status IN ('DRAFT','PENDING_APPROVAL','APPROVED')) AS pending_orders,
+         WHERE b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))) AS total_bills,
+          (SELECT COUNT(*) FROM pur_orders x WHERE x.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(x.branch_id, :branchIdsStr)) AND x.status IN ('DRAFT','PENDING_APPROVAL','APPROVED')) AS pending_orders,
           SUM(CASE WHEN UPPER(p.po_type) = 'IMPORT' THEN p.total_amount ELSE 0 END) AS import_total,
           SUM(CASE WHEN UPPER(p.po_type) = 'LOCAL' THEN p.total_amount ELSE 0 END) AS local_total
         FROM pur_orders p
         LEFT JOIN adm_users u ON u.id = p.created_by
-        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        WHERE p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
           AND COALESCE(p.is_active,'Y') = 'Y'
         GROUP BY COALESCE(NULLIF(u.department,''), 'N/A')
         ORDER BY department ASC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4237,7 +4312,7 @@ router.get(
   requireAnyPermission(["PURCHASE.BILL.VIEW", "PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT 
@@ -4258,10 +4333,10 @@ router.get(
         LEFT JOIN pur_orders p ON p.id = b.po_id
         LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.company_id = :companyId AND b.branch_id = :branchId AND b.bill_type = 'IMPORT'
+         WHERE b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr)) AND b.bill_type = 'IMPORT'
         ORDER BY b.bill_date DESC, b.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4278,7 +4353,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT 
@@ -4296,10 +4371,10 @@ router.get(
         LEFT JOIN pur_port_clearances pc ON pc.po_id = p.id AND pc.company_id = p.company_id
         LEFT JOIN inv_goods_receipt_notes g ON g.po_id = p.id AND g.company_id = p.company_id
         LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE p.company_id = :companyId AND p.branch_id = :branchId
+         WHERE p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
         ORDER BY p.po_date DESC, p.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       // Compute lead times in days
       const items = (rows || []).map((r) => {
@@ -4334,7 +4409,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT p.po_no,
@@ -4348,11 +4423,11 @@ router.get(
         LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.updated_by
         LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE p.company_id = :companyId AND p.branch_id = :branchId
+         WHERE p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
           AND UPPER(p.status) IN ('CANCELLED','REJECTED')
         ORDER BY p.updated_at DESC, p.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4370,7 +4445,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePurchaseReturnTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT 
@@ -4388,10 +4463,10 @@ router.get(
         LEFT JOIN pur_suppliers s ON s.id = r.supplier_id
         LEFT JOIN inv_items it ON it.id = d.item_id
         LEFT JOIN adm_users u ON u.id = r.created_by
-         WHERE r.company_id = :companyId AND r.branch_id = :branchId
+         WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))
         ORDER BY r.return_date DESC, r.id DESC, d.id ASC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4408,7 +4483,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT 
@@ -4426,10 +4501,10 @@ router.get(
         LEFT JOIN inv_items it ON it.id = d.item_id
         LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE p.company_id = :companyId AND p.branch_id = :branchId
+         WHERE p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
         ORDER BY p.po_date DESC, p.id DESC, d.id ASC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4446,7 +4521,7 @@ router.get(
   requireAnyPermission(["PURCHASE.BILL.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT t.item_name, t.supplier_name, t.current_price, t.last_price,
@@ -4468,7 +4543,7 @@ router.get(
             FROM pur_bill_details d
             JOIN pur_bills i ON i.id = d.bill_id
         LEFT JOIN adm_users u ON u.id = d.created_by
-         WHERE i.company_id = :companyId AND i.branch_id = :branchId
+         WHERE i.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(i.branch_id, :branchIdsStr))
           ) d
           LEFT JOIN inv_items it ON it.id = d.item_id
           LEFT JOIN pur_bills bi ON bi.id = d.bill_id
@@ -4477,7 +4552,7 @@ router.get(
         ) t
         ORDER BY t.item_name ASC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4494,7 +4569,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.BILL.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT 
@@ -4511,7 +4586,7 @@ router.get(
           SELECT supplier_id, COUNT(*) AS total_pos, SUM(total_amount) AS total_value
           FROM pur_orders
         LEFT JOIN adm_users u ON u.id = s.created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           GROUP BY supplier_id
         ) o ON o.supplier_id = s.id
         LEFT JOIN (
@@ -4521,7 +4596,7 @@ router.get(
             ROUND(AVG(CASE WHEN g.grn_date IS NOT NULL AND p.delivery_date IS NOT NULL AND g.grn_date <= p.delivery_date THEN 100 ELSE 0 END), 2) AS on_time_pct
           FROM pur_orders p
           LEFT JOIN inv_goods_receipt_notes g ON g.po_id = p.id AND g.company_id = p.company_id
-          WHERE p.company_id = :companyId AND p.branch_id = :branchId
+          WHERE p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
           GROUP BY p.supplier_id
         ) otd ON otd.supplier_id = s.id
         LEFT JOIN (
@@ -4531,13 +4606,13 @@ router.get(
           FROM pur_returns r
           LEFT JOIN pur_return_details d ON d.return_id = r.id
           LEFT JOIN pur_bills bi ON bi.supplier_id = r.supplier_id AND bi.company_id = r.company_id
-          WHERE r.company_id = :companyId AND r.branch_id = :branchId
+          WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))
           GROUP BY r.supplier_id
         ) ret ON ret.supplier_id = s.id
         WHERE s.company_id = :companyId
         ORDER BY total_purchase_value DESC, s.supplier_name ASC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4554,7 +4629,7 @@ router.get(
   requireAnyPermission(["PURCHASE.BILL.VIEW", "FIN.AP.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT 
@@ -4577,11 +4652,11 @@ router.get(
          FROM pur_bills b
         LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
           AND b.status = 'POSTED'
         ORDER BY s.supplier_name ASC, b.bill_date ASC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4598,7 +4673,7 @@ router.get(
   requireAnyPermission(["PURCHASE.BILL.VIEW", "FIN.AP.VIEW"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `
         SELECT 
@@ -4616,11 +4691,11 @@ router.get(
          FROM pur_bills b
         LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
           AND b.status = 'POSTED'
         ORDER BY s.supplier_name ASC, b.bill_date ASC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: rows || [] });
     } catch (err) {
@@ -4640,7 +4715,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePurchaseReturnTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const items = await query(
         `
         SELECT r.id, r.return_no, r.return_date,
@@ -4662,10 +4737,10 @@ router.get(
           GROUP BY t.document_id
         ) iw ON iw.document_id = r.id
         LEFT JOIN adm_users u ON u.id = r.created_by
-         WHERE r.company_id = :companyId AND r.branch_id = :branchId
+         WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))
         ORDER BY r.return_date DESC, r.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (err) {
@@ -4682,7 +4757,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePurchaseReturnTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const nextNo = await nextPurchaseReturnNo(companyId, branchId);
       res.json({ nextNo });
     } catch (err) {
@@ -4699,7 +4774,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePurchaseReturnTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = Number(req.params.id || 0);
       if (!id) return res.status(404).json({ message: "Not found" });
       const hdr = await query(
@@ -4709,8 +4784,8 @@ router.get(
            FROM pur_returns r
            LEFT JOIN pur_suppliers s ON s.id = r.supplier_id
            LEFT JOIN adm_users u ON u.id = r.created_by
-          WHERE r.id = :id AND r.company_id = :companyId AND r.branch_id = :branchId`,
-        { id, companyId, branchId },
+          WHERE r.id = :id AND r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       const row = hdr?.[0] || null;
       if (!row) return res.status(404).json({ message: "Not found" });
@@ -4743,7 +4818,7 @@ router.post(
     try {
       await ensurePurchaseReturnTables();
       await ensureStockBalancesWarehouseInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
       const return_no =
         String(body.return_no || "").trim() ||
@@ -4808,7 +4883,7 @@ router.post(
         `,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           return_no,
           return_date,
           supplier_id,
@@ -4848,7 +4923,7 @@ router.post(
            ON DUPLICATE KEY UPDATE qty = qty - :qty`,
           {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             warehouse_id,
             item_id: ln.item_id,
             qty: ln.qty,
@@ -4874,7 +4949,7 @@ router.post(
       if (shouldCreateDebitNote) {
         voucherId = await createDebitNoteForReturnTx(conn, {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           return_id,
           return_no,
           return_date,
@@ -4923,7 +4998,7 @@ router.post(
   requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = Number(req.params.id);
       if (!Number.isFinite(id))
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4951,7 +5026,7 @@ router.post(
           await createDebitNoteForReturnApprovalTx(conn, {
             id,
             companyId,
-            branchId,
+            branchId, branchIdsStr,
           });
           await conn.commit();
         } catch (e) {
@@ -4984,7 +5059,7 @@ router.post(
           await createDebitNoteForReturnApprovalTx(conn, {
             id,
             companyId,
-            branchId,
+            branchId, branchIdsStr,
           });
           await conn.commit();
         } catch (e) {
@@ -5151,7 +5226,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       await ensureServiceExecutionTables();
       const type =
         req.query.type &&
@@ -5169,12 +5244,12 @@ router.get(
          FROM pur_service_executions e
         JOIN pur_service_orders o ON o.id = e.order_id
         LEFT JOIN adm_users u ON u.id = e.created_by
-         WHERE e.company_id = :companyId AND e.branch_id = :branchId
+         WHERE e.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))
           ${type ? "AND o.order_type = :type" : ""}
         ORDER BY e.id DESC
         LIMIT 200
         `,
-        { companyId, branchId, type },
+        { companyId, branchId, branchIdsStr, type },
       );
       res.json({ items });
     } catch (err) {
@@ -5191,7 +5266,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId, userId } = req.scope;
+      const { companyId, branchId, branchIdsStr = '', userId } = req.scope;
       const body = req.body || {};
       await ensureServiceExecutionTables();
       await conn.beginTransaction();
@@ -5266,7 +5341,7 @@ router.get(
   requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await ensureServiceExecutionTables();
@@ -5282,10 +5357,10 @@ router.get(
          FROM pur_service_executions e
         JOIN pur_service_orders o ON o.id = e.order_id
         LEFT JOIN adm_users u ON u.id = e.created_by
-         WHERE e.company_id = :companyId AND e.branch_id = :branchId AND e.id = :id
+         WHERE e.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr)) AND e.id = :id
         LIMIT 1
         `,
-        { companyId, branchId, id },
+        { companyId, branchId, branchIdsStr, id },
       );
       const base = rows?.[0] || null;
       if (!base)
@@ -5322,7 +5397,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -5342,8 +5417,8 @@ router.put(
 
       const [exists] = await conn.execute(
         `SELECT id FROM pur_shipping_advices 
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!Array.isArray(exists) || !exists.length) {
         throw httpError(404, "NOT_FOUND", "Shipping Advice not found");
@@ -5361,10 +5436,10 @@ router.put(
            eta_date = :eta,
            status = :status,
            remarks = :remarks
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
-          branchId,
+          branchId, branchIdsStr,
           adviceDate,
           poId,
           supplierId,
@@ -5411,15 +5486,15 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
 
       const sql = `SELECT MAX(CAST(SUBSTRING(quotation_no, 4) AS UNSIGNED)) AS maxnum
          FROM pur_supplier_quotations
          WHERE company_id = :companyId
-           AND branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            AND quotation_no REGEXP '^SQ-[0-9]{6}$'`;
 
-      const rows = await query(sql, { companyId, branchId });
+      const rows = await query(sql, { companyId, branchId, branchIdsStr });
       const maxnum = Number(rows?.[0]?.maxnum || 0);
       const next = maxnum + 1;
       const nextNo = `SQ-${String(next).padStart(6, "0")}`;
@@ -5754,15 +5829,15 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
 
       const sql = `SELECT MAX(CAST(SUBSTRING(rfq_no, 4) AS UNSIGNED)) AS maxnum
          FROM pur_rfqs
          WHERE company_id = :companyId
-           AND branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            AND rfq_no REGEXP '^RQ-[0-9]{6}$'`;
 
-      const rows = await query(sql, { companyId, branchId });
+      const rows = await query(sql, { companyId, branchId, branchIdsStr });
       const maxnum = Number(rows?.[0]?.maxnum || 0);
       const next = maxnum + 1;
       const nextNo = `RQ-${String(next).padStart(6, "0")}`;
@@ -5781,7 +5856,7 @@ router.get(
   requirePermission("PURCHASE.RFQ.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `SELECT r.*, COALESCE(s.cnt, 0) AS supplier_count,
           r.created_at,
@@ -5793,9 +5868,9 @@ router.get(
            GROUP BY rfq_id
          ) s ON s.rfq_id = r.id
         LEFT JOIN adm_users u ON u.id = r.created_by
-         WHERE r.company_id = :companyId AND r.branch_id = :branchId
+         WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))
          ORDER BY r.rfq_date DESC, r.id DESC`,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       res.json({ items: rows });
     } catch (err) {
@@ -5813,7 +5888,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       const body = req.body || {};
       await ensureStockBalancesWarehouseInfrastructure();
@@ -5846,7 +5921,7 @@ router.put(
       if (poId) {
         const [po] = await conn.execute(
           "SELECT status FROM pur_orders WHERE id = ? AND company_id = ? AND branch_id = ?",
-          [poId, companyId, branchId],
+          [poId, companyId, branchId, branchIdsStr],
         );
         if (!po.length) throw httpError(404, "NOT_FOUND", "PO not found");
         if (po[0].status !== "APPROVED") {
@@ -5960,10 +6035,10 @@ router.put(
            shipping_company = :shippingCompany,
            port_of_entry = :portOfEntry,
            remarks = :remarks
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
-          branchId,
+          branchId, branchIdsStr,
           grnDate,
           supplierId,
           poId: poId || null,
@@ -6028,7 +6103,7 @@ router.put(
             agg.qty > 0 ? Number((agg.value / agg.qty).toFixed(2)) : 0;
           await updateItemAverageCostTx(conn, {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             warehouseId,
             itemId,
             purchaseQty: delta,
@@ -6039,7 +6114,7 @@ router.put(
             `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
              VALUES (:companyId, :branchId, :warehouseId, :itemId, :delta)
              ON DUPLICATE KEY UPDATE qty = qty + :delta`,
-            { companyId, branchId, warehouseId, itemId, delta },
+            { companyId, branchId, branchIdsStr, warehouseId, itemId, delta },
           );
         }
       }
@@ -6063,7 +6138,7 @@ router.get(
   requirePermission("PURCHASE.RFQ.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const rows = await query(
@@ -6072,8 +6147,8 @@ router.get(
           u.username AS created_by_name
          FROM pur_rfqs
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!rows.length) throw httpError(404, "NOT_FOUND", "RFQ not found");
       const details = await query(
@@ -6115,7 +6190,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
       await ensureGrnUomConversionColumns();
       await ensureGrnUomConversionColumns();
@@ -6133,7 +6208,8 @@ router.post(
         `INSERT INTO pur_rfqs (company_id, branch_id, rfq_no, rfq_date, expiry_date, status, delivery_terms, terms_conditions, remarks, created_by)
          VALUES (:companyId, :branchId, :rfqNo, :rfqDate, :expiryDate, :status, :deliveryTerms, :termsConditions, :remarks, :createdBy)`,
         {
-          branchId,
+          companyId,
+          branchId, branchIdsStr,
           rfqNo,
           rfqDate,
           expiryDate,
@@ -6187,7 +6263,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6215,10 +6291,11 @@ router.put(
            delivery_terms = :deliveryTerms,
            terms_conditions = :termsConditions,
            remarks = :remarks
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
-          branchId,
+          companyId,
+          branchId, branchIdsStr,
           rfqDate,
           expiryDate,
           status: body.status || existing[0].status,
@@ -6275,7 +6352,7 @@ router.get(
   requirePermission("PURCHASE.QUOTATION.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       await ensureSupplierTypeColumn();
       const rows = await query(
         `SELECT q.*, s.supplier_name, s.supplier_type,
@@ -6284,9 +6361,9 @@ router.get(
          FROM pur_supplier_quotations q 
          JOIN pur_suppliers s ON s.id = q.supplier_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.company_id = :companyId AND q.branch_id = :branchId 
+         WHERE q.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr)) 
          ORDER BY q.quotation_date DESC, q.id DESC`,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       res.json({ items: rows });
     } catch (err) {
@@ -6303,7 +6380,7 @@ router.get(
   requirePermission("PURCHASE.QUOTATION.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const rows = await query(
         `SELECT q.*, s.supplier_name,
           q.created_at,
@@ -6311,9 +6388,9 @@ router.get(
          FROM pur_supplier_quotations q 
          JOIN pur_suppliers s ON s.id = q.supplier_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.company_id = :companyId AND q.branch_id = :branchId 
+         WHERE q.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr)) 
          ORDER BY q.quotation_date DESC, q.id DESC`,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       res.json({ items: rows });
     } catch (err) {
@@ -6330,7 +6407,7 @@ router.get(
   requirePermission("PURCHASE.QUOTATION.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await ensureSupplierTypeColumn();
@@ -6342,8 +6419,8 @@ router.get(
          FROM pur_supplier_quotations q 
          JOIN pur_suppliers s ON s.id = q.supplier_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE q.id = :id AND q.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Quotation not found");
@@ -6373,7 +6450,7 @@ router.get(
   requirePermission("PURCHASE.QUOTATION.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6384,8 +6461,8 @@ router.get(
          FROM pur_supplier_quotations q 
          JOIN pur_suppliers s ON s.id = q.supplier_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE q.id = :id AND q.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Quotation not found");
@@ -6416,7 +6493,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
       const quotationNo = body.quotation_no || nextDocNo("SQ");
       const quotationDate = body.quotation_date || new Date();
@@ -6456,14 +6533,14 @@ router.post(
          (:companyId, :branchId, :quotationNo, :quotationDate, :supplierId, :rfqId,
           :validUntil, :totalAmount, 'DRAFT', :remarks, :currencyId, :exchangeRate, :createdBy)`,
         {
-          branchId,
+          companyId, companyId, branchId, branchIdsStr,
           quotationNo,
           quotationDate,
           supplierId,
           rfqId: rfqId || null,
           validUntil: body.valid_until || null,
           totalAmount,
-          remarks: body.remarks,
+          remarks: body.remarks || null,
           currencyId: body.currency_id || null,
           exchangeRate:
             body.exchange_rate === undefined || body.exchange_rate === null
@@ -6502,7 +6579,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
       const quotationNo = body.quotation_no || nextDocNo("SQ");
       const quotationDate = body.quotation_date || new Date();
@@ -6542,14 +6619,14 @@ router.post(
          (:companyId, :branchId, :quotationNo, :quotationDate, :supplierId, :rfqId,
           :validUntil, :totalAmount, 'DRAFT', :remarks, :currencyId, :exchangeRate, :createdBy)`,
         {
-          branchId,
+          companyId, branchId, branchIdsStr,
           quotationNo,
           quotationDate,
           supplierId,
           rfqId: rfqId || null,
           validUntil: body.valid_until || null,
           totalAmount,
-          remarks: body.remarks,
+          remarks: body.remarks || null,
           currencyId: body.currency_id || null,
           exchangeRate:
             body.exchange_rate === undefined || body.exchange_rate === null
@@ -6588,7 +6665,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -6632,10 +6709,10 @@ router.put(
              remarks = :remarks,
              currency_id = :currencyId,
              exchange_rate = :exchangeRate
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
-          branchId,
+          branchId, branchIdsStr,
           quotationNo: body.quotation_no,
           quotationDate: body.quotation_date || new Date(),
           supplierId,
@@ -6643,7 +6720,7 @@ router.put(
           validUntil: body.valid_until || null,
           totalAmount,
           status: body.status || "DRAFT",
-          remarks: body.remarks,
+          remarks: body.remarks || null,
           currencyId: body.currency_id || null,
           exchangeRate:
             body.exchange_rate === undefined || body.exchange_rate === null
@@ -6686,7 +6763,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -6730,10 +6807,10 @@ router.put(
              remarks = :remarks,
              currency_id = :currencyId,
              exchange_rate = :exchangeRate
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
-          branchId,
+          branchId, branchIdsStr,
           quotationNo: body.quotation_no,
           quotationDate: body.quotation_date || new Date(),
           supplierId,
@@ -6741,7 +6818,7 @@ router.put(
           validUntil: body.valid_until || null,
           totalAmount,
           status: body.status || "DRAFT",
-          remarks: body.remarks,
+          remarks: body.remarks || null,
           currencyId: body.currency_id || null,
           exchangeRate:
             body.exchange_rate === undefined || body.exchange_rate === null
@@ -6829,7 +6906,7 @@ router.delete(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const userId = Number(req.user?.sub);
@@ -6849,8 +6926,8 @@ router.delete(
           u.username AS created_by_name
          FROM pur_shipping_advices
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+        { id, companyId, branchId, branchIdsStr },
       ).catch(() => []);
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Shipping Advice not found");
@@ -6860,8 +6937,8 @@ router.delete(
           u.username AS created_by_name
          FROM pur_port_clearances
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId AND advice_id = :id LIMIT 1`,
-        { companyId, branchId, id },
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND advice_id = :id LIMIT 1`,
+        { companyId, branchId, branchIdsStr, id },
       ).catch(() => []);
       if (refs.length) {
         throw httpError(
@@ -6884,8 +6961,8 @@ router.delete(
       await conn.execute(
         `UPDATE pur_shipping_advices 
            SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW() 
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       await conn.commit();
       res.json({ success: true, id });
@@ -6952,7 +7029,7 @@ router.delete(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const userId = Number(req.user?.sub);
@@ -6972,8 +7049,8 @@ router.delete(
           u.username AS created_by_name
          FROM pur_port_clearances
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+        { id, companyId, branchId, branchIdsStr },
       ).catch(() => []);
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Port Clearance not found");
@@ -6983,8 +7060,8 @@ router.delete(
           u.username AS created_by_name
          FROM inv_goods_receipt_notes
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId AND port_clearance_id = :id LIMIT 1`,
-        { companyId, branchId, id },
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND port_clearance_id = :id LIMIT 1`,
+        { companyId, branchId, branchIdsStr, id },
       ).catch(() => []);
       if (refs.length) {
         throw httpError(
@@ -7006,8 +7083,8 @@ router.delete(
       await query(
         `UPDATE pur_port_clearances 
            SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW()
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       res.json({ success: true, id });
     } catch (e) {
@@ -7024,7 +7101,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const poType = String(req.query.po_type || "").toUpperCase();
 
       let prefix = "PO";
@@ -7034,10 +7111,10 @@ router.get(
       const sql = `SELECT MAX(CAST(SUBSTRING(po_no, 4) AS UNSIGNED)) AS maxnum
          FROM pur_orders
          WHERE company_id = :companyId
-           AND branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            AND po_no REGEXP '^${prefix}-[0-9]{6}$'`;
 
-      const rows = await query(sql, { companyId, branchId });
+      const rows = await query(sql, { companyId, branchId, branchIdsStr });
       const maxnum = Number(rows?.[0]?.maxnum || 0);
       const next = maxnum + 1;
       const nextNo = `${prefix}-${String(next).padStart(6, "0")}`;
@@ -7056,7 +7133,7 @@ router.get(
   requirePermission("PURCHASE.ORDER.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const { status } = req.query;
       await ensurePurchaseOrderAuditColumns();
       let sql = `
@@ -7095,11 +7172,11 @@ router.get(
         ) x ON x.document_id = p.id
         LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         LEFT JOIN adm_users cu ON cu.id = p.created_by
-        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        WHERE p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
       `;
       if (status) sql += " AND p.status = :status";
       sql += " ORDER BY p.po_date DESC, p.id DESC";
-      const rows = await query(sql, { companyId, branchId, status });
+      const rows = await query(sql, { companyId, branchId, branchIdsStr, status });
       res.json({ items: rows });
     } catch (err) {
       next(err);
@@ -7115,7 +7192,7 @@ router.delete(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const userId = Number(req.user?.sub);
@@ -7131,10 +7208,10 @@ router.delete(
           u.username AS created_by_name
          FROM pur_orders
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
          LIMIT 1
         `,
-        { id, companyId, branchId },
+        { id, companyId, branchId, branchIdsStr },
       ).catch(() => []);
       if (!rows.length) throw httpError(404, "NOT_FOUND", "PO not found");
       const poType = String(rows[0].po_type || "").toUpperCase();
@@ -7146,7 +7223,7 @@ router.delete(
           u.username AS created_by_name
          FROM inv_goods_receipt_notes
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND po_id = :id
            LIMIT 1
           `,
@@ -7193,8 +7270,8 @@ router.delete(
         );
       } catch {}
       await conn.execute(
-        "UPDATE pur_orders SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW() WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
-        { id, companyId, branchId },
+        "UPDATE pur_orders SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW() WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))",
+        { id, companyId, branchId, branchIdsStr },
       );
       await conn.commit();
       res.json({ success: true, id });
@@ -7217,7 +7294,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
       await ensureGrnUomConversionColumns();
       await ensureUnitConversionsTable();
@@ -7243,7 +7320,7 @@ router.post(
       if (poId) {
         const [po] = await conn.execute(
           "SELECT status FROM pur_orders WHERE id = ? AND company_id = ? AND branch_id = ?",
-          [poId, companyId, branchId],
+          [poId, companyId, branchId, branchIdsStr],
         );
         if (!po.length) throw httpError(404, "NOT_FOUND", "PO not found");
         if (po[0].status !== "APPROVED") {
@@ -7350,7 +7427,7 @@ router.post(
           :invoiceNo, :invoiceDate, :invoiceAmount, :invoiceDueDate, :billOfLading, :customsEntryNo, :shippingCompany, :portOfEntry,
           'DRAFT', :remarks, :createdBy)`,
         {
-          branchId,
+          branchId, branchIdsStr,
           grnNo,
           grnDate,
           grnType,
@@ -7382,7 +7459,7 @@ router.post(
         );
         await updateItemAverageCostTx(conn, {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           warehouseId,
           itemId: d.itemId,
           purchaseQty: d.qtyAccepted,
@@ -7392,7 +7469,7 @@ router.post(
         // Record movement in StockService
         await recordMovementTx(conn, {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           warehouseId,
           itemId: d.itemId,
           transactionType: "GRN",
@@ -7427,13 +7504,13 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
       const [hdrRows] = await conn.execute(
-        "SELECT grn_no, status FROM inv_goods_receipt_notes WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1",
-        { id, companyId, branchId },
+        "SELECT grn_no, status FROM inv_goods_receipt_notes WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1",
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!hdrRows.length) throw httpError(404, "NOT_FOUND", "GRN not found");
       const status = String(hdrRows[0].status || "DRAFT");
@@ -7447,14 +7524,14 @@ router.post(
       await conn.beginTransaction();
       const { voucherId, voucherNo, amount } = await postGrnAccrualTx(conn, {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         grnId: id,
         inventoryAccountRef: "1200",
         grnClearingAccountRef: "2100",
       });
       await conn.execute(
-        "UPDATE inv_goods_receipt_notes SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
-        { id, companyId, branchId },
+        "UPDATE inv_goods_receipt_notes SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))",
+        { id, companyId, branchId, branchIdsStr },
       );
       await conn.commit();
       res.json({
@@ -7484,7 +7561,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await conn.beginTransaction();
@@ -7493,9 +7570,9 @@ router.post(
            FROM pur_bills b
            JOIN pur_suppliers s ON s.id = b.supplier_id
            LEFT JOIN inv_goods_receipt_notes g ON g.id = b.grn_id
-          WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+          WHERE b.id = :id AND b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
           LIMIT 1`,
-        { id, companyId, branchId },
+        { id, companyId, branchId, branchIdsStr },
       );
       const bill = rows?.[0] || null;
       if (!bill) throw httpError(404, "NOT_FOUND", "Purchase bill not found");
@@ -7577,14 +7654,14 @@ router.post(
       }
       const { voucherId, voucherNo } = await postPurchaseBillVoucherTx(conn, {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         billId: id,
         userId: req.user?.sub,
         isDirectPurchase: false,
       });
       await conn.execute(
-        "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
-        { id, companyId, branchId },
+        "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))",
+        { id, companyId, branchId, branchIdsStr },
       );
       await conn.commit();
       res.json({
@@ -7612,7 +7689,7 @@ router.get(
   requirePermission("PURCHASE.ORDER.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const rows = await query(
@@ -7622,8 +7699,8 @@ router.get(
          FROM pur_orders p 
          JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE p.id = :id AND p.company_id = :companyId AND p.branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE p.id = :id AND p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!rows.length) throw httpError(404, "NOT_FOUND", "PO not found");
       const po = { ...rows[0] };
@@ -7678,7 +7755,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
       await ensurePurchaseOrderPaymentTypeColumn();
       await ensurePurchaseOrderAuditColumns();
@@ -7723,7 +7800,7 @@ router.post(
         tableName: "pur_orders",
         companyId,
         currency: body.currency,
-        currencyId: body.currency_id,
+        currencyId: body.currency_id || null,
         exchangeRate: body.exchange_rate,
       });
       const [ins] = await conn.execute(
@@ -7743,7 +7820,7 @@ router.post(
           :createdBy, :quotationId
         )`,
         {
-          branchId,
+          companyId, branchId, branchIdsStr,
           poNo,
           poDate,
           supplierId,
@@ -7814,7 +7891,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -7861,7 +7938,7 @@ router.put(
         tableName: "pur_orders",
         companyId,
         currency: body.currency,
-        currencyId: body.currency_id,
+        currencyId: body.currency_id || null,
         exchangeRate: body.exchange_rate,
       });
       const poDate = body.po_date || new Date();
@@ -7892,10 +7969,10 @@ router.put(
                 insurance_required = :insuranceRequired,
                 ${currencyBindings.updateSets.length ? `${currencyBindings.updateSets.join(", ")},` : ""}
                 quotation_id = :quotationId
-          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id,
-          branchId,
+          companyId, branchId, branchIdsStr,
           poDate,
           supplierId,
           poType: body.po_type || "LOCAL",
@@ -7977,7 +8054,7 @@ router.post(
   requirePermission("PURCHASE.ORDER.MANAGE"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const amount = req.body?.amount ?? null;
@@ -7997,8 +8074,8 @@ router.post(
           return res.json({ status: "SUBMITTED" });
         }
         await query(
-          `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
+          `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+          { id, companyId, branchId, branchIdsStr },
         );
         return res.json({ status: "APPROVED" });
       }
@@ -8014,11 +8091,101 @@ router.post(
       );
       if (!steps.length) {
         await query(
-          `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
+          `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+          { id, companyId, branchId, branchIdsStr },
         );
         return res.json({ status: "APPROVED" });
       }
+
+      const first = steps[0];
+      if (!first.approver_user_id) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Workflow step 1 has no approver_user_id configured",
+        );
+      }
+      const targetUserId =
+        req.body?.target_user_id == null
+          ? null
+          : Number(req.body.target_user_id);
+
+      const allowedUsers = await query(
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf AND step_order = :ord`,
+        { wf: activeWf.id, ord: first.step_order },
+      );
+      const allowedSet = new Set(
+        allowedUsers.map((r) => Number(r.approver_user_id)),
+      );
+      let assignedToUserId = Number(first.approver_user_id);
+      if (
+        targetUserId != null &&
+        Number.isFinite(targetUserId) &&
+        allowedSet.has(Number(targetUserId))
+      ) {
+        assignedToUserId = Number(targetUserId);
+      } else if (allowedUsers.length > 0) {
+        assignedToUserId = Number(allowedUsers[0].approver_user_id);
+      }
+
+      const dwRes = await query(
+        `
+        INSERT INTO adm_document_workflows
+          (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
+        VALUES
+          (:companyId, :workflowId, :documentId, 'PURCHASE_ORDER', :amount, :stepOrder, 'PENDING', :assignedTo)
+        `,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          documentId: id,
+          amount: amount === null ? null : Number(amount),
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      const instanceId = dwRes.insertId;
+      await query(
+        `
+        INSERT INTO adm_workflow_tasks
+          (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+        VALUES
+          (:companyId, :workflowId, :dwId, :documentId, 'PURCHASE_ORDER', :stepOrder, :assignedTo, 'PENDING')
+        `,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          dwId: instanceId,
+          documentId: id,
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      await query(
+        `
+        INSERT INTO adm_workflow_logs
+          (document_workflow_id, step_order, action, actor_user_id, comments)
+        VALUES
+          (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)
+        `,
+        {
+          dwId: instanceId,
+          stepOrder: first.step_order,
+          actor: req.user.sub,
+          comments: "",
+        },
+      );
+
+      await query(
+        `UPDATE pur_orders SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
+      );
+      res.json({ id, status: "PENDING_APPROVAL" });
     } catch (err) {
       next(err);
     }
@@ -8033,7 +8200,7 @@ router.get(
   requirePermission("PURCHASE.ORDER.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const { status, type } = req.query;
       await ensurePurchaseOrderAuditColumns();
       let sql = `
@@ -8106,9 +8273,9 @@ router.get(
         ) a ON a.document_id = p.id
         LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
         LEFT JOIN adm_users cu ON cu.id = p.created_by
-        WHERE p.company_id = :companyId AND p.branch_id = :branchId
+        WHERE p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
       `;
-      const params = { companyId, branchId };
+      const params = { companyId, branchId, branchIdsStr };
       if (status) {
         sql += " AND p.status = :status";
         params.status = status;
@@ -8134,7 +8301,7 @@ router.put(
   requirePermission("PURCHASE.ORDER.MANAGE"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       const { status } = req.body;
 
@@ -8150,14 +8317,14 @@ router.put(
         throw httpError(400, "VALIDATION_ERROR", "Invalid status");
       }
 
-      const updates = { status, id, companyId, branchId };
+      const updates = { status, id, companyId, branchId, branchIdsStr };
       let sql = "UPDATE pur_orders SET status = :status";
       if (status === "APPROVED") {
         sql += ", approved_by = :userId, approved_at = NOW()";
         updates.userId = req.user.sub;
       }
       sql +=
-        " WHERE id = :id AND company_id = :companyId AND branch_id = :branchId";
+        " WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))";
 
       await query(sql, updates);
       res.json({ ok: true });
@@ -8204,20 +8371,20 @@ router.get(
   requirePermission("PURCHASE.BILL.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const status = req.query.status ? String(req.query.status) : "APPROVED";
 
       let sql = `
         SELECT g.id, g.grn_no, g.grn_date, g.grn_type, g.supplier_id, g.po_id, g.port_clearance_id, g.status, s.supplier_name
         FROM inv_goods_receipt_notes g
         JOIN pur_suppliers s ON s.id = g.supplier_id
-        WHERE g.company_id = :companyId AND g.branch_id = :branchId
+        WHERE g.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(g.branch_id, :branchIdsStr))
           AND g.status = :status
       `;
 
       sql += ` ORDER BY g.grn_date DESC, g.id DESC`;
 
-      const rows = await query(sql, { companyId, branchId, status });
+      const rows = await query(sql, { companyId, branchId, branchIdsStr, status });
       res.json({ items: rows });
     } catch (err) {
       next(err);
@@ -8233,7 +8400,7 @@ router.get(
   requirePermission("PURCHASE.BILL.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -8246,9 +8413,9 @@ router.get(
         JOIN pur_suppliers s ON s.id = g.supplier_id
         LEFT JOIN pur_port_clearances pc ON pc.id = g.port_clearance_id
         LEFT JOIN adm_users u ON u.id = g.created_by
-         WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
+         WHERE g.id = :id AND g.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(g.branch_id, :branchIdsStr))
         `,
-        { id, companyId, branchId },
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!rows.length) throw httpError(404, "NOT_FOUND", "GRN not found");
 
@@ -8273,6 +8440,62 @@ router.get(
 );
 
 router.get(
+  "/bills/outstanding",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("PURCHASE.BILL.VIEW"),
+  async (req, res, next) => {
+    try {
+      await ensurePurBillsPaymentStatusObjects();
+      const { companyId, branchId, branchIdsStr } = req.scope;
+      const supplierId = req.query.supplier_id ? Number(req.query.supplier_id) : null;
+
+      let sql = `
+        SELECT b.id,
+               b.bill_no,
+               b.bill_date,
+               b.bill_type,
+               b.po_id,
+               b.supplier_id,
+               s.supplier_name,
+               b.total_amount,
+               b.tax_amount,
+               b.net_amount,
+               b.status,
+               COALESCE(b.amount_paid, 0) AS amount_paid,
+               COALESCE(b.payment_status, 'UNPAID') AS payment_status,
+               b.grn_id,
+               b.due_date,
+               b.currency_id,
+               b.exchange_rate,
+               b.payment_terms,
+               b.discount_amount,
+               b.freight_charges,
+               b.other_charges
+          FROM pur_bills b
+         JOIN pur_suppliers s ON s.id = b.supplier_id
+         WHERE b.company_id = :companyId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
+           AND b.status IN ('POSTED', 'APPROVED')
+           AND COALESCE(b.payment_status, 'UNPAID') != 'PAID'`;
+      const params = { companyId, branchIdsStr: branchIdsStr || "" };
+
+      if (supplierId) {
+        sql += " AND b.supplier_id = :supplierId";
+        params.supplierId = supplierId;
+      }
+      sql += " ORDER BY b.bill_date DESC";
+
+      const rows = await query(sql, params);
+      res.json({ items: rows || [] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
   "/bills",
   requireAuth,
   requireCompanyScope,
@@ -8281,7 +8504,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensurePurBillsPaymentStatusObjects();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const billType = req.query.bill_type
         ? String(req.query.bill_type).toUpperCase()
         : null;
@@ -8318,11 +8541,11 @@ router.get(
         LEFT JOIN pur_orders p ON p.id = b.po_id
         LEFT JOIN inv_goods_receipt_notes g ON g.id = b.grn_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
           AND (:billType IS NULL OR b.bill_type = :billType)
         ORDER BY b.bill_date DESC, b.id DESC
         `,
-        { companyId, branchId, billType },
+        { companyId, branchId, branchIdsStr, billType },
       );
 
       res.json({ items: rows });
@@ -8340,7 +8563,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const userId = Number(req.user?.sub);
@@ -8394,10 +8617,10 @@ router.post(
           u.username AS created_by_name
          FROM pur_bills
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
          LIMIT 1
         `,
-          { id, companyId, branchId },
+          { id, companyId, branchId, branchIdsStr },
         )
         .catch(() => [[]]);
       if (!rows.length)
@@ -8437,14 +8660,14 @@ router.post(
         .catch(() => null);
       await conn
         .execute(
-          `DELETE FROM pur_bills WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
+          `DELETE FROM pur_bills WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+          { id, companyId, branchId, branchIdsStr },
         )
         .catch(() => null);
       if (status === "POSTED") {
         await postPurchaseBillVoucherTx(conn, {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           billId: id,
           userId: req.user?.sub,
           isDirectPurchase: false,
@@ -8535,6 +8758,13 @@ async function ensureGeneralRequisitionTables() {
       )
       .catch(() => {});
   }
+  if (!(await hasColumn("pur_general_requisitions", "timeline"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_general_requisitions ADD COLUMN timeline VARCHAR(255) NULL AFTER remarks",
+      )
+      .catch(() => {});
+  }
   if (!(await hasTable("pur_general_requisition_items"))) {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS pur_general_requisition_items (
@@ -8555,18 +8785,18 @@ async function ensureGeneralRequisitionTables() {
   }
 }
 
-async function nextGeneralRequisitionNo(companyId, branchId) {
+async function nextGeneralRequisitionNo(companyId, branchId, branchIdsStr) {
   const rows = await query(
     `SELECT requisition_no,
           created_at,
           u.username AS created_by_name
          FROM pur_general_requisitions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
        AND requisition_no REGEXP '^GR-[0-9]{6}$'
      ORDER BY CAST(SUBSTRING(requisition_no, 4) AS UNSIGNED) DESC
      LIMIT 1`,
-    { companyId, branchId },
+    { companyId, branchId, branchIdsStr: branchIdsStr || "" },
   );
   let nextNum = 1;
   if (rows.length > 0) {
@@ -8587,7 +8817,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const {
         status,
         from_date,
@@ -8597,8 +8827,8 @@ router.get(
         only_unlinked,
       } = req.query;
       let where =
-        "WHERE r.company_id = :companyId AND r.branch_id = :branchId AND COALESCE(r.is_active,'Y') = 'Y'";
-      const params = { companyId, branchId };
+        "WHERE r.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)) AND COALESCE(r.is_active,'Y') = 'Y'";
+      const params = { companyId, branchId, branchIdsStr };
       if (status) {
         where += " AND r.status = :status";
         params.status = status;
@@ -8670,7 +8900,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
       const { ref_type, ref_id } = req.body || {};
@@ -8682,8 +8912,8 @@ router.post(
           u.username AS created_by_name
          FROM pur_general_requisitions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Requisition not found");
@@ -8709,7 +8939,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
       const rows = await query(
@@ -8718,8 +8948,8 @@ router.get(
           u.username AS created_by_name
          FROM pur_general_requisitions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Requisition not found");
@@ -8749,7 +8979,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const userId = req.user?.sub || null;
       const {
         requisition_date,
@@ -8774,12 +9004,12 @@ router.post(
           "VALIDATION_ERROR",
           "At least one line item is required",
         );
-      const requisition_no = await nextGeneralRequisitionNo(branchId);
+      const requisition_no = await nextGeneralRequisitionNo(companyId, branchId, branchIdsStr);
       const finalStatus = status === "SUBMITTED" ? "SUBMITTED" : "DRAFT";
       const [result] = await pool.query(
         `INSERT INTO pur_general_requisitions
-         (company_id, branch_id, requisition_no, requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, created_by)
-         VALUES (:companyId, :branchId, :requisition_no, :requisition_date, :requisition_type, :department, :requested_by, :purpose, :priority, :required_date, :status, :remarks, :created_by)`,
+         (company_id, branch_id, requisition_no, requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, timeline, created_by)
+         VALUES (:companyId, :branchId, :requisition_no, :requisition_date, :requisition_type, :department, :requested_by, :purpose, :priority, :required_date, :status, :remarks, :timeline, :created_by)`,
         {
           companyId,
           branchId,
@@ -8793,6 +9023,7 @@ router.post(
           required_date: required_date || null,
           status: finalStatus,
           remarks: remarks || null,
+          timeline: timeline || null,
           created_by: userId,
         },
       );
@@ -8836,7 +9067,8 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
-      const { companyId, branchId } = req.scope;
+      await hasColumn("pur_general_requisitions", "timeline");
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
       const existing = await query(
@@ -8845,8 +9077,8 @@ router.put(
           u.username AS created_by_name
          FROM pur_general_requisitions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!existing.length)
         throw httpError(404, "NOT_FOUND", "Requisition not found");
@@ -8867,14 +9099,15 @@ router.put(
         required_date,
         status,
         remarks,
+        timeline,
         items,
       } = req.body;
       const finalStatus = status || existing[0].status;
       await pool.query(
         `UPDATE pur_general_requisitions SET
            requisition_date = :requisition_date, requisition_type = :requisition_type, department = :department, requested_by = :requested_by,
-           purpose = :purpose, priority = :priority, required_date = :required_date, status = :status, remarks = :remarks
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+           purpose = :purpose, priority = :priority, required_date = :required_date, status = :status, remarks = :remarks, timeline = :timeline
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           requisition_date: requisition_date || existing[0].requisition_date,
           requisition_type: requisition_type || existing[0].requisition_type,
@@ -8892,9 +9125,10 @@ router.put(
               : existing[0].required_date,
           status: finalStatus,
           remarks: remarks !== undefined ? remarks : existing[0].remarks,
+          timeline: timeline !== undefined ? timeline : existing[0].timeline,
           id,
           companyId,
-          branchId,
+          branchId, branchIdsStr,
         },
       );
       if (Array.isArray(items)) {
@@ -8941,7 +9175,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       const { status } = req.body;
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
@@ -8961,8 +9195,8 @@ router.put(
           u.username AS created_by_name
          FROM pur_general_requisitions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId LIMIT 1`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) LIMIT 1`,
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!existing.length)
         throw httpError(404, "NOT_FOUND", "Requisition not found");
@@ -8994,7 +9228,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureGeneralRequisitionTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const amount = req.body?.amount ?? null;
@@ -9010,8 +9244,8 @@ router.post(
         });
       if (!activeWf) {
         await query(
-          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
+          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+          { id, companyId, branchId, branchIdsStr },
         );
         return res.json({ status: "APPROVED" });
       }
@@ -9027,8 +9261,8 @@ router.post(
       );
       if (!steps.length) {
         await query(
-          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-          { id, companyId, branchId },
+          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+          { id, companyId, branchId, branchIdsStr },
         );
         return res.json({ status: "APPROVED" });
       }
@@ -9099,8 +9333,8 @@ router.post(
         },
       );
       await query(
-        `UPDATE pur_general_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId },
+        `UPDATE pur_general_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       const refRows = await query(
         `SELECT requisition_no,
@@ -9108,8 +9342,8 @@ router.post(
           u.username AS created_by_name
          FROM pur_general_requisitions
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id, companyId, branchId },
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
       );
       const grRef = refRows.length ? refRows[0].requisition_no : null;
       await query(
@@ -9129,7 +9363,7 @@ router.post(
       const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
       if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
         await query(
-          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
           { id, companyId, branchId },
         );
         res.json({ status: "APPROVED" });
@@ -9137,7 +9371,7 @@ router.post(
       }
       await query(
         `UPDATE pur_general_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :CompanyId AND branch_id = :BranchId`,
-        { id, CompanyId: companyId, BranchId: branchId },
+        { id, CompanyId: companyId, BranchId: branchId, branchIdsStr },
       );
       res.json({ status: "PENDING_APPROVAL" });
     } catch (err) {
@@ -9154,7 +9388,7 @@ router.get(
   requirePermission("PURCHASE.BILL.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -9165,10 +9399,10 @@ router.get(
           u.username AS created_by_name
          FROM pur_bills b
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.id = :id AND b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
         LIMIT 1
         `,
-        { id, companyId, branchId },
+        { id, companyId, branchId, branchIdsStr },
       );
       if (!rows.length)
         throw httpError(404, "NOT_FOUND", "Purchase bill not found");
@@ -9214,7 +9448,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensurePurBillsPaymentStatusObjects();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
 
       // Ensure table columns exist
@@ -9337,7 +9571,7 @@ router.post(
         `,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           billNo,
           billDate,
           supplierId,
@@ -9389,7 +9623,7 @@ router.post(
         try {
           const voucherResult = await postPurchaseBillVoucherTx(conn, {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             billId,
             userId: req.user?.sub || createdBy,
             isDirectPurchase: false,
@@ -9432,7 +9666,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -9529,12 +9763,12 @@ router.put(
             other_charges = :otherCharges,
             net_amount = :netAmount,
             status = :status
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
         `,
         {
           id,
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           billDate,
           supplierId,
           poId: poId || null,
@@ -9586,7 +9820,7 @@ router.put(
         try {
           await postPurchaseBillVoucherTx(conn, {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             billId: id,
             userId: req.user?.sub,
             isDirectPurchase: false,
@@ -9621,7 +9855,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const userId = req.user?.sub;
 
       const purchaseRows = await query(
@@ -9633,10 +9867,10 @@ router.get(
          FROM pur_orders
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND po_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       const totalPurchases = Number(purchaseRows?.[0]?.total || 0);
       const totalPurchaseOrders = Number(purchaseRows?.[0]?.count || 0);
@@ -9649,10 +9883,10 @@ router.get(
          FROM pur_orders
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND status NOT IN ('RECEIVED', 'CANCELLED', 'CLOSED', 'REJECTED')
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       const activePurchaseOrders = Number(activePoRows?.[0]?.count || 0);
 
@@ -9701,11 +9935,11 @@ router.get(
          FROM pur_bills
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND status = 'POSTED'
           AND COALESCE(amount_paid, 0) < COALESCE(net_amount, 0)
         `,
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       const outstandingPayables = Number(payableRows?.[0]?.total || 0);
 
@@ -9731,7 +9965,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const top = Math.max(1, Math.min(50, Number(req.query.top || 10)));
       const now = new Date();
       const qFrom = req.query.from ? new Date(String(req.query.from)) : null;
@@ -9769,7 +10003,7 @@ router.get(
          FROM pur_orders p
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
-              AND p.branch_id = :branchId
+              AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
               AND p.po_date BETWEEN :from AND :to`,
           { companyId, branchId, from: asDateStr(a), to: asDateStr(b) },
         ).catch(() => []);
@@ -9783,7 +10017,7 @@ router.get(
          FROM pur_bills b
         LEFT JOIN adm_users u ON u.id = b.created_by
          WHERE b.company_id = :companyId
-              AND b.branch_id = :branchId
+              AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
               AND b.bill_date BETWEEN :from AND :to`,
           { companyId, branchId, from: asDateStr(a), to: asDateStr(b) },
         ).catch(() => []);
@@ -9811,21 +10045,21 @@ router.get(
             FROM pur_orders p
         LEFT JOIN adm_users u ON u.id = p.created_by
          WHERE p.company_id = :companyId
-             AND p.branch_id = :branchId
+             AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
              AND p.po_date BETWEEN :from AND :to
            GROUP BY DATE_FORMAT(p.po_date, '%Y-%m-01')
           UNION ALL
           SELECT DATE_FORMAT(b.bill_date, '%Y-%m-01') AS ym, 0 AS order_total, SUM(b.net_amount) AS purchase_total
             FROM pur_bills b
            WHERE b.company_id = :companyId
-             AND b.branch_id = :branchId
+             AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
              AND b.bill_date BETWEEN :from AND :to
            GROUP BY DATE_FORMAT(b.bill_date, '%Y-%m-01')
         ) x
         GROUP BY ym
         ORDER BY ym ASC
         `,
-        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        { companyId, branchId, branchIdsStr, from: asDateStr(from), to: asDateStr(to) },
       ).catch(() => []);
       const monthWiseTrend = trendRows.map((r) => ({
         label: r.ym?.slice(0, 7) || "",
@@ -9846,14 +10080,14 @@ router.get(
           JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
          WHERE b.company_id = :companyId
-           AND b.branch_id = :branchId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
            AND b.bill_date BETWEEN :from AND :to
          GROUP BY s.supplier_name
          ORDER BY value DESC
          LIMIT ${topLimit}
         `,
         {
-          branchId,
+          branchId, branchIdsStr,
           from: asDateStr(from),
           to: asDateStr(to),
         },
@@ -9878,7 +10112,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const top = Math.max(1, Math.min(50, Number(req.query.top || 10)));
       const qFrom = req.query.from ? new Date(String(req.query.from)) : null;
       const qTo = req.query.to ? new Date(String(req.query.to)) : null;
@@ -9905,104 +10139,104 @@ router.get(
       const cards = {
         ytd_requests: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_requests
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND request_date BETWEEN :from AND :to`,
           { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
         ),
         mtd_requests: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_requests
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND request_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(monthStart),
             to: asDateStr(to),
           },
         ),
         wtd_requests: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_requests
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND request_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(weekStart),
             to: asDateStr(to),
           },
         ),
         ytd_orders: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_orders
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND order_date BETWEEN :from AND :to`,
-          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+          { companyId, branchId, branchIdsStr, from: asDateStr(from), to: asDateStr(to) },
         ),
         mtd_orders: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_orders
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND order_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(monthStart),
             to: asDateStr(to),
           },
         ),
         wtd_orders: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_orders
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND order_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(weekStart),
             to: asDateStr(to),
           },
         ),
         ytd_executions: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_executions
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND execution_date BETWEEN :from AND :to`,
-          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+          { companyId, branchId, branchIdsStr, from: asDateStr(from), to: asDateStr(to) },
         ),
         mtd_executions: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_executions
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND execution_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(monthStart),
             to: asDateStr(to),
           },
         ),
         wtd_executions: await sumCount(
           `SELECT COUNT(*) AS c FROM pur_service_executions
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND execution_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(weekStart),
             to: asDateStr(to),
           },
         ),
         ytd_confirmations: await sumCount(
           `SELECT COUNT(*) AS c FROM inv_service_confirmations
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND sc_date BETWEEN :from AND :to`,
-          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+          { companyId, branchId, branchIdsStr, from: asDateStr(from), to: asDateStr(to) },
         ),
         mtd_confirmations: await sumCount(
           `SELECT COUNT(*) AS c FROM inv_service_confirmations
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND sc_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(monthStart),
             to: asDateStr(to),
           },
         ),
         wtd_confirmations: await sumCount(
           `SELECT COUNT(*) AS c FROM inv_service_confirmations
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND sc_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(weekStart),
             to: asDateStr(to),
           },
@@ -10010,17 +10244,17 @@ router.get(
         ytd_service_bill_value: await sumAmount(
           `SELECT COALESCE(SUM(total_amount),0) AS amt
              FROM pur_service_bills
-            WHERE company_id = :companyId AND branch_id = :branchId
+            WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
               AND bill_date BETWEEN :from AND :to`,
-          { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+          { companyId, branchId, branchIdsStr, from: asDateStr(from), to: asDateStr(to) },
         ),
         mtd_service_bill_value: await sumAmount(
           `SELECT COALESCE(SUM(total_amount),0) AS amt
              FROM pur_service_bills
-            WHERE company_id = :companyId AND branch_id = :branchId
+            WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
               AND bill_date BETWEEN :from AND :to`,
           {
-            branchId,
+            branchId, branchIdsStr,
             from: asDateStr(monthStart),
             to: asDateStr(to),
           },
@@ -10040,26 +10274,26 @@ router.get(
           SELECT DATE_FORMAT(order_date, '%Y-%m-01') AS ym, COUNT(*) AS orders, 0 AS executions, 0 AS confirmations
             FROM pur_service_orders
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND order_date BETWEEN :from AND :to
            GROUP BY DATE_FORMAT(order_date, '%Y-%m-01')
           UNION ALL
           SELECT DATE_FORMAT(execution_date, '%Y-%m-01') AS ym, 0 AS orders, COUNT(*) AS executions, 0 AS confirmations
             FROM pur_service_executions
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND execution_date BETWEEN :from AND :to
            GROUP BY DATE_FORMAT(execution_date, '%Y-%m-01')
           UNION ALL
           SELECT DATE_FORMAT(sc_date, '%Y-%m-01') AS ym, 0 AS orders, 0 AS executions, COUNT(*) AS confirmations
             FROM inv_service_confirmations
-           WHERE company_id = :companyId AND branch_id = :branchId
+           WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
              AND sc_date BETWEEN :from AND :to
            GROUP BY DATE_FORMAT(sc_date, '%Y-%m-01')
         ) x
         GROUP BY ym
         ORDER BY ym ASC
         `,
-        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        { companyId, branchId, branchIdsStr, from: asDateStr(from), to: asDateStr(to) },
       ).catch(() => []);
       const monthWiseTrend = trendRows.map((r) => ({
         label: r.ym?.slice(0, 7) || "",
@@ -10076,13 +10310,13 @@ router.get(
           u.username AS created_by_name
          FROM pur_service_orders
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            AND order_date BETWEEN :from AND :to
          GROUP BY COALESCE(service_category,'UNSPECIFIED')
          ORDER BY value DESC
          LIMIT ${top}
         `,
-        { companyId, branchId, from: asDateStr(from), to: asDateStr(to) },
+        { companyId, branchId, branchIdsStr, from: asDateStr(from), to: asDateStr(to) },
       ).catch(() => []);
 
       res.json({
@@ -10094,6 +10328,88 @@ router.get(
       next(err);
     }
   },
+);
+
+router.get(
+  "/quotation-analysis",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requirePermission("PURCHASE.QUOTATION.VIEW"),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId, branchIdsStr } = req.scope;
+      const rfqNo = req.query.rfq_no;
+      if (!rfqNo) {
+        return res.json({ items: [], recommendations: [] });
+      }
+
+      // Find RFQ
+      const rfqRows = await query(
+        `SELECT id FROM pur_rfqs WHERE rfq_no = :rfqNo AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { rfqNo, companyId, branchIdsStr }
+      );
+      if (!rfqRows.length) {
+        return res.json({ items: [], recommendations: [] });
+      }
+      const rfqId = rfqRows[0].id;
+
+      // Find Quotations for this RFQ
+      const qRows = await query(
+        `SELECT q.id, q.supplier_id, s.supplier_name
+         FROM pur_supplier_quotations q
+         JOIN pur_suppliers s ON s.id = q.supplier_id
+         WHERE q.rfq_id = :rfqId AND q.company_id = :companyId`,
+        { rfqId, companyId }
+      );
+
+      if (!qRows.length) {
+        return res.json({ items: [], recommendations: [] });
+      }
+
+      const qIds = qRows.map((r) => r.id);
+      
+      const qIdsStr = qIds.join(',');
+      const dRows = await query(
+        `SELECT d.quotation_id, d.item_id, d.qty, d.unit_price, d.line_total, i.item_name, i.uom
+         FROM pur_supplier_quotation_details d
+         JOIN inv_items i ON i.id = d.item_id
+         WHERE d.quotation_id IN (${qIdsStr})`,
+        {}
+      );
+
+      const itemsMap = {};
+      
+      for (const d of dRows) {
+        if (!itemsMap[d.item_id]) {
+          itemsMap[d.item_id] = {
+            item: d.item_name,
+            qty: d.qty,
+            uom: d.uom || 'PCS',
+            suppliers: []
+          };
+        }
+        const q = qRows.find((x) => x.id === d.quotation_id);
+        if (q) {
+          itemsMap[d.item_id].suppliers.push({
+            supplier: q.supplier_name,
+            unit_price: Number(d.unit_price),
+            total: Number(d.line_total),
+            delivery_days: 0
+          });
+        }
+      }
+
+      const items = Object.values(itemsMap);
+
+      res.json({
+        items,
+        recommendations: []
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 );
 
 export default router;
@@ -10229,7 +10545,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const body = req.body || {};
       await ensureDirectPurchasePaymentTypeColumn();
       await ensureDirectPurchaseExtendedColumns();
@@ -10318,7 +10634,7 @@ router.post(
         tableName: "pur_direct_purchase_hdr",
         companyId,
         currency: body.currency,
-        currencyId: body.currency_id,
+        currencyId: body.currency_id || null,
         exchangeRate: body.exchange_rate,
       });
 
@@ -10333,7 +10649,7 @@ router.post(
           :paymentType, :paymentTerms, :supplierInvoiceNumber, :supplierInvoiceDate, :remarks, :subtotal, :discountAmount, :taxAmount, :netAmount, 'DRAFT', :createdBy)`,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           dpNo,
           dpDate: dpDateYmd,
           supplierId,
@@ -10399,7 +10715,7 @@ router.post(
          (:companyId, :branchId, :grnNo, :grnDate, 'LOCAL', NULL, :supplierId, :warehouseId, 'APPROVED', :remarks, :createdBy)`,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           grnNo,
           grnDate: dpDateYmd,
           supplierId,
@@ -10428,7 +10744,7 @@ router.post(
         );
         await updateItemAverageCostTx(conn, {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           warehouseId,
           itemId: d.itemId,
           purchaseQty: d.qty,
@@ -10452,7 +10768,7 @@ router.post(
            'DRAFT', :createdBy)`,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           billNo,
           billDate: dpDateYmd,
           supplierId,
@@ -10493,8 +10809,8 @@ router.post(
       const billVoucherId = null;
       const billVoucherNo = null;
       await conn.execute(
-        "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId",
-        { id: billId, companyId, branchId },
+        "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))",
+        { id: billId, companyId, branchId, branchIdsStr },
       );
 
       await conn.execute(
@@ -10506,11 +10822,11 @@ router.post(
                bill_voucher_id = :billVoucherId,
                approved_by = :userId,
                posted_by = :userId
-         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           id: dpId,
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           grnId,
           billId,
           grnVoucherId,

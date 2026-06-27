@@ -147,7 +147,7 @@ export default function CurrenciesPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link to="/finance" className="btn btn-secondary">
+            <Link to="/finance" className="font-sans btn btn-secondary">
               Return to Menu
             </Link>
             <button

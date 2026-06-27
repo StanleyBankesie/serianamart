@@ -57,6 +57,7 @@ export default function ServiceRequestForm() {
     terms: false,
   });
   const [customers, setCustomers] = useState([]);
+  const [customerSearch, setCustomerSearch] = useState("");
   const [prospects, setProspects] = useState([]);
   const [files, setFiles] = useState([]);
   const [dragActive, setDragActive] = useState(false);
@@ -275,7 +276,7 @@ export default function ServiceRequestForm() {
       return k === "terms" ? !v : !String(v || "").trim();
     });
     if (incomplete.length) {
-      alert("Please complete all required fields.");
+      alert("Please complete all required fields: " + incomplete.join(", "));
       return;
     }
     if (submitting) return;
@@ -422,33 +423,87 @@ export default function ServiceRequestForm() {
               </div>
             )}
             {form.customerType === "existing" && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div>
                   <label className="label">
-                    Customer ID <span className="text-red-600">*</span>
+                    Customer <span className="text-red-600">*</span>
                   </label>
-                  <select
-                    className="input"
-                    value={form.customerId}
-                    onChange={(e) => handleCustomerSelect(e.target.value)}
-                  >
-                    <option value="">Select Customer</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.customer_name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Account Email</label>
-                  <input
-                    className="input"
-                    type="email"
-                    value={form.accountEmail}
-                    readOnly
-                    placeholder="your.email@example.com"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      className="input w-1/2"
+                      placeholder="Search customer..."
+                      value={
+                        customers.find(
+                          (c) => String(c.id) === String(form.customerId),
+                        )?.customer_name || customerSearch
+                      }
+                      onChange={(e) => {
+                        setCustomerSearch(e.target.value);
+                        update("customerId", "");
+                        setForm((prev) => ({
+                          ...prev,
+                          company: "",
+                          email: "",
+                          phone: "",
+                        }));
+                      }}
+                    />
+                    {customerSearch &&
+                      (() => {
+                        const q = customerSearch.toLowerCase();
+                        const matched = customers
+                          .filter(
+                            (c) =>
+                              String(c.customer_name || "")
+                                .toLowerCase()
+                                .includes(q) ||
+                              String(c.customer_code || "")
+                                .toLowerCase()
+                                .includes(q),
+                          )
+                          .slice(0, 10);
+                        return matched.length > 0 ? (
+                          <div className="absolute z-30 w-full bg-white border border-slate-300 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                            {matched.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                className="w-1/2 text-left px-3 py-2 hover:bg-slate-100 border-b border-slate-100 last:border-b-0"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  handleCustomerSelect(String(c.id));
+                                  setCustomerSearch("");
+                                }}
+                              >
+                                <div className="font-medium text-slate-800 text-sm">
+                                  {c.customer_name}
+                                </div>
+                                {c.customer_code && (
+                                  <div className="text-xs text-slate-500">
+                                    {c.customer_code}
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        ) : q.length >= 2 ? (
+                          <div className="absolute z-30 w-full bg-white border border-slate-300 rounded-lg shadow-lg mt-1">
+                            <div className="p-3 text-sm text-slate-600 text-center">
+                              Customer not found.{" "}
+                              <span
+                                className="text-brand-700 font-medium cursor-pointer underline"
+                                onClick={() =>
+                                  update("customerType", "general")
+                                }
+                              >
+                                Add as New Customer
+                              </span>
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
+                  </div>
                 </div>
               </div>
             )}
@@ -458,7 +513,7 @@ export default function ServiceRequestForm() {
         <div className="card">
           <div className="card-body space-y-4">
             <SectionHeader number="2" title="Company & Address" />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {form.customerType === "general" && (
                 <div>
                   <label className="label">Company</label>
@@ -552,11 +607,12 @@ export default function ServiceRequestForm() {
               </div>
             </div>
             <SectionHeader number="3" title="Service Details" />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <label className="label">Service Type</label>
                 <select
-                  className="input"
+                  className="input w-56"
                   value={form.serviceType}
                   onChange={(e) => update("serviceType", e.target.value)}
                 >
@@ -569,9 +625,9 @@ export default function ServiceRequestForm() {
                 </select>
               </div>
               <div>
-                <label className="label">Department</label>
+                <label className="label">Service Department</label>
                 <select
-                  className="input"
+                  className="input w-56"
                   value={form.department}
                   onChange={(e) => update("department", e.target.value)}
                 >
@@ -583,33 +639,10 @@ export default function ServiceRequestForm() {
                   ))}
                 </select>
               </div>
-              <div className="md:col-span-2">
-                <label className="label">
-                  Request Title <span className="text-red-600">*</span>
-                </label>
-                <input
-                  className="input"
-                  value={form.requestTitle}
-                  onChange={(e) => update("requestTitle", e.target.value)}
-                  placeholder="Brief title of the request"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="label">
-                  Description <span className="text-red-600">*</span>
-                </label>
-                <textarea
-                  className="input"
-                  value={form.description}
-                  onChange={(e) => update("description", e.target.value)}
-                  rows={4}
-                  placeholder="Detailed description of the issue or service needed"
-                />
-              </div>
               <div>
                 <label className="label">Urgency</label>
                 <select
-                  className="input"
+                  className="input w-56"
                   value={form.urgency}
                   onChange={(e) => update("urgency", e.target.value)}
                 >
@@ -618,39 +651,49 @@ export default function ServiceRequestForm() {
                   <option value="emergency">Emergency</option>
                 </select>
               </div>
+            </div>
+            <div className="mb-4">
+              <label className="label">
+                Request Title <span className="text-red-600">*</span>
+              </label>
+              <input
+                className="input w-1/2"
+                value={form.requestTitle}
+                onChange={(e) => update("requestTitle", e.target.value)}
+                placeholder="Brief title of the request"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
               <div>
-                <label className="label">Preferred Date</label>
-                <input
-                  className="input"
-                  type="date"
-                  value={form.preferredDate}
-                  onChange={(e) => update("preferredDate", e.target.value)}
+                <label className="label">
+                  Description <span className="text-red-600">*</span>
+                </label>
+                <textarea
+                  className="input w-full"
+                  value={form.description}
+                  onChange={(e) => update("description", e.target.value)}
+                  rows={6}
+                  placeholder="Detailed description of the issue or service needed"
                 />
               </div>
               <div>
-                <label className="label">Preferred Time</label>
-                <input
-                  className="input"
-                  type="time"
-                  value={form.preferredTime}
-                  onChange={(e) => update("preferredTime", e.target.value)}
+                <label className="label">Additional Notes</label>
+                <textarea
+                  className="input w-full"
+                  value={form.additionalNotes}
+                  onChange={(e) => update("additionalNotes", e.target.value)}
+                  rows={6}
+                  placeholder="Any additional information"
                 />
               </div>
-              <div>
-                <label className="label">Preferred Contact Method</label>
-                <select
-                  className="input"
-                  value={form.contactMethod}
-                  onChange={(e) => update("contactMethod", e.target.value)}
-                >
-                  <option value="email">Email</option>
-                  <option value="phone">Phone</option>
-                </select>
-              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
               <div>
                 <label className="label">Recurring Service</label>
                 <select
-                  className="input"
+                  className="input w-full"
                   value={form.recurring}
                   onChange={(e) => update("recurring", e.target.value)}
                 >
@@ -660,26 +703,46 @@ export default function ServiceRequestForm() {
                   <option value="quarterly">Quarterly</option>
                 </select>
               </div>
-              <div className="md:col-span-2">
-                <label className="label">Additional Notes</label>
-                <textarea
-                  className="input"
-                  value={form.additionalNotes}
-                  onChange={(e) => update("additionalNotes", e.target.value)}
-                  rows={3}
-                  placeholder="Any additional information"
+              <div>
+                <label className="label">Completion Date</label>
+                <input
+                  className="input w-full"
+                  type="date"
+                  value={form.preferredDate}
+                  onChange={(e) => update("preferredDate", e.target.value)}
                 />
               </div>
-              <div className="md:col-span-2">
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={form.terms}
-                    onChange={(e) => update("terms", e.target.checked)}
-                  />
-                  I agree to the terms and conditions
-                </label>
+              <div>
+                <label className="label">Completion Time</label>
+                <input
+                  className="input w-full"
+                  type="time"
+                  value={form.preferredTime}
+                  onChange={(e) => update("preferredTime", e.target.value)}
+                />
               </div>
+              <div>
+                <label className="label">Preferred Contact Method</label>
+                <select
+                  className="input w-full"
+                  value={form.contactMethod}
+                  onChange={(e) => update("contactMethod", e.target.value)}
+                >
+                  <option value="email">Email</option>
+                  <option value="phone">Phone</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.terms}
+                  onChange={(e) => update("terms", e.target.checked)}
+                />
+                I agree to the terms and conditions
+              </label>
             </div>
           </div>
         </div>

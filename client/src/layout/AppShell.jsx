@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -47,7 +47,7 @@ import { api } from "../api/client.js";
 import useOfflineQueue from "../offline/useOfflineQueue.js";
 import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
 import { toast } from "react-toastify";
-import { Bell } from "lucide-react";
+import { Bell, Menu } from "lucide-react";
 import FloatingChat from "../components/chat/FloatingChat.jsx";
 import FloatingCreateButton from "../components/FloatingCreateButton.jsx";
 import useSocket from "../hooks/useSocket.js";
@@ -442,18 +442,39 @@ export default function AppShell() {
     }
   }
 
+  const [branchOptions, setBranchOptions] = useState([]);
+  const [selectedBranchId, setSelectedBranchId] = useState(() => scope?.branchId || null);
+  const [companies, setCompanies] = useState([]);
+
+  useEffect(() => {
+    if (scope?.branchId) {
+      setSelectedBranchId(scope.branchId);
+    }
+  }, [scope?.branchId]);
+
   const profile = useMemo(() => {
     const username = user?.username || user?.name || "Guest";
     const role =
       user?.role ||
       (Array.isArray(user?.roles) ? user.roles[0] : null) ||
       "Developer";
+
+    // Resolve the active branch from the branchOptions list so the name
+    // reflects the currently switched branch, not the JWT default.
+    const activeBranch = Array.isArray(branchOptions)
+      ? branchOptions.find((b) => Number(b.id) === Number(scope?.branchId))
+      : null;
     const companyName =
-      user?.companyName || `Company #${scope?.companyId ?? "-"}`;
-    const branchName = user?.branchName || `Branch #${scope?.branchId ?? "-"}`;
+      activeBranch?.company_name ||
+      user?.companyName ||
+      `Company #${scope?.companyId ?? "-"}`;
+    const branchName =
+      activeBranch?.name ||
+      user?.branchName ||
+      `Branch #${scope?.branchId ?? "-"}`;
 
     return { username, role, companyName, branchName };
-  }, [scope?.branchId, scope?.companyId, user]);
+  }, [scope?.branchId, scope?.companyId, user, branchOptions]);
 
   const roleOptions = useMemo(
     () =>
@@ -721,72 +742,45 @@ export default function AppShell() {
       setSelectedRole(roles[0]);
     }
   }, [user?.roles, user?.role, selectedRole]);
-  const userIdNum = useMemo(
-    () => Number(user?.sub || user?.id),
-    [user?.sub, user?.id],
-  );
-  const [branchOptions, setBranchOptions] = useState([]);
-  const [selectedBranchId, setSelectedBranchId] = useState(null);
-  const [companies, setCompanies] = useState([]);
-  const hasAdminAccess = user?.permissions?.includes("*") || user?.id === 1;
+
   useEffect(() => {
-    if (!hasAdminAccess) return;
     let mounted = true;
     async function loadUserBranches() {
       try {
-        if (!Number.isFinite(userIdNum)) return;
-        const res = await api.get(`/admin/users/${userIdNum}/branches`);
-        const items =
-          (res.data && res.data.data && Array.isArray(res.data.data.items)
-            ? res.data.data.items
-            : Array.isArray(res.data?.items)
-              ? res.data.items
-              : []) || [];
+        const res = await api.get("/auth/user-branches");
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
         if (mounted) {
           setBranchOptions(items);
-          if (!selectedBranchId && items.length > 0) {
+          if (!selectedBranchId && !scope?.branchId && items.length > 0) {
             setSelectedBranchId(Number(items[0].id));
           }
         }
-      } catch {
-        try {
-          const res2 = await api.get("/admin/branches");
-          const items2 = Array.isArray(res2.data?.items) ? res2.data.items : [];
-          const allowedIds = Array.isArray(user?.branchIds)
-            ? user.branchIds.map(Number).filter((n) => Number.isFinite(n))
-            : [];
-          const filtered = items2.filter((b) =>
-            allowedIds.includes(Number(b.id)),
-          );
-          if (mounted) {
-            setBranchOptions(filtered);
-            if (!selectedBranchId && filtered.length > 0) {
-              setSelectedBranchId(Number(filtered[0].id));
-            }
-          }
-        } catch {}
+      } catch (err) {
+        console.error("Failed to load branches:", err);
+        setBranchOptions([]);
       }
     }
     loadUserBranches();
     return () => {
       mounted = false;
     };
-  }, [userIdNum, user?.branchIds, selectedBranchId, hasAdminAccess]);
+  }, [scope?.branchId]);
   useEffect(() => {
-    if (!hasAdminAccess) return;
     let mounted = true;
     async function loadCompanies() {
       try {
         const res = await api.get("/admin/companies");
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         if (mounted) setCompanies(items);
-      } catch {}
+      } catch {
+        if (mounted) setCompanies([]);
+      }
     }
     loadCompanies();
     return () => {
       mounted = false;
     };
-  }, [hasAdminAccess]);
+  }, []);
   const currentBranchName = useMemo(() => {
     const targetId = Number(scope?.branchId ?? selectedBranchId);
     const found =
@@ -1072,7 +1066,9 @@ export default function AppShell() {
           className="lg:hidden fixed left-3 top-3 z-[90] inline-flex items-center justify-center w-12 h-12 rounded-full shadow-erp bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
           onClick={() => setSidebarOpen(true)}
           data-rbac-exempt="true"
-        ></button>
+        >
+          <Menu className="w-6 h-6" />
+        </button>
       )}
       {/* Floating Social Feed Notification - Always Visible */}
       <SocialFeedNotification />
@@ -1084,7 +1080,9 @@ export default function AppShell() {
             aria-label="Open menu"
             onClick={() => setSidebarOpen((v) => !v)}
             className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
-          ></button>
+          >
+            <Menu className="w-5 h-5" />
+          </button>
 
           <Link
             to="/"
@@ -1151,57 +1149,17 @@ export default function AppShell() {
                 <div className="p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                      Company
-                    </div>
-                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 text-right">
-                      {currentCompanyName}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-medium text-slate-600 dark:text-slate-400">
                       Branch
                     </div>
-                    <div className="text-right">
-                      {branchOptions.length > 1 ? (
-                        <select
-                          className="input"
-                          value={String(
-                            scope?.branchId || selectedBranchId || "",
-                          )}
-                          onChange={(e) => {
-                            const id = Number(e.target.value);
-                            setSelectedBranchId(id);
-                            setScope((prev) => {
-                              const chosen = branchOptions.find(
-                                (b) => Number(b.id) === id,
-                              );
-                              const companyId = chosen
-                                ? Number(chosen.company_id)
-                                : prev.companyId;
-                              return { ...prev, companyId, branchId: id };
-                            });
-                            setProfileOpen(false);
-                          }}
-                        >
-                          {branchOptions.map((b) => (
-                            <option key={b.id} value={b.id}>
-                              {b.name} (
-                              {b.company_name || `Company #${b.company_id}`})
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {currentBranchName}
-                        </div>
-                      )}
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {currentBranchName}
                     </div>
                   </div>
                   <div className="pt-1">
                     <button
                       type="button"
                       onClick={() => setContextModalOpen(true)}
-                      className="btn-primary w-full"
+                      className="w-full text-sm font-semibold text-white px-4 py-2 rounded-lg bg-ticker-blue hover:opacity-90 transition-opacity"
                       disabled={
                         (dbRoles.length > 1 || roleOptions.length > 1) &&
                         branchOptions.length > 1
@@ -1221,7 +1179,7 @@ export default function AppShell() {
                         setPwNew("");
                         setPwConfirm("");
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-white bg-ticker-green hover:opacity-90 transition-opacity"
                     >
                       <svg
                         className="w-4 h-4 flex-shrink-0"
@@ -1259,7 +1217,7 @@ export default function AppShell() {
                         setProfileOpen(false);
                         await logout({ redirect: true });
                       }}
-                      className="btn-secondary"
+                      className="btn-secondary text-red-500"
                     >
                       Logout
                     </button>
@@ -1416,6 +1374,7 @@ export default function AppShell() {
                   }));
                   setContextModalOpen(false);
                   setProfileOpen(false);
+                  navigate("/");
                 }}
               >
                 Apply

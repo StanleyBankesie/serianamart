@@ -18,6 +18,7 @@ export const getUsers = async (req, res, next) => {
   try {
     await ensureUserColumns();
     const { q, company_id, branch_id, active, limit } = req.query || {};
+    const { companyId: scopeCompanyId, branchIdsStr } = req.scope || {};
     const clauses = [];
     const params = {};
     if (company_id) {
@@ -45,6 +46,14 @@ export const getUsers = async (req, res, next) => {
       clauses.push(
         "(u.username LIKE :q OR u.full_name LIKE :q OR u.email LIKE :q)",
       );
+    }
+    if (scopeCompanyId) {
+      clauses.push("u.company_id = :scopeCompanyId");
+      params.scopeCompanyId = scopeCompanyId;
+    }
+    if (branchIdsStr) {
+      clauses.push("(:branchIdsStr = '' OR FIND_IN_SET(u.branch_id, :branchIdsStr))");
+      params.branchIdsStr = branchIdsStr;
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const lim = Math.min(100, Math.max(1, parseInt(limit || "50", 10)));

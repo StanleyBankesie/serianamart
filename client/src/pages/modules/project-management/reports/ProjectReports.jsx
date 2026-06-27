@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Activity, DollarSign, Clock, Briefcase, TrendingUp, Loader2 } from "lucide-react";
+import { ArrowLeft, Activity, DollarSign, Clock, Briefcase, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
 import { api } from "../../../../api/client.js";
 
 const StatCard = ({ icon, label, value, color }) => (
@@ -67,6 +67,24 @@ export default function ProjectReports() {
           <div className="flex-1">
             <h3 className="font-bold text-slate-900 dark:text-white group-hover:text-brand-600 transition-colors">Project Status Report</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Completion metrics and task breakdown across all projects</p>
+          </div>
+        </Link>
+        <Link to="/project-management/reports/project-income" className="group bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-brand-200 dark:hover:border-brand-900 transition-all duration-300 flex items-start gap-4">
+          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 shadow-sm group-hover:scale-105 transition-transform">
+            <TrendingUp size={20} />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 transition-colors">Project Income Report</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Receipt vouchers linked to each project</p>
+          </div>
+        </Link>
+        <Link to="/project-management/reports/project-expense" className="group bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-brand-200 dark:hover:border-brand-900 transition-all duration-300 flex items-start gap-4">
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-900/30 text-rose-600 shadow-sm group-hover:scale-105 transition-transform">
+            <TrendingDown size={20} />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-bold text-slate-900 dark:text-white group-hover:text-rose-600 transition-colors">Project Expense Report</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Payment vouchers linked to each project</p>
           </div>
         </Link>
       </div>

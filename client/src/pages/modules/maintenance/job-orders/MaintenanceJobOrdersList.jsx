@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { ArrowLeft, Search, Plus, ChevronRight } from "lucide-react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { ArrowLeft, Search, Plus, ChevronRight, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { Guard } from "../../../../hooks/usePermissions";
+import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
 const statusColors = { DRAFT:"bg-slate-100 text-slate-600", OPEN:"bg-blue-100 text-blue-700", IN_PROGRESS:"bg-amber-100 text-amber-700", COMPLETED:"bg-green-100 text-green-700", CANCELLED:"bg-red-100 text-red-600" };
 function Badge({ value, colorMap }) {
@@ -12,10 +14,13 @@ function Badge({ value, colorMap }) {
 }
 
 export default function MaintenanceJobOrdersList() {
+  const navigate = useNavigate();
   const location = useLocation();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [showAttach, setShowAttach] = useState(false);
+  const [activeDocId, setActiveDocId] = useState(null);
 
   async function load() {
     try {
@@ -80,12 +85,14 @@ export default function MaintenanceJobOrdersList() {
                   <th>Schedule</th>
                   <th>Technician</th>
                   <th>Status</th>
+                  <th>Created By</th>
+                  <th>Created Date</th>
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
                 {loading ? (
-                   <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Loading Orders...</td></tr>
+                   <tr><td colSpan="9" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Loading Orders...</td></tr>
                 ) : filtered.length > 0 ? filtered.map(r => (
                   <tr key={r.id} className="group">
                     <td className="px-6 py-4">
@@ -97,8 +104,14 @@ export default function MaintenanceJobOrdersList() {
                     <td className="px-4 py-3 text-sm text-slate-500">{r.scheduled_date}</td>
                     <td className="px-4 py-3 text-sm text-slate-500 font-medium">{r.assigned_technician}</td>
                     <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
+                    <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
+                    <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/job-orders/${r.id}?mode=view`)}><Eye size={15} /></button>
+                        <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
+                        <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
+                        <ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} />
                         <Link 
                           to={`/maintenance/job-orders/${r.id}`} 
                           className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
@@ -109,13 +122,21 @@ export default function MaintenanceJobOrdersList() {
                     </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No job orders identified.</td></tr>
+                  <tr><td colSpan="9" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No job orders identified.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+      {showAttach && activeDocId && (
+        <DocumentAttachmentsModal
+          open={showAttach}
+          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          docType="maintenance"
+          docId={activeDocId}
+        />
+      )}
     </Guard>
   );
 }

@@ -38,14 +38,14 @@ async function getSystemSetting(key, companyId = null, branchId = null) {
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE setting_key = :key 
       AND (company_id = :companyId OR company_id IS NULL)
-      AND (branch_id = :branchId OR branch_id IS NULL)
+      AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
     ORDER BY company_id DESC, branch_id DESC
     LIMIT 1
     `,
     {
       key,
       companyId: companyId ?? null,
-      branchId: branchId ?? null,
+      branchId: branchId ?? null, branchIdsStr,
     },
   ).catch(() => []);
   return rows?.[0]?.setting_value || null;
@@ -70,7 +70,7 @@ async function getCloudinaryConfig(scope) {
     branchId,
   );
   const folder =
-    (await getSystemSetting("CLOUDINARY_UPLOAD_FOLDER", companyId, branchId)) ||
+    (await getSystemSetting("CLOUDINARY_UPLOAD_FOLDER", companyId, branchId, branchIdsStr)) ||
     null;
   if (cloud_name && api_key && api_secret) {
     return { cloud_name, api_key, api_secret, folder };

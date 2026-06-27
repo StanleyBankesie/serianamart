@@ -61,15 +61,28 @@ export function AuthProvider({ children }) {
         const nextToken = res.data?.token || res.data?.accessToken || null;
         if (!nextToken) throw new Error("Missing access token");
         const nextUser = res.data?.user || parsed?.user || null;
+        const storedBranchId = Number(parsed?.scope?.branchId) || 0;
+        const allowedBranchIds = Array.isArray(nextUser?.branchIds)
+          ? nextUser.branchIds.map(Number)
+          : [];
+        // Keep the previously stored branch if it is still allowed; otherwise fall back
+        const resolvedBranchId =
+          storedBranchId && allowedBranchIds.includes(storedBranchId)
+            ? storedBranchId
+            : Number(nextUser?.branchIds?.[0]) || Number(parsed?.scope?.branchId) || 1;
+
+        const storedCompanyId = Number(parsed?.scope?.companyId) || 0;
+        const allowedCompanyIds = Array.isArray(nextUser?.companyIds)
+          ? nextUser.companyIds.map(Number)
+          : [];
+        const resolvedCompanyId =
+          storedCompanyId && allowedCompanyIds.includes(storedCompanyId)
+            ? storedCompanyId
+            : Number(nextUser?.companyIds?.[0]) || Number(parsed?.scope?.companyId) || 1;
+
         const fallbackScope = {
-          companyId:
-            Number(nextUser?.companyIds?.[0]) ||
-            Number(parsed?.scope?.companyId) ||
-            1,
-          branchId:
-            Number(nextUser?.branchIds?.[0]) ||
-            Number(parsed?.scope?.branchId) ||
-            1,
+          companyId: resolvedCompanyId,
+          branchId: resolvedBranchId,
         };
         const nextScope = res.data?.scope || fallbackScope;
 
@@ -126,6 +139,16 @@ export function AuthProvider({ children }) {
       }
       return;
     }
+    const current = readStoredAuth();
+    if (
+      current &&
+      current.token === token &&
+      JSON.stringify(current.user) === JSON.stringify(user) &&
+      current.scope?.companyId === scope.companyId &&
+      current.scope?.branchId === scope.branchId
+    ) {
+      return;
+    }
     writeStoredAuth({ token, user, scope });
   }, [initialized, token, user, scope]);
 
@@ -142,6 +165,7 @@ export function AuthProvider({ children }) {
 
     setToken(nextToken);
     setUser(nextUser);
+    setScope(nextScope);
     setAccess({ patterns: [], modules: [] });
     if (nextToken && nextUser) {
       setAuthToken(nextToken);
@@ -238,9 +262,12 @@ export function AuthProvider({ children }) {
         return;
       }
       setToken((prev) => (prev === nextAuth.token ? prev : nextAuth.token));
-      setUser((prev) =>
-        prev === (nextAuth.user || null) ? prev : nextAuth.user || null,
-      );
+      setUser((prev) => {
+        const nextUser = nextAuth.user || null;
+        if (prev === nextUser) return prev;
+        if (JSON.stringify(prev) === JSON.stringify(nextUser)) return prev;
+        return nextUser;
+      });
       setScope((prev) => {
         const nextScope = nextAuth.scope || { companyId: 1, branchId: 1 };
         return prev?.companyId === nextScope.companyId &&
@@ -250,8 +277,18 @@ export function AuthProvider({ children }) {
       });
     };
 
+    const storageHandler = (e) => {
+      if (e.key === "omnisuite.auth") {
+        handler({ detail: readStoredAuth() });
+      }
+    };
+
     window.addEventListener(eventName, handler);
-    return () => window.removeEventListener(eventName, handler);
+    window.addEventListener("storage", storageHandler);
+    return () => {
+      window.removeEventListener(eventName, handler);
+      window.removeEventListener("storage", storageHandler);
+    };
   }, []);
 
   const value = useMemo(

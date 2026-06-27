@@ -1,4 +1,4 @@
-import express from "express";
+﻿import express from "express";
 import {
   requireAuth,
   requireCompanyScope,
@@ -52,6 +52,51 @@ router.post(
   workflowController.reverseApproval,
 );
 
+// Direct Approve by Document Type + ID (simple approval bypassing multi-step workflow)
+router.post(
+  "/approve",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope;
+      const { document_type, document_id } = req.body || {};
+      if (!document_type || !document_id) {
+        return res.status(400).json({ message: "document_type and document_id are required" });
+      }
+      const id = Number(document_id);
+      if (!id) {
+        return res.status(400).json({ message: "Invalid document_id" });
+      }
+      const tableMap = {
+        SERVICE_REQUEST: { table: "pur_service_requests", idCol: "id" },
+        SERVICE_BILL: { table: "pur_service_bills", idCol: "id" },
+      };
+      const mapping = tableMap[document_type];
+      if (!mapping) {
+        return res.status(400).json({ message: `Unsupported document_type: ${document_type}` });
+      }
+      const [existing] = await query(
+        `SELECT id, status FROM ${mapping.table} WHERE ${mapping.idCol} = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      if (!existing) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      if (String(existing.status || "").toUpperCase() !== "PENDING") {
+        return res.status(400).json({ message: `Document is not PENDING (current status: ${existing.status})` });
+      }
+      await query(
+        `UPDATE ${mapping.table} SET status = 'APPROVED' WHERE ${mapping.idCol} = :id AND company_id = :companyId`,
+        { id, companyId },
+      );
+      res.json({ message: "Approved", status: "APPROVED" });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // Reverse by Document (Exceptional Permission)
 router.post(
   "/reverse-by-document",
@@ -76,10 +121,10 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId, branchIdsStr } = req.scope;
       const { q, active, limit } = req.query || {};
-      const clauses = ["u.company_id = :companyId", "u.branch_id = :branchId"];
-      const params = { companyId, branchId };
+      const clauses = ["u.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(u.branch_id, :branchIdsStr))"];
+      const params = { companyId, branchId, branchIdsStr };
       if (typeof active !== "undefined" && active !== "") {
         clauses.push("u.is_active = :is_active");
         params.is_active = Number(Boolean(active));
@@ -178,3 +223,4 @@ router.get(
 );
 
 export default router;
+
