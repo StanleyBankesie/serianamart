@@ -1,8 +1,19 @@
+/**
+ * @fileoverview Setup and configuration page for the Purchase module.
+ * Provides configuration for default GL accounts and purchase rejection reasons.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ * PurchaseSetupPage component
+ * Loads default account bindings and allows managing rejection reasons through a tabbed interface.
+ * 
+ * @returns {JSX.Element} The purchase setup view.
+ */
 export default function PurchaseSetupPage() {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);

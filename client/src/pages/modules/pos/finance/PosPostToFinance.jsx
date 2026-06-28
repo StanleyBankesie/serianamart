@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PosPostToFinance component.
+ * Provides functionality for PosPostToFinance.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -85,6 +90,11 @@ function FilterableSelect({
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosPostToFinance() {
   const [loading, setLoading] = useState(false);
   const [terminals, setTerminals] = useState([]);

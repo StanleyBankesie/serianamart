@@ -1,5 +1,22 @@
+/**
+ * @fileoverview A reusable modal component for displaying forms.
+ */
+
 import React from "react";
 
+/**
+ * FormModal component
+ * Renders a modal overlay with a header, body (children), and footer actions (Cancel/Save).
+ * 
+ * @param {Object} props
+ * @param {boolean} props.open - Whether the modal is visible.
+ * @param {string} props.title - Modal header title.
+ * @param {React.ReactNode} props.children - Form content.
+ * @param {Function} props.onClose - Callback when modal is closed.
+ * @param {Function} props.onSubmit - Callback when the save button is clicked.
+ * @param {boolean} props.submitting - True if the form is currently saving.
+ * @returns {JSX.Element|null} The modal element or null if closed.
+ */
 export default function FormModal({ open, title, children, onClose, onSubmit, submitting }) {
   if (!open) return null;
   return (

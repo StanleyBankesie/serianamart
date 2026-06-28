@@ -843,6 +843,26 @@ async function ensurePosTables() {
       KEY idx_pos_return_reason_branch (branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  const tablesToCheck = [
+    "pos_payment_modes",
+    "pos_tax_settings",
+    "pos_receipt_settings",
+    "pos_terminals",
+    "pos_terminal_users",
+    "pos_return_reasons",
+    "pos_sale_lines",
+    "pos_return_lines"
+  ];
+
+  for (const t of tablesToCheck) {
+    if (!(await hasColumn(t, "created_by"))) {
+      await query(`ALTER TABLE ${t} ADD COLUMN created_by BIGINT UNSIGNED NULL`);
+    }
+    if (!(await hasColumn(t, "created_at"))) {
+      await query(`ALTER TABLE ${t} ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`);
+    }
+  }
 }
 
 async function ensurePosSessionPostingTables() {
@@ -922,13 +942,6 @@ async function nextSessionNo(companyId) {
   return `S-${String(nextNum).padStart(6, "0")}`;
 }
 
-router.get(
-  "/payment-modes",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  posController.listPaymentModes,
-);
 
 router.get(
   "/analytics/overview",

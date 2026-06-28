@@ -1,3 +1,8 @@
+/**
+ * @fileoverview POS offline reconciliation dashboard.
+ * Manages the sync status of local (offline) sales, providing manual retry options.
+ */
+
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../api/client.js";
@@ -18,6 +23,13 @@ function sendBrowserNotification(title, body) {
   } catch {}
 }
 
+/**
+ * PosReconciliation component
+ * Reads from IndexedDB (via posStore.js) to display unsynced or failed sales transactions,
+ * and attempts automatic background syncing when returning online.
+ * 
+ * @returns {JSX.Element} The reconciliation view.
+ */
 export default function PosReconciliation() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

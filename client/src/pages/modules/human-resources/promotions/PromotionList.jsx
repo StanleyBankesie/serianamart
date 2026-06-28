@@ -1,7 +1,17 @@
+/**
+ * @fileoverview PromotionList component.
+ * Provides functionality for PromotionList.
+ */
+
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { usePermission } from '../../../../auth/PermissionContext.jsx';
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PromotionList() {
   const { canPerformAction } = usePermission();
   const items = [{ id: 1, employee: 'John Doe', effectiveDate: '2025-01-01', from: 'Junior', to: 'Senior' }];

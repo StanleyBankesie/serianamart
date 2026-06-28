@@ -1,7 +1,17 @@
+/**
+ * @fileoverview UserPermissions component.
+ * Provides functionality for UserPermissions.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function UserPermissions() {
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);

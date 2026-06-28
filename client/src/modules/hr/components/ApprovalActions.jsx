@@ -1,5 +1,20 @@
+/**
+ * @fileoverview Component for displaying and managing approval actions.
+ * Typically used in HR workflows like leave requests and requisitions.
+ */
+
 import React from "react";
 
+/**
+ * ApprovalActions component
+ * Shows current status and provides Approve/Reject buttons if the status is pending/draft.
+ * 
+ * @param {Object} props
+ * @param {string} props.status - The current approval status (e.g., 'PENDING', 'APPROVED').
+ * @param {Function} props.onApprove - Callback when the Approve button is clicked.
+ * @param {Function} props.onReject - Callback when the Reject button is clicked.
+ * @returns {JSX.Element} The approval actions block.
+ */
 export default function ApprovalActions({ status, onApprove, onReject }) {
   const s = String(status || "").toUpperCase();
   const canAct = s === "PENDING" || s === "DRAFT";

@@ -1,18 +1,39 @@
+// Database Dependencies
 import { query } from "../db/pool.js";
 import { getAllFeatures } from "../data/featuresRegistry.js";
 
+// Utility function to safely convert variables to numbers
+/**
+ * Convert a value to a number.
+ * @param {*} v - The value to convert.
+ * @param {*} fallback - The fallback value if conversion fails.
+ * @returns {number|*} The numeric value or the fallback.
+ */
 export function toNumber(v, fallback = null) {
   const n = Number(v);
+  // Return the number if valid, otherwise fallback
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Memory Caches for Database Metadata
 const columnCache = new Map();
 
+/**
+ * Check if a table exists in the database.
+ * @param {string} tableName - The name of the table.
+ * @returns {Promise<boolean>} True if table exists.
+ */
 export async function hasTable(tableName) {
   const rows = await query("SHOW TABLES LIKE :tableName", { tableName });
   return rows.length > 0;
 }
 
+/**
+ * Check if a column exists in a table.
+ * @param {string} tableName - The name of the table.
+ * @param {string} columnName - The name of the column.
+ * @returns {Promise<boolean>} True if column exists.
+ */
 export async function hasColumn(tableName, columnName) {
   const key = `${tableName}.${columnName}`;
   const cached = columnCache.get(key);
@@ -32,10 +53,19 @@ export async function hasColumn(tableName, columnName) {
   return result;
 }
 
+/**
+ * Ensure a column exists in a table. If it doesn't, add it using the DDL provided.
+ * @param {string} tableName - The name of the table.
+ * @param {string} columnName - The name of the column.
+ * @param {string} ddlRef - The SQL DDL to add the column.
+ * @returns {Promise<boolean>} True if successful or column already exists.
+ */
 export async function ensureCol(tableName, columnName, ddlRef) {
+  // Check if column already exists
   const has = await hasColumn(tableName, columnName);
   if (!has) {
     try {
+      // Execute the ALTER TABLE query to add the column
       await query(
         `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${ddlRef}`,
         {},
@@ -48,6 +78,10 @@ export async function ensureCol(tableName, columnName, ddlRef) {
   return true;
 }
 
+/**
+ * Ensure the adm_system_logs table and its expected columns exist.
+ * @returns {Promise<void>}
+ */
 export async function ensureSystemLogsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_system_logs (
@@ -109,8 +143,10 @@ export async function ensureSystemLogsTable() {
         "UPDATE adm_system_logs SET created_at = event_time WHERE created_at IS NULL",
       );
     }
+    // Setup scheduled event to automatically prune old logs
     // Create event to auto-delete logs older than 7 days
     try {
+      // Enable event scheduler globally
       await query("SET GLOBAL event_scheduler = ON");
       await query(`
         CREATE EVENT IF NOT EXISTS cleanup_adm_system_logs
@@ -123,8 +159,13 @@ export async function ensureSystemLogsTable() {
   } catch {}
 }
 
+// Track tables that have already been verified to avoid redundant checks
 const verifiedTables = new Set();
 
+/**
+ * Ensure the adm_branches table has all expected columns.
+ * @returns {Promise<void>}
+ */
 export async function ensureBranchColumns() {
   const table = "adm_branches";
   if (verifiedTables.has(table)) return;
@@ -164,6 +205,10 @@ export async function ensureBranchColumns() {
   verifiedTables.add(table);
 }
 
+/**
+ * Ensure the adm_users table has all expected columns.
+ * @returns {Promise<void>}
+ */
 export async function ensureUserColumns() {
   const table = "adm_users";
   if (verifiedTables.has(table)) return;
@@ -212,6 +257,10 @@ export async function ensureUserColumns() {
   verifiedTables.add(table);
 }
 
+/**
+ * Ensure the adm_pages table exists and is properly structured with feature keys.
+ * @returns {Promise<void>}
+ */
 export async function ensurePagesTable() {
   if (verifiedTables.has("adm_pages")) return;
   await query(`
@@ -286,6 +335,10 @@ export async function ensurePagesTable() {
   verifiedTables.add("adm_pages");
 }
 
+/**
+ * Seed the adm_pages table with the default system pages.
+ * @returns {Promise<void>}
+ */
 export async function ensurePagesSeed() {
   const pages = [
     { module: "Administration", name: "Roles", path: "/administration/roles" },
@@ -879,6 +932,16 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Service Management",
+      name: "Customer Service Requests",
+      path: "/service-management/customer-service-requests",
+    },
+    {
+      module: "Service Management",
+      name: "Supplier Service Requests",
+      path: "/service-management/supplier-service-requests",
+    },
+    {
+      module: "Service Management",
       name: "Service Requests",
       path: "/service-management/service-requests",
     },
@@ -899,8 +962,28 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Service Management",
+      name: "Service Order Form",
+      path: "/service-management/service-orders/new",
+    },
+    {
+      module: "Service Management",
+      name: "Service Order Edit",
+      path: "/service-management/service-orders/:id",
+    },
+    {
+      module: "Service Management",
       name: "Service Executions",
       path: "/service-management/service-executions",
+    },
+    {
+      module: "Service Management",
+      name: "Service Execution Form",
+      path: "/service-management/service-execution",
+    },
+    {
+      module: "Service Management",
+      name: "Service Execution Edit",
+      path: "/service-management/service-execution/:id",
     },
     {
       module: "Service Management",
@@ -909,8 +992,28 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Service Management",
+      name: "Service Confirmation Form",
+      path: "/service-management/service-confirmation/new",
+    },
+    {
+      module: "Service Management",
+      name: "Service Confirmation Edit",
+      path: "/service-management/service-confirmation/:id",
+    },
+    {
+      module: "Service Management",
       name: "Service Bills",
       path: "/service-management/service-bills",
+    },
+    {
+      module: "Service Management",
+      name: "Service Bill Form",
+      path: "/service-management/service-bills/new",
+    },
+    {
+      module: "Service Management",
+      name: "Service Bill Edit",
+      path: "/service-management/service-bills/:id",
     },
     {
       module: "Service Management",

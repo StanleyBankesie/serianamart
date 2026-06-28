@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PosDashboard component.
+ * Provides functionality for PosDashboard.
+ */
+
 import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
@@ -393,6 +398,11 @@ function ChartViewerModal({ chart, onClose }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

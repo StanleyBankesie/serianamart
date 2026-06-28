@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProjectStatusReport component.
+ * Provides functionality for ProjectStatusReport.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Loader2, Download, RefreshCw, Layers, Target, Wallet, Clock, CheckCircle, AlertTriangle } from "lucide-react";
@@ -20,6 +25,11 @@ const progressColor = (pct) => {
   return "from-slate-400 to-slate-300";
 };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProjectStatusReport() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);

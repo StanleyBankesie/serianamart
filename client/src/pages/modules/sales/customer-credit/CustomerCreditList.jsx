@@ -1,8 +1,18 @@
+/**
+ * @fileoverview CustomerCreditList component.
+ * Provides functionality for CustomerCreditList.
+ */
+
 import React from 'react';
 import { Link } from 'react-router-dom';
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CustomerCreditList() {
   const items = [{ id: 1, customer: 'ABC Corporation', creditLimit: 50000, currency: 'GHS' }];
   const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "customer", "asc");

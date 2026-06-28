@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Document templates routes.
+ * Handles endpoints for creating, updating, listing, and managing HTML
+ * templates for various document types (e.g., invoices, sales orders, etc.).
+ */
 import express from "express";
 import sanitizeHtml from "sanitize-html";
 import {

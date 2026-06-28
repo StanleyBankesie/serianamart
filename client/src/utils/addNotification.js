@@ -1,5 +1,6 @@
 /**
- * Drop-in replacement for `react-push-notification`'s addNotification.
+ * @file addNotification.js
+ * @description Drop-in replacement for `react-push-notification`'s addNotification.
  *
  * Supports the same call signature:
  *   addNotification({ title, message, native, icon, onClick })
@@ -11,6 +12,15 @@
  */
 import { toast } from "react-toastify";
 
+/**
+ * Displays a notification either natively or as a toast fallback.
+ * @param {Object} options - The options for the notification.
+ * @param {string} [options.title="Notification"] - The title of the notification.
+ * @param {string} [options.message=""] - The body text of the notification.
+ * @param {boolean} [options.native=false] - Whether to use the native browser notification.
+ * @param {string} [options.icon] - URL for the notification icon.
+ * @param {Function} [options.onClick] - Callback when the notification is clicked.
+ */
 export default function addNotification({
   title = "Notification",
   message = "",

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PurchaseBillsForm component.
+ * Provides functionality for PurchaseBillsForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -12,6 +17,11 @@ const CURRENCIES = [
   { id: 3, code: "GBP", name: "British Pound" },
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseBillsForm() {
   const { id } = useParams();
   const navigate = useNavigate();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SalesOrderForm component.
+ * Provides functionality for SalesOrderForm.
+ */
+
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   useNavigate,
@@ -33,6 +38,11 @@ import {
 
 // Removed old template-string and external HTML rendering in favor of CSS-based on-page layout
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalesOrderForm() {
   const navigate = useNavigate();
   const { id } = useParams();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview TaxCodesPage component.
+ * Provides functionality for TaxCodesPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
@@ -120,6 +125,11 @@ const VOUCHER_PAGES = [
   PAGE_IDS.JOURNAL_VOUCHER,
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function TaxCodesPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

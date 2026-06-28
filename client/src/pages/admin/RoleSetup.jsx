@@ -1,3 +1,8 @@
+/**
+ * @fileoverview RoleSetup component.
+ * Interface for creating and managing roles, and assigning module, feature, and dashboard access.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api/client.js";
@@ -5,6 +10,12 @@ import { usePermission } from "../../auth/PermissionContext.jsx";
 import { MODULES_REGISTRY } from "../../data/modulesRegistry.js";
 import { toast } from "react-toastify";
 
+/**
+ * RoleSetup component
+ * Allows administrators to define roles and configure their hierarchical permissions.
+ * 
+ * @returns {JSX.Element} The role setup page.
+ */
 export default function RoleSetup() {
   const navigate = useNavigate();
   const { refreshPermissions } = usePermission();

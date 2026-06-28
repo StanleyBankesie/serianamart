@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SocialFeedPage component.
+ * Displays the company social feed and individual post details if a focus ID is provided.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import CompanyFeed from "../../components/CompanyFeed/CompanyFeed";
@@ -5,6 +10,12 @@ import { useAuth } from "../../auth/AuthContext";
 import api from "../../api/client";
 import { getStoredToken } from "../../auth/authStorage.js";
 
+/**
+ * SocialFeedPage component
+ * Wraps the CompanyFeed component and handles fetching details for a specific post.
+ * 
+ * @returns {JSX.Element} The social feed page view.
+ */
 export default function SocialFeedPage() {
   const params = useParams();
   const focusId = params?.id ? Number(params.id) : null;

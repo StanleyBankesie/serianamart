@@ -1,3 +1,8 @@
+/**
+ * @fileoverview UserPermissionsNew component.
+ * Provides functionality for UserPermissionsNew.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -5,7 +10,12 @@ import { MODULES_REGISTRY } from "../../../../data/modulesRegistry.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 
-export default function UserPermissions() {
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
+export default function UserPermissionsNew() {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();

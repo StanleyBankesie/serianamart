@@ -1,9 +1,19 @@
+/**
+ * @fileoverview CustomerOrderHistoryReportPage component.
+ * Provides functionality for CustomerOrderHistoryReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CustomerOrderHistoryReportPage() {
   const [customerId, setCustomerId] = useState("");
   const [customers, setCustomers] = useState([]);

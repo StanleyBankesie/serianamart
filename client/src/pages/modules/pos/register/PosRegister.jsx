@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PosRegister component.
+ * Provides functionality for PosRegister.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
@@ -33,6 +38,11 @@ function FilterableSelect({
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosRegister() {
   const { user } = useAuth();
   const { canPerformAction } = usePermission();

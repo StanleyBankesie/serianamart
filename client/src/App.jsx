@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Main application component.
+ * Sets up global routing, contexts (Redux, Auth, Permission, Theme), and error boundaries.
+ */
+
 import React from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
@@ -30,9 +35,12 @@ const LoadingScreen = () => null;
  * (transactions, reports, settings) from the previous branch leaks through.
  */
 function ScopedShell() {
+  // Component state from auth context
   const { scope, initialized } = useAuth();
+  // Redux dispatch for store actions
   const dispatch = useDispatch();
 
+  // Reset store and clear caches on branch change
   React.useEffect(() => {
     if (initialized && scope?.branchId) {
       // Clear Redux Store state
@@ -48,9 +56,19 @@ function ScopedShell() {
   return <AppShell key={branchKey} />;
 }
 
+/**
+ * App component
+ * The root component of the React application hierarchy.
+ * Bootstraps providers, the main router, and protected layout shells.
+ * 
+ * @returns {JSX.Element} The rendered application component tree.
+ */
 export default function App() {
+  // Base URL configuration for routing
   const base = (import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
   const basename = base.startsWith("/") ? base : "/";
+  
+  // Root application providers and routing configuration
   return (
     <BrowserRouter
       basename={basename}

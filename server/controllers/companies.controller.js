@@ -1,7 +1,18 @@
-﻿import { query } from "../db/pool.js";
+/**
+ * @file companies.controller.js
+ * @description Manages organizational structures including companies, branches, and departments.
+ * Handles related configuration, logos, and dynamic schema migrations for companies.
+ */
+import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { hasColumn, toNumber, ensureBranchColumns } from "../utils/dbUtils.js";
 
+/**
+ * Ensures the 'adm_companies' table and its required columns exist.
+ * Performs dynamic schema updates if columns are missing.
+ *
+ * @returns {Promise<void>}
+ */
 export const ensureCompanyColumns = async () => {
   const table = "adm_companies";
   await query(`
@@ -62,6 +73,14 @@ export const ensureCompanyColumns = async () => {
   }
 };
 
+/**
+ * Creates a new company in the database.
+ * (Note: Function name kept as mangeCompanies for backward compatibility).
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const mangeCompanies = async (req, res, next) => {
   try {
     const { name, code, is_active } = req.body || {};
@@ -83,6 +102,14 @@ export const mangeCompanies = async (req, res, next) => {
   }
 };
 
+/**
+ * Updates an existing company's profile and synchronizes the base currency configuration.
+ * Uses a database transaction for consistency.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const updateCompanies = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
@@ -270,6 +297,14 @@ export const getCompanyById = async (req, res, next) => {
   }
 };
 
+/**
+ * Uploads and saves the company logo as a binary blob in the database.
+ * Returns a versioned URL to bypass browser caching.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const uploadCompanyLogo = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
@@ -366,6 +401,13 @@ export const getCompanyLogo = async (req, res, next) => {
   }
 };
 
+/**
+ * Fetches a list of branches, filtered by the authenticated user's allowed company and branch context.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getBranches = async (req, res, next) => {
   try {
     await ensureBranchColumns();
@@ -435,6 +477,13 @@ export const getBranchById = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new branch under a specified company, storing its contact and hierarchical details.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createBranch = async (req, res, next) => {
   try {
     await ensureBranchColumns();
@@ -568,6 +617,13 @@ export const updateBranch = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves departments associated with a company or branch, subject to user access restrictions.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getDepartments = async (req, res, next) => {
   try {
     const { company_id, branch_id } = req.query;

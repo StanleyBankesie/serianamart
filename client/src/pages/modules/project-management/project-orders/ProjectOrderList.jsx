@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProjectOrderList component.
+ * Provides functionality for ProjectOrderList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -32,6 +37,11 @@ function StatusBadge({ status }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProjectOrderList() {
   const navigate = useNavigate();
   const { canCreateOnPage } = usePermission();

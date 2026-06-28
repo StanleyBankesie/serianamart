@@ -1,10 +1,17 @@
+/**
+ * @fileoverview ServiceManagementHome component.
+ * Provides functionality for ServiceManagementHome.
+ */
+
 import React from "react";
 import { Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
 import { api } from "../../../api/client.js";
 
-import ServiceRequestsList from "./service-requests/ServiceRequestsList.jsx";
-import ServiceRequestForm from "./service-requests/ServiceRequestForm.jsx";
+import CustomerServiceRequestsList from "./service-requests/CustomerServiceRequestsList.jsx";
+import SupplierServiceRequestsList from "./service-requests/SupplierServiceRequestsList.jsx";
+import CustomerServiceRequestForm from "./service-requests/CustomerServiceRequestForm.jsx";
+import SupplierServiceRequestForm from "./service-requests/SupplierServiceRequestForm.jsx";
 import ServiceOrderForm from "./service-orders/ServiceOrderForm.jsx";
 import ServiceOrdersList from "./service-orders/ServiceOrdersList.jsx";
 import ServiceExecutionForm from "./service-execution/ServiceExecutionForm.jsx";
@@ -14,6 +21,8 @@ import ServiceBillForm from "./service-bills/ServiceBillForm.jsx";
 import ServiceBillsList from "./service-bills/ServiceBillsList.jsx";
 import ServiceConfirmationsList from "./service-confirmations/ServiceConfirmationsList.jsx";
 import ServiceConfirmationForm from "./service-confirmations/ServiceConfirmationForm.jsx";
+import ServiceInvoiceList from "./service-invoices/ServiceInvoiceList.jsx";
+import ServiceInvoiceForm from "./service-invoices/ServiceInvoiceForm.jsx";
 import ServiceParametersPage from "./setup/ServiceParametersPage.jsx";
 
 function ServiceManagementLanding() {
@@ -21,10 +30,10 @@ function ServiceManagementLanding() {
     {
       rbac_key: "service-requests",
       value: "—",
-      label: "Service Requests",
+      label: "Customer Service Requests",
       change: "Loading…",
       changeType: "neutral",
-      path: "/service-management/service-requests",
+      path: "/service-management/customer-service-requests",
     },
     {
       rbac_key: "open-orders",
@@ -103,9 +112,21 @@ function ServiceManagementLanding() {
       items: [
         {
           title: "Service Requests",
-          description: "Submit and track service requests",
-          path: "/service-management/service-requests",
-          icon: "🔧",
+          desc: "Manage customer service requests.",
+          path: "/service-management/customer-service-requests",
+          permission: "SERVICE.MANAGE",
+        },
+        {
+          title: "Service Invoices",
+          description: "Issue invoices to customers for completed services.",
+          path: "/service-management/service-invoices",
+          icon: "🧾",
+        },
+        {
+          title: "Supplier Service Requests",
+          description: "Internal material and supplier service requisitions",
+          path: "/service-management/supplier-service-requests",
+          icon: "📦",
         },
         {
           title: "Service Orders",
@@ -242,6 +263,11 @@ function ServiceManagementLanding() {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceManagementHome() {
   return (
     <Routes>
@@ -256,8 +282,12 @@ export default function ServiceManagementHome() {
           </React.Suspense>
         }
       />
-      <Route path="service-requests" element={<ServiceRequestsList />} />
-      <Route path="service-requests/new" element={<ServiceRequestForm />} />
+      <Route path="customer-service-requests" element={<CustomerServiceRequestsList />} />
+      <Route path="customer-service-requests/new" element={<CustomerServiceRequestForm />} />
+      <Route path="customer-service-requests/:id" element={<CustomerServiceRequestForm />} />
+      <Route path="supplier-service-requests" element={<SupplierServiceRequestsList />} />
+      <Route path="supplier-service-requests/new" element={<SupplierServiceRequestForm />} />
+      <Route path="supplier-service-requests/:id" element={<SupplierServiceRequestForm />} />
       <Route path="service-orders" element={<ServiceOrdersList />} />
       <Route path="service-orders/new" element={<ServiceOrderForm />} />
       <Route path="service-orders/:id" element={<ServiceOrderForm />} />
@@ -272,7 +302,12 @@ export default function ServiceManagementHome() {
         path="service-confirmation/:id"
         element={<ServiceConfirmationForm />}
       />
+      <Route path="service-invoices" element={<ServiceInvoiceList />} />
+      <Route path="service-invoices/new" element={<ServiceInvoiceForm />} />
+      <Route path="service-invoices/:id" element={<ServiceInvoiceForm />} />
       <Route path="service-bills" element={<ServiceBillsList />} />
+      <Route path="service-bills/new" element={<ServiceBillForm />} />
+      <Route path="service-bills/:id" element={<ServiceBillForm />} />
       <Route path="setup" element={<ServiceParametersPage />} />
       <Route
         path="visitors-log"
@@ -449,8 +484,14 @@ export default function ServiceManagementHome() {
 export const serviceManagementFeatures = [
   {
     module_key: "service-management",
-    label: "Service Requests",
-    path: "/service-management/service-requests",
+    label: "Customer Service Requests",
+    path: "/service-management/customer-service-requests",
+    type: "feature",
+  },
+  {
+    module_key: "service-management",
+    label: "Supplier Service Requests",
+    path: "/service-management/supplier-service-requests",
     type: "feature",
   },
   {

@@ -1,9 +1,19 @@
+/**
+ * @fileoverview AllowanceForm component.
+ * Provides functionality for AllowanceForm.
+ */
+
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AllowanceForm() {
   const navigate = useNavigate();
   const { id } = useParams();

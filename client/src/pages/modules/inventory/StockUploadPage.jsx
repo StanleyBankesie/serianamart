@@ -1,3 +1,8 @@
+/**
+ * @fileoverview StockUploadPage component.
+ * Provides functionality for StockUploadPage.
+ */
+
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -7,6 +12,11 @@ import { api } from "../../../api/client.js";
 import { Download } from "lucide-react";
 import { useAuth } from "../../../auth/AuthContext.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockUploadPage() {
   const { scope } = useAuth();
   const [items, setItems] = useState([]);

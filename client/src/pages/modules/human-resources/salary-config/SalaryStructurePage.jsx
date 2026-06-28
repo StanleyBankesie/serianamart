@@ -1,9 +1,19 @@
+/**
+ * @fileoverview SalaryStructurePage component.
+ * Provides functionality for SalaryStructurePage.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalaryStructurePage() {
   const [loading, setLoading] = useState(false);
   const [allowances, setAllowances] = useState([]);

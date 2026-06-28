@@ -1,7 +1,17 @@
+/**
+ * @fileoverview SLAComplianceReport component.
+ * Provides functionality for SLAComplianceReport.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SLAComplianceReport() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

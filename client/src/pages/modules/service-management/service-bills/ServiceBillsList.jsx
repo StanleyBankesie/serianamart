@@ -1,9 +1,20 @@
+/**
+ * @fileoverview ServiceBillsList component.
+ * Provides functionality for ServiceBillsList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceBillsList() {
   const location = useLocation();
   const { canPerformAction } = usePermission();
@@ -55,10 +66,10 @@ export default function ServiceBillsList() {
           <p className="text-sm mt-1">Prepare and manage service bills</p>
         </div>
         <div className="flex gap-2">
-          <Link to="/purchase" className="btn btn-secondary">
+          <Link to="/service-management" className="btn btn-secondary">
             Return to Menu
           </Link>
-          <Link to="/purchase/service-bills/new" className="btn-success">
+          <Link to="/service-management/service-bills/new" className="btn-success">
             + New Bill
           </Link>
         </div>

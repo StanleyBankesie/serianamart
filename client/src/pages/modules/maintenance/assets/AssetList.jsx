@@ -1,3 +1,8 @@
+/**
+ * @fileoverview AssetList component.
+ * Provides functionality for AssetList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { 
@@ -24,6 +29,11 @@ import SortableHeader from "../../../../components/SortableHeader.jsx";
 import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AssetList() {
   const { canPerformAction } = usePermission();
   const navigate = useNavigate();

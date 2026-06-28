@@ -1,8 +1,18 @@
+/**
+ * @fileoverview UserOverrides component.
+ * Provides functionality for UserOverrides.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function UserOverrides() {
   const navigate = useNavigate();
   const STANDARD_EXCEPTIONS = [

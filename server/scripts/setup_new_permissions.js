@@ -1,6 +1,11 @@
 
+// Database Connection Utility
 import { query } from "../db/pool.js";
 
+/**
+ * Executes the migration to set up new permission tables.
+ * Creates `adm_role_pages` and `adm_user_permissions` if they don't exist.
+ */
 async function migrate() {
   try {
     console.log("Starting new permissions schema setup...");

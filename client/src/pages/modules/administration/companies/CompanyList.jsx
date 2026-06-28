@@ -1,7 +1,17 @@
+/**
+ * @fileoverview CompanyList component.
+ * Provides functionality for CompanyList.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CompanyList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

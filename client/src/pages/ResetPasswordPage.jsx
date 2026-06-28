@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Page component for resetting a password using an OTP.
+ * Renders a form for entering the OTP and a new password.
+ */
+
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -6,6 +11,12 @@ import logoClear from "../assets/resources/OMNISUITE_LOGO_CLEAR.png";
 import backgroundImage from "../assets/resources/BACKGROUND.jpg";
 import { Eye, EyeOff } from "lucide-react";
 
+/**
+ * ResetPasswordPage component
+ * Handles validating the OTP and submitting the new password to the backend.
+ * 
+ * @returns {JSX.Element} The rendered reset password page.
+ */
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");

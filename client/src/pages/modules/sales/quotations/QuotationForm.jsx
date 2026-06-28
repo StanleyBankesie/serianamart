@@ -1,3 +1,8 @@
+/**
+ * @fileoverview QuotationForm component.
+ * Provides functionality for QuotationForm.
+ */
+
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -72,6 +77,11 @@ const COUNTRIES = [
   "Other",
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function QuotationForm() {
   const navigate = useNavigate();
   const { id } = useParams();

@@ -1,6 +1,25 @@
+/**
+ * @fileoverview Modal component for unit of measurement (UOM) conversions.
+ * Fetches conversion rules and calculates equivalent values for inventory operations.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "api/client";
 
+/**
+ * UnitConversionModal component
+ * Provides an interface to convert quantities between different units of measurement based on active conversion rules.
+ * 
+ * @param {Object} props
+ * @param {boolean} props.open - Whether the modal is open.
+ * @param {Function} props.onClose - Callback to close the modal.
+ * @param {number|string} props.itemId - The inventory item ID for targeted conversions.
+ * @param {string} props.defaultUom - Default target unit of measurement.
+ * @param {string} props.currentUom - Currently selected unit of measurement.
+ * @param {Array|null} props.conversions - Preloaded array of conversion rules (optional).
+ * @param {Function} props.onApply - Callback when conversion is confirmed.
+ * @returns {JSX.Element|null} The modal element or null if closed.
+ */
 export default function UnitConversionModal({
   open,
   onClose,

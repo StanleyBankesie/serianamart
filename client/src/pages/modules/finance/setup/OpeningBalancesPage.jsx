@@ -1,3 +1,8 @@
+/**
+ * @fileoverview OpeningBalancesPage component.
+ * Provides functionality for OpeningBalancesPage.
+ */
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
@@ -5,6 +10,11 @@ import { api } from "api/client";
 import { Link } from "react-router-dom";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function OpeningBalancesPage() {
   const [fiscalYears, setFiscalYears] = useState([]);
   const [selectedFyId, setSelectedFyId] = useState("");

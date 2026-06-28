@@ -1,7 +1,17 @@
+/**
+ * @fileoverview CampaignHub component.
+ * Provides functionality for CampaignHub.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import "./DiscountSchemeList.css";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CampaignHub() {
   return (
     <div className="promo-campaign-container">

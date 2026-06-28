@@ -1,9 +1,19 @@
+/**
+ * @fileoverview MonthlySalesTrendReportPage component.
+ * Provides functionality for MonthlySalesTrendReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MonthlySalesTrendReportPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

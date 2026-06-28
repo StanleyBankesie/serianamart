@@ -1,3 +1,8 @@
+/**
+ * @fileoverview RoutingList component.
+ * Provides functionality for RoutingList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { 
   Plus, 
@@ -15,6 +20,11 @@ import { toast } from "react-toastify";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RoutingList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

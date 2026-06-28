@@ -1,8 +1,18 @@
+/**
+ * @fileoverview CandidateForm component.
+ * Provides functionality for CandidateForm.
+ */
+
 import React from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CandidateForm() {
   const { id } = useParams();
   const navigate = useNavigate();

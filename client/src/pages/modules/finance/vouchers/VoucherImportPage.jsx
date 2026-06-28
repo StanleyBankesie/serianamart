@@ -1,3 +1,8 @@
+/**
+ * @fileoverview VoucherImportPage component.
+ * Provides functionality for VoucherImportPage.
+ */
+
 import React, { useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -19,6 +24,11 @@ const TEMPLATE_HEADERS = [
   "cheque_date",
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function VoucherImportPage() {
   const fileRef = useRef(null);
   const [parsedRows, setParsedRows] = useState([]);

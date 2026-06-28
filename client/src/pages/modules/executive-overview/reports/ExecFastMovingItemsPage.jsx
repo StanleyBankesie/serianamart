@@ -1,9 +1,19 @@
+/**
+ * @fileoverview ExecFastMovingItemsPage component.
+ * Provides functionality for ExecFastMovingItemsPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExecFastMovingItemsPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

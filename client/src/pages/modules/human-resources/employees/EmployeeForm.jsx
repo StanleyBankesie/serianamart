@@ -1,9 +1,19 @@
+/**
+ * @fileoverview EmployeeForm component.
+ * Provides functionality for EmployeeForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function EmployeeForm() {
   const navigate = useNavigate();
   const { id } = useParams();

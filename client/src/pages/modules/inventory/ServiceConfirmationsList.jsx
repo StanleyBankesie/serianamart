@@ -1,9 +1,19 @@
+/**
+ * @fileoverview ServiceConfirmationsList component.
+ * Provides functionality for ServiceConfirmationsList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceConfirmationsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);

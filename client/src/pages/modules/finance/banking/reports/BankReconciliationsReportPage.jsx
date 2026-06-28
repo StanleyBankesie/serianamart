@@ -1,7 +1,17 @@
+/**
+ * @fileoverview BankReconciliationsReportPage component.
+ * Provides functionality for BankReconciliationsReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BankReconciliationsReportPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

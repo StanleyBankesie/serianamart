@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PotentialCustomerForm component.
+ * Provides functionality for PotentialCustomerForm.
+ */
+
 import React, { useState, useEffect } from "react";
 import {
   Link,
@@ -9,6 +14,11 @@ import { api } from "../../../../api/client";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PotentialCustomerForm() {
   const navigate = useNavigate();
   const { id } = useParams();

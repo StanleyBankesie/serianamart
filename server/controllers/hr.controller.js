@@ -1,4 +1,9 @@
-﻿import { query, pool } from "../db/pool.js";
+/**
+ * @file hr.controller.js
+ * @description Manages Human Resources operations including employee profiles,
+ * KPI tracking, policies, training programs, performance reviews, and exits.
+ */
+import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import {
   ensureWorkflowTables,
@@ -10,7 +15,11 @@ import {
 import { sendMail } from "../utils/mailer.js";
 
 /**
- * List all employees with filters
+ * Retrieves a list of all employees matching the given filters (department, status, search query).
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
  */
 export async function listEmployees(req, res, next) {
   try {
@@ -64,9 +73,13 @@ export async function listEmployees(req, res, next) {
 /**
  * Performance APIs
  */
+// Retrieves a list of all Key Performance Indicators (KPIs) for the company
+// Used to populate KPI selection dropdowns or list views
 export async function listKPIs(req, res, next) {
   try {
+    // Extract company ID from the request scope
     const { companyId = null } = req.scope || {};
+    // Fetch active KPIs for the current company, ordered by name
     const items = await query(`SELECT *,
           created_at FROM hr_kpis
          WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`,
@@ -78,10 +91,15 @@ export async function listKPIs(req, res, next) {
   }
 }
 
+// Creates a new KPI or updates an existing one
+// Handles conditional logic based on whether an ID is provided
 export async function saveKPI(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
+    // Extract KPI details from the request body
     const { id, code, name, description, target_value, is_active } = req.body;
+    
+    // If ID exists, update the existing KPI record
     if (id) {
       await query(`UPDATE hr_kpis SET code = :code, name = :name, description = :description, target_value = :target_value, is_active = :is_active 
          WHERE id = :id AND company_id = :companyId`,
@@ -97,6 +115,7 @@ export async function saveKPI(req, res, next) {
       );
       res.json({ message: "KPI updated" });
     } else {
+      // If no ID, insert a new KPI record
       const result = await query(`INSERT INTO hr_kpis (company_id, code, name, description, target_value, is_active)
          VALUES (:companyId, :code, :name, :description, :target_value, 1)`,
         {
@@ -117,6 +136,8 @@ export async function saveKPI(req, res, next) {
 /**
  * Training APIs
  */
+// Retrieves a list of all training programs for the company
+// Fetches active programs and orders them by start date descending
 async function listTrainingProgramsDup(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -134,29 +155,40 @@ async function listTrainingProgramsDup(req, res, next) {
 /**
  * Compliance APIs
  */
+// Database Utility: Ensures that attachment columns exist in the hr_policies table
+// Adds attachment_url and attachment_name columns if they do not already exist
 async function ensurePolicyAttachmentColumns() {
+  // Add attachment_url column
   await query(`ALTER TABLE hr_policies
      ADD COLUMN attachment_url TEXT NULL AFTER content`,
     {},
   ).catch(() => {});
+  // Add attachment_name column
   await query(`ALTER TABLE hr_policies
      ADD COLUMN attachment_name VARCHAR(255) NULL AFTER attachment_url`,
     {},
   ).catch(() => {});
 }
 
+// Database Utility: Ensures that attachment columns exist in the hr_medical_policies table
+// Adds attachment_url and attachment_name columns if they do not already exist
 async function ensureMedicalPolicyAttachmentColumns() {
+  // Add attachment_url column
   await query(`ALTER TABLE hr_medical_policies
      ADD COLUMN attachment_url TEXT NULL AFTER coverage_details`,
     {},
   ).catch(() => {});
+  // Add attachment_name column
   await query(`ALTER TABLE hr_medical_policies
      ADD COLUMN attachment_name VARCHAR(255) NULL AFTER attachment_url`,
     {},
   ).catch(() => {});
 }
 
+// Utility: Generates the next sequential policy code for a given company
+// Finds the highest existing code (e.g., CP000001) and increments the number
 async function getNextPolicyCode(companyId) {
+  // Fetch the latest policy code for the company
   const rows = await query(`SELECT code,
           created_at FROM hr_policies
          WHERE company_id = :companyId
@@ -165,12 +197,16 @@ async function getNextPolicyCode(companyId) {
      LIMIT 1`,
     { companyId },
   );
+  // Extract and increment the numeric part of the code
   const current = Number.parseInt(String(rows?.[0]?.code || "").slice(2), 10);
   const next = Number.isFinite(current) ? current + 1 : 1;
   return `CP${String(next).padStart(6, "0")}`;
 }
 
+// Utility: Generates the next sequential medical policy code for a given company
+// Finds the highest existing code (e.g., MP000001) and increments the number
 async function getNextMedicalPolicyCode(companyId) {
+  // Fetch the latest medical policy code for the company
   const rows = await query(`SELECT policy_code,
           created_at FROM hr_medical_policies
          WHERE company_id = :companyId
@@ -179,6 +215,7 @@ async function getNextMedicalPolicyCode(companyId) {
      LIMIT 1`,
     { companyId },
   );
+  // Extract and increment the numeric part of the code
   const current = Number.parseInt(
     String(rows?.[0]?.policy_code || "").slice(2),
     10,
@@ -187,6 +224,13 @@ async function getNextMedicalPolicyCode(companyId) {
   return `MP${String(next).padStart(6, "0")}`;
 }
 
+/**
+ * Retrieves all active HR policies for the company.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export async function listPolicies(req, res, next) {
   try {
     await ensurePolicyAttachmentColumns();
@@ -203,6 +247,13 @@ export async function listPolicies(req, res, next) {
   }
 }
 
+/**
+ * Creates or updates an HR policy document.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export async function savePolicy(req, res, next) {
   try {
     await ensurePolicyAttachmentColumns();
@@ -262,11 +313,14 @@ export async function savePolicy(req, res, next) {
   }
 }
 
+// Records an employee's acknowledgement of a specific HR policy
 export async function acknowledgePolicy(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { employee_id, policy_id } = req.body;
+    
+    // Insert acknowledgement record into the database
     await query(`INSERT INTO hr_policy_acknowledgements (company_id, employee_id, policy_id, acknowledged_at)
        VALUES (:companyId, :employee_id, :policy_id, NOW())`,
       { companyId, employee_id, policy_id },
@@ -280,6 +334,8 @@ export async function acknowledgePolicy(req, res, next) {
 /**
  * Exit & Clearance APIs
  */
+// Submits a new exit request (resignation/termination) for an employee
+// Initializes the department clearance checklist automatically
 export async function saveExit(req, res, next) {
   try {
     const {
@@ -290,6 +346,8 @@ export async function saveExit(req, res, next) {
       reason,
       status,
     } = req.body;
+    
+    // Insert the primary exit record
     const result = await query(`INSERT INTO hr_exits (employee_id, exit_type, resignation_date, last_working_day, reason, status)
        VALUES (:employee_id, :exit_type, :resignation_date, :last_working_day, :reason, :status)`,
       {
@@ -303,7 +361,7 @@ export async function saveExit(req, res, next) {
     );
     const exitId = result.insertId;
 
-    // Initialize clearance items
+    // Initialize clearance items for standard departments
     const depts = [
       "IT",
       "Finance",
@@ -327,10 +385,13 @@ export async function saveExit(req, res, next) {
   }
 }
 
+// Retrieves a list of exit requests, optionally filtered by employee ID
 export async function listExits(req, res, next) {
   try {
     await ensureHRTables();
     const { employee_id } = req.query;
+    
+    // Build dynamic WHERE clauses based on provided query parameters
     const clauses = [];
     const params = {};
     if (employee_id) {
@@ -338,6 +399,7 @@ export async function listExits(req, res, next) {
       params.employee_id = toNumber(employee_id, null);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    
     const items = await query(`SELECT e.*, emp.first_name, emp.last_name
          FROM hr_exits e
        LEFT JOIN hr_employees emp ON emp.id = e.employee_id
@@ -351,6 +413,7 @@ export async function listExits(req, res, next) {
   }
 }
 
+// Retrieves clearance checklist items for a specific exit request
 export async function listClearance(req, res, next) {
   try {
     const { exit_id } = req.query;
@@ -365,6 +428,8 @@ export async function listClearance(req, res, next) {
   }
 }
 
+// Updates the status of a specific clearance checklist item (e.g., IT department clearance)
+// Automatically sets cleared_at timestamp if cleared
 export async function updateClearance(req, res, next) {
   try {
     const { id, cleared, remarks } = req.body;
@@ -419,9 +484,12 @@ export async function saveKpi(req, res, next) {
   }
 }
 
+// Retrieves a list of performance reviews for a specific employee
 export async function listPerformanceReviews(req, res, next) {
   try {
     const { employee_id } = req.query;
+    
+    // Build filter clauses
     const clauses = [];
     const params = {};
     if (employee_id) {
@@ -429,6 +497,7 @@ export async function listPerformanceReviews(req, res, next) {
       params.employee_id = employee_id;
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    
     const items = await query(`SELECT r.*, e.first_name, e.last_name,
           r.created_at FROM hr_performance_reviews r LEFT JOIN hr_employees e ON e.id = r.employee_id ${where}
          ORDER BY r.created_at DESC`,
@@ -440,6 +509,8 @@ export async function listPerformanceReviews(req, res, next) {
   }
 }
 
+// Creates or updates a performance review for an employee
+// Handles setting status, overall rating, and reviewer comments
 export async function savePerformanceReview(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -452,6 +523,8 @@ export async function savePerformanceReview(req, res, next) {
       comments,
       status,
     } = req.body;
+    
+    // Update existing performance review
     if (id) {
       await query(`UPDATE hr_performance_reviews SET period_name = :period_name, reviewer_user_id = :reviewer_user_id, overall_rating = :overall_rating, comments = :comments, status = :status WHERE id = :id AND company_id = :companyId`,
         {
@@ -466,6 +539,7 @@ export async function savePerformanceReview(req, res, next) {
       );
       res.json({ message: "Review updated" });
     } else {
+      // Insert new performance review
       const result = await query(`INSERT INTO hr_performance_reviews (company_id, employee_id, period_name, reviewer_user_id, overall_rating, comments, status) VALUES (:companyId, :employee_id, :period_name, :reviewer_user_id, :overall_rating, :comments, :status)`,
         {
           companyId,
@@ -586,13 +660,19 @@ export async function saveTrainingRecord(req, res, next) {
 }
 
 /**
- * Get employee detail by ID
+ * Retrieves full details of a specific employee, including their documents and manager info.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
  */
+// Main endpoint to fetch a single employee by ID
 export async function getEmployeeById(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
     const { id } = req.params;
 
+    // Fetch primary employee data with department, position, and manager details
     const rows = await query(`SELECT e.*, d.dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
               CONCAT(e.first_name, ' ', COALESCE(e.middle_name, ''), ' ', e.last_name) as full_name,
           e.created_at FROM hr_employees e
@@ -606,6 +686,8 @@ export async function getEmployeeById(req, res, next) {
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Employee not found");
 
     const item = rows[0];
+    
+    // Parse JSON mapping fields if they are strings
     try {
       if (typeof item.tax_mappings === "string") {
         item.tax_mappings = JSON.parse(item.tax_mappings);
@@ -615,6 +697,7 @@ export async function getEmployeeById(req, res, next) {
       }
     } catch {}
 
+    // Fetch all attached documents for this employee
     const documents = await query(`SELECT *,
           created_at FROM hr_employee_documents
          WHERE employee_id = :id`,
@@ -628,7 +711,12 @@ export async function getEmployeeById(req, res, next) {
 }
 
 /**
- * Create/Update employee
+ * Inserts or updates an employee's profile and manages their tax/allowance mappings.
+ * Uses a database transaction to ensure data integrity.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
  */
 export async function saveEmployee(req, res, next) {
   const conn = await pool.getConnection();

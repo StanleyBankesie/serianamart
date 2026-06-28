@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceRFQForm component.
+ * Provides functionality for MaintenanceRFQForm.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -5,6 +10,11 @@ import { api } from "../../../../api/client";
 
 const STATUSES = ["DRAFT","SENT","RESPONDED","CLOSED"];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceRFQForm() {
   const navigate = useNavigate();
   const { id } = useParams();

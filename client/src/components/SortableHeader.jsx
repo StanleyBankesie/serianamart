@@ -1,12 +1,34 @@
+/**
+ * @fileoverview A table header component that supports clickable sorting.
+ * Displays interactive up/down arrows indicating the current sort direction.
+ */
+
 import React from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
+/**
+ * Determines the justify-content class based on text alignment classes.
+ * @param {string} className - The CSS classes.
+ * @returns {string} The justify class string.
+ */
 function getJustifyClass(className) {
   if (className.includes("text-right")) return "justify-end";
   if (className.includes("text-center")) return "justify-center";
   return "justify-start";
 }
 
+/**
+ * SortableHeader component
+ * 
+ * @param {Object} props
+ * @param {string} props.label - The visible text label for the column header.
+ * @param {string} props.sortKey - The underlying data key associated with this column.
+ * @param {string} props.currentKey - The key that is currently being sorted by the table.
+ * @param {string} props.direction - The current sort direction ('asc' or 'desc').
+ * @param {Function} props.onToggle - Callback triggered when the header is clicked, passing the `sortKey`.
+ * @param {string} [props.className=""] - Additional CSS classes.
+ * @returns {JSX.Element} The rendered table header cell (`<th>`).
+ */
 export default function SortableHeader({
   label,
   sortKey,

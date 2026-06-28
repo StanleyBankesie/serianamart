@@ -1,3 +1,8 @@
+/**
+ * @file finance.routes.js
+ * @description Defines the Express routes for the Finance module, including 
+ * endpoints for accounts, vouchers, taxes, and financial reporting.
+ */
 import express from "express";
 import {
   requireAuth,
@@ -10,6 +15,10 @@ import * as financeController from "../controllers/finance.controller.js";
 const router = express.Router();
 
 // Accounts & COA (Moved to top to avoid shadowing)
+/**
+ * Retrieves the full Chart of Accounts.
+ * @route GET /chart-of-accounts
+ */
 router.get(
   "/chart-of-accounts",
   requireAuth,
@@ -25,6 +34,10 @@ router.get(
 );
 
 // Expense accounts endpoint
+/**
+ * Retrieves only expense accounts.
+ * @route GET /expense-accounts
+ */
 router.get(
   "/expense-accounts",
   requireAuth,
@@ -92,6 +105,10 @@ router.post(
   financeController.createVoucherType,
 );
 
+/**
+ * Lists financial vouchers based on query parameters.
+ * @route GET /vouchers
+ */
 router.get(
   "/vouchers",
   requireAuth,

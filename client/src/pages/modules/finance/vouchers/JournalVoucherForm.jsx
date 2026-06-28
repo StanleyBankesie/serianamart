@@ -1,3 +1,8 @@
+/**
+ * @fileoverview JournalVoucherForm component.
+ * Provides functionality for JournalVoucherForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -24,6 +29,11 @@ function emptyLine() {
   };
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function JournalVoucherForm() {
   const navigate = useNavigate();
   const { id } = useParams();

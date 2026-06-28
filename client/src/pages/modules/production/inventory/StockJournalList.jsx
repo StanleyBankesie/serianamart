@@ -1,3 +1,8 @@
+/**
+ * @fileoverview StockJournalList component.
+ * Provides functionality for StockJournalList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { 
   Plus, 
@@ -13,6 +18,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockJournalList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

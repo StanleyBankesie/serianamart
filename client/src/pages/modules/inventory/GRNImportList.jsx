@@ -1,3 +1,8 @@
+/**
+ * @fileoverview GRNImportList component.
+ * Provides functionality for GRNImportList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
@@ -14,6 +19,11 @@ import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { usePermission } from "@/auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function GRNImportList() {
   const navigate = useNavigate();
   const location = useLocation();

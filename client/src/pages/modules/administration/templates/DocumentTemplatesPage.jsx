@@ -1,3 +1,8 @@
+/**
+ * @fileoverview DocumentTemplatesPage component.
+ * Provides functionality for DocumentTemplatesPage.
+ */
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "api/client";
@@ -555,6 +560,11 @@ const FEATURE_PAGES = [
   }
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DocumentTemplatesPage() {
   const [searchParams] = useSearchParams();
   const initialType = useMemo(() => {

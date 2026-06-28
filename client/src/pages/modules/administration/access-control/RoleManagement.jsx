@@ -1,3 +1,8 @@
+/**
+ * @fileoverview RoleManagement component.
+ * Provides functionality for RoleManagement.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -9,6 +14,11 @@ import {
 } from "../../../../data/modulesRegistry.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RoleManagement() {
   const navigate = useNavigate();
   const { refreshPermissions } = usePermission();

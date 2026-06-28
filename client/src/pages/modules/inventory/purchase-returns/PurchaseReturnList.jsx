@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PurchaseReturnList component.
+ * Provides functionality for PurchaseReturnList.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -9,6 +14,11 @@ import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseReturnList() {
   const { canPerformAction } = usePermission();
   const navigate = useNavigate();

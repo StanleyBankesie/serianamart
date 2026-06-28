@@ -1,5 +1,23 @@
+/**
+ * @fileoverview A reusable data table component with search, filtering, and pagination support.
+ */
+
 import React from "react";
 
+/**
+ * DataTable component
+ * Renders a data grid with optional search input, action buttons, and pagination controls.
+ * 
+ * @param {Object} props
+ * @param {Array} props.columns - Column definitions.
+ * @param {Array} props.rows - Data objects to display.
+ * @param {boolean} props.loading - Loading state indicator.
+ * @param {Function} props.onSearch - Callback for the search input.
+ * @param {Function} props.onFilter - Callback for filtering (if implemented).
+ * @param {JSX.Element} props.actions - Additional action buttons to display.
+ * @param {Object} props.pagination - Pagination configuration and callbacks.
+ * @returns {JSX.Element} The rendered data table.
+ */
 export default function DataTable({
   columns,
   rows,

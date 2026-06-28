@@ -3,6 +3,13 @@ import { httpError } from "../utils/httpError.js";
 import { ensureRoleFeaturesTable } from "../utils/dbUtils.js";
 
 // ROLES CONTROLLER
+/**
+ * Retrieves all roles from the system, including creation details and the username of the creator.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getRoles(req, res, next) {
   try {
     const roles = await query(`SELECT id, name, code, is_active, created_at, updated_at,
@@ -18,10 +25,19 @@ export async function getRoles(req, res, next) {
   }
 }
 
+/**
+ * Creates a new role in the system. Ensures that the role code is unique before insertion.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function createRole(req, res, next) {
   try {
+    // Extract role data from request body
     const { name, code, is_active = true } = req.body;
     
+    // Validate required fields
     if (!name || !code) {
       return next(httpError(400, "Name and code are required"));
     }
@@ -60,11 +76,21 @@ export async function createRole(req, res, next) {
   }
 }
 
+/**
+ * Updates an existing role's details. Verifies that the role exists and that the updated code 
+ * doesn't conflict with another existing role.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function updateRole(req, res, next) {
   try {
+    // Extract route parameters and request body
     const { id } = req.params;
     const { name, code, is_active } = req.body;
     
+    // Validate required fields
     if (!name || !code) {
       return next(httpError(400, "Name and code are required"));
     }
@@ -119,6 +145,13 @@ export async function updateRole(req, res, next) {
 }
 
 // ROLE MODULES CONTROLLER
+/**
+ * Retrieves all modules associated with a specific role ID.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getRoleModules(req, res, next) {
   try {
     const { roleId } = req.params;
@@ -138,10 +171,20 @@ export async function getRoleModules(req, res, next) {
   }
 }
 
+/**
+ * Saves or updates the modules accessible to a specific role.
+ * Replaces the existing role modules and updates related permissions in a database transaction.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveRoleModules(req, res, next) {
   try {
+    // Extract role ID and module list
     const { role_id, modules } = req.body;
     
+    // Validate request data
     if (!role_id || !Array.isArray(modules)) {
       return next(httpError(400, "Role ID and modules array are required"));
     }
@@ -151,6 +194,7 @@ export async function saveRoleModules(req, res, next) {
       return next(httpError(400, "Valid role_id is required"));
     }
 
+    // Deduplicate and sanitize module keys
     const moduleKeys = Array.from(
       new Set(
         (modules || [])
@@ -159,6 +203,7 @@ export async function saveRoleModules(req, res, next) {
       ),
     );
 
+    // Initialize database connection for transaction
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -206,6 +251,13 @@ export async function saveRoleModules(req, res, next) {
 }
 
 // ROLE PERMISSIONS CONTROLLER
+/**
+ * Retrieves granular permissions for a specific role across modules and features.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getRolePermissions(req, res, next) {
   try {
     const { roleId } = req.params;
@@ -226,8 +278,17 @@ export async function getRolePermissions(req, res, next) {
   }
 }
 
+/**
+ * Saves detailed permissions (view, create, edit, delete) for a role's modules and features.
+ * Overwrites all existing permissions for the role.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveRolePermissions(req, res, next) {
   try {
+    // Extract permissions payload
     const { permissions } = req.body;
     
     if (!Array.isArray(permissions)) {
@@ -273,8 +334,16 @@ export async function saveRolePermissions(req, res, next) {
   }
 }
 
+/**
+ * Fetches all enabled features for a given role.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getRoleFeatures(req, res, next) {
   try {
+    // Ensure the required table exists before querying
     await ensureRoleFeaturesTable();
     const roleId = Number(req.params.roleId);
     if (!Number.isFinite(roleId) || !roleId) {
@@ -294,8 +363,17 @@ export async function getRoleFeatures(req, res, next) {
   }
 }
 
+/**
+ * Saves a flat list of feature keys for a role.
+ * Updates the database in a transaction to replace old feature mappings.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveRoleFeatures(req, res, next) {
   try {
+    // Ensure required table is available
     await ensureRoleFeaturesTable();
     const { role_id, features } = req.body || {};
     const roleId = Number(role_id);

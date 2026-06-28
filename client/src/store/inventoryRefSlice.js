@@ -1,11 +1,22 @@
+/**
+ * @fileoverview Redux slice for inventory reference data.
+ * Fetches and caches UOMs, categories, and item types for the inventory module.
+ */
+
 import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
 import { api } from "api/client";
 
+/**
+ * Async thunk to fetch Units of Measure (UOMs) from the server.
+ */
 export const fetchUoms = createAsyncThunk("inventoryRef/fetchUoms", async () => {
   const res = await api.get("/inventory/uoms");
   return Array.isArray(res.data?.items) ? res.data.items : [];
 });
 
+/**
+ * Async thunk to fetch item categories from the server.
+ */
 export const fetchCategories = createAsyncThunk(
   "inventoryRef/fetchCategories",
   async () => {
@@ -14,6 +25,9 @@ export const fetchCategories = createAsyncThunk(
   }
 );
 
+/**
+ * Async thunk to fetch item types from the server.
+ */
 export const fetchItemTypes = createAsyncThunk(
   "inventoryRef/fetchItemTypes",
   async () => {

@@ -1,8 +1,18 @@
+/**
+ * @fileoverview PdcPostingsList component.
+ * Provides functionality for PdcPostingsList.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PdcPostingsList() {
   const [items, setItems] = useState([]);
   const [bankAccounts, setBankAccounts] = useState([]);

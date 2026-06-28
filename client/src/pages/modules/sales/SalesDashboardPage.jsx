@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Dashboard page for the Sales module.
+ * Displays key sales metrics, recent orders, and performance charts.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";

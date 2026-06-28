@@ -1,3 +1,8 @@
+/**
+ * @fileoverview StockVerificationList component.
+ * Provides functionality for StockVerificationList.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Search, Plus } from "lucide-react";
@@ -8,6 +13,11 @@ import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { usePermission } from "../../../auth/PermissionContext.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockVerificationList() {
   const { canReverseApproval } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");

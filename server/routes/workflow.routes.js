@@ -1,4 +1,8 @@
-﻿import express from "express";
+﻿/**
+ * @file workflow.routes.js
+ * @description Express routes for workflow configurations, steps, and approvals.
+ */
+import express from "express";
 import {
   requireAuth,
   requireCompanyScope,

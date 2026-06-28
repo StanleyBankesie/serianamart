@@ -1,3 +1,10 @@
+/**
+ * @file grant_user1_super_admin.js
+ * @description Alternative script to grant super admin access to user 1.
+ * Focuses on page-level access via the `adm_role_pages` table and ensures
+ * all prerequisite tables and columns exist before applying grants.
+ */
+
 import { query } from "../db/pool.js";
 import {
   ensureUserColumns,
@@ -7,6 +14,13 @@ import {
   ensureUserPermissionsTable,
 } from "../utils/dbUtils.js";
 
+/**
+ * Main execution function.
+ * Initializes required database structures, validates the user exists,
+ * ensures the "Super Admin" role, and links all active pages to the role.
+ * 
+ * @returns {Promise<void>} Resolves when the role and page grants are applied.
+ */
 async function run() {
   try {
     console.log("Ensuring required tables and columns exist...");

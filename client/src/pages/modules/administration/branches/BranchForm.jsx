@@ -1,7 +1,17 @@
+/**
+ * @fileoverview BranchForm component.
+ * Provides functionality for BranchForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BranchForm() {
   const navigate = useNavigate();
   const { id } = useParams();

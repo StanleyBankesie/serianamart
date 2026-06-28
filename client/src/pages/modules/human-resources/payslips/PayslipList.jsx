@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PayslipList component.
+ * Provides functionality for PayslipList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -5,6 +10,11 @@ import { renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PayslipList() {
   const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview DowntimeLogList component.
+ * Provides functionality for DowntimeLogList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { 
   ArrowLeft, 
@@ -34,6 +39,11 @@ const StatusBadge = ({ level }) => {
   );
 };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DowntimeLogList() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);

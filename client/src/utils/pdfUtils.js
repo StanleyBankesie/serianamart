@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Utility functions for generating, rendering, and printing PDFs.
+ * Combines html2canvas and jsPDF for client-side PDF generation from HTML strings.
+ */
+
+/**
+ * Checks if a rendered canvas page is effectively blank (mostly white).
+ * 
+ * @param {HTMLCanvasElement} canvas - The canvas element to inspect.
+ * @returns {boolean} True if the canvas is blank, false otherwise.
+ */
 function isPageBlank(canvas) {
   const ctx = canvas.getContext("2d");
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -8,6 +19,11 @@ function isPageBlank(canvas) {
   return true;
 }
 
+/**
+ * Waits for all images within a given DOM element to fully load.
+ * @param {HTMLElement} el - The DOM element to search for images.
+ * @returns {Promise<void>} A promise that resolves when all images are loaded or an error occurs.
+ */
 export async function waitForImagesIn(el) {
   const imgs = Array.from(el?.querySelectorAll?.("img") || []);
   if (!imgs.length) return;
@@ -24,6 +40,13 @@ export async function waitForImagesIn(el) {
   );
 }
 
+/**
+ * Renders an HTML string into a downloadable PDF document.
+ * Injects the HTML into a hidden iframe, converts it to a canvas, and saves via jsPDF.
+ * 
+ * @param {string} html - The raw HTML content to render.
+ * @param {string} filename - The name of the output PDF file.
+ */
 export async function renderHtmlToPdf(html, filename = "document.pdf") {
   const { toast } = await import("react-toastify");
   const html2canvas = (await import("html2canvas")).default;
@@ -101,6 +124,15 @@ export async function renderHtmlToPdf(html, filename = "document.pdf") {
   }
 }
 
+/**
+ * Renders the HTML template for a document by making a request to the server.
+ * @param {Object} api - The axios/api instance.
+ * @param {string} docType - The type of document to render.
+ * @param {string|number} id - The ID of the document.
+ * @param {string} [featureName] - Optional feature name.
+ * @param {Function} [fetchDataFn] - Optional function to fetch payload data before rendering.
+ * @returns {Promise<string>} The rendered HTML string.
+ */
 export async function renderDocumentHtml(api, docType, id, featureName, fetchDataFn) {
   let payload_data = null;
   if (typeof fetchDataFn === "function") {
@@ -123,6 +155,15 @@ export async function renderDocumentHtml(api, docType, id, featureName, fetchDat
   return typeof resp.data === "string" ? resp.data : String(resp.data || "");
 }
 
+/**
+ * Prints a document by rendering its HTML and opening a print dialog in a hidden iframe.
+ * @param {Object} api - The axios/api instance.
+ * @param {string} docType - The type of document to print.
+ * @param {string|number} id - The ID of the document.
+ * @param {Object} [toast] - Toast notification instance.
+ * @param {string} [featureName] - Optional feature name.
+ * @param {Function} [fetchDataFn] - Optional function to fetch payload data.
+ */
 export async function printDocument(api, docType, id, toast, featureName, fetchDataFn) {
   try {
     const html = await renderDocumentHtml(api, docType, id, featureName, fetchDataFn);
@@ -157,6 +198,16 @@ export async function printDocument(api, docType, id, toast, featureName, fetchD
   }
 }
 
+/**
+ * Downloads a document as a PDF by rendering its HTML and converting it to PDF.
+ * @param {Object} api - The axios/api instance.
+ * @param {string} docType - The type of document.
+ * @param {string|number} id - The ID of the document.
+ * @param {string} filename - The filename for the downloaded PDF.
+ * @param {Object} [toast] - Toast notification instance.
+ * @param {string} [featureName] - Optional feature name.
+ * @param {Function} [fetchDataFn] - Optional function to fetch payload data.
+ */
 export async function downloadDocumentPdf(api, docType, id, filename, toast, featureName, fetchDataFn) {
   try {
     const html = await renderDocumentHtml(api, docType, id, featureName, fetchDataFn);

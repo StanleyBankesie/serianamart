@@ -1,9 +1,18 @@
+/**
+ * @fileoverview FloatingChat component.
+ * Displays a floating chat button with unread badge and handles opening the ChatModal.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client";
 import useSocket from "../../hooks/useSocket";
 import ChatModal from "./ChatModal.jsx";
 import { useAuth } from "../../auth/AuthContext";
 
+/**
+ * FloatingChat component
+ * @returns {JSX.Element}
+ */
 export default function FloatingChat() {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -11,6 +20,9 @@ export default function FloatingChat() {
   const { user } = useAuth();
   const [lastSent, setLastSent] = useState({}); // { [conversation_id]: timestamp }
   const SENT_TTL_MS = 12000;
+  /**
+   * Plays a notification tone for new messages.
+   */
   function playChatTone() {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext || null;
@@ -35,6 +47,9 @@ export default function FloatingChat() {
     } catch {}
   }
 
+  /**
+   * Loads the total unread message count from the server.
+   */
   const loadUnread = async () => {
     try {
       const res = await api.get("/chat/unread-count");

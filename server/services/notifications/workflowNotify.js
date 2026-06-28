@@ -1,9 +1,34 @@
+/**
+ * @file workflowNotify.js
+ * @description Provides cross-channel notification capabilities for workflow actions.
+ * Dispatches notifications to the database, WebSocket clients (Socket.IO),
+ * push notifications, and emails (SMTP) in a unified manner.
+ */
+
 import { query } from "../../db/pool.js";
 import { sendPushToUser } from "../../routes/push.routes.js";
 import { sendMail } from "../../utils/mailer.js";
 import { getIO } from "../../utils/socket.js";
 import { ensureWorkflowTables } from "../../utils/dbUtils.js";
 
+/**
+ * Sends a comprehensive multi-channel notification to a user when a document
+ * is forwarded to them in a workflow. Attempts database insertion, real-time
+ * WebSocket broadcast, mobile push notification, and finally an email dispatch.
+ * 
+ * @param {Object} params - The notification payload and configuration.
+ * @param {number|string} params.companyId - The ID of the company.
+ * @param {number|string} params.userId - The ID of the recipient user.
+ * @param {number|string} params.workflowInstanceId - The ID of the active workflow instance.
+ * @param {number|string} params.documentId - The reference ID of the forwarded document.
+ * @param {string} params.documentType - The type of document (e.g., 'invoice', 'purchase-order').
+ * @param {string} [params.title="Document Forwarded"] - Notification title.
+ * @param {string} [params.message=""] - Detailed message for the user.
+ * @param {string} [params.action="APPROVE"] - The action expected from the user.
+ * @param {string} [params.link="/administration/workflows/approvals/..."] - The URL path to the approval page.
+ * @param {string} [params.senderName="System"] - The name of the user or system component that forwarded the document.
+ * @returns {Promise<void>} Resolves when all notification channels have been attempted (errors are swallowed).
+ */
 export async function notifyWorkflowForward({
   companyId,
   userId,

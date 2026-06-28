@@ -1,9 +1,19 @@
+/**
+ * @fileoverview GeneralRequisitionForm component.
+ * Provides functionality for GeneralRequisitionForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../api/client.js";
 import { useNavigate, useParams, useLocation, Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function GeneralRequisitionForm() {
   const navigate = useNavigate();
   const params = useParams();

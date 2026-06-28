@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Page component for requesting a password reset OTP.
+ * Renders a form where users can input their username and email.
+ */
+
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -5,6 +10,12 @@ import api from "../api/client.js";
 import logoClear from "../assets/resources/OMNISUITE_LOGO_CLEAR.png";
 import backgroundImage from "../assets/resources/BACKGROUND.jpg";
 
+/**
+ * ForgotPasswordRequest component
+ * Handles the logic and UI for initiating a password reset process via OTP.
+ * 
+ * @returns {JSX.Element} The rendered forgot password page.
+ */
 export default function ForgotPasswordRequest() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");

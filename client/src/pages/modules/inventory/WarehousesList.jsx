@@ -1,9 +1,19 @@
+/**
+ * @fileoverview List view component for displaying all registered warehouses.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
+/**
+ * WarehousesList component
+ * Fetches and renders a searchable table of warehouses.
+ * 
+ * @returns {JSX.Element} The warehouse listing page.
+ */
 export default function WarehousesList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [warehouses, setWarehouses] = useState([]);

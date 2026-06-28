@@ -1,5 +1,19 @@
+/**
+ * @fileoverview A reusable tabbed navigation container component.
+ */
+
 import React from "react";
 
+/**
+ * TabsComponent
+ * Renders a row of clickable tabs and displays the content associated with the active tab.
+ * 
+ * @param {Object} props
+ * @param {Array<{value: string, label: string, content: React.ReactNode}>} props.tabs - Array of tab definitions.
+ * @param {string} props.value - The currently active tab value.
+ * @param {Function} props.onChange - Callback fired when a tab is clicked.
+ * @returns {JSX.Element} The tabbed view.
+ */
 export default function TabsComponent({ tabs, value, onChange }) {
   return (
     <div>

@@ -1,9 +1,19 @@
+/**
+ * @fileoverview CurrenciesPage component.
+ * Provides functionality for CurrenciesPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CurrenciesPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

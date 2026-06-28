@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaterialRequisitionList component.
+ * Provides functionality for MaterialRequisitionList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
@@ -14,6 +19,11 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaterialRequisitionList() {
   const location = useLocation();
   const { canReverseApproval, hasExceptional } = usePermission();

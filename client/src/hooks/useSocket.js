@@ -1,3 +1,8 @@
+/**
+ * @fileoverview React hook for initializing and managing a global Socket.io connection.
+ * Handles authentication injection and singleton socket instancing across the SPA.
+ */
+
 import { useEffect, useState } from "react";
 import io from "socket.io-client";
 import { useAuth } from "../auth/AuthContext";

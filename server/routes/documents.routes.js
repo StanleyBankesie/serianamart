@@ -1,4 +1,5 @@
-﻿import express from "express";
+// Route Dependencies
+import express from "express";
 import Handlebars from "handlebars";
 import sanitizeHtml from "sanitize-html";
 import {
@@ -13,8 +14,14 @@ import { join } from "path";
 import { existsSync } from "fs";
 import crypto from "crypto";
 
+/**
+ * Resolves and calculates tax summary for a given list of document items.
+ * Fetches tax components based on item tax codes and calculates compound taxes.
+ * Useful for summarizing total tax broken down by tax component.
+ */
 async function resolveTaxSummary(items, companyId) {
   const summary = {}; // name -> { amount, rate }
+  // Calculate tax code ids present in the items to minimize queries
   const taxCodeIds = [...new Set(items.map((i) => i.tax_code_id).filter(Boolean))];
   if (taxCodeIds.length === 0) return [];
 
@@ -107,6 +114,10 @@ Handlebars.registerHelper("taxTotal", function (...args) {
   return sum;
 });
 
+/**
+ * Converts various document type string aliases into a standardized canonical document type.
+ * Used for consistently handling document types across different endpoints and templates.
+ */
 function canonicalDocumentType(type) {
   const t = String(type || "")
     .trim()
@@ -236,6 +247,10 @@ function canonicalDocumentType(type) {
   return t;
 }
 
+/**
+ * Expands a given document type into an array of its known aliases/synonyms.
+ * Useful for matching template assignments when a template is tied to an alias rather than the canonical name.
+ */
 function expandDocumentTypeAliases(type) {
   const c = canonicalDocumentType(type);
   if (c === "general-template") {
@@ -369,6 +384,9 @@ function expandDocumentTypeAliases(type) {
   return [c];
 }
 
+/**
+ * Converts all document type synonyms to lowercase for case-insensitive matching.
+ */
 function docTypeSynonymsLower(type) {
   return expandDocumentTypeAliases(type).map((v) =>
     String(v).trim().toLowerCase(),
@@ -380,6 +398,11 @@ function docTypeSynonymsLower(type) {
 // Browser singleton for PDF rendering
 let _browser = null;
 
+/**
+ * Attempts to locate the Chrome/Chromium executable on the system.
+ * Checks environment variables, puppeteer bundle, and common Linux paths.
+ * Returns the path if found, otherwise undefined.
+ */
 async function findChromeExecutablePath(puppeteer) {
   // 1. Environment variable (common in production)
   if (process.env.PUPPETEER_EXECUTABLE_PATH) {
@@ -407,6 +430,10 @@ async function findChromeExecutablePath(puppeteer) {
   return undefined;
 }
 
+/**
+ * Launches a headless Puppeteer browser instance (or re-uses an existing one).
+ * Optimized for container environments by disabling sandbox and dev shm.
+ */
 async function launchBrowser() {
   if (_browser) return _browser;
 
@@ -443,6 +470,10 @@ async function launchBrowser() {
   return _browser;
 }
 
+/**
+ * Fetches the company logo from the database and converts it to a base64 Data URI.
+ * Determines the MIME type (PNG, JPEG, GIF) based on magic bytes of the image buffer.
+ */
 async function getCompanyLogoDataUri(companyId) {
   try {
     const rows = await query(
@@ -490,6 +521,10 @@ async function getCompanyLogoDataUri(companyId) {
   }
 }
 
+/**
+ * Returns mock/dummy preview data for various document types.
+ * Used when generating a template preview before a real document exists.
+ */
 async function loadPreviewData(type, companyId, branchId) {
   const [company] = await query(`
     SELECT id, name, address, city, state, postal_code, country, telephone, email, website,

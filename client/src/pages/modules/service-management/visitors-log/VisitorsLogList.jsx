@@ -1,8 +1,18 @@
+/**
+ * @fileoverview VisitorsLogList component.
+ * Provides functionality for VisitorsLogList.
+ */
+
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function VisitorsLogList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

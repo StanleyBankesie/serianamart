@@ -1,8 +1,18 @@
+/**
+ * @fileoverview ExitRequest component.
+ * Provides functionality for ExitRequest.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExitRequest() {
   const [form, setForm] = React.useState({
     employee_id: "",

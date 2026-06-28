@@ -1,8 +1,18 @@
+/**
+ * @fileoverview UserForm component.
+ * Provides functionality for UserForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { Eye, EyeOff, Building2, X } from "lucide-react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function UserForm() {
   const navigate = useNavigate();
   const { id } = useParams();

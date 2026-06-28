@@ -1,5 +1,18 @@
+/**
+ * @file xlsxUtils.js
+ * @description Utility functions for working with Excel files using xlsx.
+ */
+
 import * as XLSX from "xlsx";
 
+/**
+ * Auto-sizes the columns of an Excel worksheet based on the content length.
+ * @param {Object} ws - The worksheet object from xlsx.
+ * @param {Object} [opts={}] - Sizing options.
+ * @param {number} [opts.min=12] - Minimum column width.
+ * @param {number} [opts.max=40] - Maximum column width.
+ * @param {number} [opts.pad=2] - Padding to add to the maximum string length.
+ */
 export function autosizeWorksheetColumns(ws, opts = {}) {
   const min = Number(opts.min || 12);
   const max = Number(opts.max || 40);

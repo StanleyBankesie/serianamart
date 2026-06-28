@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceContractForm component.
+ * Provides functionality for MaintenanceContractForm.
+ */
+
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -6,6 +11,11 @@ import { Upload, FileText, X } from "lucide-react";
 
 const STATUSES = ["ACTIVE", "PENDING", "EXPIRED", "CANCELLED"];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceContractForm() {
   const navigate = useNavigate();
   const { id } = useParams();

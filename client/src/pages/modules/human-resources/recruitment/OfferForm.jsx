@@ -1,8 +1,18 @@
+/**
+ * @fileoverview OfferForm component.
+ * Provides functionality for OfferForm.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function OfferForm() {
   const navigate = useNavigate();
   const { id } = useParams();

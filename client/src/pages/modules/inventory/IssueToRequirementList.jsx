@@ -1,3 +1,8 @@
+/**
+ * @fileoverview IssueToRequirementList component.
+ * Provides functionality for IssueToRequirementList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -13,6 +18,11 @@ import {
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function IssueToRequirementList() {
   const { canReverseApproval } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");

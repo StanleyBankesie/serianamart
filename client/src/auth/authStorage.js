@@ -1,9 +1,19 @@
+/**
+ * @fileoverview Utility functions for managing authentication data in localStorage.
+ * Handles tokens, user profiles, last activity timestamps, and remembered credentials.
+ */
+
 export const AUTH_STORAGE_KEY = "omnisuite.auth";
 export const LAST_ACTIVITY_KEY = "omnisuite.lastActivity";
 export const REMEMBERED_CREDS_KEY = "omnisuite.rememberedCreds";
 export const REMEMBER_ME_PREF_KEY = "omnisuite.rememberMe";
 export const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 
+/**
+ * Gets the configured inactivity timeout in milliseconds.
+ * Defaults to 1 hour if not set.
+ * @returns {number} The inactivity timeout in milliseconds.
+ */
 export function getInactivityTimeoutMs() {
   if (typeof window === "undefined" || typeof localStorage === "undefined") return INACTIVITY_TIMEOUT_MS;
   const val = localStorage.getItem("omnisuite.inactivityTimeout");
@@ -24,10 +34,18 @@ function dispatchAuthChanged(detail) {
   window.dispatchEvent(new CustomEvent(AUTH_EVENT_NAME, { detail }));
 }
 
+/**
+ * Retrieves the event name for auth change events.
+ * @returns {string} The auth changed event name.
+ */
 export function getAuthChangedEventName() {
   return AUTH_EVENT_NAME;
 }
 
+/**
+ * Reads the stored authentication data from localStorage.
+ * @returns {Object|null} The parsed authentication object, or null if missing/invalid.
+ */
 export function readStoredAuth() {
   if (!canUseStorage()) return null;
   try {
@@ -40,6 +58,10 @@ export function readStoredAuth() {
   }
 }
 
+/**
+ * Writes authentication data to localStorage and dispatches an event.
+ * @param {Object} value - The authentication data to store.
+ */
 export function writeStoredAuth(value) {
   if (!canUseStorage()) return;
   try {
@@ -48,6 +70,9 @@ export function writeStoredAuth(value) {
   } catch {}
 }
 
+/**
+ * Clears the stored authentication data from localStorage and dispatches an event.
+ */
 export function clearStoredAuth() {
   if (!canUseStorage()) return;
   try {
@@ -59,10 +84,19 @@ export function clearStoredAuth() {
   } catch {}
 }
 
+/**
+ * Retrieves the stored JWT token.
+ * @returns {string|null} The stored token, or null if none exists.
+ */
 export function getStoredToken() {
   return readStoredAuth()?.token || null;
 }
 
+/**
+ * Updates the last activity timestamp in localStorage.
+ * @param {number} [timestamp=Date.now()] - The timestamp to set.
+ * @returns {number} The recorded timestamp.
+ */
 export function touchLastActivity(timestamp = Date.now()) {
   if (!canUseStorage()) return timestamp;
   try {
@@ -71,6 +105,10 @@ export function touchLastActivity(timestamp = Date.now()) {
   return timestamp;
 }
 
+/**
+ * Retrieves the last activity timestamp.
+ * @returns {number} The last activity timestamp, or 0 if not set.
+ */
 export function getLastActivity() {
   if (!canUseStorage()) return 0;
   try {
@@ -82,6 +120,9 @@ export function getLastActivity() {
   }
 }
 
+/**
+ * Clears the last activity timestamp from localStorage.
+ */
 export function clearLastActivity() {
   if (!canUseStorage()) return;
   try {
@@ -89,6 +130,11 @@ export function clearLastActivity() {
   } catch {}
 }
 
+/**
+ * Decodes the payload of a JWT token.
+ * @param {string} token - The JWT token to decode.
+ * @returns {Object|null} The decoded payload, or null if invalid.
+ */
 export function decodeJwtPayload(token) {
   try {
     const parts = String(token || "").split(".");
@@ -112,6 +158,12 @@ export function decodeJwtPayload(token) {
   }
 }
 
+/**
+ * Checks if a JWT token is expired, considering a given skew in seconds.
+ * @param {string} token - The JWT token.
+ * @param {number} [skewSeconds=30] - Allowed clock skew in seconds.
+ * @returns {boolean} True if the token is expired, false otherwise.
+ */
 export function isTokenExpired(token, skewSeconds = 30) {
   const payload = decodeJwtPayload(token);
   const exp = Number(payload?.exp || 0);
@@ -170,6 +222,11 @@ function normalizeRememberedCredentialPayload(payload) {
     .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
 }
 
+/**
+ * Generates a consistent avatar color for a given username based on a hash.
+ * @param {string} username - The username to hash.
+ * @returns {string} The hex color code.
+ */
 export function getRememberedAvatarColor(username) {
   const palette = [
     "#0E3646",
@@ -245,7 +302,10 @@ export function readRememberedCredentials() {
     : null;
 }
 
-/** Remove remembered credentials. Pass a username to remove only one profile. */
+/** 
+ * Remove remembered credentials. Pass a username to remove only one profile.
+ * @param {string|null} [username=null] - The specific username to remove, or null to clear all.
+ */
 export function clearRememberedCredentials(username = null) {
   if (!canUseStorage()) return;
   try {
@@ -262,6 +322,10 @@ export function clearRememberedCredentials(username = null) {
   } catch {}
 }
 
+/**
+ * Reads the "remember me" preference from localStorage.
+ * @returns {boolean} True if the preference is set, false otherwise.
+ */
 export function readRememberMePreference() {
   if (!canUseStorage()) return false;
   try {
@@ -271,6 +335,10 @@ export function readRememberMePreference() {
   }
 }
 
+/**
+ * Saves the "remember me" preference to localStorage.
+ * @param {boolean} checked - Whether the user wants to be remembered.
+ */
 export function saveRememberMePreference(checked) {
   if (!canUseStorage()) return;
   try {

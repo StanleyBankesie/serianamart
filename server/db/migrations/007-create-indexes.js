@@ -1,3 +1,7 @@
+/**
+ * @file 007-create-indexes.js
+ * @description Database migration script to ensure all necessary indexes are created.
+ */
 import { ensureIndexes } from "../../utils/ensureIndexes.js";
 
 export async function up(db) {

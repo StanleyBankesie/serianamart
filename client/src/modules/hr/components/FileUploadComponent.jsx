@@ -1,5 +1,17 @@
+/**
+ * @fileoverview A simple reusable file upload component for HR documents.
+ */
+
 import React from "react";
 
+/**
+ * FileUploadComponent
+ * Provides an input element to select a file and an upload button.
+ * 
+ * @param {Object} props
+ * @param {Function} props.onUpload - Callback fired with the selected file when 'Upload' is clicked.
+ * @returns {JSX.Element} The file upload component.
+ */
 export default function FileUploadComponent({ onUpload }) {
   const [file, setFile] = React.useState(null);
   return (

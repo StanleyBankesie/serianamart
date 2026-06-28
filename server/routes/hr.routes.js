@@ -1,3 +1,7 @@
+/**
+ * @file hr.routes.js
+ * @description Express routes for HR management including employees, attendance, and leave.
+ */
 import express from "express";
 import {
   requireAuth,
@@ -13,6 +17,10 @@ import * as trainController from "../controllers/training.controller.js";
 const router = express.Router();
 
 // Employees
+/**
+ * Retrieves all employees with optional filters.
+ * @route GET /employees
+ */
 router.get(
   "/employees",
   requireAuth,

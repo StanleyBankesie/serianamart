@@ -1,9 +1,28 @@
+/**
+ * @file useExchangeRate.js
+ * @description Hook to fetch currency exchange rates.
+ */
+
 import { useState, useCallback } from 'react';
 
+/**
+ * Hook for retrieving currency exchange rates and available currencies.
+ * @returns {Object} An object containing the fetching methods and state.
+ * @returns {Function} returns.getExchangeRate - Fetches the exchange rate between two currencies.
+ * @returns {Function} returns.getAvailableCurrencies - Fetches a list of available currencies.
+ * @returns {boolean} returns.loading - Indicates if a fetch operation is in progress.
+ * @returns {string|null} returns.error - Error message if a fetch operation fails.
+ */
 export function useExchangeRate() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  /**
+   * Fetches the exchange rate from one currency to another.
+   * @param {string} from - The base currency code.
+   * @param {string} to - The target currency code.
+   * @returns {Promise<number|null>} The exchange rate, or null if it fails.
+   */
   const getExchangeRate = useCallback(async (from, to) => {
     if (!from || !to) return null;
     if (from === to) return 1;
@@ -29,6 +48,10 @@ export function useExchangeRate() {
     }
   }, []);
 
+  /**
+   * Fetches the list of available currencies.
+   * @returns {Promise<Array<{code: string, name: string}>>} Array of available currencies.
+   */
   const getAvailableCurrencies = useCallback(async () => {
     setLoading(true);
     setError(null);

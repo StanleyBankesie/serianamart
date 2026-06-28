@@ -1,8 +1,18 @@
+/**
+ * @fileoverview AssetForm component.
+ * Provides functionality for AssetForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AssetForm() {
   const navigate = useNavigate();
   const { id } = useParams();

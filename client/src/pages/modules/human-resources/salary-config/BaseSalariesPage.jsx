@@ -1,3 +1,8 @@
+/**
+ * @fileoverview BaseSalariesPage component.
+ * Provides functionality for BaseSalariesPage.
+ */
+
 import React, { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -5,6 +10,11 @@ import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 import * as XLSX from "xlsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BaseSalariesPage() {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);

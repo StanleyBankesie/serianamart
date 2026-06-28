@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceRosterList component.
+ * Provides functionality for MaintenanceRosterList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -7,6 +12,11 @@ import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 import { Guard } from "../../../../hooks/usePermissions";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceRosterList() {
   const navigate = useNavigate();
   const location = useLocation();

@@ -1,5 +1,11 @@
+/**
+ * @fileoverview ServiceOrderForm component.
+ * Provides functionality for ServiceOrderForm.
+ */
+
 import React, { useState, useEffect } from "react";
 import { api } from "../../../../api/client";
+import { useAuth } from "../../../../auth/AuthContext.jsx";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { Trash2 } from "lucide-react";
@@ -16,7 +22,13 @@ function toYmd(date) {
   }
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceOrderForm() {
+
   const navigate = useNavigate();
   const params = useParams();
   const editId = params.id ? String(params.id) : "";
@@ -54,6 +66,16 @@ export default function ServiceOrderForm() {
     email: "",
     phone: "",
   });
+
+  const { user } = useAuth();
+  React.useEffect(() => {
+    if (user) {
+      setExtRequestor((p) => ({
+        ...p,
+        name: p.name || user.full_name || user.username || "",
+      }));
+    }
+  }, [user]);
   const [extContractor, setExtContractor] = useState({
     name: "",
     id: "",
@@ -65,8 +87,47 @@ export default function ServiceOrderForm() {
   const [selectedServiceRequisitionId, setSelectedServiceRequisitionId] =
     useState("");
   const [contractors, setContractors] = useState([]);
+  
+  const [extService, setExtService] = useState({ items: [] });
+  function addExtServiceItem() {
+    setExtService((p) => ({
+      ...p,
+      items: [
+        ...p.items,
+        { id: crypto.randomUUID(), item_id: "", desc: "", qty: 1, price: 0, sub: 0 },
+      ],
+    }));
+  }
+  function updateExtItem(id, key, value) {
+    setExtService((p) => {
+      const items = p.items.map((it) => {
+        if (it.id === id) {
+          const next = { ...it, [key]: value };
+          if (key === "item_id") {
+            const selected = serviceItems.find((s) => String(s.id) === String(value)) || null;
+            if (selected) {
+              next.desc = selected.item_name || next.desc;
+              const sp = Number(selected.selling_price || 0);
+              if (Number.isFinite(sp)) next.price = sp;
+            }
+          }
+          const qty = parseFloat(next.qty || 0);
+          const price = parseFloat(next.price || 0);
+          next.sub = qty * price;
+          return next;
+        }
+        return it;
+      });
+      return { ...p, items };
+    });
+  }
+  function removeExtItem(id) {
+    setExtService((p) => ({ ...p, items: p.items.filter((it) => it.id !== id) }));
+  }
+
   const [extReqs, setExtReqs] = useState({
     cat: "",
+    type: "",
     scope: "",
   });
   const [extTimeline, setExtTimeline] = useState({
@@ -495,8 +556,22 @@ export default function ServiceOrderForm() {
   }
 
   function submitExternal(e) {
-    e.preventDefault();
-    const payload = {
+      e.preventDefault();
+      const lines = (extService.items || []).map((it) => {
+        const qty = parseFloat(it.qty || 0);
+        const price = parseFloat(it.price || 0);
+        return {
+          item_id: it.item_id || null,
+          item_name: serviceItems.find((s) => String(s.id) === String(it.item_id))?.item_name || null,
+          description: it.desc || null,
+          qty,
+          unit_price: price,
+          line_total: qty * price,
+        };
+      });
+      const total = lines.reduce((sum, l) => sum + Number(l.line_total || 0), 0);
+      const payload = {
+        lines,
       order_type: "EXTERNAL",
       department: extDept.dept || null,
       cost_center: extDept.cost || null,
@@ -507,15 +582,19 @@ export default function ServiceOrderForm() {
       contractor_name: extContractor.name || null,
       contractor_code: extContractor.id || null,
       contractor_email: extContractor.email || null,
+        customer_name: extContractor.name || null,
+        customer_email: extContractor.email || null,
+        service_category: extReqs.cat || null,
       contractor_phone: extContractor.phone || null,
       ext_category: extReqs.cat || null,
+        service_type: extReqs.type || null,
       scope_of_work: extReqs.scope || null,
       work_location: extTimeline.loc || null,
       start_date: extTimeline.start || null,
       end_date: extTimeline.end || null,
       estimated_cost: extBudget.estCost || null,
       currency_code: extBudget.currency || null,
-      total_amount: Number(extBudget.estCost || 0),
+      total_amount: total || Number(extBudget.estCost || 0),
       assigned_supervisor_user_id: selectedSupervisorId
         ? Number(selectedSupervisorId)
         : null,
@@ -634,7 +713,7 @@ export default function ServiceOrderForm() {
                 <form onSubmit={submitInternal}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Link Service Request <span className="req">*</span>
                       </label>
                       <select
@@ -652,7 +731,7 @@ export default function ServiceOrderForm() {
                     </div>
 
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Customer <span className="req">*</span>
                       </label>
                       <div className="relative">
@@ -722,7 +801,7 @@ export default function ServiceOrderForm() {
 
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Email <span className="req">*</span>
                       </label>
                       <input
@@ -737,7 +816,7 @@ export default function ServiceOrderForm() {
                       />
                     </div>
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Phone <span className="req">*</span>
                       </label>
                       <input
@@ -751,7 +830,7 @@ export default function ServiceOrderForm() {
                       />
                     </div>
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Service Type <span className="req">*</span>
                       </label>
                       <input
@@ -768,7 +847,7 @@ export default function ServiceOrderForm() {
                       />
                     </div>
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Service Category <span className="req">*</span>
                       </label>
                       <select
@@ -897,7 +976,7 @@ export default function ServiceOrderForm() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   <div className="group">
-                    <label>
+                    <label className="label">
                       Work Location <span className="req">*</span>
                     </label>
                     <select
@@ -918,7 +997,7 @@ export default function ServiceOrderForm() {
                   </div>
 
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Service Date <span className="req">*</span>
                       </label>
                       <input
@@ -936,7 +1015,7 @@ export default function ServiceOrderForm() {
                       />
                     </div>
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Time Slot <span className="req">*</span>
                       </label>
                       <select
@@ -961,7 +1040,7 @@ export default function ServiceOrderForm() {
 
 
                   <div className="group">
-                    <label>Assigned Supervisor</label>
+                    <label className="label">Assigned Supervisor</label>
                     <select
                       className="input"
                       value={selectedSupervisorId}
@@ -1001,9 +1080,9 @@ export default function ServiceOrderForm() {
                 <form onSubmit={submitExternal}>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div className="group">
-                      <label>Requisition</label>
+                      <label className="label">Requisition</label>
                       <select
-                        className="input w-full"
+                        className="input w-56"
                         value={selectedServiceRequisitionId}
                         onChange={async (e) => {
                           const val = e.target.value;
@@ -1022,6 +1101,24 @@ export default function ServiceOrderForm() {
                               setExtReqs((p) => ({
                                 ...p,
                                 scope: desc || title || p.scope,
+                                cat: req.service_type || p.cat,
+                              }));
+                              setExtDept((p) => ({
+                                ...p,
+                                dept: req.department || p.dept,
+                              }));
+                              setExtRequestor((p) => ({
+                                ...p,
+                                name: req.created_by_name || "",
+                                email: p.email,
+                                phone: p.phone,
+                              }));
+                              setExtContractor((p) => ({
+                                ...p,
+                                name: req.requester_full_name || req.customer_name || p.name,
+                                id: req.customer_code || p.id,
+                                email: req.requester_email || p.email,
+                                phone: req.requester_phone || p.phone,
                               }));
                               setExtBudget((p) => ({
                                 ...p,
@@ -1030,7 +1127,33 @@ export default function ServiceOrderForm() {
                               return;
                             } else {
                               const res = await api.get(`/purchase/general-requisitions/${numId}`);
+                              const req = res.data?.item || res.data || {};
                               grItems = Array.isArray(res.data?.items) ? res.data.items : [];
+                              setExtDept((p) => ({
+                                ...p,
+                                dept: req.department || p.dept,
+                              }));
+                              setExtRequestor((p) => ({
+                                ...p,
+                                name: req.requested_by || p.name,
+                              }));
+                              if (req.work_location) {
+                                setExtTimeline((p) => ({
+                                  ...p,
+                                  loc: req.work_location || p.loc,
+                                }));
+                              }
+                              if (grItems.length > 0) {
+                                const mappedItems = grItems.map((ln) => ({
+                                  id: crypto.randomUUID(),
+                                  item_id: ln.item_id || "",
+                                  desc: ln.description || ln.item_name || "",
+                                  qty: Number(ln.qty || 1),
+                                  price: Number(ln.estimated_unit_cost || 0),
+                                  sub: Number(ln.qty || 1) * Number(ln.estimated_unit_cost || 0),
+                                }));
+                                setExtService({ items: mappedItems });
+                              }
                             }
                             const scopeText = grItems
                               .map((ln) => {
@@ -1061,18 +1184,8 @@ export default function ServiceOrderForm() {
                         <option value="">
                           -- Select Requisition --
                         </option>
-                        {serviceRequests.length > 0 && (
-                          <optgroup label="Service Requests">
-                            {serviceRequests.map((r) => (
-                              <option key={`sreq:${r.id}`} value={`sreq:${r.id}`}>
-                                {r.request_no} • {r.requester_full_name || ""} •{" "}
-                                {String(r.request_date || "").slice(0, 10)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
                         {approvedServiceRequisitions.length > 0 && (
-                          <optgroup label="General Requisitions">
+                          <optgroup label="Supplier Service Requests">
                             {approvedServiceRequisitions.map((r) => (
                               <option key={`gr:${r.id}`} value={`gr:${r.id}`}>
                                 {r.requisition_no} • {r.department || ""} •{" "}
@@ -1084,16 +1197,16 @@ export default function ServiceOrderForm() {
                       </select>
                     </div>
                     <div className="group">
-                      <label>
-                        Department <span className="req">*</span>
+                      <label className="label">
+                        Department 
                       </label>
                       <select
-                        className="input w-full"
+                        className="input w-56"
                         value={extDept.dept}
                         onChange={(e) =>
                           setExtDept((p) => ({ ...p, dept: e.target.value }))
                         }
-                        required
+                        
                       >
                         <option value="">-- Select Department --</option>
                         {departments.map((d) => (
@@ -1104,16 +1217,16 @@ export default function ServiceOrderForm() {
                       </select>
                     </div>
                     <div className="group">
-                      <label>
-                        Cost Center <span className="req">*</span>
+                      <label className="label">
+                        Cost Center 
                       </label>
                       <select
-                        className="input w-full"
+                        className="input w-56"
                         value={extDept.cost}
                         onChange={(e) =>
                           setExtDept((p) => ({ ...p, cost: e.target.value }))
                         }
-                        required
+                        
                       >
                         <option value="">-- Select Cost Center --</option>
                         {costCenters.map((cc) => (
@@ -1127,11 +1240,11 @@ export default function ServiceOrderForm() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div className="group">
-                      <label>
-                        Requestor Name <span className="req">*</span>
+                      <label className="label">
+                        Requestor Name 
                       </label>
                       <input
-                        className="input w-full"
+                        className="input w-56"
                         value={extRequestor.name}
                         onChange={(e) =>
                           setExtRequestor((p) => ({
@@ -1140,68 +1253,22 @@ export default function ServiceOrderForm() {
                           }))
                         }
                         placeholder="Full name"
-                        required
+                        
                       />
                     </div>
-                    <div className="group">
-                      <label>Job Title</label>
-                      <input
-                        className="input w-full"
-                        value={extRequestor.title}
-                        onChange={(e) =>
-                          setExtRequestor((p) => ({
-                            ...p,
-                            title: e.target.value,
-                          }))
-                        }
-                        placeholder="Position"
-                      />
-                    </div>
-                    <div className="group">
-                      <label>
-                        Email <span className="req">*</span>
-                      </label>
-                      <input
-                        className="input w-full"
-                        type="email"
-                        value={extRequestor.email}
-                        onChange={(e) =>
-                          setExtRequestor((p) => ({
-                            ...p,
-                            email: e.target.value,
-                          }))
-                        }
-                        placeholder="requestor@company.com"
-                        required
-                      />
-                    </div>
+                    
+                    
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div className="group">
-                      <label>
-                        Phone <span className="req">*</span>
-                      </label>
-                      <input
-                        className="input w-full"
-                        value={extRequestor.phone}
-                        onChange={(e) =>
-                          setExtRequestor((p) => ({
-                            ...p,
-                            phone: e.target.value,
-                          }))
-                        }
-                        placeholder="+1 (555) 123-4567"
-                        required
-                      />
-                    </div>
+                    
 
                     <div className="group">
-                      <label>
-                        Contractor Name <span className="req">*</span>
+                      <label className="label">
+                        Contractor Name 
                       </label>
                       <select
-                        className="input w-full"
+                        className="input w-56"
                         value={extContractor.name}
                         onChange={(e) => {
                           const name = e.target.value;
@@ -1227,7 +1294,7 @@ export default function ServiceOrderForm() {
                             }
                           }
                         }}
-                        required
+                        
                       >
                         <option value="">-- Select Contractor --</option>
                         {contractors.map((c) => (
@@ -1238,12 +1305,12 @@ export default function ServiceOrderForm() {
                       </select>
                     </div>
                     <div className="group">
-                      <label>
+                      <label className="label">
                         Contractor ID{" "}
                         <span className="text-slate-500">(Optional)</span>
                       </label>
                       <input
-                        className="input w-full"
+                        className="input w-56"
                         value={extContractor.id}
                         onChange={(e) =>
                           setExtContractor((p) => ({
@@ -1259,11 +1326,11 @@ export default function ServiceOrderForm() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div className="group">
-                      <label>
-                        Contractor Email <span className="req">*</span>
+                      <label className="label">
+                        Contractor Email 
                       </label>
                       <input
-                        className="input w-full"
+                        className="input w-56"
                         type="email"
                         value={extContractor.email}
                         onChange={(e) =>
@@ -1273,15 +1340,15 @@ export default function ServiceOrderForm() {
                           }))
                         }
                         placeholder="contractor@company.com"
-                        required
+                        
                       />
                     </div>
                     <div className="group">
-                      <label>
-                        Contractor Phone <span className="req">*</span>
+                      <label className="label">
+                        Contractor Phone 
                       </label>
                       <input
-                        className="input w-full"
+                        className="input w-56"
                         value={extContractor.phone}
                         onChange={(e) =>
                           setExtContractor((p) => ({
@@ -1290,21 +1357,21 @@ export default function ServiceOrderForm() {
                           }))
                         }
                         placeholder="+1 (555) 987-6543"
-                        required
+                        
                       />
                     </div>
 
                     <div className="group">
-                      <label>
-                        Service Category <span className="req">*</span>
+                      <label className="label">
+                        Service Category 
                       </label>
                       <select
-                        className="input w-full"
+                        className="input w-56"
                         value={extReqs.cat}
                         onChange={(e) =>
                           setExtReqs((p) => ({ ...p, cat: e.target.value }))
                         }
-                        required
+                        
                       >
                         <option value="">-- Select Category --</option>
                         {serviceCategories.map((c) => (
@@ -1316,32 +1383,135 @@ export default function ServiceOrderForm() {
                     </div>
                   </div>
                   <div className="group mb-4">
-                    <label>
-                      Scope of Work <span className="req">*</span>
+                    <label className="label">
+                      Scope of Work 
                     </label>
-                    <textarea
+                    <textarea rows="6"
                       className="input w-full"
                       value={extReqs.scope}
                       onChange={(e) =>
                         setExtReqs((p) => ({ ...p, scope: e.target.value }))
                       }
                       placeholder="Detailed description of work to be performed"
-                      required
-                    />
-                  </div>
+                      
+                      />
+                    </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div className="group">
-                      <label>
-                        Work Location <span className="req">*</span>
+                    <div className="card md:col-span-3 mb-4">
+                      <div className="card-body">
+                        <h4 style={{ color: "var(--primary)", marginBottom: 10 }}>
+                          📋 Service Items
+                        </h4>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "2fr 1fr 100px 120px 40px",
+                            gap: 12,
+                            marginBottom: 8,
+                            padding: "4px 10px",
+                            background: "var(--white)",
+                            border: "2px solid var(--border)",
+                            borderRadius: 6,
+                            fontWeight: 600,
+                          }}
+                        >
+                          <div>Item</div>
+                          <div>Qty</div>
+                          <div>Rate</div>
+                          <div>Amount</div>
+                          <div />
+                        </div>
+                        <div>
+                          {extService.items.map((it) => (
+                            <div
+                              key={it.id}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "2fr 1fr 100px 120px 40px",
+                                gap: 12,
+                                marginBottom: 10,
+                                padding: 10,
+                                background: "var(--white)",
+                                border: "2px solid var(--border)",
+                                borderRadius: 6,
+                              }}
+                            >
+                              <select
+                                className="input"
+                                value={it.item_id || ""}
+                                onChange={(e) =>
+                                  updateExtItem(it.id, "item_id", e.target.value)
+                                }
+                              >
+                                <option value="">
+                                  -- Select Service Item --
+                                </option>
+                                {serviceItems.map((si) => (
+                                  <option key={si.id} value={si.id}>
+                                    {si.item_name}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                className="input"
+                                type="number"
+                                min="1"
+                                value={it.qty}
+                                onChange={(e) =>
+                                  updateExtItem(it.id, "qty", e.target.value)
+                                }
+                              />
+                              <input
+                                className="input"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={it.price}
+                                onChange={(e) =>
+                                  updateExtItem(it.id, "price", e.target.value)
+                                }
+                                placeholder="0.00"
+                              />
+                              <input
+                                className="input"
+                                readOnly
+                                value={(
+                                  parseFloat(it.qty || 0) *
+                                  parseFloat(it.price || 0)
+                                ).toFixed(2)}
+                              />
+                              <button
+                                  type="button"
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 rounded transition-colors"
+                                  onClick={() => removeExtItem(it.id)}
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-primary mt-2"
+                          onClick={addExtServiceItem}
+                        >
+                          + Add Service Item
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div className="group">
+                        <label className="label">
+                          Work Location 
                       </label>
                       <select
-                        className="input w-full"
+                        className="input w-56"
                         value={extTimeline.loc}
                         onChange={(e) =>
                           setExtTimeline((p) => ({ ...p, loc: e.target.value }))
                         }
-                        required
+                        
                       >
                         <option value="">-- Select Work Location --</option>
                         {workLocations.map((wl) => (
@@ -1353,11 +1523,11 @@ export default function ServiceOrderForm() {
                     </div>
 
                     <div className="group">
-                      <label>
-                        Start Date <span className="req">*</span>
+                      <label className="label">
+                        Start Date 
                       </label>
                       <input
-                        className="input w-full"
+                        className="input w-56"
                         type="date"
                         value={extTimeline.start}
                         onChange={(e) =>
@@ -1367,33 +1537,33 @@ export default function ServiceOrderForm() {
                           }))
                         }
                         min={today}
-                        required
+                        
                       />
                     </div>
                     <div className="group">
-                      <label>
-                        End Date <span className="req">*</span>
+                      <label className="label">
+                        End Date 
                       </label>
                       <input
-                        className="input w-full"
+                        className="input w-56"
                         type="date"
                         value={extTimeline.end}
                         onChange={(e) =>
                           setExtTimeline((p) => ({ ...p, end: e.target.value }))
                         }
                         min={today}
-                        required
+                        
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div className="group">
-                      <label>
-                        Estimated Cost <span className="req">*</span>
+                      <label className="label">
+                        Estimated Cost 
                       </label>
                       <input
-                        className="input w-full"
+                        className="input w-56"
                         type="number"
                         step="0.01"
                         min="0"
@@ -1405,15 +1575,15 @@ export default function ServiceOrderForm() {
                           }))
                         }
                         placeholder="0.00"
-                        required
+                        
                       />
                     </div>
                     <div className="group">
-                      <label>
-                        Currency <span className="req">*</span>
+                      <label className="label">
+                        Currency 
                       </label>
                       <select
-                        className="input w-full"
+                        className="input w-56"
                         value={extBudget.currency}
                         onChange={(e) =>
                           setExtBudget((p) => ({
@@ -1421,7 +1591,7 @@ export default function ServiceOrderForm() {
                             currency: e.target.value,
                           }))
                         }
-                        required
+                        
                       >
                         <option value="">-- Select Currency --</option>
                         {currencies.map((c) => (
@@ -1433,9 +1603,9 @@ export default function ServiceOrderForm() {
                     </div>
 
                   <div className="group">
-                    <label>Assigned Supervisor</label>
+                    <label className="label">Assigned Supervisor</label>
                     <select
-                      className="input w-full"
+                      className="input w-56"
                       value={selectedSupervisorId}
                       onChange={(e) => setSelectedSupervisorId(e.target.value)}
                     >

@@ -1,5 +1,15 @@
+/**
+ * @fileoverview BulkCustomerUpload component.
+ * Provides functionality for BulkCustomerUpload.
+ */
+
 import React, { useState } from "react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BulkCustomerUpload() {
   const [fileName, setFileName] = useState("");
 

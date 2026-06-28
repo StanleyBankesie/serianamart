@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceRequestsList component.
+ * Provides functionality for MaintenanceRequestsList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, Search, Plus, Eye } from "lucide-react";
@@ -18,6 +23,11 @@ function Badge({ value, colorMap }) {
 const statusColors = { DRAFT:"bg-slate-100 text-slate-600", PENDING_APPROVAL:"bg-amber-100 text-amber-700", APPROVED:"bg-green-100 text-green-700", OPEN:"bg-blue-100 text-blue-700", IN_PROGRESS:"bg-amber-100 text-amber-700", COMPLETED:"bg-green-100 text-green-700", CANCELLED:"bg-red-100 text-red-600", RETURNED:"bg-orange-100 text-orange-700" };
 const priorityColors = { LOW:"bg-slate-100 text-slate-600", NORMAL:"bg-blue-100 text-blue-700", HIGH:"bg-orange-100 text-orange-700", CRITICAL:"bg-red-100 text-red-700" };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceRequestsList() {
   const navigate = useNavigate();
   const location = useLocation();

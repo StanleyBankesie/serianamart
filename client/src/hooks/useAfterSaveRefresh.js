@@ -1,8 +1,18 @@
+/**
+ * @file useAfterSaveRefresh.js
+ * @description Custom hook to refresh data after a save operation.
+ */
+
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import { consumeRefresh } from "../store/ui/refreshSlice.js";
 
+/**
+ * Hook to trigger a data refresh when navigating back from a save operation.
+ * @param {string} entityKey - The key identifying the entity being refreshed.
+ * @param {Function} fetchThunk - The thunk or action to dispatch for refreshing data.
+ */
 export function useAfterSaveRefresh(entityKey, fetchThunk) {
   const location = useLocation();
   const dispatch = useDispatch();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Employee Profile page component.
+ * Displays detailed information about a specific employee using a tabbed interface.
+ */
+
 import React from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -6,6 +11,12 @@ import TabsComponent from "../../../hr/components/TabsComponent.jsx";
 import FileUploadComponent from "../../../hr/components/FileUploadComponent.jsx";
 import { hrService } from "../../../hr/services/hrService.js";
 
+/**
+ * EmployeeProfile component
+ * Fetches and displays an employee's personal info, job info, salary, and documents.
+ * 
+ * @returns {JSX.Element} The detailed employee profile page.
+ */
 export default function EmployeeProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -15,6 +26,9 @@ export default function EmployeeProfile() {
 
   React.useEffect(() => {
     let mounted = true;
+    /**
+     * Loads the employee data from the server.
+     */
     async function load() {
       try {
         const res = await hrService.getEmployee(id);

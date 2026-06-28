@@ -1,10 +1,15 @@
 import crypto from "crypto";
+/**
+ * @file token.service.js
+ * @description Manages authentication tokens, JWT signing/verifying, and cookie operations.
+ */
 import jwt from "jsonwebtoken";
 
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import "../utils/loadServerEnv.js";
 
+// Configuration Constants
 const REFRESH_COOKIE_NAME =
   String(process.env.REFRESH_TOKEN_COOKIE_NAME || "").trim() ||
   "omnisuite_refresh_token";
@@ -27,6 +32,7 @@ const LOGIN_FAILURE_COOLDOWN_MINUTES = Math.max(
   Number(process.env.FAILED_LOGIN_COOLDOWN_MINUTES || 15),
 );
 
+// Utility Function: Checks if a specific column exists in a given table
 async function hasColumn(tableName, columnName) {
   const rows = await query(
     `
@@ -41,6 +47,7 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+// Utility Function: Retrieves the JWT secret, throwing an error if missing
 function getJwtSecret() {
   const secret = String(process.env.JWT_SECRET || "").trim();
   if (!secret) {
@@ -49,6 +56,7 @@ function getJwtSecret() {
   return secret;
 }
 
+// Utility Function: Converts binary profile picture data into a base64 Data URL
 function profilePictureToDataUrl(blob) {
   if (!blob) return null;
   try {
@@ -85,14 +93,20 @@ function profilePictureToDataUrl(blob) {
   }
 }
 
+// Utility Function: Checks if environment is production
 function isProduction() {
   return String(process.env.NODE_ENV || "").toLowerCase() === "production";
 }
 
+/**
+ * Gets the refresh token cookie name.
+ * @returns {string} The configured refresh token cookie name.
+ */
 export function getRefreshTokenCookieName() {
   return REFRESH_COOKIE_NAME;
 }
 
+// Utility Function: Parses raw cookie header string into an object
 export function parseCookieHeader(cookieHeader = "") {
   const cookies = {};
   const parts = String(cookieHeader || "").split(";");
@@ -109,11 +123,13 @@ export function parseCookieHeader(cookieHeader = "") {
   return cookies;
 }
 
+// Utility Function: Extracts refresh token from request cookies
 export function readRefreshTokenFromRequest(req) {
   const cookies = parseCookieHeader(req?.headers?.cookie || "");
   return cookies[REFRESH_COOKIE_NAME] || null;
 }
 
+// Utility Function: Builds cookie settings based on environment and rememberMe status
 function buildRefreshCookieOptions({ rememberMe = false, expiresAt = null } = {}) {
   const options = {
     httpOnly: true,
@@ -121,6 +137,9 @@ function buildRefreshCookieOptions({ rememberMe = false, expiresAt = null } = {}
     sameSite: isProduction() ? "none" : "lax",
     path: "/api",
   };
+  if (isProduction()) {
+    options.domain = ".omnisuite-erp.com";
+  }
   if (rememberMe && expiresAt instanceof Date) {
     options.expires = expiresAt;
     options.maxAge = Math.max(0, expiresAt.getTime() - Date.now());
@@ -128,6 +147,7 @@ function buildRefreshCookieOptions({ rememberMe = false, expiresAt = null } = {}
   return options;
 }
 
+// Utility Function: Assigns the refresh token to the response cookie
 export function setRefreshTokenCookie(res, refreshToken, options = {}) {
   res.cookie(
     REFRESH_COOKIE_NAME,
@@ -136,6 +156,7 @@ export function setRefreshTokenCookie(res, refreshToken, options = {}) {
   );
 }
 
+// Utility Function: Clears the refresh token cookie upon logout
 export function clearRefreshTokenCookie(res) {
   res.clearCookie(
     REFRESH_COOKIE_NAME,
@@ -143,14 +164,21 @@ export function clearRefreshTokenCookie(res) {
   );
 }
 
+// Utility Function: Hashes refresh token for secure database storage
 export function hashRefreshToken(token) {
   return crypto.createHash("sha256").update(String(token || "")).digest("hex");
 }
 
+// Utility Function: Generates a cryptographically strong random token
 export function generateRefreshToken() {
   return crypto.randomBytes(48).toString("hex");
 }
 
+/**
+ * Verifies the signature of an access token.
+ * @param {string} token - The JWT string to verify.
+ * @returns {Object|null} The decoded token payload if valid, otherwise null.
+ */
 export function verifyAccessToken(token) {
   const payload = jwt.verify(String(token || ""), getJwtSecret());
   if (!payload || typeof payload !== "object" || payload.token_type !== "access") {
@@ -159,6 +187,7 @@ export function verifyAccessToken(token) {
   return payload;
 }
 
+// Utility Function: Creates and signs a new JWT access token without bloated picture data
 export function signAccessToken(payload) {
   const tokenPayload = { ...payload };
   delete tokenPayload.profile_picture_url;
@@ -177,6 +206,10 @@ function addDays(days) {
 }
 
 let _authTablesEnsured = false;
+/**
+ * Ensures necessary authentication tables exist in the database (schema migration).
+ * @returns {Promise<void>}
+ */
 export async function ensureAuthTables() {
   if (_authTablesEnsured) return;
   _authTablesEnsured = true;
@@ -248,6 +281,7 @@ export async function ensureAuthTables() {
   );
 }
 
+// Major Logic: Fetches all granted permissions across assigned roles and legacy settings
 export async function getUserPermissions(userId) {
   const userRows = await query(
     "SELECT role_id FROM adm_users WHERE id = :userId LIMIT 1",
@@ -299,6 +333,7 @@ export async function getUserPermissions(userId) {
   return Array.from(new Set(allPerms.filter(Boolean)));
 }
 
+// Major Logic: Retrieves user data needed to build the authentication payload
 export async function getUserForAuth(userId) {
   const rows = await query(
     `
@@ -327,6 +362,7 @@ export async function getUserForAuth(userId) {
   return rows[0] || null;
 }
 
+// Major Logic: Constructs the JWT payload incorporating branch assignments and permissions
 export async function buildAuthUserPayload(user, permissions = []) {
   // Fetch ALL branches this user is assigned to from adm_user_branches
   let allBranchIds = [];
@@ -374,6 +410,14 @@ export async function buildAuthUserPayload(user, permissions = []) {
   return payload;
 }
 
+/**
+ * Generates and saves a new session with access and refresh tokens for a user.
+ * @param {Object} params - Session parameters.
+ * @param {Object} params.user - The user object.
+ * @param {boolean} [params.rememberMe=false] - Whether the session is long-lived.
+ * @param {Array} [params.permissions=[]] - List of permissions.
+ * @returns {Promise<{accessToken: string, refreshToken: string, userPayload: Object}>}
+ */
 export async function createSessionTokens({ user, rememberMe = false, permissions = [] }) {
   await ensureAuthTables();
   const authUser = await buildAuthUserPayload(user, permissions);
@@ -404,6 +448,7 @@ export async function createSessionTokens({ user, rememberMe = false, permission
   };
 }
 
+// Major Logic: Invalidates a specific refresh token in the database
 export async function revokeRefreshToken(rawToken) {
   const tokenHash = hashRefreshToken(rawToken);
   await query(`DELETE FROM refresh_tokens WHERE refresh_token = :tokenHash`, {
@@ -411,12 +456,14 @@ export async function revokeRefreshToken(rawToken) {
   });
 }
 
+// Major Logic: Logs user out everywhere by revoking all their refresh tokens
 export async function revokeUserRefreshTokens(userId) {
   await query(`DELETE FROM refresh_tokens WHERE user_id = :userId`, {
     userId: Number(userId),
   });
 }
 
+// Major Logic: Validates a raw refresh token and checks expiration before use
 export async function consumeRefreshToken(rawToken) {
   await ensureAuthTables();
   const tokenHash = hashRefreshToken(rawToken);
@@ -446,6 +493,7 @@ export async function consumeRefreshToken(rawToken) {
 
 const recentlyRotatedTokens = new Map();
 
+// Endpoint / Major Logic: Refreshes access tokens and rotates refresh tokens, supporting slight concurrency delay
 export async function rotateRefreshSession(rawToken) {
   const tokenHash = hashRefreshToken(rawToken);
 
@@ -484,6 +532,7 @@ export async function rotateRefreshSession(rawToken) {
   return newTokens;
 }
 
+// Major Logic: Clears failed attempt counters on successful authentication
 export async function resetFailedLoginAttempts(userId) {
   await ensureAuthTables();
   await query(
@@ -497,6 +546,7 @@ export async function resetFailedLoginAttempts(userId) {
   );
 }
 
+// Major Logic: Increments failed attempt counter upon invalid login
 export async function registerFailedLoginAttempt(userId) {
   await ensureAuthTables();
   await query(
@@ -513,6 +563,7 @@ export async function registerFailedLoginAttempt(userId) {
   return Number(user?.failed_attempts || 0);
 }
 
+// Major Logic: Determines if the user account is locked out from too many failures
 export function requiresPasswordReset(user) {
   const attempts = Number(user?.failed_attempts || 0);
   if (attempts < LOGIN_FAILURE_LIMIT) return false;

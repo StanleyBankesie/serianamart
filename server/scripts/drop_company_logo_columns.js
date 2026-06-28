@@ -1,5 +1,17 @@
+/**
+ * @fileoverview Database migration script to consolidate company logo storage in adm_companies.
+ * @module scripts/drop_company_logo_columns
+ */
+
 import { pool } from "../db/pool.js";
 
+/**
+ * Drops legacy logo columns ('logo_url', 'logo_blob', 'logo_mime') from 'adm_companies'
+ * and creates a unified 'logo' LONGBLOB column. Ignores errors if columns don't exist.
+ * Exits the process when complete.
+ *
+ * @returns {Promise<void>} Resolves when the migration is complete.
+ */
 async function dropCompanyLogoColumns() {
   const conn = await pool.getConnection();
   try {

@@ -1,13 +1,33 @@
+/**
+ * @fileoverview DashboardPermissions component.
+ * Allows administrators to manage user permissions for viewing specific dashboards, cards, and tickers.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../api/client.js";
 import { MODULES_REGISTRY } from "../../data/modulesRegistry.js";
 
+/**
+ * Helper to generate a unique key for a permission combination.
+ * 
+ * @param {string} module_key 
+ * @param {string} dashboard_key 
+ * @param {string} card_key 
+ * @param {string} ticker_key 
+ * @returns {string} The formatted permission key.
+ */
 function permKey(module_key, dashboard_key, card_key, ticker_key) {
   return `${module_key}|${dashboard_key || ""}|${card_key || ""}|${ticker_key || ""}`;
 }
 
+/**
+ * DashboardPermissions component
+ * Main interface for configuring dashboard visibility per user.
+ * 
+ * @returns {JSX.Element} The dashboard permissions view.
+ */
 export default function DashboardPermissions() {
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);

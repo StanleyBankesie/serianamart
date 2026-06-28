@@ -1,7 +1,17 @@
+/**
+ * @fileoverview VisitorsLogReport component.
+ * Provides functionality for VisitorsLogReport.
+ */
+
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function VisitorsLogReport() {
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState({

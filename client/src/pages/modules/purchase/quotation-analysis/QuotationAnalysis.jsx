@@ -1,9 +1,19 @@
+/**
+ * @fileoverview QuotationAnalysis component.
+ * Provides functionality for QuotationAnalysis.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { format } from "date-fns";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function QuotationAnalysis() {
   const [selectedRFQ, setSelectedRFQ] = useState("");
   const [loadingRFQs, setLoadingRFQs] = useState(false);

@@ -18,6 +18,9 @@ export default function ServiceConfirmationForm() {
   const isNew = id === "new";
   const mode =
     new URLSearchParams(search).get("mode") || (isNew ? "edit" : "view");
+  const preselectedOrderId = new URLSearchParams(search).get("order_id") || "";
+  const preselectedExecutionId =
+    new URLSearchParams(search).get("execution_id") || "";
 
   const [now, setNow] = useState(new Date());
   const [loading, setLoading] = useState(false);
@@ -55,9 +58,12 @@ export default function ServiceConfirmationForm() {
   const [warrantyProvided, setWarrantyProvided] = useState(false);
   const [followUpRequired, setFollowUpRequired] = useState(false);
   const [followUpNotes, setFollowUpNotes] = useState("");
-  const [additionalNotes, setAdditionalNotes] = useState("");
+
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [orderLines, setOrderLines] = useState([]);
+  const [checkedItems, setCheckedItems] = useState({});
+  const [workLocation, setWorkLocation] = useState("");
 
   const readyToConfirm = useMemo(() => {
     const checksOk = accept1 && accept2 && accept3 && accept4 && accept5;
@@ -65,7 +71,17 @@ export default function ServiceConfirmationForm() {
     const hasExec = !!selectedExecutionId;
     const hasSupplier = !!formData.supplier_id;
     const hasDate = !!formData.sc_date;
-    return checksOk && hasSatisfaction && hasExec && hasSupplier && hasDate;
+    const allItemsChecked =
+      orderLines.length === 0 ||
+      Object.values(checkedItems).filter(Boolean).length >= orderLines.length;
+    return (
+      checksOk &&
+      hasSatisfaction &&
+      hasExec &&
+      hasSupplier &&
+      hasDate &&
+      allItemsChecked
+    );
   }, [
     accept1,
     accept2,
@@ -76,6 +92,8 @@ export default function ServiceConfirmationForm() {
     selectedExecutionId,
     formData.supplier_id,
     formData.sc_date,
+    orderLines,
+    checkedItems,
   ]);
 
   useEffect(() => {
@@ -123,6 +141,63 @@ export default function ServiceConfirmationForm() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (preselectedOrderId && !selectedExecutionId) {
+      setSelectedExecutionId(preselectedOrderId);
+    } else if (preselectedExecutionId && !selectedExecutionId) {
+      api
+        .get(`/purchase/service-executions/${preselectedExecutionId}`)
+        .then((res) => {
+          const ex = res.data?.item || res.data || {};
+          if (ex.order_id) {
+            setSelectedExecutionId(String(ex.order_id));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [preselectedOrderId, preselectedExecutionId]);
+
+  useEffect(() => {
+    if (!selectedExecutionId) {
+      setOrderLines([]);
+      setCheckedItems({});
+      setWorkLocation("");
+      return;
+    }
+    let mounted = true;
+    api
+      .get(`/purchase/service-orders/${selectedExecutionId}`)
+      .then((res) => {
+        if (!mounted) return;
+        const order = res.data?.item || {};
+        const lines = Array.isArray(res.data?.lines) ? res.data.lines : [];
+        setOrderLines(lines);
+        setWorkLocation(order.work_location || "");
+        setCheckedItems((prev) => {
+          const next = {};
+          for (const ln of lines) {
+            next[ln.line_no || ln.description] =
+              prev[ln.line_no || ln.description] || false;
+          }
+          return next;
+        });
+        if (order.supplier_id && !formData.supplier_id) {
+          setFormData((p) => ({
+            ...p,
+            supplier_id: String(order.supplier_id),
+          }));
+        }
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setOrderLines([]);
+        setCheckedItems({});
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [selectedExecutionId]);
 
   useEffect(() => {
     if (isNew) return;
@@ -284,7 +359,6 @@ export default function ServiceConfirmationForm() {
         status: "CONFIRMED",
         remarks:
           (formData.remarks || "") +
-          (additionalNotes ? `\nNotes: ${additionalNotes}` : "") +
           (warrantyProvided ? `\nWarranty provided` : "") +
           (followUpRequired && followUpNotes
             ? `\nFollow-up: ${followUpNotes}`
@@ -296,6 +370,8 @@ export default function ServiceConfirmationForm() {
         })),
         satisfaction: Number(satisfaction),
         customer_feedback: customerFeedback || null,
+        order_id: selectedExecutionId ? Number(selectedExecutionId) : null,
+        execution_id: preselectedExecutionId ? Number(preselectedExecutionId) : null,
       };
 
       if (!payload.sc_date || !payload.supplier_id) {
@@ -308,7 +384,7 @@ export default function ServiceConfirmationForm() {
         await api.put(`/purchase/service-confirmations/${id}`, payload);
       }
 
-      navigate("/purchase/service-confirmation");
+      navigate("/service-management/service-confirmation");
     } catch (e2) {
       setError(
         e2?.response?.data?.message ||
@@ -478,14 +554,19 @@ export default function ServiceConfirmationForm() {
         </div>
 
         <div className="flex gap-2">
-          <Link to="/purchase/service-confirmation" className="btn-secondary">
+          <Link
+            to="/service-management/service-confirmation"
+            className="btn-secondary"
+          >
             Back to List
           </Link>
           <button
             type="button"
             className="btn-primary"
             onClick={() =>
-              navigate(`/purchase/service-confirmation/${id}?mode=edit`)
+              navigate(
+                `/service-management/service-confirmation/${id}?mode=edit`,
+              )
             }
           >
             Edit Confirmation
@@ -502,7 +583,7 @@ export default function ServiceConfirmationForm() {
           <div className="flex justify-between items-center text-white">
             <div className="flex items-center gap-3">
               <Link
-                to="/purchase/service-confirmation"
+                to="/service-management/service-confirmation"
                 className="px-3 py-1 rounded bg-white text-brand hover:bg-slate-100"
               >
                 ← Back
@@ -530,8 +611,8 @@ export default function ServiceConfirmationForm() {
           </div>
         </div>
         <div className="card-body">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
+          <div className="grid grid-cols-1 gap-6">
+            <div className="space-y-4">
               <div className="card">
                 <div className="card-body space-y-4">
                   <div className="text-lg font-semibold">
@@ -556,15 +637,15 @@ export default function ServiceConfirmationForm() {
                   {selectedExecution ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-blue-50 border border-blue-200 rounded p-3">
                       <div>
-                    <div className="text-xs text-slate-500">Order</div>
+                        <div className="text-xs text-slate-500">Order</div>
                         <div className="font-semibold">
                           {selectedExecution.order_no || "-"}
                         </div>
                       </div>
                       <div>
-                    <div className="text-xs text-slate-500">Status</div>
+                        <div className="text-xs text-slate-500">Status</div>
                         <div className="font-semibold">
-                      {selectedExecution.status || "-"}
+                          {selectedExecution.status || "-"}
                         </div>
                       </div>
                       <div>
@@ -584,6 +665,87 @@ export default function ServiceConfirmationForm() {
                   ) : null}
                 </div>
               </div>
+
+              {orderLines.length > 0 && (
+                <div className="card">
+                  <div className="card-body space-y-4">
+                    <div className="text-lg font-semibold">
+                      Service Items - Confirmation Checklist
+                    </div>
+                    <p className="text-sm text-slate-500">
+                      Confirm each service item from the order has been
+                      completed
+                    </p>
+                    <div className="space-y-2">
+                      {orderLines.map((ln, idx) => {
+                        const key = ln.line_no || ln.description || idx;
+                        const isChecked = !!checkedItems[key];
+                        return (
+                          <label
+                            key={key}
+                            className={`flex items-start gap-3 p-3 rounded-lg border transition-colors cursor-pointer ${
+                              isChecked
+                                ? "bg-green-50 border-green-300"
+                                : "bg-white border-slate-200 hover:border-slate-300"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1 h-5 w-5 rounded border-slate-300 text-green-600 focus:ring-green-500"
+                              checked={isChecked}
+                              onChange={(e) =>
+                                setCheckedItems((prev) => ({
+                                  ...prev,
+                                  [key]: e.target.checked,
+                                }))
+                              }
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <span
+                                  className={`text-sm font-medium ${isChecked ? "text-green-700" : "text-slate-700"}`}
+                                >
+                                  {ln.description ||
+                                    ln.item_name ||
+                                    "Service Item"}
+                                </span>
+                                {isChecked && (
+                                  <span className="text-green-600 text-xs font-semibold flex-shrink-0">
+                                    ✓ Completed
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                Qty: {ln.qty || 0}
+                                {ln.unit_price
+                                  ? ` • Rate: GH₵ ${Number(ln.unit_price).toFixed(2)}`
+                                  : ""}
+                                {ln.line_total
+                                  ? ` • Total: GH₵ ${Number(ln.line_total).toFixed(2)}`
+                                  : ""}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                      <span className="text-sm text-slate-500">
+                        {Object.values(checkedItems).filter(Boolean).length} of{" "}
+                        {orderLines.length} items confirmed
+                      </span>
+                      {Object.values(checkedItems).filter(Boolean).length ===
+                        orderLines.length &&
+                        orderLines.length > 0 && (
+                          <span className="text-sm font-semibold text-green-600">
+                            All items confirmed ✓
+                          </span>
+                        )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="card">
                 <div className="card-body space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -637,8 +799,6 @@ export default function ServiceConfirmationForm() {
               </div>
 
               {/* Select Services section removed */}
-
-              
 
               <div className="card">
                 <div className="card-body space-y-4">
@@ -719,7 +879,8 @@ export default function ServiceConfirmationForm() {
                       <span className="text-slate-500">(Optional)</span>
                     </label>
                     <textarea
-                      className="input"
+                      className="input w-1/2"
+                      rows="6"
                       value={customerFeedback}
                       onChange={(e) => setCustomerFeedback(e.target.value)}
                     />
@@ -735,8 +896,8 @@ export default function ServiceConfirmationForm() {
                   <div>
                     <label className="label">Remarks</label>
                     <textarea
-                      className="input"
-                      rows="3"
+                      className="input w-1/2"
+                      rows="6"
                       value={formData.remarks}
                       onChange={(e) =>
                         setFormData({ ...formData, remarks: e.target.value })
@@ -765,74 +926,16 @@ export default function ServiceConfirmationForm() {
                     <div>
                       <label className="label">Follow-up Details</label>
                       <textarea
-                        className="input"
+                        className="input w-1/2"
+                        row="6"
                         value={followUpNotes}
                         onChange={(e) => setFollowUpNotes(e.target.value)}
                       />
                     </div>
                   ) : null}
-                  <div>
-                    <label className="label">
-                      Additional Notes{" "}
-                      <span className="text-slate-500">(Optional)</span>
-                    </label>
-                    <textarea
-                      className="input"
-                      value={additionalNotes}
-                      onChange={(e) => setAdditionalNotes(e.target.value)}
-                    />
-                  </div>
+                  <div></div>
                 </div>
               </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="card">
-                <div className="card-header bg-brand text-white rounded-t-lg">
-                  <div className="font-semibold">Confirmation Summary</div>
-                </div>
-                <div className="card-body space-y-2">
-                  <div className="flex justify-between py-1 border-b border-slate-200">
-                    <div className="text-sm">Supplier</div>
-                    <div className="text-sm font-semibold">
-                      {supplierName || "-"}
-                    </div>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200">
-                    <div className="text-sm">Appointment</div>
-                    <div className="text-sm font-semibold">
-                      {(formData.sc_date || "") +
-                        (appointmentTime ? ` ${appointmentTime}` : "")}
-                    </div>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <div className="text-sm">Location</div>
-                    <div className="text-sm font-semibold">In Shop</div>
-                  </div>
-                  <div className="flex justify-between py-1 border-t pt-2">
-                    <div className="text-sm">Total</div>
-                    <div className="text-sm font-semibold">{`GH₵ ${computedTotal.toFixed(2)}`}</div>
-                  </div>
-                  <div className="mt-2">
-                    <span
-                      className={
-                        "inline-block px-3 py-1 rounded-full text-xs font-semibold " +
-                        (readyToConfirm
-                          ? "bg-green-100 text-green-700"
-                          : "bg-yellow-100 text-yellow-700")
-                      }
-                    >
-                      {readyToConfirm
-                        ? "Ready to Confirm"
-                        : "Pending Confirmation"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Selected Services card removed */}
-
-              {/* Deposit card removed */}
             </div>
           </div>
 
@@ -894,13 +997,28 @@ export default function ServiceConfirmationForm() {
                 <button
                   type="button"
                   className="btn-danger"
-                  onClick={() => {
+                  onClick={async () => {
                     if (!rejectionReason.trim()) {
                       alert("Please provide a reason for rejection.");
                       return;
                     }
-                    alert("Service rejection has been recorded.");
-                    setShowRejectModal(false);
+                    try {
+                      setSaving(true);
+                      await api.put(`/purchase/service-confirmations/${id}`, {
+                        ...formData,
+                        status: "CANCELLED",
+                        remarks: rejectionReason,
+                      });
+                      alert("Service rejection has been recorded.");
+                      setShowRejectModal(false);
+                      navigate("/service-management/service-confirmation", {
+                        state: { success: "Service confirmation rejected" },
+                      });
+                    } catch (err) {
+                      alert("Failed to reject service confirmation");
+                    } finally {
+                      setSaving(false);
+                    }
                   }}
                 >
                   Submit Rejection

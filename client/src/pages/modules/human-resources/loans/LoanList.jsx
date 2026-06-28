@@ -1,9 +1,19 @@
+/**
+ * @fileoverview LoanList component.
+ * Provides functionality for LoanList.
+ */
+
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LoanList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

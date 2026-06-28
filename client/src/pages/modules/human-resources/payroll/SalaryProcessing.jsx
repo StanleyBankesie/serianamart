@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SalaryProcessing component.
+ * Provides functionality for SalaryProcessing.
+ */
+
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -45,6 +50,11 @@ function StatCard({ label, value, color = "blue" }) {
 }
 
 // ─── main component ───────────────────────────────────────────────────────────
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalaryProcessing() {
   const navigate = useNavigate();
   const [periods, setPeriods] = useState([]);

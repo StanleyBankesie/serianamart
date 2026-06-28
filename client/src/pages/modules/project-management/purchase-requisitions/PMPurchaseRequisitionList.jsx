@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PMPurchaseRequisitionList component.
+ * Provides functionality for PMPurchaseRequisitionList.
+ */
+
 import React, { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -15,6 +20,11 @@ const statuses = [
   { value: "FULFILLED", label: "Fulfilled", color: "bg-blue-50 text-blue-600" },
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PMPurchaseRequisitionList() {
   const navigate = useNavigate();
   const { canPerformAction } = usePermission();

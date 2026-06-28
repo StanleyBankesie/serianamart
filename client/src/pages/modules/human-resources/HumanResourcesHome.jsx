@@ -1,3 +1,8 @@
+/**
+ * @fileoverview HumanResourcesHome component.
+ * Provides functionality for HumanResourcesHome.
+ */
+
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -409,6 +414,11 @@ function HRDashboard() {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function HumanResourcesHome() {
   return (
     <Routes>

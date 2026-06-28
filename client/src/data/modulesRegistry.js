@@ -299,10 +299,13 @@ export const MODULES_REGISTRY = {
     name: "Service Management",
     icon: "🔧",
     features: [
+      { key: "customer-service-requests", label: "Customer Service Requests", type: "feature" },
+      { key: "supplier-service-requests", label: "Supplier Service Requests", type: "feature" },
       { key: "service-requests", label: "Service Requests", type: "feature" },
       { key: "service-orders", label: "Service Orders", type: "feature" },
       { key: "service-executions", label: "Service Execution", type: "feature" },
       { key: "service-confirmations", label: "Service Confirmations", type: "feature" },
+      { key: "service-bills", label: "Service Bills", type: "feature" },
       { key: "billing", label: "Service Billing", type: "feature" },
       { key: "service-reports", label: "Service Reports", type: "feature" },
       { key: "visitors-log", label: "Visitors Log Book", type: "feature" },

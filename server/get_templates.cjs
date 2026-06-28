@@ -1,3 +1,7 @@
+/**
+ * @file get_templates.cjs
+ * @description Script to retrieve and display HTML content of document templates.
+ */
 const mysql = require('mysql2/promise');
 async function run() {
   const conn = await mysql.createConnection({

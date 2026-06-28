@@ -1,10 +1,16 @@
+// Database Pool Import
 import { pool } from "../db/pool.js";
 
+/**
+ * Main execution function to create purchase reward campaign tables.
+ * Handles table creation and schema updates for existing tables.
+ */
 async function run() {
   const conn = await pool.getConnection();
   try {
     console.log("Creating purchase reward campaign tables...");
 
+    // 1. Create Purchase Reward Campaigns Table
     await conn.query(`
       CREATE TABLE IF NOT EXISTS sal_purchase_reward_campaigns (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -26,6 +32,7 @@ async function run() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // 2. Create Purchase Reward Campaign Items Table
     await conn.query(`
       CREATE TABLE IF NOT EXISTS sal_purchase_reward_campaign_items (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -42,6 +49,7 @@ async function run() {
 
     // Add used_qty column if it doesn't exist (for existing tables)
     try {
+      // Attempt to add used_qty column for backward compatibility
       await conn.query(`
         ALTER TABLE sal_purchase_reward_campaigns
         ADD COLUMN used_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000'

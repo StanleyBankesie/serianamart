@@ -1,5 +1,18 @@
+/**
+ * @file migrate_access_model.js
+ * @description Migration script that updates the role-based access control (RBAC) model.
+ * It drops legacy RBAC tables, creates the new simplified model tables,
+ * links users to roles, and seeds default roles and base permissions.
+ */
+
 import { query } from "../db/pool.js";
 
+/**
+ * Drops the legacy RBAC-related tables to cleanly start over.
+ * Gracefully skips if a table doesn't exist or fails to drop.
+ * 
+ * @returns {Promise<void>} Resolves when drops are attempted.
+ */
 async function dropOldRbac() {
   const tablesInOrder = [
     "adm_role_pages",
@@ -19,6 +32,13 @@ async function dropOldRbac() {
   }
 }
 
+/**
+ * Creates the new set of tables for the updated RBAC model.
+ * This includes roles, role-module linkages, role permissions,
+ * and user permission overrides. Also alters `adm_users` to add `role_id`.
+ * 
+ * @returns {Promise<void>} Resolves when new tables are created.
+ */
 async function createNewAccessTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_roles (
@@ -91,6 +111,13 @@ async function createNewAccessTables() {
   }
 }
 
+/**
+ * Seeds the newly created RBAC tables with a default list of roles.
+ * It specifically ensures the 'Super Admin' role is granted access
+ * and full permissions to all standard application modules.
+ * 
+ * @returns {Promise<void>} Resolves when roles are seeded.
+ */
 async function seedDefaultRoles() {
   const roles = [
     "Super Admin",
@@ -141,6 +168,13 @@ async function seedDefaultRoles() {
   }
 }
 
+/**
+ * Main execution function.
+ * Orchestrates the full migration process: dropping old tables,
+ * creating new ones, and seeding default roles.
+ * 
+ * @returns {Promise<void>} Resolves when the migration is complete.
+ */
 async function run() {
   try {
     await dropOldRbac();

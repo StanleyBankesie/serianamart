@@ -1,3 +1,8 @@
+/**
+ * @fileoverview LoginPage component for OmniSuite ERP.
+ * Handles user authentication, remembering credentials, and redirecting based on assigned branches.
+ */
+
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -9,6 +14,12 @@ import logoClear from "../assets/resources/OMNISUITE_LOGO_CLEAR.png";
 import backgroundImage from "../assets/resources/BACKGROUND.jpg";
 import { Eye, EyeOff } from "lucide-react";
 
+/**
+ * LoginPage component
+ * Renders the login form, handles API authentication, and manages remembered credentials.
+ * 
+ * @returns {JSX.Element} The rendered login page.
+ */
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -118,12 +129,17 @@ export default function LoginPage() {
     if (handledStartupRedirect.current) return;
     if (!initialized || !token) return;
 
-    // Autofill-safe redirect: We don't care if fields are filled,
-    // if we have a token, we move to the dashboard.
+    // Autofill-safe redirect: We don't care if fields are filled;
+    // if we already have a valid token and are initialized, skip login.
     handledStartupRedirect.current = true;
     navigate("/", { replace: true });
   }, [initialized, token, navigate]);
 
+  /**
+   * Handles the login form submission.
+   * Authenticates the user, saves credentials if rememberMe is true, and sets the active branch scope.
+   * @param {React.FormEvent<HTMLFormElement>} e - The form submission event.
+   */
   async function onSubmit(e) {
     e.preventDefault();
 

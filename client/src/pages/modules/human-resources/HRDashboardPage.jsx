@@ -1,3 +1,8 @@
+/**
+ * @fileoverview HRDashboardPage component.
+ * Provides functionality for HRDashboardPage.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -89,6 +94,11 @@ function SimpleBarChart({ title, data, palette = [] }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function HRDashboardPage() {
   const location = useLocation();
   const backTo =

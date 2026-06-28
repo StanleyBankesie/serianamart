@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Inventory routes.
+ * Defines API endpoints for managing inventory, including items, warehouses,
+ * stock balances, GRNs, transfers, adjustments, and settings.
+ */
 import express from "express";
 import * as XLSX from "xlsx";
 import {
@@ -1963,36 +1968,47 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      await ensureReportingViews();
-      const { companyId, branchId = null } = req.scope || {};
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
+      const itemGroupId = toNumber(req.query?.itemGroupId);
       const q = String(req.query?.q || "").trim();
-      const params = { companyId, branchId };
-      let where = "v.company_id = :companyId AND v.branch_id = :branchId";
-      if (warehouseId) {
-        where += " AND v.warehouse_id = :warehouseId";
-        params.warehouseId = warehouseId;
+      const fromDate = req.query?.from ? `${req.query.from} 00:00:00` : '1900-01-01 00:00:00';
+      const toDate = req.query?.to ? `${req.query.to} 23:59:59` : '2999-12-31 23:59:59';
+      
+      const params = { companyId, branchId, branchIdsStr, fromDate, toDate };
+      
+      let iWhere = "i.company_id = :companyId";
+      if (itemGroupId) {
+        iWhere += " AND i.item_group_id = :itemGroupId";
+        params.itemGroupId = itemGroupId;
       }
       if (q) {
-        where += " AND (i.item_code LIKE :q OR i.item_name LIKE :q)";
+        iWhere += " AND (i.item_code LIKE :q OR i.item_name LIKE :q)";
         params.q = `%${q}%`;
       }
+      
+      let lWhere = "l.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(l.branch_id, :branchIdsStr))";
+      if (warehouseId) {
+        lWhere += " AND l.warehouse_id = :warehouseId";
+        params.warehouseId = warehouseId;
+      }
+
       const rows = await query(
         `
         SELECT 
-          v.item_id,
-          v.warehouse_id,
+          i.id AS item_id,
           i.item_code,
           i.item_name,
-          v.opening_qty,
-          0 AS receipts_qty,
-          0 AS issues_qty,
-          v.closing_qty,
-          v.created_at,
-          u.username AS created_by_name
-         FROM v_inv_stock_summary v
-        LEFT JOIN inv_items i ON i.id = v.item_id
-         WHERE ${where}
+          i.cost_price,
+          COALESCE(SUM(CASE WHEN l.transaction_date < :fromDate THEN l.qty_change ELSE 0 END), 0) AS opening_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change > 0 THEN l.qty_change ELSE 0 END), 0) AS receipts_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change < 0 THEN ABS(l.qty_change) ELSE 0 END), 0) AS issues_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date <= :toDate THEN l.qty_change ELSE 0 END), 0) AS closing_qty
+        FROM inv_items i
+        LEFT JOIN inv_stock_ledger l ON l.item_id = i.id AND ${lWhere}
+        WHERE ${iWhere}
+        GROUP BY i.id, i.item_code, i.item_name, i.cost_price
+        HAVING opening_qty != 0 OR receipts_qty != 0 OR issues_qty != 0 OR closing_qty != 0
         ORDER BY i.item_name ASC
         `,
         params,

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SalesOrderList component.
+ * Provides functionality for SalesOrderList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -15,6 +20,11 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalesOrderList() {
   const navigate = useNavigate();
   const location = useLocation();

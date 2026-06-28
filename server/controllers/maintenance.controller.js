@@ -1,11 +1,17 @@
-﻿import { query, pool } from "../db/pool.js";
+/**
+ * @file maintenance.controller.js
+ * @description Controller for maintenance operations including requests, assets, schedules, and setup items.
+ */
+import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 
+// Utility: safely parse a value to a finite number
 function toNumber(v, fallback = null) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Helper to run database migrations/ensure tables exist for maintenance module
 async function ensureTables(companyId, branchId) {
   await query(`CREATE TABLE IF NOT EXISTS maint_requests (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -291,6 +297,7 @@ async function ensureTables(companyId, branchId) {
 }
 
 // ===== HELPERS =====
+// Helper to generate next sequential number based on existing records
 function nextNo(prefix, rows) {
   if (!rows.length) return `${prefix}-000001`;
   const nums = rows.map((r) => {
@@ -300,6 +307,7 @@ function nextNo(prefix, rows) {
   return `${prefix}-${String(Math.max(...nums) + 1).padStart(6, "0")}`;
 }
 
+// Retrieves current user's full name or username, falling back to auth scope/request info
 async function getCurrentUserName(req, companyId) {
   const userId =
     toNumber(req.scope?.userId) ||
@@ -337,6 +345,7 @@ async function getCurrentUserName(req, companyId) {
   }
 }
 
+// Auto-generate the next maintenance request number string
 async function getNextMaintenanceRequestNo(companyId, branchId) {
   const existing = await query(`SELECT request_no AS no,
           created_at,
@@ -350,6 +359,7 @@ async function getNextMaintenanceRequestNo(companyId, branchId) {
   return nextNo("MTR", existing);
 }
 
+// Sanitizes input text, returning null if empty
 function cleanText(value) {
   const text = String(value || "").trim();
   return text || null;
@@ -372,6 +382,7 @@ const SETUP_ITEM_TYPE_MAP = {
   "job-order-types": "JOB_ORDER_TYPE",
 };
 
+// Resolves setup item types from URL slugs/kebab-case keywords to DB ENUM strings
 function resolveSetupItemType(kind) {
   return (
     SETUP_ITEM_TYPE_MAP[
@@ -382,6 +393,7 @@ function resolveSetupItemType(kind) {
   );
 }
 
+// Helper query to list all active setup items by their category
 async function listSetupItems(companyId, branchId, itemType = null) {
   const params = { companyId, branchId, branchIdsStr };
   let sql = `
@@ -398,6 +410,7 @@ async function listSetupItems(companyId, branchId, itemType = null) {
   return query(sql, params);
 }
 
+// Comprehensive endpoint helper that retrieves parameters, setups, catalogs, and user assignments
 async function getSetupSummary(companyId, branchId) {
   const [paramsRows, itemRows, linkRows, userRows] = await Promise.all([
     query(`SELECT param_key, param_value,
@@ -517,6 +530,7 @@ async function getSetupSummary(companyId, branchId) {
   return { params, catalogs, sectionUsers, users };
 }
 
+// Maps request body into an object, enforcing types and defaults
 function parseRequestPayload(body = {}, requesterName = null) {
   return {
     request_no: cleanText(body.request_no),
@@ -538,6 +552,7 @@ function parseRequestPayload(body = {}, requesterName = null) {
   };
 }
 
+// Checks if a table contains a specific column, handling schema validation dynamically
 async function hasColumn(tableName, columnName) {
   try {
     const rows = await query(
@@ -549,6 +564,7 @@ async function hasColumn(tableName, columnName) {
 }
 
 // ===== ASSETS =====
+// Fetch all maintenance assets for the branch and company
 export const listAssets = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -569,6 +585,7 @@ export const listAssets = async (req, res, next) => {
   }
 };
 
+// Retrieve a specific asset by ID
 export const getAssetById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -592,6 +609,7 @@ export const getAssetById = async (req, res, next) => {
   }
 };
 
+// Create a new asset under the company and branch
 export const createAsset = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -617,6 +635,7 @@ export const createAsset = async (req, res, next) => {
   }
 };
 
+// Update an existing maintenance asset based on its ID
 export const updateAsset = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -650,6 +669,7 @@ export const updateAsset = async (req, res, next) => {
 };
 
 // ===== MAINTENANCE REQUESTS =====
+// Fetch maintenance requests with basic workflow tracking info
 export const listRequests = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -672,6 +692,7 @@ export const listRequests = async (req, res, next) => {
   }
 };
 
+// Retrieve details for a specific maintenance request
 export const getRequestById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -692,6 +713,7 @@ export const getRequestById = async (req, res, next) => {
   }
 };
 
+// Generate and send the next maintenance request sequence number
 export const getNextRequestNo = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -703,6 +725,7 @@ export const getNextRequestNo = async (req, res, next) => {
   }
 };
 
+// Create a new maintenance request entry
 export const createRequest = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -724,6 +747,7 @@ export const createRequest = async (req, res, next) => {
   }
 };
 
+// Update an existing maintenance request 
 export const updateRequest = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -758,6 +782,7 @@ export const updateRequest = async (req, res, next) => {
   }
 };
 
+// Handles moving a draft request into an approval workflow
 export const submitRequest = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -810,6 +835,7 @@ export const submitRequest = async (req, res, next) => {
 };
 
 // ===== JOB ORDERS =====
+// Retrieve a list of all maintenance job orders
 export const listJobOrders = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -828,6 +854,7 @@ export const listJobOrders = async (req, res, next) => {
   }
 };
 
+// Retrieve details of a specific job order by ID
 export const getJobOrderById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -848,6 +875,7 @@ export const getJobOrderById = async (req, res, next) => {
   }
 };
 
+// Create a new maintenance job order, assigning teams/technicians
 export const createJobOrder = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -890,6 +918,7 @@ export const createJobOrder = async (req, res, next) => {
   }
 };
 
+// Update an existing maintenance job order
 export const updateJobOrder = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -924,6 +953,7 @@ export const updateJobOrder = async (req, res, next) => {
 };
 
 // ===== RFQ =====
+// Fetch a list of all RFQs (Requests for Quotation) along with supplier names
 export const listRFQs = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -942,6 +972,7 @@ export const listRFQs = async (req, res, next) => {
   }
 };
 
+// Retrieve details of a specific RFQ and its associated suppliers
 export const getRFQById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -970,6 +1001,7 @@ export const getRFQById = async (req, res, next) => {
   }
 };
 
+// Create a new RFQ and record the selected suppliers
 export const createRFQ = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1015,6 +1047,7 @@ export const createRFQ = async (req, res, next) => {
   }
 };
 
+// Update an existing RFQ, fully replacing the old suppliers list
 export const updateRFQ = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1052,6 +1085,7 @@ export const updateRFQ = async (req, res, next) => {
 };
 
 // ===== SUPPLIER QUOTATIONS =====
+// Fetch all supplier quotations
 export const listSupplierQuotations = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1070,6 +1104,7 @@ export const listSupplierQuotations = async (req, res, next) => {
   }
 };
 
+// Retrieve a supplier quotation and its line items
 export const getSupplierQuotationById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1098,6 +1133,7 @@ export const getSupplierQuotationById = async (req, res, next) => {
   }
 };
 
+// Record a new supplier quotation with its specific line items
 export const createSupplierQuotation = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1152,6 +1188,7 @@ export const createSupplierQuotation = async (req, res, next) => {
   }
 };
 
+// Update an existing supplier quotation, replacing all line items
 export const updateSupplierQuotation = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1200,6 +1237,7 @@ export const updateSupplierQuotation = async (req, res, next) => {
 };
 
 // ===== JOB EXECUTIONS =====
+// Fetch all maintenance job executions
 export const listJobExecutions = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1218,6 +1256,7 @@ export const listJobExecutions = async (req, res, next) => {
   }
 };
 
+// Retrieve details for a specific job execution record
 export const getJobExecutionById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1238,6 +1277,7 @@ export const getJobExecutionById = async (req, res, next) => {
   }
 };
 
+// Record a new job execution/completion report
 export const createJobExecution = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1275,6 +1315,7 @@ export const createJobExecution = async (req, res, next) => {
   }
 };
 
+// Update an existing job execution record
 export const updateJobExecution = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1304,6 +1345,7 @@ export const updateJobExecution = async (req, res, next) => {
 };
 
 // ===== MAINTENANCE BILLS =====
+// Fetch all maintenance bills
 export const listBills = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1322,6 +1364,7 @@ export const listBills = async (req, res, next) => {
   }
 };
 
+// Retrieve details for a specific maintenance bill and its line items
 export const getBillById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1350,6 +1393,7 @@ export const getBillById = async (req, res, next) => {
   }
 };
 
+// Generate and return the next sequential bill number
 export const getNextBillNo = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1368,6 +1412,7 @@ export const getNextBillNo = async (req, res, next) => {
   }
 };
 
+// Record a new maintenance bill and its individual line items
 export const createBill = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1430,6 +1475,7 @@ export const createBill = async (req, res, next) => {
   }
 };
 
+// Update an existing maintenance bill, replacing all line items
 export const updateBill = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1484,6 +1530,7 @@ export const updateBill = async (req, res, next) => {
 };
 
 // ===== SCHEDULES =====
+// Fetch all scheduled maintenance tasks
 export const listSchedules = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1502,6 +1549,7 @@ export const listSchedules = async (req, res, next) => {
   }
 };
 
+// Retrieve details for a specific maintenance schedule
 export const getScheduleById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1522,6 +1570,7 @@ export const getScheduleById = async (req, res, next) => {
   }
 };
 
+// Create a new recurring or one-off maintenance schedule
 export const createSchedule = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1547,6 +1596,7 @@ export const createSchedule = async (req, res, next) => {
   }
 };
 
+// Update an existing maintenance schedule
 export const updateSchedule = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1574,6 +1624,7 @@ export const updateSchedule = async (req, res, next) => {
 };
 
 // ===== ROSTERS =====
+// Fetch all maintenance staff shift rosters
 export const listRosters = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1592,6 +1643,7 @@ export const listRosters = async (req, res, next) => {
   }
 };
 
+// Retrieve details of a specific staff roster
 export const getRosterById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1612,6 +1664,7 @@ export const getRosterById = async (req, res, next) => {
   }
 };
 
+// Create a new staff shift roster
 export const createRoster = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1635,6 +1688,7 @@ export const createRoster = async (req, res, next) => {
   }
 };
 
+// Update an existing staff shift roster
 export const updateRoster = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1660,6 +1714,7 @@ export const updateRoster = async (req, res, next) => {
 };
 
 // ===== EQUIPMENT =====
+// Fetch all maintained equipment/assets
 export const listEquipment = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1678,6 +1733,7 @@ export const listEquipment = async (req, res, next) => {
   }
 };
 
+// Retrieve details of a specific piece of equipment
 export const getEquipmentById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1698,6 +1754,7 @@ export const getEquipmentById = async (req, res, next) => {
   }
 };
 
+// Register a new piece of equipment for maintenance tracking
 export const createEquipment = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1729,6 +1786,7 @@ export const createEquipment = async (req, res, next) => {
   }
 };
 
+// Update an existing piece of equipment's details
 export const updateEquipment = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1762,6 +1820,7 @@ export const updateEquipment = async (req, res, next) => {
 };
 
 // ===== PARAMETERS/SETUP =====
+// Fetch configuration parameters for the maintenance module
 export const getParameters = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1782,6 +1841,7 @@ export const getParameters = async (req, res, next) => {
   }
 };
 
+// Save or update configuration parameters for the maintenance module
 export const saveParameters = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1800,6 +1860,7 @@ export const saveParameters = async (req, res, next) => {
   }
 };
 
+// Get full catalog of setup/reference data (categories, priorities, etc.)
 export const getSetupCatalog = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1811,6 +1872,7 @@ export const getSetupCatalog = async (req, res, next) => {
   }
 };
 
+// Create a new reference/setup item (e.g. new priority, new section)
 export const createSetupItem = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1844,6 +1906,7 @@ export const createSetupItem = async (req, res, next) => {
   }
 };
 
+// Update an existing setup/reference item
 export const updateSetupItem = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1884,6 +1947,7 @@ export const updateSetupItem = async (req, res, next) => {
   }
 };
 
+// Delete a setup item and associated mapping records if applicable
 export const deleteSetupItem = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1914,6 +1978,7 @@ export const deleteSetupItem = async (req, res, next) => {
   }
 };
 
+// Map a user to a specific maintenance section
 export const createSectionUser = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1957,6 +2022,7 @@ export const createSectionUser = async (req, res, next) => {
   }
 };
 
+// Update a user's maintenance section mapping and permissions
 export const updateSectionUser = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1987,6 +2053,7 @@ export const updateSectionUser = async (req, res, next) => {
   }
 };
 
+// Remove a user's maintenance section mapping
 export const deleteSectionUser = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2007,6 +2074,7 @@ export const deleteSectionUser = async (req, res, next) => {
 };
 
 // ===== CONTRACTS =====
+// Fetch all maintenance contracts along with covered assets
 export const listContracts = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2025,6 +2093,7 @@ export const listContracts = async (req, res, next) => {
   }
 };
 
+// Retrieve a specific maintenance contract and its covered assets
 export const getContractById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2053,6 +2122,7 @@ export const getContractById = async (req, res, next) => {
   }
 };
 
+// Register a new maintenance contract and link to covered assets
 export const createContract = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2104,6 +2174,7 @@ export const createContract = async (req, res, next) => {
   }
 };
 
+// Update a maintenance contract and explicitly replace all covered assets
 export const updateContract = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2150,6 +2221,7 @@ export const updateContract = async (req, res, next) => {
 
 // ===== DASHBOARD STATS =====
 
+// Gather high-level stats (e.g., pending requests, active jobs) for the dashboard
 export const getMaintenanceStats = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2186,6 +2258,7 @@ export const getMaintenanceStats = async (req, res, next) => {
 
 // ===== ASSET METERS =====
 
+// Fetch history of meter readings for an asset
 export const listAssetMeters = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2203,6 +2276,7 @@ export const listAssetMeters = async (req, res, next) => {
   }
 };
 
+// Log a new meter reading for an asset
 export const createAssetMeter = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2222,6 +2296,7 @@ export const createAssetMeter = async (req, res, next) => {
 
 // ===== DOWNTIME LOGS =====
 
+// Fetch logs of recorded downtime events for assets
 export const listDowntimeLogs = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2241,6 +2316,7 @@ export const listDowntimeLogs = async (req, res, next) => {
   }
 };
 
+// Record a new downtime incident for an asset
 export const createDowntimeLog = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2260,6 +2336,7 @@ export const createDowntimeLog = async (req, res, next) => {
 
 // ===== REPORTS =====
 
+// Generate an aggregated report summarizing total and average asset downtime
 export const getDowntimeReport = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2290,6 +2367,7 @@ export const getDowntimeReport = async (req, res, next) => {
 // MAINTENANCE MATERIAL REQUISITIONS
 // ============================================================
 
+// Setup routine to ensure material requisition tables exist
 async function ensureMaintMaterialRequisitionTables() {
   await query(`CREATE TABLE IF NOT EXISTS maint_material_requisitions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -2327,6 +2405,7 @@ async function ensureMaintMaterialRequisitionTables() {
   try { await query(`ALTER TABLE maint_material_requisitions ADD COLUMN IF NOT EXISTS deleted_at DATETIME NULL`); } catch (e) {}
 }
 
+// Generate the next sequential number for Material Requisitions
 async function nextMaintMRNo(companyId, branchId) {
   const rows = await query(`SELECT requisition_no FROM maint_material_requisitions WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND requisition_no LIKE 'MMR-%' ORDER BY CAST(SUBSTRING(requisition_no, 5) AS UNSIGNED) DESC LIMIT 1`, { companyId, branchId });
   let nextNum = 1;
@@ -2339,6 +2418,7 @@ async function nextMaintMRNo(companyId, branchId) {
   return `MMR-${String(nextNum).padStart(6, "0")}`;
 }
 
+// Fetch list of all active maintenance material requisitions
 export const listMaintMaterialRequisitions = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2354,6 +2434,7 @@ export const listMaintMaterialRequisitions = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// Retrieve details for a specific maintenance material requisition
 export const getMaintMaterialRequisitionById = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -2372,6 +2453,7 @@ export const getMaintMaterialRequisitionById = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// Record a new maintenance material requisition using transactions
 export const createMaintMaterialRequisition = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
@@ -2410,6 +2492,7 @@ export const createMaintMaterialRequisition = async (req, res, next) => {
   } catch (err) { try { await conn.rollback(); } catch {} next(err); } finally { conn.release(); }
 };
 
+// Update a material requisition (or cancel it) inside a transaction
 export const updateMaintMaterialRequisition = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
@@ -2450,6 +2533,7 @@ export const updateMaintMaterialRequisition = async (req, res, next) => {
   } catch (err) { try { await conn.rollback(); } catch {} next(err); } finally { conn.release(); }
 };
 
+// Push a material requisition from DRAFT to an approval workflow if applicable
 export const submitMaintMaterialRequisition = async (req, res, next) => {
   try {
     const { companyId = null } = req.scope || {};

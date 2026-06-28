@@ -1,8 +1,18 @@
+/**
+ * @fileoverview RequisitionList component.
+ * Provides functionality for RequisitionList.
+ */
+
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RequisitionList() {
   const [items, setItems] = React.useState([]);
   const [loading, setLoading] = React.useState(false);

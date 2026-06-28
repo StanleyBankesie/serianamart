@@ -1,3 +1,8 @@
+/**
+ * @fileoverview TrainingPrograms component.
+ * Provides functionality for TrainingPrograms.
+ */
+
 import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -33,6 +38,11 @@ const defaultForm = {
 
 const TABS = ["General", "Logistics", "Details"];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function TrainingPrograms() {
   const [programs, setPrograms] = useState([]);
   const [loading, setLoading] = useState(true);

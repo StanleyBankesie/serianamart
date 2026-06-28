@@ -1,9 +1,18 @@
+/**
+ * @fileoverview ChatModal component and related sub-components for the chat system.
+ */
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import useSocket from "../../hooks/useSocket";
 import { useAuth } from "../../auth/AuthContext";
 import defaultChatBg from "../../assets/resources/CHAT_BACKGROUND.png";
 
+/**
+ * Renders the list of conversations and available users to chat with.
+ * @param {Object} props
+ * @returns {JSX.Element}
+ */
 function ConversationList({
   items,
   activeId,
@@ -61,6 +70,11 @@ function ConversationList({
   );
 }
 
+/**
+ * Renders the list of messages in the active conversation.
+ * @param {Object} props
+ * @returns {JSX.Element}
+ */
 function MessageList({ items, myId, bgUrl }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -223,6 +237,11 @@ function MessageList({ items, myId, bgUrl }) {
   );
 }
 
+/**
+ * Renders a contact card message.
+ * @param {Object} props
+ * @returns {JSX.Element}
+ */
 function ContactCard({ content }) {
   let data = null;
   try {
@@ -238,6 +257,12 @@ function ContactCard({ content }) {
   );
 }
 
+/**
+ * Main ChatModal component containing the chat UI.
+ * @param {Object} props
+ * @param {Function} props.onClose - Callback to close the modal.
+ * @returns {JSX.Element}
+ */
 export default function ChatModal({ onClose }) {
   const socket = useSocket();
   const { user } = useAuth();
@@ -263,6 +288,9 @@ export default function ChatModal({ onClose }) {
   const fileAudioRef = useRef(null);
   const bgFileRef = useRef(null);
 
+  /**
+   * Fetches the user's active conversations.
+   */
   async function loadConvos() {
     try {
       const res = await api.get("/chat/conversations");
@@ -271,6 +299,9 @@ export default function ChatModal({ onClose }) {
       setConvos([]);
     }
   }
+  /**
+   * Fetches unread message counts grouped by user.
+   */
   async function loadUnreadByUser() {
     try {
       const res = await api.get("/chat/unread-by-user");
@@ -284,6 +315,10 @@ export default function ChatModal({ onClose }) {
       setUnreadByUser({});
     }
   }
+  /**
+   * Opens a specific conversation and loads its messages.
+   * @param {Object} c - The conversation object.
+   */
   async function openConversation(c) {
     setActive(c);
     try {
@@ -436,6 +471,9 @@ export default function ChatModal({ onClose }) {
     };
   }, [socket, active, myId]);
 
+  /**
+   * Sends a text message to the active conversation.
+   */
   async function sendText() {
     if (!active || !text.trim()) return;
     const content = text.trim();
@@ -464,6 +502,9 @@ export default function ChatModal({ onClose }) {
       });
     } catch {}
   }
+  /**
+   * Emits a typing event to the server.
+   */
   function onTyping() {
     if (!socket || !active) return;
     socket.emit("typing_start", { conversation_id: active.id });
@@ -472,6 +513,10 @@ export default function ChatModal({ onClose }) {
     }, 1200);
     return () => clearTimeout(t);
   }
+  /**
+   * Handles selecting and uploading a new chat background image.
+   * @param {Event} e - The file input change event.
+   */
   async function chooseBackground(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -494,6 +539,9 @@ export default function ChatModal({ onClose }) {
 
   const typing = useMemo(() => typingUsers.size > 0, [typingUsers]);
 
+  /**
+   * Searches for users to start a new chat with.
+   */
   async function loadUsers() {
     try {
       const res = await api.get(
@@ -533,6 +581,10 @@ export default function ChatModal({ onClose }) {
     };
   }, [attachOpen]);
 
+  /**
+   * Starts a direct chat with the specified user.
+   * @param {Object} u - The target user object.
+   */
   async function startDirectChat(u) {
     try {
       const res = await api.post("/chat/conversations/direct", {
@@ -548,6 +600,10 @@ export default function ChatModal({ onClose }) {
     } catch {}
   }
 
+  /**
+   * Uploads and sends a media file (image, video, or document).
+   * @param {File} file - The file to upload.
+   */
   async function sendMedia(file) {
     if (!file || !active) return;
     const mime = file.type || "";

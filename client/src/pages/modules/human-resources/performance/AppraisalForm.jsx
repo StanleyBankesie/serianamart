@@ -1,3 +1,8 @@
+/**
+ * @fileoverview AppraisalForm component.
+ * Provides functionality for AppraisalForm.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -264,6 +269,11 @@ function EmptyState({ icon: Icon, title, message }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AppraisalForm() {
   const navigate = useNavigate();
   const { id } = useParams();

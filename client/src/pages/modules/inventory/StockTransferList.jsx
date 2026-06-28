@@ -1,3 +1,8 @@
+/**
+ * @fileoverview StockTransferList component.
+ * Provides functionality for StockTransferList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import ReverseApprovalButton from "../../../components/ReverseApprovalButton.jsx";
 import { Printer, FileText, Paperclip } from "lucide-react";
@@ -8,6 +13,11 @@ import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockTransferList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [transfers, setTransfers] = useState([]);

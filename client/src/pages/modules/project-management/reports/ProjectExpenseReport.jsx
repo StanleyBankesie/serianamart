@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProjectExpenseReport component.
+ * Provides functionality for ProjectExpenseReport.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Download, RefreshCw, Search, TrendingDown, CreditCard, FolderOpen } from "lucide-react";
@@ -13,6 +18,11 @@ const statusStyles = {
   REVERSED: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
 };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProjectExpenseReport() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);

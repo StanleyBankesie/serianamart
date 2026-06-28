@@ -1,8 +1,18 @@
+/**
+ * @fileoverview TrainingList component.
+ * Provides functionality for TrainingList.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function TrainingList() {
   const [programs, setPrograms] = React.useState([]);
 

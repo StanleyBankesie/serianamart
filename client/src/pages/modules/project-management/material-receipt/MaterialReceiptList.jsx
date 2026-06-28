@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaterialReceiptList component.
+ * Provides functionality for MaterialReceiptList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, RefreshCw } from "lucide-react";
@@ -7,7 +12,12 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
-export default function PMMaterialReceiptList() {
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
+export default function MaterialReceiptList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

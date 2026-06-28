@@ -1,3 +1,8 @@
+/**
+ * @fileoverview CompanyFeed component.
+ * Displays a social feed for the company with posts and comments.
+ */
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -7,6 +12,15 @@ import { useSocket } from "../../hooks/useSocket";
 import "./CompanyFeed.css";
 import api from "../../api/client";
 
+/**
+ * CompanyFeed component
+ * Renders the social feed page.
+ * @param {Object} props
+ * @param {boolean} [props.compact=false] - Whether to render in compact mode.
+ * @param {number|null} [props.focusId=null] - ID of a specific post to focus on.
+ * @param {boolean} [props.hideCreator=false] - Whether to hide the post creator form.
+ * @returns {JSX.Element}
+ */
 export default function CompanyFeed({
   compact = false,
   focusId = null,
@@ -22,6 +36,10 @@ export default function CompanyFeed({
   const [forceOpenComments, setForceOpenComments] = useState(false);
   const autoLoadedRef = useRef(false);
 
+  /**
+   * Fetches posts from the server.
+   * @param {number} [pageOffset=0] - The offset for pagination.
+   */
   const fetchPosts = useCallback(
     async (pageOffset = 0) => {
       if (!user) return;
@@ -89,6 +107,10 @@ export default function CompanyFeed({
     };
   }, [socket]);
 
+  /**
+   * Handles successful creation of a new post.
+   * @param {Object} newPost - The newly created post object.
+   */
   const handlePostCreated = (newPost) => {
     setPosts((prev) => [newPost, ...prev]);
     try {
@@ -98,6 +120,9 @@ export default function CompanyFeed({
     } catch {}
   };
 
+  /**
+   * Loads more posts or comments.
+   */
   const handleLoadMore = async () => {
     const isFocus = Number.isFinite(focusId) && focusId > 0;
     if (isFocus) {

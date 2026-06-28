@@ -1,3 +1,8 @@
+/**
+ * @fileoverview CustomerList component.
+ * Provides functionality for CustomerList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -15,6 +20,11 @@ import { useAfterSaveRefresh } from "../../../../hooks/useAfterSaveRefresh.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CustomerList() {
   const navigate = useNavigate();
   const location = useLocation();

@@ -1,14 +1,20 @@
+/**
+ * @file mailer.js
+ * @description Utility for sending emails using Nodemailer with support for queues and attachments.
+ */
 import nodemailer from "nodemailer";
 import { query } from "../db/pool.js";
 import { ensureSystemLogsTable } from "./dbUtils.js";
 
 function bool(v) {
+  // Helper function to cast truthy environment variables into true booleans
   if (typeof v === "boolean") return v;
   if (typeof v !== "string") return false;
   const s = v.toLowerCase();
   return s === "1" || s === "true" || s === "yes";
 }
 
+// Read core SMTP settings from system environment variables
 const host = process.env.SMTP_HOST || "";
 const port = Number(process.env.SMTP_PORT || 587);
 const user = process.env.SMTP_USER || "";
@@ -16,11 +22,13 @@ const pass = process.env.SMTP_PASS || "";
 const from = process.env.SMTP_FROM || "";
 const secure = bool(process.env.SMTP_SECURE || "false");
 
+// Hold Nodemailer instance and connection status in local memory
 let transporter = null;
 let configured = false;
 let verified = false;
 
 if (host && from) {
+  // Create the NodeMailer transport object if minimal parameters exist
   try {
     transporter = nodemailer.createTransport({
       host,
@@ -36,10 +44,12 @@ if (host && from) {
 }
 
 export function isMailerConfigured() {
+  // Simple getter to check if the transporter was successfully created
   return configured;
 }
 
 export async function verifyMailer() {
+  // Validate actual SMTP connectivity to the mail server
   if (!transporter) {
     verified = false;
     return false;
@@ -55,7 +65,21 @@ export async function verifyMailer() {
   }
 }
 
+/**
+ * Sends an email or queues it depending on the mailer configuration.
+ *
+ * @param {Object} params - Email parameters.
+ * @param {string} params.to - Recipient email address(es).
+ * @param {string} params.subject - Email subject.
+ * @param {string} [params.text] - Plain text email content.
+ * @param {string} [params.html] - HTML email content.
+ * @param {string} [params.cc] - CC email address(es).
+ * @param {Array} [params.attachments] - Email attachments.
+ * @param {Object} [params.meta] - Additional metadata for the email.
+ * @returns {Promise<any>} The result of the mail sending operation.
+ */
 export async function sendMail({ to, subject, text, html, cc, attachments, meta }) {
+  // Orchestrate email transmission or mock queueing based on config
   if (!configured || !transporter) {
     console.warn(
       "[SENDMAIL] Mailer not configured. Host:",
@@ -90,6 +114,7 @@ export async function sendMail({ to, subject, text, html, cc, attachments, meta 
     return false;
   }
   try {
+    // Perform actual mail transmission via initialized transporter
     const result = await transporter.sendMail({
       from,
       to,
@@ -103,6 +128,7 @@ export async function sendMail({ to, subject, text, html, cc, attachments, meta 
       `[SENDMAIL] Email sent successfully to ${to}. MessageId: ${result.messageId}`,
     );
     const m = meta || {};
+    // Record successful email delivery in the administrative logs
     if (!m.suppressLog) {
       try {
         await ensureSystemLogsTable();
@@ -136,6 +162,7 @@ export async function sendMail({ to, subject, text, html, cc, attachments, meta 
       err,
     );
     const m = meta || {};
+    // Record failed email delivery attempt in administrative logs
     if (!m.suppressLog) {
       try {
         await ensureSystemLogsTable();

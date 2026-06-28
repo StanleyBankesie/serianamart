@@ -1,3 +1,8 @@
+/**
+ * @fileoverview GRNLocalForm component.
+ * Provides functionality for GRNLocalForm.
+ */
+
 import React, {
   useEffect,
   useMemo,
@@ -22,6 +27,11 @@ function toISODate(v) {
   }
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function GRNLocalForm() {
   const { id } = useParams();
   const navigate = useNavigate();

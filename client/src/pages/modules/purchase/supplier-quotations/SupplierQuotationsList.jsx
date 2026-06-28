@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SupplierQuotationsList component.
+ * Provides functionality for SupplierQuotationsList.
+ */
+
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
@@ -14,6 +19,11 @@ import useSort from "../../../../hooks/useSort.js";
 import SortableHeader from "../../../../components/SortableHeader.jsx";
 import { X } from "lucide-react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SupplierQuotationsList() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");

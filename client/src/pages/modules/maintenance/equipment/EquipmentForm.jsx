@@ -1,3 +1,8 @@
+/**
+ * @fileoverview EquipmentForm component.
+ * Provides functionality for EquipmentForm.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -15,6 +20,11 @@ const CATEGORIES = [
 ];
 const STATUSES = ["ACTIVE", "INACTIVE", "UNDER_REPAIR", "DECOMMISSIONED"];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function EquipmentForm() {
   const navigate = useNavigate();
   const { id } = useParams();

@@ -1,5 +1,16 @@
+/**
+ * @fileoverview Database migration script to remove deprecated RBAC tables.
+ * @module scripts/drop_rbac_tables
+ */
+
 import { query } from "../db/pool.js";
 
+/**
+ * Drops a series of deprecated role-based access control (RBAC) tables if they exist.
+ * Logs each dropped table and exits the process when complete.
+ *
+ * @returns {Promise<void>} Resolves when all deprecated tables are dropped.
+ */
 async function run() {
   try {
     console.log("Dropping deprecated RBAC tables...");

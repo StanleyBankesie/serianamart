@@ -1,3 +1,8 @@
+/**
+ * @fileoverview BalanceSheetReportPage component.
+ * Provides functionality for BalanceSheetReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
@@ -7,6 +12,11 @@ import jsPDF from "jspdf";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BalanceSheetReportPage() {
   const [to, setTo] = useState("");
   const [assets, setAssets] = useState({ items: [], total: 0 });

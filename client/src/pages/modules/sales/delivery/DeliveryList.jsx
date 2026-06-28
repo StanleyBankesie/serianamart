@@ -1,3 +1,8 @@
+/**
+ * @fileoverview DeliveryList component.
+ * Provides functionality for DeliveryList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { Link, useNavigate } from "react-router-dom";
@@ -175,6 +180,11 @@ async function waitForImages(rootEl) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DeliveryList() {
   const { canPerformAction } = usePermission();
   const navigate = useNavigate();

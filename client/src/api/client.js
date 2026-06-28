@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Axios API client configuration.
+ * Sets up base URL, interceptors, and handles token refresh logic.
+ */
+
 import axios from "axios";
 import { queueMutation, getQueueSnapshot } from "../offline/syncEngine.js";
 import { putCache, getCache } from "../offline/cache.js";
@@ -11,6 +16,10 @@ import {
 
 const AXIOS_TIMEOUT_MS = 30000;
 
+/**
+ * Core Axios instance for making authenticated requests to the backend API.
+ * Includes credentials by default and automatically normalizes JSON payloads.
+ */
 export const api = axios.create({
   withCredentials: true,
   timeout: AXIOS_TIMEOUT_MS,

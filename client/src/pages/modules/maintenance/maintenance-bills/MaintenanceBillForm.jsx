@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceBillForm component.
+ * Provides functionality for MaintenanceBillForm.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -9,6 +14,11 @@ const PAYMENT_STATUSES = ["UNPAID","PAID","OVERDUE"];
 const PAYMENT_METHODS = [{ key:"cash",label:"Cash" },{ key:"bank",label:"Bank Transfer" },{ key:"card",label:"Card" },{ key:"mobile",label:"Mobile Money" }];
 
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceBillForm() {
   const navigate = useNavigate();
   const { id } = useParams();

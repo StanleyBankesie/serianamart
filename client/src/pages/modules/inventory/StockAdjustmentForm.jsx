@@ -1,3 +1,8 @@
+/**
+ * @fileoverview StockAdjustmentForm component.
+ * Provides functionality for StockAdjustmentForm.
+ */
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
@@ -12,6 +17,11 @@ import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockAdjustmentForm() {
   const { uoms, loading: uomsLoading } = useUoms();
   const { id } = useParams();

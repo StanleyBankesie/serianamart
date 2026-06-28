@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SupplierQuotationsList component.
+ * Provides functionality for SupplierQuotationsList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -15,6 +20,11 @@ function Badge({ value, colorMap }) {
   return <span className={`inline-block px-2 py-0.5 text-xs rounded font-medium ${colorMap[v] || "bg-slate-100 text-slate-600"}`}>{v}</span>;
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SupplierQuotationsList() {
   const navigate = useNavigate();
   const location = useLocation();

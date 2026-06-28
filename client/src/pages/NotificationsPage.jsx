@@ -1,8 +1,19 @@
+/**
+ * @fileoverview NotificationsPage component.
+ * Displays a list of user notifications, allowing them to mark as read and navigate to relevant links.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import { toast } from "react-toastify";
 
+/**
+ * NotificationsPage component
+ * Fetches and displays notifications, handles selection and marking as read.
+ * 
+ * @returns {JSX.Element} The rendered notifications page.
+ */
 export default function NotificationsPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

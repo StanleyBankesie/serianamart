@@ -1,7 +1,17 @@
+/**
+ * @fileoverview ServiceExecutionView component.
+ * Provides functionality for ServiceExecutionView.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceExecutionView() {
   const { id } = useParams();
   const [item, setItem] = useState(null);

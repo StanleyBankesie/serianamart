@@ -1,9 +1,19 @@
+/**
+ * @fileoverview DocumentReview component.
+ * Provides functionality for DocumentReview.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import client from "../../../../api/client";
 import { toast } from "react-toastify";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DocumentReview() {
   const { instanceId } = useParams();
   const navigate = useNavigate();

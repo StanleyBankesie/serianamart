@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ExecutiveOverviewHome component.
+ * Provides functionality for ExecutiveOverviewHome.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -173,6 +178,11 @@ const ALL_MODULE_DASHBOARDS = [
   { key: "administration", label: "Administration", path: "/administration", color: "bg-gray-700 hover:bg-gray-600", borderColor: "border-gray-500", desc: "System Settings" },
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExecutiveOverviewHome() {
   const navigate = useNavigate();
   const { isModuleEnabled } = usePermission();

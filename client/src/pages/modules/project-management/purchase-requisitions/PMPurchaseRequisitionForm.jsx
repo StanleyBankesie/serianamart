@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PMPurchaseRequisitionForm component.
+ * Provides functionality for PMPurchaseRequisitionForm.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -10,6 +15,11 @@ const priorities = [
   { value: "HIGH", label: "High" }, { value: "URGENT", label: "Urgent" },
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PMPurchaseRequisitionForm() {
   const { uoms } = useUoms();
   const navigate = useNavigate();

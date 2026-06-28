@@ -1,3 +1,8 @@
+/**
+ * @fileoverview VoucherRegisterReportPage component.
+ * Provides functionality for VoucherRegisterReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
@@ -8,6 +13,11 @@ import jsPDF from "jspdf";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function VoucherRegisterReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

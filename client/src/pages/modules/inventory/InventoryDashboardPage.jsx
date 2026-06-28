@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Dashboard page for the Inventory module.
+ * Displays stock levels, recent movements, and low stock warnings.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";

@@ -1,3 +1,8 @@
+/**
+ * @file loadingSlice.js
+ * @description Redux slice for managing global loading states.
+ */
+
 import { createSlice } from "@reduxjs/toolkit";
 
 const slice = createSlice({
@@ -18,5 +23,11 @@ const slice = createSlice({
   },
 });
 
+/**
+ * Action creators for managing loading state.
+ * @type {Object}
+ * @property {Function} setLoading - Action to set loading state for a specific key.
+ * @property {Function} clearLoading - Action to clear loading state for a specific key.
+ */
 export const { setLoading, clearLoading } = slice.actions;
 export default slice.reducer;

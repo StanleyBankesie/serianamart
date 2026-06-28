@@ -1,9 +1,19 @@
+/**
+ * @fileoverview ShippingAdviceForm component.
+ * Provides functionality for ShippingAdviceForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ShippingAdviceForm() {
   const { id } = useParams();
   const navigate = useNavigate();

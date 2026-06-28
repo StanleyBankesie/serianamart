@@ -1,9 +1,19 @@
+/**
+ * @fileoverview TransferAcceptanceForm component.
+ * Provides functionality for TransferAcceptanceForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "api/client";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function TransferAcceptanceForm() {
   const { id } = useParams();
   const navigate = useNavigate();

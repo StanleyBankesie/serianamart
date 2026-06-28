@@ -1,3 +1,8 @@
+/**
+ * @fileoverview DirectPurchase component.
+ * Provides functionality for DirectPurchase.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../../../../api/client.js";
 import { useNavigate, useLocation, useParams, Link } from "react-router-dom";
@@ -9,6 +14,11 @@ import { Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DirectPurchase() {
   const navigate = useNavigate();
   const location = useLocation();

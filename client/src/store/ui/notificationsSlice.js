@@ -1,3 +1,8 @@
+/**
+ * @file notificationsSlice.js
+ * @description Redux slice for managing toast notifications state.
+ */
+
 import { createSlice, nanoid } from "@reduxjs/toolkit";
 
 const slice = createSlice({
@@ -22,5 +27,12 @@ const slice = createSlice({
   },
 });
 
+/**
+ * Action creators for managing notifications.
+ * @type {Object}
+ * @property {Function} notify - Action to add a new notification.
+ * @property {Function} dismiss - Action to dismiss a specific notification.
+ * @property {Function} clear - Action to clear all notifications.
+ */
 export const { notify, dismiss, clear } = slice.actions;
 export default slice.reducer;

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview A generic button component to trigger document approval reversals.
+ * Primarily used in legacy modules (e.g., Inventory) for workflow actions.
+ */
+
 import React, { useState } from "react";
 // Shared reverse-approval button used in some legacy modules (inventory, etc.)
 // For purchase orders we now call module-specific reverse endpoints directly
@@ -6,6 +11,18 @@ import { api } from "../api/client.js";
 import { usePermission } from "../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 
+/**
+ * ReverseApprovalButton component
+ * Triggers a backend workflow action to reverse an already approved document.
+ * 
+ * @param {Object} props
+ * @param {string} props.docType - The type of document (e.g., 'purchase_order', 'stock_adjustment').
+ * @param {string|number} props.docId - The unique ID of the document.
+ * @param {string} [props.className] - Optional custom CSS classes.
+ * @param {Function} [props.onDone] - Callback fired upon successful reversal.
+ * @param {React.ReactNode} [props.children] - Custom button content (defaults to 'Reverse Approval').
+ * @returns {JSX.Element|null} The action button.
+ */
 export default function ReverseApprovalButton({
   docType,
   docId,
@@ -16,6 +33,9 @@ export default function ReverseApprovalButton({
   const { canReverseApproval } = usePermission();
   const [busy, setBusy] = useState(false);
   if (!canReverseApproval()) return null;
+  /**
+   * Executes the reverse approval action.
+   */
   async function run() {
     if (!docType || !docId) return;
     setBusy(true);

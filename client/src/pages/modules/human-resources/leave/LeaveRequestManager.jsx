@@ -1,8 +1,18 @@
+/**
+ * @fileoverview LeaveRequestManager component.
+ * Provides functionality for LeaveRequestManager.
+ */
+
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import LeaveApplication from "./LeaveApplication.jsx";
 import LeaveScheduling from "./LeaveScheduling.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveRequestManager() {
   const [tab, setTab] = useState("request");
 

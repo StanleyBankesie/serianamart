@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PortClearancesList component.
+ * Provides functionality for PortClearancesList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -9,6 +14,11 @@ import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Trash2 } from "lucide-react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PortClearancesList() {
   const [searchTerm, setSearchTerm] = useState("");
 

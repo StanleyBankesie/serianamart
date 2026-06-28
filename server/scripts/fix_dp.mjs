@@ -1,6 +1,8 @@
+// Database and File System Dependencies
 import { query } from "../db/pool.js";
 import fs from "fs";
 
+// Main execution script to fix the direct-purchase HTML template
 async function run() {
   const path = "C:\\Users\\stanl\\OneDrive\\Documents\\serianamart\\server\\scripts\\dp.html";
   let html = fs.readFileSync(path, "utf8");

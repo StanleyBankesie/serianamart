@@ -1,7 +1,17 @@
+/**
+ * @fileoverview ApprovedDocuments component.
+ * Provides functionality for ApprovedDocuments.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import client from "../../../../api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ApprovedDocuments() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

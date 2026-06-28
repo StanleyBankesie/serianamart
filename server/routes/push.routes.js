@@ -1,3 +1,7 @@
+/**
+ * @fileoverview Push notification routes.
+ * Provides endpoints for managing web push subscriptions and sending notifications.
+ */
 import express from "express";
 import webpush from "web-push";
 import { query } from "../db/pool.js";
@@ -25,10 +29,14 @@ try {
   await ensurePushTables();
 } catch {}
 
+// Utility function to get the VAPID public key
+// Used by the client-side code to subscribe to push notifications.
 export function getPublicKey() {
   return VAPID_PUBLIC_KEY;
 }
 
+// Utility function to send a push notification to a specific user.
+// Iterates through their active subscriptions and uses web-push to send the payload.
 export async function sendPushToUser(userId, payload) {
   const subs = await query(`SELECT endpoint, p256dh, auth,
           created_at,
@@ -62,6 +70,8 @@ export async function sendPushToUser(userId, payload) {
   }
 }
 
+// GET /public-key
+// Returns the VAPID public key to authenticated clients.
 router.get("/public-key", requireAuth, async (req, res, next) => {
   try {
     res.json({ publicKey: VAPID_PUBLIC_KEY });
@@ -70,6 +80,8 @@ router.get("/public-key", requireAuth, async (req, res, next) => {
   }
 });
 
+// POST /subscribe
+// Saves a new push subscription object (endpoint, keys) to the database for the current user.
 router.post(
   "/subscribe",
   requireAuth,
@@ -109,6 +121,8 @@ router.post(
   },
 );
 
+// DELETE /unsubscribe
+// Deactivates an existing push subscription by matching the endpoint URL.
 router.delete("/unsubscribe", requireAuth, async (req, res, next) => {
   try {
     await ensurePushTables();
@@ -124,6 +138,8 @@ router.delete("/unsubscribe", requireAuth, async (req, res, next) => {
   }
 });
 
+// POST /send-test
+// Triggers a test push notification to the currently authenticated user.
 router.post("/send-test", requireAuth, async (req, res, next) => {
   try {
     const userId =

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProjectList component.
+ * Provides functionality for ProjectList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Activity, Briefcase, DollarSign, Clock } from "lucide-react";
@@ -20,6 +25,11 @@ const StatusBadge = ({ status }) => (
   </span>
 );
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProjectList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

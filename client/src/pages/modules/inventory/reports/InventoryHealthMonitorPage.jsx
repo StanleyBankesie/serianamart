@@ -1,3 +1,8 @@
+/**
+ * @fileoverview InventoryHealthMonitorPage component.
+ * Provides functionality for InventoryHealthMonitorPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
@@ -7,6 +12,11 @@ import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function InventoryHealthMonitorPage() {
   const [warehouseId, setWarehouseId] = useState("");
   const [thresholdDays, setThresholdDays] = useState(30);

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview CampaignForm component.
+ * Provides functionality for CampaignForm.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -18,6 +23,11 @@ const initialFormState = {
   itemIds: [],
 };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CampaignForm() {
   const navigate = useNavigate();
   const { id } = useParams();

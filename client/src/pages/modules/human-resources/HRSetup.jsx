@@ -1,9 +1,19 @@
+/**
+ * @fileoverview HRSetup component.
+ * Provides functionality for HRSetup.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../hooks/usePermissions.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function HRSetup() {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);

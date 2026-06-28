@@ -1,8 +1,18 @@
+/**
+ * @fileoverview UserLoginActivityReportPage component.
+ * Provides functionality for UserLoginActivityReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function UserLoginActivityReportPage() {
   const today = new Date().toISOString().slice(0, 10);
   const [from, setFrom] = useState(today);

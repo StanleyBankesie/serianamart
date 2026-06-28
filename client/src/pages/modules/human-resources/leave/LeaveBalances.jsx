@@ -1,3 +1,8 @@
+/**
+ * @fileoverview LeaveBalances component.
+ * Provides functionality for LeaveBalances.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -24,6 +29,11 @@ function ProgressBar({ used, allocated }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveBalances() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);

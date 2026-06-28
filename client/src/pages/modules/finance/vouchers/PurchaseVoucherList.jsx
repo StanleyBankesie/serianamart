@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PurchaseVoucherList component.
+ * Provides functionality for PurchaseVoucherList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -28,6 +33,11 @@ function StatusBadge({ status }) {
   return <span className={cls}>{status}</span>;
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseVoucherList() {
   const { canPerformAction } = usePermission();
   const location = useLocation();

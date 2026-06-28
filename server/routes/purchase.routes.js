@@ -1,5 +1,12 @@
+/**
+ * @fileoverview Purchase module routes.
+ * Handles API endpoints related to procurement, such as purchase orders,
+ * service orders, service confirmations, service requests, and purchase bills.
+ */
+// ---- Framework Dependencies ----
 import express from "express";
 
+// ---- Route Dependencies & Middleware ----
 import {
   requireAuth,
   requireCompanyScope,
@@ -9,6 +16,7 @@ import {
   requirePermission,
   requireAnyPermission,
 } from "../middleware/requirePermission.js";
+// ---- Database Configuration & Services ----
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { updateItemAverageCostTx } from "../services/costing.service.js";
@@ -50,18 +58,24 @@ import {
 } from "../controllers/finance.controller.js";
 
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
+// ---- Controllers & Utilities ----
 import {
   getInactiveWorkflowBehavior,
   resolveWorkflowSelection,
 } from "../utils/workflowResolution.js";
 
+// Initialize Router
 const router = express.Router();
 
+// ---- Utility Functions ----
+
+// Convert value to number or return a fallback
 function toNumber(v, fallback = null) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Generate a random document number with a prefix and date
 function nextDocNo(prefix) {
   return `${prefix}-${new Date()
     .toISOString()
@@ -69,7 +83,8 @@ function nextDocNo(prefix) {
     .replace(/-/g, "")}-${Math.floor(Math.random() * 10000)}`;
 }
 
-async function nextServiceExecutionNo(companyId, branchId) {
+// Get next sequential service execution number
+async function nextServiceExecutionNo(companyId, branchId, branchIdsStr = '') {
   const rows = await query(
     `
     SELECT execution_no,
@@ -94,6 +109,7 @@ async function nextServiceExecutionNo(companyId, branchId) {
   return `SVEX-${String(nextNum).padStart(6, "0")}`;
 }
 
+// Check if a specific column exists in a given table
 async function hasColumn(tableName, columnName) {
   const rows = await query(
     `
@@ -108,6 +124,9 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+// ---- Database Migration / Schema Checking Utilities ----
+
+// Ensure supplier type column exists in pur_suppliers table
 async function ensureSupplierTypeColumn() {
   if (!(await hasColumn("pur_suppliers", "supplier_type"))) {
     await pool.query(
@@ -132,6 +151,7 @@ async function ensureSupplierServiceContractorColumn() {
   }
 }
 
+// Ensure multiple location columns exist in pur_suppliers table
 async function ensureSupplierLocationColumns() {
   const cols = [
     { name: "city", def: "VARCHAR(100) NULL" },
@@ -155,6 +175,7 @@ async function ensureSupplierExpenseAccountColumn() {
   }
 }
 
+// Add triggers and columns for managing purchase bills payment status
 async function ensurePurBillsPaymentStatusObjects() {
   try {
     if (!(await hasColumn("pur_bills", "amount_paid"))) {
@@ -488,9 +509,11 @@ async function ensureServiceConfirmationTables() {
       branch_id BIGINT UNSIGNED NOT NULL,
       sc_no VARCHAR(50) NOT NULL,
       sc_date DATE NOT NULL,
-      supplier_id BIGINT UNSIGNED NOT NULL,
+        order_id BIGINT UNSIGNED NULL,
+        execution_id BIGINT UNSIGNED NULL,
+        supplier_id BIGINT UNSIGNED NOT NULL,
       total_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
-      status ENUM('DRAFT','CONFIRMED','CANCELLED') NOT NULL DEFAULT 'DRAFT',
+      status VARCHAR(50) NOT NULL DEFAULT 'DRAFT',
       remarks VARCHAR(255) NULL,
       created_by BIGINT UNSIGNED NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -694,6 +717,17 @@ async function ensureServiceSetupTables() {
       CONSTRAINT fk_sup_user FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS svc_timelines (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(200) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_tl_scope_name (company_id, name),
+      KEY idx_tl_scope (company_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 }
 
 async function ensureServiceOrderTables() {
@@ -731,7 +765,7 @@ async function ensureServiceOrderTables() {
       estimated_cost DECIMAL(18,2) NULL,
       currency_code VARCHAR(10) NULL,
       total_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
-      status ENUM('DRAFT','SUBMITTED','APPROVED','REJECTED','CANCELLED') NOT NULL DEFAULT 'SUBMITTED',
+      status ENUM('DRAFT','SUBMITTED','APPROVED','REJECTED','CANCELLED','DONE') NOT NULL DEFAULT 'SUBMITTED',
       assigned_supervisor_user_id BIGINT UNSIGNED NULL,
       assigned_supervisor_username VARCHAR(150) NULL,
       created_by BIGINT UNSIGNED NULL,
@@ -777,6 +811,11 @@ async function ensureServiceOrderColumns() {
       );
     } catch {}
   }
+  try {
+    await pool.query(
+      "ALTER TABLE pur_service_orders MODIFY COLUMN status ENUM('DRAFT','SUBMITTED','APPROVED','REJECTED','CANCELLED','DONE') NOT NULL DEFAULT 'SUBMITTED'",
+    );
+  } catch {}
 }
 async function ensureServiceExecutionTables() {
   if (!(await hasTable("pur_service_executions"))) {
@@ -784,16 +823,22 @@ async function ensureServiceExecutionTables() {
       CREATE TABLE IF NOT EXISTS pur_service_executions (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         company_id BIGINT UNSIGNED NOT NULL,
-        branch_id BIGINT UNSIGNED NOT NULL,
-        order_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NULL,
+        order_id BIGINT UNSIGNED NULL,
         execution_no VARCHAR(50) NOT NULL,
         execution_date DATE NULL,
         scheduled_time VARCHAR(10) NULL,
         assigned_supervisor_user_id BIGINT UNSIGNED NULL,
         assigned_supervisor_username VARCHAR(150) NULL,
         requisition_notes TEXT NULL,
-        status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
-        created_by BIGINT UNSIGNED NULL,
+          work_status VARCHAR(50) NOT NULL DEFAULT 'OPENED',
+          work_performed_description TEXT NULL,
+          photos_json JSON NULL,
+          status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+          actual_end_date DATE NULL,
+          actual_end_time VARCHAR(10) NULL,
+          current_step INT NOT NULL DEFAULT 1,
+          created_by BIGINT UNSIGNED NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -801,6 +846,40 @@ async function ensureServiceExecutionTables() {
         KEY idx_exec_order (order_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+  } else {
+    // Ensure order_id and branch_id allow NULL for existing tables
+    try {
+      const [cols] = await pool.query(`SHOW COLUMNS FROM pur_service_executions`);
+      const colMap = {};
+      (cols || []).forEach(c => { colMap[c.Field] = c; });
+      if (colMap.order_id && colMap.order_id.Null === 'NO') {
+        await pool.query(`ALTER TABLE pur_service_executions MODIFY COLUMN order_id BIGINT UNSIGNED NULL`);
+      }
+      if (colMap.branch_id && colMap.branch_id.Null === 'NO') {
+        await pool.query(`ALTER TABLE pur_service_executions MODIFY COLUMN branch_id BIGINT UNSIGNED NULL`);
+      }
+      if (!colMap.work_status) {
+        await pool.query(`ALTER TABLE pur_service_executions ADD COLUMN work_status VARCHAR(50) NOT NULL DEFAULT 'OPENED' AFTER status`);
+      }
+      if (!colMap.work_performed_description) {
+        await pool.query(`ALTER TABLE pur_service_executions ADD COLUMN work_performed_description TEXT NULL AFTER work_status`);
+      }
+      if (!colMap.photos_json) {
+        await pool.query(`ALTER TABLE pur_service_executions ADD COLUMN photos_json JSON NULL AFTER work_performed_description`);
+      }
+      if (!colMap.actual_end_date) {
+        await pool.query(`ALTER TABLE pur_service_executions ADD COLUMN actual_end_date DATE NULL AFTER photos_json`);
+      }
+      if (!colMap.actual_end_time) {
+        await pool.query(`ALTER TABLE pur_service_executions ADD COLUMN actual_end_time VARCHAR(10) NULL AFTER actual_end_date`);
+      }
+      if (!colMap.current_step) {
+        await pool.query(`ALTER TABLE pur_service_executions ADD COLUMN current_step INT NOT NULL DEFAULT 1 AFTER actual_end_time`);
+      }
+      if (!colMap.created_by) {
+        await pool.query(`ALTER TABLE pur_service_executions ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER actual_end_time`);
+      }
+    } catch {}
   }
   if (!(await hasTable("pur_service_execution_materials"))) {
     await pool.query(`
@@ -2898,6 +2977,14 @@ router.get(
 );
 
 router.get(
+  "/service-bills/next-no",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  (req, res, next) => getNextServiceBillNo(req, res, next),
+);
+
+router.get(
   "/service-bills/:id",
   requireAuth,
   requireCompanyScope,
@@ -2908,14 +2995,6 @@ router.get(
     "INV.SERVICE_BILL.VIEW",
   ]),
   (req, res, next) => getServiceBillById(req, res, next),
-);
-
-router.get(
-  "/service-bills/next-no",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  (req, res, next) => getNextServiceBillNo(req, res, next),
 );
 
 router.post(
@@ -3334,6 +3413,68 @@ router.delete(
   },
 );
 
+// ===== Timelines =====
+router.get(
+  "/service-setup/timelines",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { companyId = null } = req.scope || {};
+      await ensureServiceSetupTables();
+      const items = await query(
+        "SELECT id, name FROM svc_timelines WHERE company_id = :companyId ORDER BY name ASC",
+        { companyId },
+      );
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.post(
+  "/service-setup/timelines",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId = null } = req.scope || {};
+      const name = String(req.body?.name || "").trim();
+      if (!name) throw httpError(400, "VALIDATION_ERROR", "Name required");
+      await ensureServiceSetupTables();
+      const [result] = await pool.execute(
+        "INSERT INTO svc_timelines (company_id, name) VALUES (:companyId, :name)",
+        { companyId, name },
+      );
+      const id = Number(result?.insertId || 0);
+      res.json({ item: { id, name } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+router.delete(
+  "/service-setup/timelines/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId = null } = req.scope || {};
+      const id = toNumber(req.params.id, 0);
+      await ensureServiceSetupTables();
+      await pool.execute(
+        "DELETE FROM svc_timelines WHERE id = :id AND company_id = :companyId",
+        { id, companyId },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.get(
   "/service-orders",
   requireAuth,
@@ -3350,16 +3491,17 @@ router.get(
         ["INTERNAL", "EXTERNAL"].includes(String(req.query.type).toUpperCase())
           ? String(req.query.type).toUpperCase()
           : null;
-      const items = await query(
-        `SELECT 
-           id, order_no, order_date, order_type,
-           customer_name, service_category AS service_type,
-           status, work_location, total_amount,
-           assigned_supervisor_user_id, assigned_supervisor_username,
-           pur_service_orders.created_at,
-           u.username AS created_by_name
-         FROM pur_service_orders
-        LEFT JOIN adm_users u ON u.id = created_by
+        const items = await query(
+          `SELECT 
+             id, order_no, order_date, order_type,
+             customer_name, service_category AS service_type,
+             status, work_location, total_amount,
+             assigned_supervisor_user_id, assigned_supervisor_username,
+             contractor_code,
+             pur_service_orders.created_at,
+             u.username AS created_by_name
+           FROM pur_service_orders
+          LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            ${type ? "AND order_type = :type" : ""}
          ORDER BY order_date DESC, id DESC
@@ -5237,12 +5379,13 @@ router.get(
         `
         SELECT 
           e.id, e.execution_no, e.execution_date, e.scheduled_time, e.status,
+          e.work_status,
           e.assigned_supervisor_user_id, e.assigned_supervisor_username,
-          o.order_no, o.order_type, o.customer_name, o.service_category AS service_type,
+          o.order_no, o.customer_name,
           e.created_at,
           u.username AS created_by_name
          FROM pur_service_executions e
-        JOIN pur_service_orders o ON o.id = e.order_id
+        LEFT JOIN pur_service_orders o ON o.id = e.order_id
         LEFT JOIN adm_users u ON u.id = e.created_by
          WHERE e.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))
           ${type ? "AND o.order_type = :type" : ""}
@@ -5272,20 +5415,23 @@ router.post(
       await conn.beginTransaction();
       const execNo =
         String(body.execution_no || "").trim() ||
-        (await nextServiceExecutionNo(companyId, branchId));
+        (await nextServiceExecutionNo(companyId, branchId, branchIdsStr));
       const [resExec] = await conn.execute(
         `
         INSERT INTO pur_service_executions (
           company_id, branch_id, order_id, execution_no, execution_date, scheduled_time,
-          assigned_supervisor_user_id, assigned_supervisor_username, requisition_notes, status, created_by
-        ) VALUES (
+          assigned_supervisor_user_id, assigned_supervisor_username, requisition_notes, status, created_by,
+            work_status, work_performed_description, photos_json, actual_end_date, actual_end_time, current_step
+          ) VALUES (
           :companyId, :branchId, :order_id, :execution_no, :execution_date, :scheduled_time,
-          :assigned_supervisor_user_id, :assigned_supervisor_username, :requisition_notes, :status, :created_by
-        )
+          :assigned_supervisor_user_id, :assigned_supervisor_username, :requisition_notes, :status, :created_by,
+            :work_status, :work_performed_description, :photos_json, :actual_end_date, :actual_end_time, :current_step
+          )
         `,
         {
-          branchId,
-          order_id: Number(body.order_id || 0) || null,
+            companyId,
+            branchId,
+            order_id: Number(body.order_id || 0) || null,
           execution_no: execNo,
           execution_date: body.execution_date || null,
           scheduled_time: body.scheduled_time || null,
@@ -5298,6 +5444,12 @@ router.post(
           requisition_notes: body.requisition_notes || null,
           status: body.status || "PENDING",
           created_by: userId || null,
+          work_status: body.work_status || "OPENED",
+          work_performed_description: body.work_performed_description || null,
+          photos_json: Array.isArray(body.photos) ? JSON.stringify(body.photos) : null,
+          actual_end_date: body.actual_end_date || null,
+          actual_end_time: body.actual_end_time || null,
+          current_step: Number(body.current_step) || 1,
         },
       );
       const execId = Number(resExec?.insertId || 0);
@@ -5306,12 +5458,13 @@ router.post(
         await conn.execute(
           `
           INSERT INTO pur_service_execution_materials (
-            execution_id, item_id, name, unit, qty, note
+            company_id, execution_id, item_id, name, unit, qty, note
           ) VALUES (
-            :execution_id, :item_id, :name, :unit, :qty, :note
+            :companyId, :execution_id, :item_id, :name, :unit, :qty, :note
           )
           `,
           {
+            companyId,
             execution_id: execId,
             item_id: m.code ? Number(m.code) || null : null,
             name: m.name || null,
@@ -5321,6 +5474,14 @@ router.post(
           },
         );
       }
+
+      if (String(body.status || "").toUpperCase() === "POSTED" && body.order_id) {
+        await conn.execute(
+          `UPDATE pur_service_orders SET status = 'DONE' WHERE id = :orderId AND company_id = :companyId`,
+          { orderId: Number(body.order_id), companyId }
+        );
+      }
+
       await conn.commit();
       res.json({ id: execId, execution_no: execNo });
     } catch (err) {
@@ -5333,6 +5494,121 @@ router.post(
     }
   },
 );
+
+router.put(
+  "/service-executions/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const { id } = req.params;
+      const body = req.body || {};
+      const userId = req.user?.id || req.scope?.userId;
+
+      // Check if exists
+      const [existing] = await conn.execute(
+        `SELECT id FROM pur_service_executions WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchIdsStr }
+      );
+      if (!existing.length) {
+        conn.release();
+        return res.status(404).json({ error: "Not found" });
+      }
+
+      await conn.beginTransaction();
+
+      let finalStatus = body.status || "PENDING";
+
+      await conn.execute(
+        `
+        UPDATE pur_service_executions SET
+          order_id = :order_id,
+          execution_date = :execution_date,
+          scheduled_time = :scheduled_time,
+          actual_end_date = :actual_end_date,
+          actual_end_time = :actual_end_time,
+          assigned_supervisor_user_id = :assigned_supervisor_user_id,
+          assigned_supervisor_username = :assigned_supervisor_username,
+          requisition_notes = :requisition_notes,
+          status = :status,
+          work_status = :work_status,
+          work_performed_description = :work_performed_description,
+          photos_json = :photos_json,
+          current_step = :current_step
+        WHERE id = :id
+        `,
+        {
+          id,
+          order_id: Number(body.order_id || 0) || null,
+          execution_date: body.execution_date || null,
+          scheduled_time: body.scheduled_time || null,
+          actual_end_date: body.actual_end_date || null,
+          actual_end_time: body.actual_end_time || null,
+          assigned_supervisor_user_id:
+            body.assigned_supervisor_user_id === undefined
+              ? null
+              : Number(body.assigned_supervisor_user_id || 0) || null,
+          assigned_supervisor_username:
+            body.assigned_supervisor_username || null,
+          requisition_notes: body.requisition_notes || null,
+          status: finalStatus,
+          work_status: body.work_status || "OPENED",
+          work_performed_description: body.work_performed_description || null,
+          photos_json: Array.isArray(body.photos) ? JSON.stringify(body.photos) : null,
+          current_step: Number(body.current_step) || 1,
+        }
+      );
+
+      // Re-insert materials
+      await conn.execute(
+        `DELETE FROM pur_service_execution_materials WHERE execution_id = :id`,
+        { id }
+      );
+
+      const materials = Array.isArray(body.materials) ? body.materials : [];
+      for (const m of materials) {
+        await conn.execute(
+          `
+          INSERT INTO pur_service_execution_materials (
+            company_id, execution_id, item_id, name, unit, qty, note
+          ) VALUES (
+            :companyId, :execution_id, :item_id, :name, :unit, :qty, :note
+          )
+          `,
+          {
+            companyId,
+            execution_id: id,
+            item_id: m.code ? Number(m.code) || null : null,
+            name: m.name || null,
+            unit: m.unit || null,
+            qty: Number(m.qty || 0) || null,
+            note: m.note || null,
+          }
+        );
+      }
+
+      if (String(finalStatus).toUpperCase() === "POSTED" && body.order_id) {
+        await conn.execute(
+          `UPDATE pur_service_orders SET status = 'DONE' WHERE id = :orderId AND company_id = :companyId`,
+          { orderId: Number(body.order_id), companyId }
+        );
+      }
+
+      await conn.commit();
+      res.json({ success: true });
+    } catch (err) {
+      await conn.rollback();
+      next(err);
+    } finally {
+      conn.release();
+    }
+  }
+);
+
 router.get(
   "/service-executions/:id",
   requireAuth,
@@ -5349,13 +5625,18 @@ router.get(
         `
         SELECT 
           e.id, e.execution_no, e.execution_date, e.scheduled_time, e.status,
+          e.order_id,
           e.assigned_supervisor_user_id, e.assigned_supervisor_username,
-          e.requisition_notes,
-          o.order_no, o.order_type,
+          e.requisition_notes, e.work_status, e.work_performed_description,
+          e.actual_end_date, e.actual_end_time, e.photos_json, e.current_step,
+          o.order_no, o.order_type, o.customer_name, o.service_category,
+          o.total_amount, o.work_location, o.order_date,
+          o.assigned_supervisor_user_id AS order_supervisor_user_id,
+          o.assigned_supervisor_username AS order_supervisor_username,
           e.created_at,
           u.username AS created_by_name
          FROM pur_service_executions e
-        JOIN pur_service_orders o ON o.id = e.order_id
+        LEFT JOIN pur_service_orders o ON o.id = e.order_id
         LEFT JOIN adm_users u ON u.id = e.created_by
          WHERE e.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr)) AND e.id = :id
         LIMIT 1
@@ -8765,6 +9046,13 @@ async function ensureGeneralRequisitionTables() {
       )
       .catch(() => {});
   }
+  if (!(await hasColumn("pur_general_requisitions", "work_location"))) {
+    await pool
+      .query(
+        "ALTER TABLE pur_general_requisitions ADD COLUMN work_location VARCHAR(255) NULL AFTER timeline",
+      )
+      .catch(() => {});
+  }
   if (!(await hasTable("pur_general_requisition_items"))) {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS pur_general_requisition_items (
@@ -8860,9 +9148,9 @@ router.get(
              r.*, 
              COALESCE(SUM(i.estimated_total), 0) AS total_estimated_cost, 
              COUNT(i.id) AS item_count,
-             MAX(u.username) AS forwarded_to_username,
+             MAX(fwd_user.username) AS forwarded_to_username,
           r.created_at,
-          u.username AS created_by_name
+          cr_user.username AS created_by_name
          FROM pur_general_requisitions r
            LEFT JOIN pur_general_requisition_items i ON i.requisition_id = r.id
            LEFT JOIN (
@@ -8871,14 +9159,14 @@ router.get(
              JOIN (
                SELECT document_id, MAX(id) AS max_id
                FROM adm_document_workflows
-        LEFT JOIN adm_users u ON u.id = r.created_by
          WHERE company_id = :companyId
                  AND status = 'PENDING'
                  AND (document_type = 'GENERAL_REQUISITION' OR document_type = 'General Requisition')
                GROUP BY document_id
              ) m ON m.max_id = t.id
            ) x ON x.document_id = r.id
-           LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+           LEFT JOIN adm_users fwd_user ON fwd_user.id = x.assigned_to_user_id
+           LEFT JOIN adm_users cr_user ON cr_user.id = r.created_by
            ${where}
            GROUP BY r.id
            ORDER BY r.created_at DESC`,
@@ -8991,6 +9279,8 @@ router.post(
         required_date,
         status,
         remarks,
+        timeline,
+        work_location,
         items,
       } = req.body;
       if (!requisition_date)
@@ -9008,8 +9298,8 @@ router.post(
       const finalStatus = status === "SUBMITTED" ? "SUBMITTED" : "DRAFT";
       const [result] = await pool.query(
         `INSERT INTO pur_general_requisitions
-         (company_id, branch_id, requisition_no, requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, timeline, created_by)
-         VALUES (:companyId, :branchId, :requisition_no, :requisition_date, :requisition_type, :department, :requested_by, :purpose, :priority, :required_date, :status, :remarks, :timeline, :created_by)`,
+         (company_id, branch_id, requisition_no, requisition_date, requisition_type, department, requested_by, purpose, priority, required_date, status, remarks, timeline, work_location, created_by)
+         VALUES (:companyId, :branchId, :requisition_no, :requisition_date, :requisition_type, :department, :requested_by, :purpose, :priority, :required_date, :status, :remarks, :timeline, :work_location, :created_by)`,
         {
           companyId,
           branchId,
@@ -9024,6 +9314,7 @@ router.post(
           status: finalStatus,
           remarks: remarks || null,
           timeline: timeline || null,
+          work_location: work_location || null,
           created_by: userId,
         },
       );
@@ -9100,13 +9391,14 @@ router.put(
         status,
         remarks,
         timeline,
+        work_location,
         items,
       } = req.body;
       const finalStatus = status || existing[0].status;
       await pool.query(
         `UPDATE pur_general_requisitions SET
            requisition_date = :requisition_date, requisition_type = :requisition_type, department = :department, requested_by = :requested_by,
-           purpose = :purpose, priority = :priority, required_date = :required_date, status = :status, remarks = :remarks, timeline = :timeline
+           purpose = :purpose, priority = :priority, required_date = :required_date, status = :status, remarks = :remarks, timeline = :timeline, work_location = :work_location
          WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
         {
           requisition_date: requisition_date || existing[0].requisition_date,
@@ -9126,6 +9418,7 @@ router.put(
           status: finalStatus,
           remarks: remarks !== undefined ? remarks : existing[0].remarks,
           timeline: timeline !== undefined ? timeline : existing[0].timeline,
+          work_location: work_location !== undefined ? work_location : existing[0].work_location,
           id,
           companyId,
           branchId, branchIdsStr,
@@ -9299,6 +9592,7 @@ router.post(
           VALUES
             (:companyId, :workflowId, :documentId, 'GENERAL_REQUISITION', :amount, :stepOrder, 'PENDING', :assignedTo)`,
         {
+          companyId,
           workflowId: activeWf.id,
           documentId: id,
           amount: amount === null ? null : Number(amount),
@@ -9313,6 +9607,7 @@ router.post(
           VALUES
             (:companyId, :workflowId, :dwId, :documentId, 'GENERAL_REQUISITION', :stepOrder, :assignedTo, 'PENDING')`,
         {
+          companyId,
           workflowId: activeWf.id,
           dwId: instanceId,
           documentId: id,
@@ -9350,6 +9645,7 @@ router.post(
         `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
            VALUES (:companyId, :userId, :title, :message, :link, 0)`,
         {
+          companyId,
           userId: assignedToUserId,
           title: "Approval Required",
           message: grRef

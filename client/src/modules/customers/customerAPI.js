@@ -1,7 +1,15 @@
+/**
+ * @fileoverview API service for customer-related endpoints.
+ * Provides abstraction for making HTTP requests to the backend for customer data.
+ */
+
 import { apiClient } from "../../services/apiClient.js";
 
 const baseUrl = "/sales/customers";
 
+/**
+ * Collection of API methods for managing customers.
+ */
 export const customerAPI = {
   async list(params = {}) {
     const res = await apiClient.get(baseUrl, { params });

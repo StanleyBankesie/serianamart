@@ -1,3 +1,8 @@
+/**
+ * @fileoverview UserPermissions component.
+ * Allows administrators to assign granular action-level permissions (view, create, edit, delete) to roles.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api/client.js";
@@ -5,6 +10,12 @@ import { MODULES_REGISTRY } from "../../data/modulesRegistry.js";
 import { usePermission } from "../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
 
+/**
+ * UserPermissions component
+ * Manages detailed action-based permissions for features assigned to roles.
+ * 
+ * @returns {JSX.Element} The user permissions page.
+ */
 export default function UserPermissions() {
   const navigate = useNavigate();
   const { refreshPermissions } = usePermission();

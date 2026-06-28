@@ -1,8 +1,18 @@
+/**
+ * @fileoverview CompanyForm component.
+ * Provides functionality for CompanyForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { useGhanaCities } from "../../../../hooks/useGhanaCities";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CompanyForm() {
   const navigate = useNavigate();
   const { id } = useParams();

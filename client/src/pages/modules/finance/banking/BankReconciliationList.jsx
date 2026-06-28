@@ -1,8 +1,18 @@
+/**
+ * @fileoverview BankReconciliationList component.
+ * Provides functionality for BankReconciliationList.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BankReconciliationList() {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [recons, setRecons] = useState([]);

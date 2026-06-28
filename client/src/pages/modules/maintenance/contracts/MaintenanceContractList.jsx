@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceContractList component.
+ * Provides functionality for MaintenanceContractList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -8,6 +13,11 @@ import DocumentAttachmentsModal from "../../../../components/attachments/Documen
 
 const statusColors = { ACTIVE:"bg-green-100 text-green-700", EXPIRED:"bg-red-100 text-red-600", CANCELLED:"bg-slate-100 text-slate-600", PENDING:"bg-amber-100 text-amber-700" };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceContractList() {
   const navigate = useNavigate();
   const location = useLocation();

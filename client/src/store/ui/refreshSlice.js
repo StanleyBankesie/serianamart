@@ -1,3 +1,8 @@
+/**
+ * @file refreshSlice.js
+ * @description Redux slice to manage refresh signals for different entities.
+ */
+
 import { createSlice } from "@reduxjs/toolkit";
 
 const slice = createSlice({
@@ -18,5 +23,11 @@ const slice = createSlice({
   },
 });
 
+/**
+ * Action creators for managing refresh signals.
+ * @type {Object}
+ * @property {Function} setRefresh - Action to trigger a refresh for an entity.
+ * @property {Function} consumeRefresh - Action to clear the refresh signal once consumed.
+ */
 export const { setRefresh, consumeRefresh } = slice.actions;
 export default slice.reducer;

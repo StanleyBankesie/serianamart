@@ -1,3 +1,8 @@
+/**
+ * @fileoverview RosterManagement component.
+ * Provides functionality for RosterManagement.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -22,6 +27,11 @@ function getMonthName(month) {
   return new Date(2000, month - 1, 1).toLocaleString("default", { month: "long" });
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RosterManagement() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());

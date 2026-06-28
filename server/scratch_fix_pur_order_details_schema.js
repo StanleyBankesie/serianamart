@@ -1,5 +1,17 @@
+/**
+ * @fileoverview Script to fix the schema of the pur_order_details table by ensuring required columns exist.
+ * @module scratch_fix_pur_order_details_schema
+ */
+
 import { query, pool } from "./db/pool.js";
 
+/**
+ * Checks if a specific column exists in a given table.
+ *
+ * @param {string} tableName - The name of the table to check.
+ * @param {string} columnName - The name of the column to look for.
+ * @returns {Promise<boolean>} Resolves to true if the column exists, otherwise false.
+ */
 async function hasColumn(tableName, columnName) {
   const rows = await query(
     `
@@ -14,6 +26,12 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+/**
+ * Ensures that various extended columns exist in the pur_order_details table.
+ * Includes tax, UOM, and other details. Adds any missing columns.
+ *
+ * @returns {Promise<void>} Resolves when all checks and necessary additions are complete.
+ */
 async function ensurePurchaseOrderDetailExtendedColumns() {
   const cols = [
     { name: "tax_code_id", def: "BIGINT UNSIGNED NULL" },
@@ -31,6 +49,13 @@ async function ensurePurchaseOrderDetailExtendedColumns() {
   }
 }
 
+/**
+ * Main entry point for the schema migration script.
+ * Runs the column addition functions and outputs the resulting table schema.
+ * Exits the process when complete.
+ *
+ * @returns {Promise<void>} Resolves when the entire process completes.
+ */
 async function run() {
   try {
     await ensurePurchaseOrderDetailExtendedColumns();

@@ -1,3 +1,7 @@
+/**
+ * @fileoverview Scratch script for fixing direct purchase schema.
+ * Checks and adds missing extended columns in direct purchase tables.
+ */
 import { query, pool } from "./db/pool.js";
 
 async function hasColumn(tableName, columnName) {

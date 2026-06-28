@@ -1,3 +1,8 @@
+/**
+ * @fileoverview HomePage component.
+ * Serves as the main landing dashboard for users, displaying metrics, pending approvals, and notifications.
+ */
+
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -8,6 +13,12 @@ import CompanyFeed from "../../components/CompanyFeed/CompanyFeed";
 import { toast } from "react-toastify";
 import { getModuleDashboards } from "../../data/modulesRegistry.js";
 
+/**
+ * HomePage component
+ * Main overview page aggregating data from across the system based on user permissions.
+ * 
+ * @returns {JSX.Element} The home page view.
+ */
 export default function HomePage() {
   const { user, token } = useAuth();
   const {

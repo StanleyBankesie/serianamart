@@ -1,3 +1,8 @@
+/**
+ * @fileoverview TrainingHistory component.
+ * Provides functionality for TrainingHistory.
+ */
+
 import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -9,6 +14,11 @@ import {
   ExternalLink, ChevronDown, MoreVertical, AlertCircle,
 } from "lucide-react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function TrainingHistory() {
   const [records, setRecords] = useState([]);
   const [certifications, setCertifications] = useState([]);

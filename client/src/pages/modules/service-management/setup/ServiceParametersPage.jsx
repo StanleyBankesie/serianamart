@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ServiceParametersPage component.
+ * Provides functionality for ServiceParametersPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -8,9 +13,15 @@ const TABS = [
   { key: "service-types", label: "Service Types", endpoint: "/purchase/service-setup/service-types", fieldLabel: "Type Name", placeholder: "e.g., Installation" },
   { key: "categories", label: "Service Categories", endpoint: "/purchase/service-setup/categories", fieldLabel: "Category Name", placeholder: "e.g., Maintenance" },
   { key: "time-slots", label: "Time Slots", endpoint: "/purchase/service-setup/time-slots", fieldLabel: "Time Range", placeholder: "e.g., 12:00pm - 2:00pm" },
+  { key: "timelines", label: "Timelines", endpoint: "/purchase/service-setup/timelines", fieldLabel: "Timeline", placeholder: "e.g., 1 - 7 Days" },
   { key: "supervisors", label: "Supervisors", endpoint: "/purchase/service-setup/supervisors", fieldLabel: "Supervisor", placeholder: null },
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceParametersPage() {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);

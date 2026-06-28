@@ -1,3 +1,8 @@
+/**
+ * @fileoverview StockTakeList component.
+ * Provides functionality for StockTakeList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -5,6 +10,11 @@ import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockTakeList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);

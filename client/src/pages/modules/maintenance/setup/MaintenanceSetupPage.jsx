@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceSetupPage component.
+ * Provides functionality for MaintenanceSetupPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Save, Plus, X } from "lucide-react";
@@ -202,6 +207,11 @@ function SetupItemsEditor({
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceSetupPage() {
   const [tab, setTab] = useState("general");
   const [params, setParams] = useState(DEFAULT_PARAMS);

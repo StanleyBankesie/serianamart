@@ -1,3 +1,8 @@
+/**
+ * @fileoverview AccountsReceivableAgingReportPage component.
+ * Provides functionality for AccountsReceivableAgingReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
@@ -7,6 +12,11 @@ import * as XLSX from "xlsx";
 import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AccountsReceivableAgingReportPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

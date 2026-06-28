@@ -1,8 +1,19 @@
+/**
+ * @fileoverview DashboardPage component.
+ * Displays a summary dashboard with key metrics for sales, purchases, inventory, and HR.
+ */
+
 import React from "react";
 
 import { useAuth } from "../auth/AuthContext.jsx";
 import { api } from "../api/client.js";
 
+/**
+ * DashboardPage component
+ * Fetches and displays business intelligence summary data across various modules.
+ * 
+ * @returns {JSX.Element} The dashboard view.
+ */
 export default function DashboardPage() {
   const { user } = useAuth();
   const [summary, setSummary] = React.useState({
@@ -20,6 +31,7 @@ export default function DashboardPage() {
       try {
         setLoading(true);
         setError("");
+        // Fetch BI dashboard summary data
         const resp = await api.get("/bi/dashboards");
         const data = resp?.data?.summary || {};
         if (mounted) {
@@ -53,6 +65,11 @@ export default function DashboardPage() {
     };
   }, []);
 
+  /**
+   * Formats a number as Ghanaian Cedi (GHS) currency.
+   * @param {number|string} n - The number to format.
+   * @returns {string} The formatted currency string.
+   */
   const currency = (n) =>
     new Intl.NumberFormat(undefined, {
       style: "currency",

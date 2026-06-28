@@ -1,6 +1,16 @@
+/**
+ * @fileoverview ReportsPage component.
+ * Provides functionality for ReportsPage.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ReportsPage() {
   const reports = [
     {

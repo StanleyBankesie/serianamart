@@ -1,3 +1,8 @@
+/**
+ * @fileoverview LeaveManagementDashboard component.
+ * Provides functionality for LeaveManagementDashboard.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -25,6 +30,11 @@ const LEAVE_CARDS = [
   // Removed Calendar, Balances, Records from Management per requirement
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveManagementDashboard() {
   const [stats, setStats] = useState({
     onLeaveToday: 0,

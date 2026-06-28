@@ -1,3 +1,7 @@
+/**
+ * @fileoverview Page for viewing and resuming POS sales that were put on hold.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -10,6 +14,12 @@ function fmt(n) {
   })}`;
 }
 
+/**
+ * PosOnHold component
+ * Lists drafted (on-hold) sales, allowing cashiers to resume or cancel them.
+ * 
+ * @returns {JSX.Element} The on-hold sales dashboard.
+ */
 export default function PosOnHold() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);

@@ -1,7 +1,17 @@
+/**
+ * @fileoverview MyApprovals component.
+ * Provides functionality for MyApprovals.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import client from "../../../../api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MyApprovals() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

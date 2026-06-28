@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Main AppShell layout component.
+ * Responsible for the overall layout, navigation sidebar, header, global state,
+ * notification polling, and service worker push integrations.
+ */
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
@@ -52,6 +58,34 @@ import FloatingChat from "../components/chat/FloatingChat.jsx";
 import FloatingCreateButton from "../components/FloatingCreateButton.jsx";
 import useSocket from "../hooks/useSocket.js";
 
+const AppRoutes = React.memo(function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
+      <Route path="/administration/*" element={<AdministrationHome />} />
+      <Route path="/sales/*" element={<SalesHome />} />
+      <Route path="/inventory/*" element={<InventoryHome />} />
+      <Route path="/purchase/*" element={<PurchaseHome />} />
+      <Route path="/finance/*" element={<FinanceRoutes />} />
+      <Route path="/human-resources/*" element={<HumanResourcesHome />} />
+      <Route path="/maintenance/*" element={<MaintenanceHome />} />
+      <Route path="/project-management/*" element={<ProjectManagementHome />} />
+      <Route path="/production/*" element={<ProductionHome />} />
+      <Route path="/pos/*" element={<PosHome />} />
+      <Route path="/business-intelligence/*" element={<BusinessIntelligenceHome />} />
+      <Route path="/service-management/*" element={<ServiceManagementHome />} />
+      <Route path="/executive-overview/*" element={<ExecutiveOverviewRoutes />} />
+      <Route path="/administration/access/dashboard-permissions" element={<DashboardPermissions />} />
+      <Route path="/notifications" element={<NotificationsPage />} />
+      <Route path="/social-feed" element={<SocialFeedPage />} />
+      <Route path="/social-feed/:id" element={<SocialFeedPage />} />
+      <Route path="/admin/roles" element={<RoleSetup />} />
+      <Route path="/admin/user-permissions" element={<UserPermissions />} />
+    </Routes>
+  );
+});
+
 const modules = [
   {
     key: "administration",
@@ -96,6 +130,13 @@ const modules = [
   },
 ];
 
+/**
+ * AppShell component
+ * Acts as the primary shell around all authenticated routes.
+ * Initializes real-time sockets, manages offline queue state, and handles user session inactivity.
+ * 
+ * @returns {JSX.Element} The rendered application shell.
+ */
 export default function AppShell() {
   const { token, user, scope, setScope, logout } = useAuth();
   const {
@@ -1768,56 +1809,7 @@ export default function AppShell() {
                 </div>
               </div>
             ) : (
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route
-                  path="/administration/*"
-                  element={<AdministrationHome />}
-                />
-                <Route path="/sales/*" element={<SalesHome />} />
-                <Route path="/inventory/*" element={<InventoryHome />} />
-                <Route path="/purchase/*" element={<PurchaseHome />} />
-                <Route path="/finance/*" element={<FinanceRoutes />} />
-                <Route
-                  path="/human-resources/*"
-                  element={<HumanResourcesHome />}
-                />
-                <Route path="/maintenance/*" element={<MaintenanceHome />} />
-                <Route
-                  path="/project-management/*"
-                  element={<ProjectManagementHome />}
-                />
-                <Route path="/production/*" element={<ProductionHome />} />
-                <Route path="/pos/*" element={<PosHome />} />
-                <Route
-                  path="/business-intelligence/*"
-                  element={<BusinessIntelligenceHome />}
-                />
-                <Route
-                  path="/service-management/*"
-                  element={<ServiceManagementHome />}
-                />
-                <Route
-                  path="/executive-overview/*"
-                  element={<ExecutiveOverviewRoutes />}
-                />
-                <Route
-                  path="/administration/access/dashboard-permissions"
-                  element={<DashboardPermissions />}
-                />
-                <Route path="/notifications" element={<NotificationsPage />} />
-                <Route path="/social-feed" element={<SocialFeedPage />} />
-                <Route path="/social-feed/:id" element={<SocialFeedPage />} />
-                {/* chat v2 renders via floating modal; legacy /chat route removed */}
-
-                {/* Admin Routes */}
-                <Route path="/admin/roles" element={<RoleSetup />} />
-                <Route
-                  path="/admin/user-permissions"
-                  element={<UserPermissions />}
-                />
-              </Routes>
+              <AppRoutes />
             )}
           </div>
         </main>

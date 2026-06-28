@@ -1,3 +1,10 @@
+/**
+ * @file update_db_layout.js
+ * @description Script to update the database with default HTML templates for printable documents.
+ * Injects predefined HTML string literals for 'sales-order' and 'invoice'
+ * into the `document_templates` table.
+ */
+
 import { pool } from "../db/pool.js";
 
 const commonHead = `
@@ -244,6 +251,12 @@ const invoiceHtml = commonHead + `
 </div>
 `;
 
+/**
+ * Main execution function.
+ * Updates the `html_content` of default templates for sales orders and invoices.
+ * 
+ * @returns {Promise<void>} Resolves when the database update is complete.
+ */
 async function run() {
   await pool.query('UPDATE document_templates SET html_content = ? WHERE document_type = "sales-order" AND is_default = 1', [salesOrderHtml]);
   await pool.query('UPDATE document_templates SET html_content = ? WHERE document_type = "invoice" AND is_default = 1', [invoiceHtml]);

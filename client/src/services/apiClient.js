@@ -1,3 +1,8 @@
+/**
+ * @fileoverview A wrapper around the core Axios API client.
+ * Provides helper methods to normalize responses by extracting the inner 'data' payload.
+ */
+
 import { api } from "../api/client.js";
 
 function normalizeResponse(res) {
@@ -6,6 +11,10 @@ function normalizeResponse(res) {
   return data || {};
 }
 
+/**
+ * apiClient service
+ * Exports normalized HTTP methods (get, post, put, patch, delete) to simplify component code.
+ */
 export const apiClient = {
   get: async (url, config) => {
     const res = await api.get(url, config);

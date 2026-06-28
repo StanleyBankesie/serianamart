@@ -1,19 +1,43 @@
+/**
+ * @fileoverview ErrorBoundary component.
+ * Catches JavaScript errors anywhere in their child component tree,
+ * logs those errors, and displays a fallback UI instead of crashing the whole app.
+ */
+
 import React from "react";
 
+/**
+ * ErrorBoundary component class
+ * Wraps other components to catch rendering errors.
+ */
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
     this.state = { hasError: false, error: null };
   }
 
+  /**
+   * Updates state to show fallback UI on next render.
+   * @param {Error} error - The error caught.
+   * @returns {Object} Updated state.
+   */
   static getDerivedStateFromError(error) {
     return { hasError: true, error };
   }
 
+  /**
+   * Logs error information.
+   * @param {Error} error - The error caught.
+   * @param {Object} info - Additional component stack info.
+   */
   componentDidCatch(error, info) {
     console.error("ErrorBoundary caught:", error, info);
   }
 
+  /**
+   * Renders fallback UI if an error exists, otherwise renders children.
+   * @returns {JSX.Element}
+   */
   render() {
     if (this.state.hasError) {
       return (

@@ -1,5 +1,12 @@
+/**
+ * @file admin.route.js
+ * @description Routes for administrative functions, roles, permissions, branches, companies, and users.
+ */
+// Module Dependencies
 import express from "express";
 import multer from "multer";
+
+// Controller Imports
 import {
   logErrorController,
   updateExceptionalPermissionController,
@@ -14,12 +21,15 @@ import {
   bulkUpsertExceptionalPermissionsForUser,
 } from "../controllers/admin.controller.js";
 
+// Authentication and Authorization Middlewares
 import {
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
 } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
+
+// Database Utilities and Error Handling
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import {
@@ -82,11 +92,25 @@ import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 
 const router = express.Router();
 
+/**
+ * Utility function to safely convert a value to a number.
+ * Fallbacks to the provided default if the result is not finite.
+ * @param {any} v - Value to convert.
+ * @param {any} fallback - Default value if conversion fails.
+ * @returns {number | any}
+ */
 function toNumber(v, fallback = null) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Checks if a specific column exists within a given database table.
+ * Used for dynamic schema migrations.
+ * @param {string} tableName - Name of the table to check.
+ * @param {string} columnName - Name of the column to search for.
+ * @returns {Promise<boolean>} True if column exists, else false.
+ */
 async function hasColumn(tableName, columnName) {
   const rows = await query(
     `
@@ -101,9 +125,17 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+/**
+ * Normalizes an application module string by mapping common aliases
+ * to a standardized module key (e.g., "admin" -> "administration").
+ * @param {string} moduleKey - The raw module key string.
+ * @returns {string} Normalized module key.
+ */
 function normalizeModuleKey(moduleKey) {
   const raw = String(moduleKey || "").trim().toLowerCase();
   if (!raw) return "";
+  
+  // Mapping of potential abbreviations to their standard names
   const aliases = {
     admin: "administration",
     administration: "administration",
@@ -137,10 +169,19 @@ function normalizeModuleKey(moduleKey) {
   return aliases[raw] || raw;
 }
 
+/**
+ * Normalizes a feature key, ensuring it includes the appropriate module prefix.
+ * e.g. "roles" with module "admin" -> "administration:roles".
+ * @param {string} featureKey - The raw feature key string.
+ * @param {string} moduleKey - The optional module prefix.
+ * @returns {string} Normalized feature key.
+ */
 function normalizeFeatureKey(featureKey, moduleKey = "") {
   const rawFeatureKey = String(featureKey || "").trim();
   const normalizedModuleKey = normalizeModuleKey(moduleKey);
   if (!rawFeatureKey) return "";
+  
+  // If no prefix is provided in the feature key, append the normalized module key
   if (!rawFeatureKey.includes(":")) {
     return normalizedModuleKey
       ? `${normalizedModuleKey}:${rawFeatureKey.toLowerCase()}`
@@ -233,6 +274,9 @@ async function ensureSystemLogsTable() {
     } catch {}
   } catch {}
 }
+/**
+ * Ensures the adm_login_logs table exists for tracking user login activity.
+ */
 async function ensureLoginLogsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_login_logs (
@@ -250,6 +294,9 @@ async function ensureLoginLogsTable() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 }
+/**
+ * Ensures the adm_push_subscriptions table exists for storing WebPush subscriptions.
+ */
 async function ensurePushSubscriptionsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_push_subscriptions (
@@ -268,6 +315,9 @@ async function ensurePushSubscriptionsTable() {
   `);
 }
 
+/**
+ * Ensures required address and contact columns exist in the adm_branches table.
+ */
 async function ensureBranchColumns() {
   const table = "adm_branches";
   if (!(await hasColumn(table, "address"))) {
@@ -299,6 +349,9 @@ async function ensureBranchColumns() {
   }
 }
 
+/**
+ * Ensures required user profile and valid date columns exist in the adm_users table.
+ */
 async function ensureUserColumns() {
   const table = "adm_users";
   if (!(await hasColumn(table, "profile_picture"))) {
@@ -332,6 +385,9 @@ async function ensureUserColumns() {
   }
 }
 
+/**
+ * Ensures the adm_pages table exists to define application modules and features.
+ */
 async function ensurePagesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_pages (
@@ -356,6 +412,10 @@ async function ensurePagesTable() {
   }
 }
 
+/**
+ * Seeds the adm_pages table with the default set of application pages and their routes.
+ * Automatically adds derived 'Delete' actions for pages that have an 'Edit' page.
+ */
 async function ensurePagesSeed() {
   const pages = [
     { module: "Administration", name: "Roles", path: "/administration/roles" },
@@ -1362,6 +1422,9 @@ async function ensurePagesSeed() {
   }
 }
 
+/**
+ * Ensures the adm_role_pages table exists for mapping roles to accessible pages.
+ */
 async function ensureRolePagesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_role_pages (
@@ -1375,6 +1438,9 @@ async function ensureRolePagesTable() {
   `);
 }
 
+/**
+ * Ensures the adm_user_permissions table exists for fine-grained user access control to pages.
+ */
 async function ensureUserPermissionsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_user_permissions (

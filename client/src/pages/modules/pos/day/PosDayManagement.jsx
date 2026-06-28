@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PosDayManagement component.
+ * Provides functionality for PosDayManagement.
+ */
+
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -29,6 +34,11 @@ function parseDenominationCounts(input) {
   });
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosDayManagement() {
   const navigate = useNavigate();
   const { user, scope, logout } = useAuth();
@@ -1361,7 +1371,14 @@ export default function PosDayManagement() {
                 <button
                   type="button"
                   className="btn-primary"
-                  onClick={closeModal}
+                  onClick={() => {
+                    closeModal();
+                    if (modal.title === "Day Closed") {
+                      navigate("/");
+                    } else {
+                      navigate("/pos/sales-entry");
+                    }
+                  }}
                 >
                   Continue
                 </button>

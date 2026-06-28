@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ExecOutstandingReceivablesPage component.
+ * Provides functionality for ExecOutstandingReceivablesPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -7,6 +12,11 @@ import jsPDF from "jspdf";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExecOutstandingReceivablesPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

@@ -1356,16 +1356,13 @@ export const getPendingApprovals = async (req, res, next) => {
           dw.created_at as submitted_at,
           w.workflow_name,
           ws.step_name,
-          COALESCE(so.order_no, fv.voucher_no, po.po_no, mr.requisition_no, rts.rts_no, sa.adjustment_no, grn.grn_no, pm_ord.order_no, pm_pr.requisition_no) as doc_ref,
+          COALESCE(so.order_no, fv.voucher_no, po.po_no, mr.requisition_no, rts.rts_no, sa.adjustment_no, grn.grn_no, pm_ord.order_no, pm_pr.requisition_no, gr.requisition_no) as doc_ref,
           po.po_type as po_type,
           u.username as initiator,
           (
-            SELECT COUNT(*) = 0,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_workflow_steps
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE workflow_id = w.id AND step_order > dw.current_step_order
+            SELECT COUNT(*) = 0
+            FROM adm_workflow_steps
+            WHERE workflow_id = w.id AND step_order > dw.current_step_order
           ) as is_last_step
          FROM adm_document_workflows dw
          JOIN adm_workflows w ON dw.workflow_id = w.id
@@ -1399,6 +1396,9 @@ export const getPendingApprovals = async (req, res, next) => {
            LEFT JOIN pm_purchase_requisitions pm_pr
              ON (dw.document_type = 'PURCHASE_REQUISITION' OR dw.document_type = 'Purchase Requisition')
             AND pm_pr.id = dw.document_id
+           LEFT JOIN pur_general_requisitions gr
+             ON (dw.document_type = 'GENERAL_REQUISITION' OR dw.document_type = 'General Requisition')
+            AND gr.id = dw.document_id
            LEFT JOIN fin_vouchers fv
             ON (
               dw.document_type = 'PAYMENT_VOUCHER' OR

@@ -1,8 +1,18 @@
+/**
+ * @fileoverview RequisitionForm component.
+ * Provides functionality for RequisitionForm.
+ */
+
 import React from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RequisitionForm() {
   const { id } = useParams();
   const navigate = useNavigate();

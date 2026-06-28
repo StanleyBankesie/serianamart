@@ -1,3 +1,8 @@
+/**
+ * @fileoverview InventoryHome component.
+ * Provides functionality for InventoryHome.
+ */
+
 import React from "react";
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 
@@ -571,6 +576,11 @@ function StockUpdationAndVerificationPage() {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function InventoryHome() {
   return (
     <Routes>

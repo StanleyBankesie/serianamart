@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProductionHome component.
+ * Provides functionality for ProductionHome.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, Route, Routes, Navigate } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard.jsx";
@@ -283,6 +288,11 @@ function ProductionPlaceholder({ title }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProductionHome() {
   return (
     <Routes>

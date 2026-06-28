@@ -1,3 +1,8 @@
+/**
+ * @fileoverview GeneralLedgerReportPage component.
+ * Provides functionality for GeneralLedgerReportPage.
+ */
+
 import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
@@ -8,6 +13,11 @@ import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function GeneralLedgerReportPage() {
   const [searchParams] = useSearchParams();
   const [from, setFrom] = useState("");

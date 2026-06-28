@@ -1,9 +1,19 @@
+/**
+ * @fileoverview StockBalancesReportPage component.
+ * Provides functionality for StockBalancesReportPage.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { api } from "../../../../api/client.js";
 import { Link } from "react-router-dom";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockBalancesReportPage() {
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);

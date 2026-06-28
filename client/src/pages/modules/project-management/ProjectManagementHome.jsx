@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProjectManagementHome component.
+ * Provides functionality for ProjectManagementHome.
+ */
+
 import React from "react";
 import { Link, Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
@@ -225,6 +230,11 @@ function ProjectManagementLanding() {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProjectManagementHome() {
   return (
     <Routes>

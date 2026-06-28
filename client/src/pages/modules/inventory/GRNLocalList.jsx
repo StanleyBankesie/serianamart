@@ -1,3 +1,8 @@
+/**
+ * @fileoverview GRNLocalList component.
+ * Provides functionality for GRNLocalList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
@@ -16,6 +21,11 @@ import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { usePermission } from "@/auth/PermissionContext.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function GRNLocalList() {
   const location = useLocation();
   const { canReverseApproval, exceptionalPerms, hasExceptional } =

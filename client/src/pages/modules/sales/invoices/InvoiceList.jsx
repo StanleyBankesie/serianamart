@@ -1,3 +1,8 @@
+/**
+ * @fileoverview InvoiceList component.
+ * Provides functionality for InvoiceList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -15,6 +20,11 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function InvoiceList() {
   const navigate = useNavigate();
   const { canPerformAction, exceptionalPerms, canReverseApproval, hasExceptional } = usePermission();

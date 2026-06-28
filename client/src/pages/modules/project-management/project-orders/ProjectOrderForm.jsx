@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProjectOrderForm component.
+ * Provides functionality for ProjectOrderForm.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -6,6 +11,11 @@ import { usePermission } from "../../../../auth/PermissionContext";
 import { useUoms } from "@/hooks/useUoms";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProjectOrderForm() {
   const { uoms } = useUoms();
   const navigate = useNavigate();

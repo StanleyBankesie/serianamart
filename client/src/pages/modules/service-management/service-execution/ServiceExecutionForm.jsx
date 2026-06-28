@@ -1,6 +1,12 @@
+/**
+ * @fileoverview ServiceExecutionForm component.
+ * Provides functionality for ServiceExecutionForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
+import MaterialRequisitionForm from "../../inventory/MaterialRequisitionForm.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
 function toYmd(date) {
@@ -11,9 +17,19 @@ function toYmd(date) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/**
+ *  component
+ *
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceExecutionForm() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [executionId, setExecutionId] = useState(
+    searchParams.get("id") || null,
+  );
   const [step, setStep] = useState(1);
+  const [workStatus, setWorkStatus] = useState("opened");
   const [search, setSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -26,24 +42,19 @@ export default function ServiceExecutionForm() {
   const [invItems, setInvItems] = useState([]);
   const [supervisors, setSupervisors] = useState([]);
 
-  const [assignedTechs, setAssignedTechs] = useState(new Set());
-  const [actualStartTime, setActualStartTime] = useState("");
-  const [estimatedDuration, setEstimatedDuration] = useState("");
   const [workPerformed, setWorkPerformed] = useState("");
-  const [executionFiles, setExecutionFiles] = useState([]);
 
-  const [qualityChecks, setQualityChecks] = useState({
-    qc1: false,
-    qc2: false,
-    qc3: false,
-    qc4: false,
-    qc5: false,
-    qc6: false,
+  const [actualEndTime, setActualEndTime] = useState(() => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   });
-  const [actualEndTime, setActualEndTime] = useState("");
+  const [actualEndDate, setActualEndDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
   const totalDuration = useMemo(() => {
     try {
-      const [sh, sm] = (actualStartTime || "00:00")
+      const [sh, sm] = (scheduledTime || "00:00")
         .split(":")
         .map((x) => Number(x || 0));
       const [eh, em] = (actualEndTime || "00:00")
@@ -56,8 +67,7 @@ export default function ServiceExecutionForm() {
     } catch {
       return "";
     }
-  }, [actualStartTime, actualEndTime]);
-  const [qualityNotes, setQualityNotes] = useState("");
+  }, [scheduledTime, actualEndTime]);
 
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
@@ -65,7 +75,6 @@ export default function ServiceExecutionForm() {
   const [satisfaction, setSatisfaction] = useState("");
   const [followUpRequired, setFollowUpRequired] = useState(false);
   const [followUpNotes, setFollowUpNotes] = useState("");
-  const [closingRemarks, setClosingRemarks] = useState("");
   const [closingFiles, setClosingFiles] = useState([]);
   const [confirmClosure, setConfirmClosure] = useState(false);
 
@@ -111,6 +120,10 @@ export default function ServiceExecutionForm() {
     setScheduledTime(
       `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
     );
+    setActualEndDate(toYmd(now));
+    setActualEndTime(
+      `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+    );
     fetchOrders();
     return () => {
       mounted = false;
@@ -118,14 +131,87 @@ export default function ServiceExecutionForm() {
   }, []);
 
   useEffect(() => {
+    if (!executionId) return;
+    let mounted = true;
+    async function loadExecution() {
+      try {
+        const res = await api.get(
+          `/purchase/service-executions/${executionId}`,
+        );
+        const ex = res.data?.item;
+        if (!ex || !mounted) return;
+        setExecutionDate(ex.execution_date ? toYmd(ex.execution_date) : "");
+        setScheduledTime(ex.scheduled_time || "");
+        setAssignedSupervisor(ex.assigned_supervisor_username || "");
+        setWorkStatus((ex.work_status || "opened").toLowerCase());
+        setExecutionNumber(ex.execution_no || "");
+        setWorkPerformed(ex.work_performed_description || "");
+        setActualEndTime(ex.actual_end_time || "");
+        setActualEndDate(ex.actual_end_date ? toYmd(ex.actual_end_date) : "");
+        setRequisitionNotes(ex.requisition_notes || "");
+        setConfirmClosure(String(ex.status || "").toUpperCase() === "POSTED");
+        setStep(Number(ex.current_step) || 1);
+        if (ex.order_id) {
+          setSelectedOrder({
+            id: ex.order_id,
+            orderNumber: ex.order_no || "",
+            customer: ex.customer_name || "",
+            serviceType: ex.service_category || "",
+            location: ex.work_location || "",
+            scheduledDate: ex.order_date || "",
+            estimatedCost: Number(ex.total_amount || 0),
+            assigned_supervisor_username:
+              ex.order_supervisor_username ||
+              ex.assigned_supervisor_username ||
+              "",
+            assigned_supervisor_user_id:
+              ex.order_supervisor_user_id ||
+              ex.assigned_supervisor_user_id ||
+              null,
+          });
+        }
+        const details = Array.isArray(ex.materials) ? ex.materials : [];
+        if (details.length) {
+          setMaterials(
+            details.map((d) => ({
+              id: d.id || crypto.randomUUID(),
+              code: d.code
+                ? String(d.code)
+                : d.item_id
+                  ? String(d.item_id)
+                  : "",
+              name: d.name || d.item_name || "",
+              qty: d.qty || 1,
+              unit: d.unit || "",
+              note: d.note || "",
+            })),
+          );
+        }
+        if (ex.photos_json) {
+          try {
+            const p = JSON.parse(ex.photos_json);
+            if (Array.isArray(p)) setClosingFiles(p);
+          } catch {}
+        }
+      } catch {}
+    }
+    loadExecution();
+    return () => {
+      mounted = false;
+    };
+  }, [executionId]);
+
+  useEffect(() => {
     if (selectedOrder) {
       setAssignedSupervisor(selectedOrder.assigned_supervisor_username || "");
+      setCustomerName(selectedOrder.customer || "");
     }
   }, [selectedOrder]);
 
   function nextStep(n) {
     setStep(n);
   }
+
   function previousStep(n) {
     setStep(n);
   }
@@ -149,14 +235,6 @@ export default function ServiceExecutionForm() {
   }
   function removeMaterial(id) {
     setMaterials((prev) => prev.filter((m) => m.id !== id));
-  }
-  function toggleTech(id) {
-    setAssignedTechs((prev) => {
-      const next = new Set(Array.from(prev));
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   }
   function onFileAdd(setter) {
     return (e) => {
@@ -196,20 +274,105 @@ export default function ServiceExecutionForm() {
       mounted = false;
     };
   }, []);
-  async function submit(e) {
-    e.preventDefault();
+  const [showRequisitionModal, setShowRequisitionModal] = useState(false);
+  const [modalMaterials, setModalMaterials] = useState([]);
+  const [modalSearch, setModalSearch] = useState("");
+
+  const filteredInvItems = useMemo(() => {
+    const q = String(modalSearch || "")
+      .trim()
+      .toLowerCase();
+    if (!q) return invItems;
+    return invItems.filter(
+      (it) =>
+        String(it.item_name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(it.item_code || "")
+          .toLowerCase()
+          .includes(q),
+    );
+  }, [invItems, modalSearch]);
+
+  function openRequisitionModal() {
+    setModalMaterials(
+      materials.length > 0
+        ? materials.map((m) => ({ ...m }))
+        : [
+            {
+              id: crypto.randomUUID(),
+              code: "",
+              name: "",
+              qty: 1,
+              unit: "",
+              note: "",
+            },
+          ],
+    );
+    setModalSearch("");
+    setShowRequisitionModal(true);
+  }
+
+  function addModalMaterialItem() {
+    setModalMaterials((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        code: "",
+        name: "",
+        qty: 1,
+        unit: "",
+        note: "",
+      },
+    ]);
+  }
+
+  function updateModalMaterial(id, key, value) {
+    setModalMaterials((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, [key]: value } : m)),
+    );
+  }
+
+  function removeModalMaterial(id) {
+    setModalMaterials((prev) => prev.filter((m) => m.id !== id));
+  }
+
+  function saveRequisitionModal() {
+    setMaterials(modalMaterials.filter((m) => m.code || m.name));
+    setShowRequisitionModal(false);
+  }
+
+  async function submit(e, nextStepNum, saveOnly = false) {
+    if (e) e.preventDefault();
     const orderId = selectedOrder?.id || null;
+    const isCompleting = !saveOnly && !nextStepNum;
+    let finalStatus = "DRAFT";
+    if (isCompleting) {
+      finalStatus = "POSTED";
+    }
+
     const payload = {
       order_id: orderId,
-      execution_no: "",
+      execution_no: executionNumber || "",
       execution_date: executionDate || null,
       scheduled_time: scheduledTime || null,
+      actual_end_date: actualEndDate || null,
+      actual_end_time: actualEndTime || null,
       assigned_supervisor_user_id:
         selectedOrder?.assigned_supervisor_user_id || null,
       assigned_supervisor_username:
-        selectedOrder?.assigned_supervisor_username || null,
+        assignedSupervisor ||
+        selectedOrder?.assigned_supervisor_username ||
+        null,
       requisition_notes: requisitionNotes || null,
-      status: "PENDING",
+      work_status: isCompleting ? "COMPLETED" : workStatus.toUpperCase(),
+      status: finalStatus,
+      work_performed_description: workPerformed || null,
+      photos: closingFiles.map((f) => ({
+        name: f.name,
+        size: f.size,
+        type: f.type,
+      })),
       materials: materials.map((m) => ({
         code: m.code || null,
         name: m.name || "",
@@ -217,21 +380,34 @@ export default function ServiceExecutionForm() {
         qty: Number(m.qty || 0) || 0,
         note: m.note || "",
       })),
+      current_step: step,
     };
+
     try {
-      const res = await api.post("/purchase/service-executions", payload);
-      const num =
-        res.data?.execution_no || `EXEC-${Date.now().toString().slice(-8)}`;
-      setExecutionNumber(num);
-      navigate("/service-management/service-executions", {
-        state: { success: "Service execution saved successfully" },
-      });
+      if (executionId) {
+        await api.put(`/purchase/service-executions/${executionId}`, payload);
+      } else {
+        const res = await api.post("/purchase/service-executions", payload);
+        if (res.data?.id) {
+          setExecutionId(res.data.id);
+        }
+        if (res.data?.execution_no) {
+          setExecutionNumber(res.data.execution_no);
+        }
+      }
+
+      if (nextStepNum) {
+        setStep(nextStepNum);
+      } else {
+        navigate("/service-management/service-executions", {
+          state: { success: "Service execution saved successfully" },
+        });
+      }
     } catch (err) {
+      console.error(err);
       alert("Failed to save service execution");
-      setExecutionNumber("");
     }
   }
-
 
   return (
     <div className="space-y-6">
@@ -257,7 +433,7 @@ export default function ServiceExecutionForm() {
           <div className="flex justify-between items-center text-white">
             <div className="font-semibold">Execution Progress</div>
             <div className="flex gap-2">
-              {[1, 2, 3, 4, 5].map((n) => (
+              {[1, 2, 3].map((n) => (
                 <button
                   key={n}
                   type="button"
@@ -271,521 +447,470 @@ export default function ServiceExecutionForm() {
           </div>
         </div>
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_380px] gap-6">
-            <div>
-              <form onSubmit={submit} className="space-y-4">
-                {step === 1 && (
-                  <div className="card">
-                    <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">
-                        📋 Service Order Reference
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="md:col-span-2">
-                          <label className="label">
-                            Search Service Order{" "}
-                            <span className="text-red-600">*</span>
-                          </label>
-                          <select
-                            className="input"
-                            value={selectedOrder?.id || ""}
-                            onChange={(e) => {
-                              const id = e.target.value;
-                              const o = orders.find(
-                                (x) => String(x.id) === String(id),
-                              );
-                              if (o) {
-                                setSelectedOrder(o);
-                                setSearch(o.orderNumber);
-                              } else {
-                                setSelectedOrder(null);
-                                setSearch("");
-                              }
-                            }}
-                          >
-                            <option value="">
-                              -- Select Internal Service Order --
-                            </option>
-                            {orders.map((o) => (
-                              <option key={o.id} value={o.id}>
-                                {o.orderNumber} • {o.customer} • {o.serviceType}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="label">
-                            Execution Date{" "}
-                            <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            className="input"
-                            type="date"
-                            value={executionDate}
-                            onChange={(e) => setExecutionDate(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="label">
-                            Scheduled Time{" "}
-                            <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            className="input"
-                            type="time"
-                            value={scheduledTime}
-                            onChange={(e) => setScheduledTime(e.target.value)}
-                          />
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className="label">
-                            Assigned Supervisor{" "}
-                            <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            className="input"
-                            value={assignedSupervisor}
-                            onChange={(e) =>
-                              setAssignedSupervisor(e.target.value)
+          <div>
+            <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+              {step === 1 && (
+                <div className="card">
+                  <div className="card-body space-y-3">
+                    <div className="text-lg font-semibold">
+                      Service Order Reference
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="md:col-span-2">
+                        <label className="label">
+                          Search Service Order{" "}
+                          <span className="text-red-600">*</span>
+                        </label>
+                        <select
+                          className="input"
+                          value={selectedOrder?.id || ""}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            const o = orders.find(
+                              (x) => String(x.id) === String(id),
+                            );
+                            if (o) {
+                              setSelectedOrder(o);
+                              setSearch(o.orderNumber);
+                            } else {
+                              setSelectedOrder(null);
+                              setSearch("");
                             }
-                            placeholder="Auto-filled from service order"
-                            readOnly
-                          />
-                        </div>
+                          }}
+                        >
+                          <option value="">
+                            -- Select Internal Service Order --
+                          </option>
+                          {orders.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.orderNumber} • {o.customer} • {o.serviceType}
+                            </option>
+                          ))}
+                        </select>
                       </div>
+                      <div>
+                        <label className="label">
+                          Work Status <span className="text-red-600">*</span>
+                        </label>
+                        <select
+                          className="input"
+                          value={workStatus}
+                          onChange={(e) => setWorkStatus(e.target.value)}
+                        >
+                          <option value="opened">Opened</option>
+                          <option value="pending">Pending</option>
+                          <option value="work in progress">
+                            Work in Progress
+                          </option>
+                          <option value="completed">Completed</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">
+                          Execution Start Date{" "}
+                          <span className="text-red-600">*</span>
+                        </label>
+                        <input
+                          className="input"
+                          type="date"
+                          value={executionDate}
+                          onChange={(e) => setExecutionDate(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">
+                          Execution Start Time{" "}
+                          <span className="text-red-600">*</span>
+                        </label>
+                        <input
+                          className="input"
+                          type="time"
+                          value={scheduledTime}
+                          onChange={(e) => setScheduledTime(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">
+                          Assigned Supervisor{" "}
+                          <span className="text-red-600">*</span>
+                        </label>
+                        <input
+                          className="input"
+                          value={assignedSupervisor}
+                          onChange={(e) =>
+                            setAssignedSupervisor(e.target.value)
+                          }
+                          placeholder="Auto-filled from service order"
+                          readOnly
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="label">Customer</label>
+                        <input
+                          className="input"
+                          value={customerName}
+                          readOnly
+                          placeholder="Auto-filled from service order"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-between w-full pt-4">
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          className="btn-primary"
-                          onClick={() => nextStep(2)}
+                          className="btn-secondary opacity-0 pointer-events-none"
                         >
-                          Next: Material Requisition →
+                          Back
                         </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {step === 2 && (
-                  <div className="card">
-                    <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">
-                        📦 Material Requisition from Stores
-                      </div>
-                      <div className="text-sm bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
-                        Materials will be checked against store inventory.
-                        Unavailable items will be flagged for procurement.
-                      </div>
-                      <div className="space-y-2">
-                        {materials.map((m) => (
-                          <div
-                            key={m.id}
-                            className="grid grid-cols-1 md:grid-cols-[2fr_1fr_120px_120px_40px] gap-2 items-end p-3 bg-slate-50 rounded border"
-                          >
-                            <div>
-                              <label className="label">Description</label>
-                              <select
-                                className="input"
-                                value={m.code}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  const item = invItems.find(
-                                    (it) => String(it.id) === String(val),
-                                  );
-                                  updateMaterial(m.id, "code", val);
-                                  updateMaterial(
-                                    m.id,
-                                    "name",
-                                    item?.item_name || "",
-                                  );
-                                  updateMaterial(m.id, "unit", item?.uom || "");
-                                }}
-                              >
-                                <option value="">-- Select Item --</option>
-                                {invItems.map((it) => (
-                                  <option key={it.id} value={it.id}>
-                                    {it.item_name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="label">Qty</label>
-                              <input
-                                className="input"
-                                type="number"
-                                min="1"
-                                value={m.qty}
-                                onChange={(e) =>
-                                  updateMaterial(m.id, "qty", e.target.value)
-                                }
-                              />
-                            </div>
-                            <div>
-                              <label className="label">Unit</label>
-                              <input
-                                className="input"
-                                value={m.unit}
-                                readOnly
-                              />
-                            </div>
-                            <div>
-                              <label className="label">Note</label>
-                              <input
-                                className="input"
-                                value={m.note}
-                                onChange={(e) =>
-                                  updateMaterial(m.id, "note", e.target.value)
-                                }
-                                placeholder="Optional note"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              className="btn-danger"
-                              onClick={() => removeMaterial(m.id)}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
                         <button
                           type="button"
                           className="btn-primary"
-                          onClick={addMaterialItem}
+                          onClick={(e) => submit(e, null, true)}
                         >
-                          + Add Material Item
+                          Save & Exit
                         </button>
                       </div>
-                      <div>
-                        <label className="label">Requisition Notes</label>
-                        <textarea
-                          className="input"
-                          value={requisitionNotes}
-                          onChange={(e) => setRequisitionNotes(e.target.value)}
-                          placeholder="Any special requirements or notes"
-                        />
+                      <button
+                        type="button"
+                        className="btn-success"
+                        onClick={(e) => submit(e, 2)}
+                      >
+                        Next: Material Requisition &rarr;
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {step === 2 && (
+                <div className="card">
+                  <div className="card-body space-y-3">
+                    <div className="text-lg font-semibold">
+                      📦 Material Requisition from Stores
+                    </div>
+
+                    <div className="mb-4">
+                      <label className="label">
+                        Work Status <span className="text-red-600">*</span>
+                      </label>
+                      <select
+                        className="input"
+                        value={workStatus}
+                        onChange={(e) => setWorkStatus(e.target.value)}
+                      >
+                        <option value="opened">Opened</option>
+                        <option value="pending">Pending</option>
+                        <option value="work in progress">
+                          Work in Progress
+                        </option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </div>
+
+                    <div className="text-sm bg-blue-50 border-l-4 border-blue-400 p-3 rounded">
+                      Materials will be checked against store inventory.
+                      Unavailable items will be flagged for procurement.
+                    </div>
+                    <div className="space-y-2">
+                      {materials.map((m) => (
+                        <div
+                          key={m.id}
+                          className="grid grid-cols-1 md:grid-cols-[2fr_1fr_120px_120px_40px] gap-2 items-end p-3 bg-slate-50 rounded border"
+                        >
+                          <div>
+                            <label className="label">Description</label>
+                            <select
+                              className="input"
+                              value={m.code}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const item = invItems.find(
+                                  (it) => String(it.id) === String(val),
+                                );
+                                updateMaterial(m.id, "code", val);
+                                updateMaterial(
+                                  m.id,
+                                  "name",
+                                  item?.item_name || "",
+                                );
+                                updateMaterial(m.id, "unit", item?.uom || "");
+                              }}
+                            >
+                              <option value="">-- Select Item --</option>
+                              {invItems.map((it) => (
+                                <option key={it.id} value={it.id}>
+                                  {it.item_name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="label">Qty</label>
+                            <input
+                              className="input"
+                              type="number"
+                              min="1"
+                              value={m.qty}
+                              onChange={(e) =>
+                                updateMaterial(m.id, "qty", e.target.value)
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label className="label">Unit</label>
+                            <input className="input" value={m.unit} readOnly />
+                          </div>
+                          <div>
+                            <label className="label">Note</label>
+                            <input
+                              className="input"
+                              value={m.note}
+                              onChange={(e) =>
+                                updateMaterial(m.id, "note", e.target.value)
+                              }
+                              placeholder="Optional note"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="btn-danger"
+                            onClick={() => removeMaterial(m.id)}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div
+                      className="card cursor-pointer hover:border-brand transition-colors"
+                      onClick={openRequisitionModal}
+                    >
+                      <div className="card-body flex items-center gap-3 py-4">
+                        <span className="text-2xl">📦</span>
+                        <div>
+                          <div className="font-semibold text-brand">
+                            Open Material Requisition
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Click to open the full material requisition form in
+                            a modal
+                          </div>
+                        </div>
                       </div>
+                    </div>
+                    <div className="flex justify-between w-full pt-4">
                       <div className="flex gap-2">
                         <button
                           type="button"
                           className="btn-secondary"
                           onClick={() => previousStep(1)}
                         >
-                          ← Back
+                          &larr; Back
                         </button>
                         <button
                           type="button"
                           className="btn-primary"
-                          onClick={() => nextStep(3)}
+                          onClick={(e) => submit(e, null, true)}
                         >
-                          Next: Execution Details →
+                          Save & Exit
                         </button>
                       </div>
+                      <button
+                        type="button"
+                        className="btn-success"
+                        onClick={(e) => submit(e, 3)}
+                      >
+                        Next: Execution & Closing &rarr;
+                      </button>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
-                {step === 3 && (
-                  <div className="card">
-                    <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">
-                        🔧 Service Execution Details
-                      </div>
-                      <div className="space-y-2">
-                        {supervisors.map((s) => (
-                          <div
-                            key={s.id}
-                            className="flex items-center justify-between p-3 bg-slate-50 rounded border"
-                          >
-                            <div className="font-medium text-brand-700">
-                              {s.username}
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={assignedTechs.has(s.user_id)}
-                              onChange={() => toggleTech(s.user_id)}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="label">
-                            Actual Start Time{" "}
-                            <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            className="input"
-                            type="time"
-                            value={actualStartTime}
-                            onChange={(e) => setActualStartTime(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="label">
-                            Estimated Duration (hours){" "}
-                            <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            className="input"
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            value={estimatedDuration}
-                            onChange={(e) =>
-                              setEstimatedDuration(e.target.value)
-                            }
-                          />
-                        </div>
-                      </div>
+              {step === 3 && (
+                <div className="card">
+                  <div className="card-body space-y-4">
+                    <div className="text-lg font-semibold">
+                      Execution & Closing
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="label">
-                          Work Performed Description{" "}
+                          Work Status <span className="text-red-600">*</span>
+                        </label>
+                        <select
+                          className="input"
+                          value={workStatus}
+                          onChange={(e) => setWorkStatus(e.target.value)}
+                        >
+                          <option value="opened">Opened</option>
+                          <option value="pending">Pending</option>
+                          <option value="work in progress">
+                            Work in Progress
+                          </option>
+                          <option value="completed">Completed</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">Execution End Date</label>
+                        <input
+                          type="date"
+                          className="input"
+                          value={actualEndDate}
+                          onChange={(e) => setActualEndDate(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Actual End Time</label>
+                        <input
+                          className="input"
+                          type="time"
+                          value={actualEndTime}
+                          onChange={(e) => setActualEndTime(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Total Duration (hours)</label>
+                        <input
+                          className="input"
+                          value={totalDuration}
+                          readOnly
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="label">
+                          Work Performed Description & Closing Rmarks{" "}
                           <span className="text-red-600">*</span>
                         </label>
                         <textarea
-                          className="input"
+                          className="input w-1/2"
+                          rows={6}
                           value={workPerformed}
                           onChange={(e) => setWorkPerformed(e.target.value)}
                           placeholder="Detailed description of work performed"
                         />
                       </div>
-                      <div>
-                        <label className="label">
-                          Service Execution Photos
-                        </label>
-                        <input
-                          type="file"
-                          multiple
-                          accept=".jpg,.jpeg,.png"
-                          onChange={onFileAdd(setExecutionFiles)}
-                        />
-                        {executionFiles.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            {executionFiles.map((f) => (
-                              <div
-                                key={f.name}
-                                className="flex items-center justify-between p-2 border rounded"
-                              >
-                                <div className="text-xs">
-                                  {f.name} • {(f.size / 1024).toFixed(1)} KB
+                    </div>
+
+                    <div className="border-t pt-4 space-y-3">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="label">
+                            Completion Certificate/Photos
+                          </label>
+                          <input
+                            type="file"
+                            multiple
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            onChange={onFileAdd(setClosingFiles)}
+                          />
+                          {closingFiles.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {closingFiles.map((f) => (
+                                <div
+                                  key={f.name}
+                                  className="flex items-center justify-between p-2 border rounded"
+                                >
+                                  <div className="text-xs">
+                                    {f.name} • {(f.size / 1024).toFixed(1)} KB
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="md:col-span-2 flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={followUpRequired}
+                            onChange={(e) =>
+                              setFollowUpRequired(e.target.checked)
+                            }
+                          />
+                          <span>Follow-up service required</span>
+                        </div>
+                        {followUpRequired && (
+                          <div className="md:col-span-2">
+                            <label className="label">Follow-up Details</label>
+                            <textarea
+                              className="input w-1/2"
+                              rows={6}
+                              value={followUpNotes}
+                              onChange={(e) => setFollowUpNotes(e.target.value)}
+                            />
                           </div>
                         )}
+                        <div className="md:col-span-2 flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded">
+                          <input
+                            type="checkbox"
+                            checked={confirmClosure}
+                            onChange={(e) =>
+                              setConfirmClosure(e.target.checked)
+                            }
+                          />
+                          <span className="font-medium">
+                            I confirm that all work has been completed
+                            satisfactorily and customer has approved the service
+                          </span>
+                        </div>
                       </div>
+                    </div>
+
+                    <div className="flex justify-between w-full pt-4">
                       <div className="flex gap-2">
                         <button
                           type="button"
                           className="btn-secondary"
                           onClick={() => previousStep(2)}
                         >
-                          ← Back
+                          &larr; Back
                         </button>
                         <button
                           type="button"
                           className="btn-primary"
-                          onClick={() => nextStep(4)}
+                          onClick={(e) => submit(e, null, true)}
                         >
-                          Next: Quality Check →
+                          Save & Exit
                         </button>
                       </div>
+                      <button
+                        type="button"
+                        className="btn-success"
+                        onClick={(e) => submit(e)}
+                        disabled={!confirmClosure}
+                      >
+                        Complete Service Execution
+                      </button>
                     </div>
                   </div>
-                )}
-
-                {step === 4 && (
-                  <div className="card">
-                    <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">
-                        ✅ Quality Check & Verification
-                      </div>
-                      <div className="space-y-2">
-                        {Object.keys(qualityChecks).map((key, idx) => (
-                          <label
-                            key={key}
-                            className="inline-flex items-center gap-2 text-sm p-2 border rounded"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={qualityChecks[key]}
-                              onChange={(e) =>
-                                setQualityChecks((prev) => ({
-                                  ...prev,
-                                  [key]: e.target.checked,
-                                }))
-                              }
-                            />
-                            {
-                              [
-                                "All work completed as per service order specifications",
-                                "All materials used are documented and accounted for",
-                                "Work area cleaned and restored to original condition",
-                                "All safety protocols followed during execution",
-                                "Equipment/systems tested and functioning properly",
-                                "No additional issues or defects identified",
-                              ][idx]
-                            }
-                          </label>
-                        ))}
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="label">
-                            Actual End Time{" "}
-                            <span className="text-red-600">*</span>
-                          </label>
-                          <input
-                            className="input"
-                            type="time"
-                            value={actualEndTime}
-                            onChange={(e) => setActualEndTime(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="label">
-                            Total Duration (hours)
-                          </label>
-                          <input
-                            className="input"
-                            value={totalDuration}
-                            readOnly
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="label">Quality Check Notes</label>
-                        <textarea
-                          className="input"
-                          value={qualityNotes}
-                          onChange={(e) => setQualityNotes(e.target.value)}
-                          placeholder="Any observations, recommendations, or issues"
-                        />
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => previousStep(3)}
-                        >
-                          ← Back
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-primary"
-                          onClick={() => nextStep(5)}
-                        >
-                          Next: Service Closing →
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {step === 5 && (
-                  <div className="card">
-                    <div className="card-body space-y-3">
-                      <div className="text-lg font-semibold">
-                        🏁 Service Closing
-                      </div>
-                      {/* Customer fields removed */}
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={followUpRequired}
-                          onChange={(e) =>
-                            setFollowUpRequired(e.target.checked)
-                          }
-                        />
-                        <span>Follow-up service required</span>
-                      </div>
-                      {followUpRequired && (
-                        <div>
-                          <label className="label">Follow-up Details</label>
-                          <textarea
-                            className="input"
-                            value={followUpNotes}
-                            onChange={(e) => setFollowUpNotes(e.target.value)}
-                          />
-                        </div>
-                      )}
-                      <div>
-                        <label className="label">
-                          Closing Remarks{" "}
-                          <span className="text-red-600">*</span>
-                        </label>
-                        <textarea
-                          className="input"
-                          value={closingRemarks}
-                          onChange={(e) => setClosingRemarks(e.target.value)}
-                          placeholder="Final summary and recommendations"
-                        />
-                      </div>
-                      <div>
-                        <label className="label">
-                          Completion Certificate/Photos
-                        </label>
-                        <input
-                          type="file"
-                          multiple
-                          accept=".pdf,.jpg,.jpeg,.png"
-                          onChange={onFileAdd(setClosingFiles)}
-                        />
-                        {closingFiles.length > 0 && (
-                          <div className="mt-2 space-y-1">
-                            {closingFiles.map((f) => (
-                              <div
-                                key={f.name}
-                                className="flex items-center justify-between p-2 border rounded"
-                              >
-                                <div className="text-xs">
-                                  {f.name} • {(f.size / 1024).toFixed(1)} KB
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={confirmClosure}
-                          onChange={(e) => setConfirmClosure(e.target.checked)}
-                        />
-                        <span>
-                          I confirm that all work has been completed
-                          satisfactorily and customer has approved the service
-                        </span>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => previousStep(4)}
-                        >
-                          ← Back
-                        </button>
-                        <button
-                          type="submit"
-                          className="btn-success"
-                          disabled={!confirmClosure}
-                        >
-                          Complete Service Execution
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </form>
-            </div>
-
+                </div>
+              )}
+            </form>
           </div>
         </div>
       </div>
 
       {/* Success modal removed; navigation occurs after save */}
+
+      {showRequisitionModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 sm:p-6 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-4xl h-[90vh] overflow-y-auto flex flex-col relative my-8">
+            <MaterialRequisitionForm
+              embedded={true}
+              embeddedId="new"
+              embeddedMode="service-execution"
+              defaultStatus="POSTED"
+              initialItems={invItems}
+              onSave={() => {
+                setShowRequisitionModal(false);
+              }}
+              onCancel={() => setShowRequisitionModal(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

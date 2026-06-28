@@ -1,8 +1,18 @@
+/**
+ * @fileoverview DashboardList component.
+ * Provides functionality for DashboardList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DashboardList() {
   const [activeTab, setActiveTab] = useState("overview");
   const [dateFilter, setDateFilter] = useState("30");

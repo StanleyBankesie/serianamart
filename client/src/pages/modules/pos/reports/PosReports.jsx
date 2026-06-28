@@ -1,7 +1,17 @@
+/**
+ * @fileoverview PosReports component.
+ * Provides functionality for PosReports.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosReports() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");

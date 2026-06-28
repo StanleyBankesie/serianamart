@@ -1,3 +1,8 @@
+/**
+ * @fileoverview LeaveRecords component.
+ * Provides functionality for LeaveRecords.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -22,6 +27,11 @@ function fmt(dateStr) {
   return new Date(dateStr).toLocaleDateString();
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveRecords() {
   const [records, setRecords] = useState([]);
   const [employees, setEmployees] = useState([]);

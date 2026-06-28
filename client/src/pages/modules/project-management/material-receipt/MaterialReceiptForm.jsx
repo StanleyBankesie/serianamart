@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaterialReceiptForm component.
+ * Provides functionality for MaterialReceiptForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -9,7 +14,12 @@ function normalizeDate(v) {
   return s.includes("T") ? s.split("T")[0] : s;
 }
 
-export default function PMMaterialReceiptForm() {
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
+export default function MaterialReceiptForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = id === "new" || !id;

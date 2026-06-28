@@ -1,3 +1,8 @@
+/**
+ * @fileoverview TaskList component.
+ * Provides functionality for TaskList.
+ */
+
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -76,6 +81,11 @@ const CompletionSlider = ({ value, taskId, onUpdate }) => {
 
 const fmtDate = (v) => v ? new Date(v).toLocaleDateString() : "—";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function TaskList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

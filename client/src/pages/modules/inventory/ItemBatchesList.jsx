@@ -1,7 +1,17 @@
+/**
+ * @fileoverview ItemBatchesList component.
+ * Provides functionality for ItemBatchesList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ItemBatchesList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview FinanceDashboardPage component.
+ * Provides functionality for FinanceDashboardPage.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -351,6 +356,11 @@ function TwoSeriesBarChart({
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function FinanceDashboardPage() {
   const location = useLocation();
   const backTo =

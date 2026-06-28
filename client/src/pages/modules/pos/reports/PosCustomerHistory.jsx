@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PosCustomerHistory component.
+ * Provides functionality for PosCustomerHistory.
+ */
+
 import React, { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -21,6 +26,11 @@ function yearEnd() {
   return `${y}-12-31`;
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosCustomerHistory() {
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");

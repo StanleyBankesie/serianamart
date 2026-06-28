@@ -1,8 +1,20 @@
+/**
+ * Get the bound query function from a db object.
+ * @param {Object} db - The database object.
+ * @returns {Function|null} The bound query function or null.
+ */
 function getQueryFn(db) {
+  // Check if database object has a bindable query method to execute sql
   return db && typeof db.query === "function" ? db.query.bind(db) : null;
 }
 
+/**
+ * Load all existing indexes from the database schema.
+ * @param {Function} q - The query function.
+ * @returns {Promise<Object>} Map of table names to their indexes.
+ */
 async function loadExistingIndexes(q) {
+  // Fetch raw statistics schema for all current database indexes
   const rows = await q(
     `SELECT s.table_name, s.index_name, s.column_name, s.seq_in_index
      FROM information_schema.STATISTICS s
@@ -10,6 +22,7 @@ async function loadExistingIndexes(q) {
      ORDER BY s.table_name, s.index_name, s.seq_in_index`,
   );
   const map = {};
+  // Organize row results into a structured map by table and index name
   for (const r of rows) {
     if (!map[r.table_name]) map[r.table_name] = {};
     if (!map[r.table_name][r.index_name]) map[r.table_name][r.index_name] = [];
@@ -18,14 +31,28 @@ async function loadExistingIndexes(q) {
   return map;
 }
 
+/**
+ * Check if a column is covered by any index on the table.
+ * @param {Object} tableIndexes - Indexes for the table.
+ * @param {string} column - The column name.
+ * @returns {boolean} True if covered.
+ */
 function isColumnCovered(tableIndexes, column) {
+  // Iterate over table indexes to check if the specific column is present in any index
   for (const cols of Object.values(tableIndexes)) {
     if (cols.includes(column)) return true;
   }
   return false;
 }
 
+/**
+ * Check if a prefix of columns is covered by any index on the table.
+ * @param {Object} tableIndexes - Indexes for the table.
+ * @param {string[]} columns - Array of column names.
+ * @returns {boolean} True if the prefix is covered.
+ */
 function isPrefixCovered(tableIndexes, columns) {
+  // Validate if a sequence of columns matches the beginning of any existing index sequence
   for (const cols of Object.values(tableIndexes)) {
     if (cols.length < columns.length) continue;
     let match = true;
@@ -37,9 +64,16 @@ function isPrefixCovered(tableIndexes, columns) {
   return false;
 }
 
+/**
+ * Ensure standard indexes exist across all base tables.
+ * @param {Object} db - Optional database object to use for queries.
+ * @returns {Promise<number>} The number of indexes created.
+ */
 export async function ensureIndexes(db) {
+  // Initialize query function from provided db object or default to import pool
   const q = getQueryFn(db) || (await import("../db/pool.js")).query;
 
+  // Retrieve a list of all relevant base tables in the current database schema
   const tables = await q(
     `SELECT table_name
      FROM information_schema.tables
@@ -49,6 +83,7 @@ export async function ensureIndexes(db) {
      ORDER BY table_name`,
   );
 
+  // Retrieve column metadata for all matching base tables to check index necessity
   const columns = await q(
     `SELECT c.table_name, c.column_name
      FROM information_schema.columns c
@@ -60,6 +95,7 @@ export async function ensureIndexes(db) {
      ORDER BY c.table_name, c.ordinal_position`,
   );
 
+  // Load currently configured database indexes into memory
   const existingIndexes = await loadExistingIndexes(q);
 
   const tableCols = {};
@@ -70,6 +106,7 @@ export async function ensureIndexes(db) {
 
   let created = 0;
 
+  // Iterate through each base table to evaluate and queue missing indexes
   for (const { table_name } of tables) {
     const cols = tableCols[table_name];
     if (!cols) continue;
@@ -78,6 +115,7 @@ export async function ensureIndexes(db) {
 
     const candidates = [];
 
+    // Check and queue composite index for company_id and branch_id
     // company_id + branch_id composite
     if (cols.has("company_id") && cols.has("branch_id")) {
       if (!isPrefixCovered(tblIdx, ["company_id", "branch_id"])) {
@@ -114,6 +152,7 @@ export async function ensureIndexes(db) {
       candidates.push({ name: `idx_${table_name}_deleted`, columns: ["deleted_at"] });
     }
 
+    // Dynamically identify and queue indexes for all document reference columns
     // Document number columns (*_no, *_code)
     for (const col of cols) {
       if (!col.endsWith("_no") && !col.endsWith("_code")) continue;
@@ -123,6 +162,7 @@ export async function ensureIndexes(db) {
       candidates.push({ name: `idx_${table_name}_${safeLabel}`, columns: [col] });
     }
 
+    // Attempt to sequentially create all queued missing indexes for the current table
     for (const { name, columns: colsArr } of candidates) {
       try {
         await q(

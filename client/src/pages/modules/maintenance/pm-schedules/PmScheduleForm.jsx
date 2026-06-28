@@ -1,6 +1,16 @@
+/**
+ * @fileoverview PmScheduleForm component.
+ * Provides functionality for PmScheduleForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PmScheduleForm() {
   const navigate = useNavigate();
   const { id } = useParams();

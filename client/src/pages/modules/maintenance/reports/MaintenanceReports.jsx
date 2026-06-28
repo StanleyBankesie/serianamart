@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceReports component.
+ * Provides functionality for MaintenanceReports.
+ */
+
 import React from "react";
 import { 
   BarChart3, 
@@ -33,6 +38,11 @@ const ReportCard = ({ title, description, icon, path, color }) => (
   </Link>
 );
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceReports() {
   const reports = [
     {

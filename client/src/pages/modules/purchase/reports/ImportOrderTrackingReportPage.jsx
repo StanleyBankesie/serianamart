@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ImportOrderTrackingReportPage component.
+ * Provides functionality for ImportOrderTrackingReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { Link } from "react-router-dom";
@@ -5,6 +10,11 @@ import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ImportOrderTrackingReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Global Redux store configuration.
+ * Combines all application reducers and sets up the root store.
+ */
+
 import { configureStore, combineReducers } from "@reduxjs/toolkit";
 import inventoryRefReducer from "./inventoryRefSlice";
 import customersReducer from "../modules/customers/customerSlice.js";

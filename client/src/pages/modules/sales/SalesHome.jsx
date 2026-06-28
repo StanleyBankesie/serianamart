@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SalesHome module routing and dashboard landing page.
+ * Acts as the entry point for all sales-related features and analytics.
+ */
+
 import React from "react";
 import { Routes, Route, Link } from "react-router-dom";
 import { usePermission } from "../../../auth/PermissionContext";
@@ -37,6 +42,19 @@ import DebtorsBalanceReportPage from "./reports/DebtorsBalanceReportPage.jsx";
 import SalesProfitabilityReportPage from "./reports/SalesProfitabilityReportPage.jsx";
 import SalesTrackingReportPage from "./reports/SalesTrackingReportPage.jsx";
 
+/**
+ * ActionButton component
+ * Renders a standardized link button for module actions.
+ * Checks permissions before rendering the button.
+ * 
+ * @param {Object} props
+ * @param {string} props.label - Button text.
+ * @param {string} props.path - Navigation target path.
+ * @param {string} props.type - Button style type ("primary" or "outline").
+ * @param {string} props.featureKey - RBAC feature key for permission check.
+ * @param {string} props.action - Specific action required (e.g., "view", "create").
+ * @returns {JSX.Element|null} The button element or null if unauthorized.
+ */
 const ActionButton = ({ label, path, type, featureKey, action }) => {
   const { canPerformAction } = usePermission();
   const hasPermission = canPerformAction(featureKey, action);
@@ -53,6 +71,12 @@ const ActionButton = ({ label, path, type, featureKey, action }) => {
   );
 };
 
+/**
+ * SalesModuleHome component
+ * Displays the main sales dashboard, including key statistics and module navigation sections.
+ * 
+ * @returns {JSX.Element} The sales module landing view.
+ */
 const SalesModuleHome = () => {
   const { isSuper } = usePermission();
   const [stats, setStats] = React.useState([
@@ -568,6 +592,12 @@ const SalesModuleHome = () => {
   );
 };
 
+/**
+ * SalesHome component
+ * Root router for the Sales module. Maps URL paths to specific sales components.
+ * 
+ * @returns {JSX.Element} The nested routes for the sales module.
+ */
 export default function SalesHome() {
   return (
     <Routes>

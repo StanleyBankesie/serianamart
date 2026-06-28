@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Redux slice for managing customer data state.
+ * Handles fetching, creating, updating, and deleting customers, with optimistic updates.
+ */
+
 import {
   createSlice,
   createEntityAdapter,
@@ -18,6 +23,10 @@ const initialState = adapter.getInitialState({
   lastFetched: 0,
 });
 
+/**
+ * Async thunk to fetch all customers from the API.
+ * Uses a basic caching mechanism based on lastFetched timestamp.
+ */
 export const fetchCustomers = createAsyncThunk(
   "customers/fetchAll",
   async (args = {}, { getState, rejectWithValue }) => {
@@ -35,6 +44,9 @@ export const fetchCustomers = createAsyncThunk(
   },
 );
 
+/**
+ * Async thunk to create a new customer.
+ */
 export const createCustomer = createAsyncThunk(
   "customers/create",
   async (payload, { rejectWithValue }) => {

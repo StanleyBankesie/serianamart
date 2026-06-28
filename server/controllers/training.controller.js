@@ -1,7 +1,18 @@
+/**
+ * @file training.controller.js
+ * @description Controller for HR training programs, assignments, attendance, and certifications.
+ */
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { toNumber } from "../utils/dbUtils.js";
 
+/**
+ * Retrieves a paginated list of training programs filtered by company, category, type, and active status.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listTrainingPrograms(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -18,6 +29,13 @@ export async function listTrainingPrograms(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Fetches the details of a single training program by its ID.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getTrainingProgram(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -28,6 +46,13 @@ export async function getTrainingProgram(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Creates or updates a training program depending on whether an ID is provided.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveTrainingProgram(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -43,6 +68,13 @@ export async function saveTrainingProgram(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Deactivates a training program (soft delete).
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function deleteTrainingProgram(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -52,6 +84,13 @@ export async function deleteTrainingProgram(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Lists assignments of employees to training programs with filtering.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listTrainingAssignments(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -67,6 +106,13 @@ export async function listTrainingAssignments(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Creates or updates an employee's training assignment, handling status progression.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveTrainingAssignment(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -85,6 +131,13 @@ export async function saveTrainingAssignment(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Hard deletes a training assignment.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function deleteTrainingAssignment(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -94,6 +147,13 @@ export async function deleteTrainingAssignment(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Retrieves attendance records for a specific training assignment.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listTrainingAttendance(req, res, next) {
   try {
     const { assignment_id } = req.query;
@@ -106,6 +166,13 @@ export async function listTrainingAttendance(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Creates or updates attendance records for a training session.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveTrainingAttendance(req, res, next) {
   try {
     const { id, assignment_id, session_date, present, hours_attended, remarks } = req.body;
@@ -119,6 +186,13 @@ export async function saveTrainingAttendance(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Lists history of completed or confirmed training assignments.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listTrainingHistory(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -133,6 +207,13 @@ export async function listTrainingHistory(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Lists certifications awarded to employees.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listCertifications(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -146,6 +227,13 @@ export async function listCertifications(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Creates or updates an employee certification record.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveCertification(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -160,6 +248,13 @@ export async function saveCertification(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Deletes a certification record.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function deleteCertification(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
@@ -169,6 +264,13 @@ export async function deleteCertification(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Retrieves aggregate statistics for the training dashboard.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getTrainingDashboard(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};

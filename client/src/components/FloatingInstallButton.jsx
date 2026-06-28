@@ -1,7 +1,18 @@
+/**
+ * @fileoverview Floating button component to prompt Progressive Web App (PWA) installation.
+ * Handles different device install scenarios (e.g., iOS Safari manual prompt).
+ */
+
 import React, { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import usePWAInstall from "../hooks/usePWAInstall.js";
 
+/**
+ * FloatingInstallButton component
+ * Displays a persistent install button in the bottom right corner when PWA installation is supported and not yet installed.
+ * 
+ * @returns {JSX.Element|null} The floating install button or null if already installed/unsupported.
+ */
 export default function FloatingInstallButton() {
   const { isInstallable, isInstalled, isPWASupported, handleInstall } =
     usePWAInstall();

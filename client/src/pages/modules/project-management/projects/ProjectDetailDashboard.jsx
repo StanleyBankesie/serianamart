@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProjectDetailDashboard component.
+ * Provides functionality for ProjectDetailDashboard.
+ */
+
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Briefcase, DollarSign, Clock, CheckCircle2, Calendar, User, AlertTriangle, Loader2, Activity, Layout, Flag } from "lucide-react";
@@ -27,6 +32,11 @@ const BudgetBar = ({ budget, spent }) => {
   );
 };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProjectDetailDashboard() {
   const { id } = useParams();
   const [data, setData] = useState(null);

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview WorkOrderList component.
+ * Provides functionality for WorkOrderList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { 
@@ -31,6 +36,11 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function WorkOrderList() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);

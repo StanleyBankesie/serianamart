@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SupplierForm component.
+ * Provides functionality for SupplierForm.
+ */
+
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
@@ -6,6 +11,11 @@ import { toast } from "react-toastify";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SupplierForm() {
   const { id } = useParams();
   const navigate = useNavigate();

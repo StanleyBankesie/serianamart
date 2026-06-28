@@ -1,7 +1,22 @@
+/**
+ * @fileoverview Reusable floating action button (FAB) for triggering creation actions.
+ */
+
 import React from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 
+/**
+ * FloatingCreateButton component
+ * Renders a fixed floating action button at the bottom-right of the screen via React Portal.
+ * 
+ * @param {Object} props
+ * @param {string} props.to - The URL path to navigate to when clicked.
+ * @param {string} props.title - Tooltip title on hover.
+ * @param {string} props.className - Custom CSS classes for the button.
+ * @param {React.ReactNode} props.children - Inner content of the button.
+ * @returns {JSX.Element|null} The portal rendered button or null on the server.
+ */
 export default function FloatingCreateButton({
   to,
   title,

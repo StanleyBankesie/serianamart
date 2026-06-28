@@ -1,8 +1,20 @@
+/**
+ * @fileoverview BranchSelectionPage component.
+ * Prompts users with multiple assigned branches to select one for the current session.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 
+/**
+ * BranchSelectionPage component
+ * Fetches available branches for the user and allows them to choose their active branch.
+ * If only one branch is assigned, it auto-selects and redirects.
+ * 
+ * @returns {JSX.Element|null} The branch selection view or null if auto-redirected.
+ */
 export default function BranchSelectionPage() {
   const navigate = useNavigate();
   const { user, scope, setScope } = useAuth();
@@ -22,6 +34,7 @@ export default function BranchSelectionPage() {
       setLoading(true);
       setError("");
       try {
+        // Fetch all branches and filter them by the user's allowed branch IDs
         const res = await api.get("/admin/branches");
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         const allowed = items.filter((b) =>
@@ -53,6 +66,10 @@ export default function BranchSelectionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Handles the continuation after a branch is selected.
+   * Updates the global authentication scope and redirects to the dashboard.
+   */
   async function onContinue() {
     const id = Number(selectedId);
     if (!id) return;

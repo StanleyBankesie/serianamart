@@ -1,9 +1,19 @@
+/**
+ * @fileoverview HRReports component.
+ * Provides functionality for HRReports.
+ */
+
 import React, { useState, useEffect } from 'react';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 import { Link } from 'react-router-dom';
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function HRReports() {
   const [reportType, setReportType] = useState('employees');
   const [fromDate, setFromDate] = useState(new Date(new Date().setDate(1)).toISOString().slice(0, 10));

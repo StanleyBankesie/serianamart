@@ -1,9 +1,19 @@
+/**
+ * @fileoverview BulkAttendance component.
+ * Provides functionality for BulkAttendance.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BulkAttendance() {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview GraphicalChartOfAccountsPage component.
+ * Provides functionality for GraphicalChartOfAccountsPage.
+ */
+
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import ReactFlow, {
   Controls,
@@ -84,6 +89,11 @@ const getLayoutedElements = (nodes, edges, direction = "TB") => {
   return { nodes: layoutedNodes, edges };
 };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function GraphicalChartOfAccountsPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);

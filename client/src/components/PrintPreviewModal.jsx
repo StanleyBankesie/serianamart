@@ -1,5 +1,21 @@
+/**
+ * @fileoverview A modal component for previewing HTML content before printing or downloading as a PDF.
+ * Uses an iframe to isolate the print layout and CSS.
+ */
+
 import React, { useEffect, useRef } from "react";
 
+/**
+ * PrintPreviewModal component
+ * 
+ * @param {Object} props
+ * @param {boolean} props.open - Whether the modal is currently visible.
+ * @param {Function} props.onClose - Callback triggered to close the modal.
+ * @param {string} props.html - The raw HTML content to display in the iframe.
+ * @param {boolean} [props.downloading=false] - Loading state for the download action.
+ * @param {Function} props.onDownload - Callback triggered when the 'Download PDF' button is clicked.
+ * @returns {JSX.Element|null} The modal overlay.
+ */
 export default function PrintPreviewModal({
   open,
   onClose,

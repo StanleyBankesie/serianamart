@@ -1,4 +1,7 @@
+// Third-party Library Imports
 import express from "express";
+
+// Authentication & Authorization Middleware Dependencies
 import {
   requireAuth,
   requireCompanyScope,
@@ -9,7 +12,10 @@ import {
   requirePermission,
   requireAnyPermission,
 } from "../middleware/requirePermission.js";
+// Database Configuration and Connection
 import { query, pool } from "../db/pool.js";
+
+// Utility Dependencies
 import { httpError } from "../utils/httpError.js";
 import { ensureSalesOrderColumns } from "../utils/dbUtils.js";
 import {
@@ -36,6 +42,8 @@ router.use(
   checkModuleAccess("sales"),
 );
 
+// Utility Function: Check if a specific column exists in a given table
+// Why: Used during startup scripts to conditionally apply schema migrations without failing if they already exist
 async function hasColumn(tableName, columnName) {
   const rows = await query(
     `
@@ -79,6 +87,8 @@ async function hasColumn(tableName, columnName) {
 })();
 
 // Ensure prospective customers table exists
+// Major Logical Block: Ensure 'sal_prospect_customers' table and columns exist
+// Why: Automatically applies schema migrations for prospective customers tracking
 async function ensureProspectiveCustomersTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS sal_prospect_customers (
@@ -146,6 +156,8 @@ async function ensureProspectiveCustomersTable() {
     ).catch(() => null);
   }
 }
+// Major Logical Block: Ensure quotation tables (headers) exist
+// Why: Sets up 'sal_quotations' table and ensures missing columns are added for updates
 async function ensureQuotationTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS sal_quotations (
@@ -198,6 +210,8 @@ async function ensureQuotationTables() {
   await ensureCol("terms_and_conditions", "terms_and_conditions TEXT NULL");
 }
 
+// Major Logical Block: Ensure quotation line-items table exists
+// Why: Creates 'sal_quotation_details' table and backfills any new schema modifications
 async function ensureQuotationDetailsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS sal_quotation_details (
@@ -237,6 +251,8 @@ async function ensureQuotationDetailsTable() {
   await ensureCol("tax_type", "tax_type BIGINT UNSIGNED NULL");
   await ensureCol("uom", "uom VARCHAR(20) NULL");
 }
+// Major Logical Block: Ensure invoice tables (headers and details) exist
+// Why: Creates 'sal_invoices' and 'sal_invoice_details' for billing operations and runs migrations
 async function ensureInvoiceTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS sal_invoices (
@@ -3982,6 +3998,7 @@ router.get(
            i.payment_type,
            i.warehouse_id,
            i.sales_order_id,
+           i.service_execution_id,
            i.remarks,
            MAX(it.vat_on_sales_id) AS tax_code_id,
           i.created_at,
@@ -4011,6 +4028,7 @@ WHERE i.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(i.branch_
            i.payment_type,
            i.warehouse_id,
            i.sales_order_id,
+           i.service_execution_id,
            i.remarks
          ORDER BY i.invoice_date DESC, i.id DESC`,
         { companyId, branchId, branchIdsStr, customerId },
@@ -4158,6 +4176,7 @@ router.get(
           i.currency_id,
           i.warehouse_id,
           i.sales_order_id,
+          i.service_execution_id,
           i.remarks,
           i.tax_amount,
           i.tax_components,
@@ -4730,6 +4749,7 @@ router.post(
         currency_id,
         exchange_rate,
         sales_order_id,
+        service_execution_id,
         remarks,
         lines,
       } = body;
@@ -4792,9 +4812,9 @@ router.post(
       }
       const [ins] = await conn.execute(
         `INSERT INTO sal_invoices
-          (company_id, branch_id, invoice_no, invoice_date, customer_id, payment_status, status, total_amount, net_amount, balance_amount, tax_amount, tax_components, price_type, payment_type, currency_id, exchange_rate, warehouse_id, sales_order_id, remarks, payment_date, created_by)
+          (company_id, branch_id, invoice_no, invoice_date, customer_id, payment_status, status, total_amount, net_amount, balance_amount, tax_amount, tax_components, price_type, payment_type, currency_id, exchange_rate, warehouse_id, sales_order_id, service_execution_id, remarks, payment_date, created_by)
          VALUES
-          (:companyId, :branchId, :invoiceNo, :invoiceDate, :customerId, 'UNPAID', 'POSTED', :totalAmount, :netAmount, :balanceAmount, :taxAmount, :taxComponents, :priceType, :paymentType, :currencyId, :exchangeRate, :warehouseId, :salesOrderId, :remarks, :paymentDate, :createdBy)`,
+          (:companyId, :branchId, :invoiceNo, :invoiceDate, :customerId, 'UNPAID', 'POSTED', :totalAmount, :netAmount, :balanceAmount, :taxAmount, :taxComponents, :priceType, :paymentType, :currencyId, :exchangeRate, :warehouseId, :salesOrderId, :serviceExecutionId, :remarks, :paymentDate, :createdBy)`,
         {
           companyId,
           branchId, branchIdsStr,
@@ -4812,6 +4832,7 @@ router.post(
           exchangeRate: exchange_rate || null,
           warehouseId: warehouse_id || null,
           salesOrderId: sales_order_id || null,
+          serviceExecutionId: service_execution_id || null,
           remarks: remarks || null,
           paymentDate: body.payment_date
             ? String(body.payment_date).slice(0, 10)

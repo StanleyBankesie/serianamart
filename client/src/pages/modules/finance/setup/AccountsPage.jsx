@@ -1,3 +1,8 @@
+/**
+ * @fileoverview AccountsPage component.
+ * Provides functionality for AccountsPage.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -8,6 +13,11 @@ import { useExchangeRate } from "@/hooks/useExchangeRate";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AccountsPage() {
   const [items, setItems] = useState([]);
   const [groups, setGroups] = useState([]);

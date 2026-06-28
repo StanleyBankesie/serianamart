@@ -1,5 +1,7 @@
+// Database Pool Dependency
 import { query } from "../db/pool.js";
 
+// Script to refresh Administration Settings pages in the database
 async function fixSettingsPages() {
   try {
     console.log("Removing old Settings pages...");

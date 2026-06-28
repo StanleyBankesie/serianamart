@@ -1,3 +1,8 @@
+/**
+ * @fileoverview UnitConversionsList component.
+ * Provides functionality for UnitConversionsList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -5,6 +10,11 @@ import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useUoms } from "@/hooks/useUoms";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function UnitConversionsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);

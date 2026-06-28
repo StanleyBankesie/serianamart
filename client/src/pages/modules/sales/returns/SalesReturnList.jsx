@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SalesReturnList component.
+ * Provides functionality for SalesReturnList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useLocation } from "react-router-dom";
@@ -9,6 +14,11 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalesReturnList() {
   const navigate = useNavigate();
   const location = useLocation();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PurchaseAgingReportPage component.
+ * Provides functionality for PurchaseAgingReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -5,6 +10,11 @@ import * as XLSX from "xlsx";
 import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
 import jsPDF from "jspdf";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseAgingReportPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

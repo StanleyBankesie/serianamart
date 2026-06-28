@@ -1,3 +1,8 @@
+/**
+ * @fileoverview CustomerForm component.
+ * Provides functionality for CustomerForm.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -5,6 +10,11 @@ import { useGhanaCities } from "../../../../hooks/useGhanaCities";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CustomerForm() {
   const navigate = useNavigate();
   const { id } = useParams();

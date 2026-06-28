@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceHome component.
+ * Provides functionality for MaintenanceHome.
+ */
+
 import React from "react";
 import { Route, Routes } from "react-router-dom";
 
@@ -243,6 +248,11 @@ function MaintenanceLanding() {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceHome() {
   return (
     <Routes>

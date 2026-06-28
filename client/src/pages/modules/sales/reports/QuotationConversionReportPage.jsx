@@ -1,7 +1,17 @@
+/**
+ * @fileoverview QuotationConversionReportPage component.
+ * Provides functionality for QuotationConversionReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function QuotationConversionReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

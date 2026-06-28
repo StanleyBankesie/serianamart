@@ -1,8 +1,19 @@
+/**
+ * @fileoverview Reusable component for rendering and managing sortable tables.
+ * Includes data comparison logic and sort state management.
+ */
+
 import React, { useState, useMemo, useCallback } from "react";
 
 export { default as SortableHeader } from "./SortableHeader.jsx";
 export { default as useSort } from "../hooks/useSort.js";
 
+/**
+ * Compare two values dynamically for table sorting.
+ * @param {*} a - First value.
+ * @param {*} b - Second value.
+ * @returns {number} Comparison result (-1, 0, or 1).
+ */
 function compareValues(a, b) {
   if (a == null && b == null) return 0;
   if (a == null) return 1;
@@ -30,6 +41,17 @@ function compareValues(a, b) {
   return 0;
 }
 
+/**
+ * SortableTable component
+ * Wraps around children elements to inject sorted data, sort key, direction, and toggle handler.
+ * 
+ * @param {Object} props
+ * @param {Array} props.data - Raw data array to be sorted.
+ * @param {string} props.defaultSortKey - Initial key to sort by.
+ * @param {string} props.defaultSortDir - Initial sort direction ('asc' or 'desc').
+ * @param {Function|React.ReactNode} props.children - Child element or render prop function.
+ * @returns {JSX.Element} The rendered sorted table wrapper.
+ */
 export default function SortableTable({
   data,
   defaultSortKey = "",

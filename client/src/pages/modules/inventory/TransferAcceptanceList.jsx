@@ -1,3 +1,8 @@
+/**
+ * @fileoverview TransferAcceptanceList component.
+ * Provides functionality for TransferAcceptanceList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -5,6 +10,11 @@ import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function TransferAcceptanceList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);

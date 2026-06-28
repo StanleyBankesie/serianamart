@@ -1,6 +1,29 @@
+/**
+ * @fileoverview A reusable dropdown input with search capabilities.
+ * Designed to filter through options quickly and securely.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 
+/**
+ * SearchableOptionInput component
+ * Renders an input field that expands into a dropdown menu of searchable options.
+ *
+ * @param {Object} props
+ * @param {string|number} props.value - Currently selected value.
+ * @param {Array<{label: string, value: string|number}>} props.options - List of options.
+ * @param {Function} props.onSelect - Callback when an option is selected.
+ * @param {string} props.placeholder - Input placeholder text.
+ * @param {boolean} props.disabled - Whether the input is disabled.
+ * @param {boolean} props.required - Whether the input is required.
+ * @param {string} props.containerClassName - CSS class for the container.
+ * @param {string} props.inputClassName - CSS class for the input element.
+ * @param {string} props.dropdownClassName - CSS class for the dropdown container.
+ * @param {string} props.optionClassName - CSS class for each option button.
+ * @param {Function|null} props.getSearchKeys - Custom search key extractor for filtering.
+ * @returns {JSX.Element} The rendered searchable input component.
+ */
 export default function SearchableOptionInput({
   value,
   options = [],
@@ -48,6 +71,10 @@ export default function SearchableOptionInput({
     showMenu,
   ]);
 
+  /**
+   * Commits the selected option and triggers the callback.
+   * @param {Object} option - The selected option object.
+   */
   const commitSelection = (option) => {
     setQuery(option?.label || "");
     setShowMenu(false);

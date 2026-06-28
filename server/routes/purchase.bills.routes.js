@@ -9,6 +9,7 @@ import { query } from "../db/pool.js";
 const router = express.Router();
 
 // Get outstanding bills for a supplier (for payment voucher linking)
+// Returns all posted, unpaid or partially paid bills for a given supplier.
 router.get(
   "/outstanding",
   requireAuth,
@@ -128,6 +129,7 @@ router.get(
 // 1) Uses account_code directly (or resolves from account_id for backwards compat),
 // 2) Finds supplier where supplier_code = account_code,
 // 3) Returns their outstanding UNPAID / PARTIAL PAYMENT bills
+// Useful for ledger reconciliation and account-based payment flows.
 router.get(
   "/outstanding-by-account",
   requireAuth,
@@ -234,6 +236,7 @@ router.get(
 );
 
 // Update bill payment status when payment is made
+// Recalculates total paid vs net amount to determine if bill is FULLY PAID, PARTIAL, or UNPAID.
 router.post(
   "/update-payment-status",
   requireAuth,

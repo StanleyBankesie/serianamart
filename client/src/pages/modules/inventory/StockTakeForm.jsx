@@ -1,3 +1,8 @@
+/**
+ * @fileoverview StockTakeForm component.
+ * Provides functionality for StockTakeForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -12,6 +17,11 @@ function toISODate(v) {
   }
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockTakeForm() {
   const { id } = useParams();
   const navigate = useNavigate();

@@ -1,7 +1,17 @@
+/**
+ * @fileoverview PayslipForm component.
+ * Provides functionality for PayslipForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PayslipForm() {
   const navigate = useNavigate();
   const { id } = useParams();

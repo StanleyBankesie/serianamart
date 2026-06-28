@@ -1,8 +1,18 @@
+/**
+ * @fileoverview VisitorLogForm component.
+ * Provides functionality for VisitorLogForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function VisitorLogForm() {
   const { id } = useParams();
   const navigate = useNavigate();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview RosterManagement component.
+ * Provides functionality for RosterManagement.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -35,6 +40,11 @@ function computeHours(start_time, end_time, break_minutes) {
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RosterManagement() {
   const [employees, setEmployees] = useState([]);
   const [schedules, setSchedules] = useState([]);

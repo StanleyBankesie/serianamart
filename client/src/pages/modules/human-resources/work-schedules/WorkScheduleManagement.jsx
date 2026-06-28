@@ -1,3 +1,8 @@
+/**
+ * @fileoverview WorkScheduleManagement component.
+ * Provides functionality for WorkScheduleManagement.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -13,6 +18,11 @@ const days = [
   { label: "Sat", value: 6 },
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function WorkScheduleManagement() {
   const [loading, setLoading] = useState(false);
   const [employees, setEmployees] = useState([]);

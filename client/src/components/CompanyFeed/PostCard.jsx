@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PostCard component.
+ * Displays an individual post in the social feed.
+ */
+
 import React, { useEffect, useState, useRef } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -8,6 +13,15 @@ import { getStoredToken } from "../../auth/authStorage.js";
 
 const avatarCache = new Map();
 
+/**
+ * PostCard component
+ * @param {Object} props
+ * @param {Object} props.post - The post object to display.
+ * @param {Function} props.setPosts - Function to update the list of posts.
+ * @param {boolean} [props.defaultShowComments=false] - Whether to show comments by default.
+ * @param {boolean} [props.forceOpenComments=false] - Whether to force open comments.
+ * @returns {JSX.Element}
+ */
 export default function PostCard({
   post,
   setPosts,
@@ -25,6 +39,11 @@ export default function PostCard({
   const { user } = useAuth();
   const navigate = useNavigate();
   const commentFileRef = useRef(null);
+  /**
+   * Resolves the full URL for an image.
+   * @param {string} u - The image URL or path.
+   * @returns {string|null} The resolved URL.
+   */
   const resolveImageUrl = (u) => {
     if (!u) return null;
     if (/^(data:|https?:)/i.test(u)) return u;
@@ -58,6 +77,9 @@ export default function PostCard({
       } catch {}
     };
   }, [blobUrl]);
+  /**
+   * Tries to load fallback images if the primary image fails.
+   */
   const tryFallback = async () => {
     const raw = String(post.image_url || "");
     try {
@@ -121,6 +143,9 @@ export default function PostCard({
     }
   };
 
+  /**
+   * Toggles the like status of the post.
+   */
   const handleLike = async () => {
     const uid = Number(user?.sub || user?.id) || "";
     if (post.user_liked) {
@@ -152,6 +177,10 @@ export default function PostCard({
     }
   };
 
+  /**
+   * Handles submitting a new comment.
+   * @param {Event} e - The form submit event.
+   */
   const handleComment = async (e) => {
     e.preventDefault();
     if (!newComment.trim()) return;
@@ -226,6 +255,9 @@ export default function PostCard({
     }
   };
 
+  /**
+   * Loads and displays all comments for the post.
+   */
   const handleShowAllComments = async () => {
     try {
       const uid = Number(user?.sub || user?.id) || "";
@@ -264,7 +296,12 @@ export default function PostCard({
 
   useEffect(() => {
     const uidHeader = Number(user?.sub || user?.id) || "";
-    async function fetchAvatar(userId) {
+    /**
+   * Fetches user avatar for a given user ID.
+   * @param {number|string} userId - Target user ID.
+   * @returns {string|null} The resolved avatar URL.
+   */
+  async function fetchAvatar(userId) {
       const key = Number(userId);
       if (!Number.isFinite(key) || key <= 0) return null;
       if (avatarCache.has(key)) return avatarCache.get(key);

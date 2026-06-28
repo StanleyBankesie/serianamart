@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Setup component.
+ * Provides functionality for Setup.
+ */
+
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, User, Trash2, Plus, X, Pencil, Building2, Warehouse } from "lucide-react";
@@ -69,7 +74,12 @@ function CrudSection({ title, icon, emptyMsg, columns, rows, loading, onAdd, onE
 }
 
 /* ───────────────────────────── Main Component ─── */
-export default function PMSetup() {
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
+export default function Setup() {
   const [activeTab, setActiveTab] = useState("managers");
   const [loading, setLoading] = useState(false);
 

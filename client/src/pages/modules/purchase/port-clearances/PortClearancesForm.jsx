@@ -1,7 +1,17 @@
+/**
+ * @fileoverview PortClearancesForm component.
+ * Provides functionality for PortClearancesForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PortClearancesForm() {
   const { id } = useParams();
   const navigate = useNavigate();

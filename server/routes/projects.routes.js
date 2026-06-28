@@ -1,3 +1,7 @@
+/**
+ * @file projects.routes.js
+ * @description Express routes for Projects management, tasks, and timesheets.
+ */
 import express from "express";
 
 import {

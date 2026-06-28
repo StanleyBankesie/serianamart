@@ -1,7 +1,17 @@
+/**
+ * @fileoverview ServiceRequestSummaryReport component.
+ * Provides functionality for ServiceRequestSummaryReport.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceRequestSummaryReport() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

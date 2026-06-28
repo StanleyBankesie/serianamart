@@ -1,3 +1,8 @@
+/**
+ * @fileoverview BusinessIntelligenceHome component.
+ * Provides functionality for BusinessIntelligenceHome.
+ */
+
 import React from "react";
 import { Route, Routes } from "react-router-dom";
 
@@ -123,6 +128,11 @@ function BusinessIntelligenceLanding() {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BusinessIntelligenceHome() {
   return (
     <Routes>

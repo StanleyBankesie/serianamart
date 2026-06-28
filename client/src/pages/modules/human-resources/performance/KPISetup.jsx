@@ -1,3 +1,8 @@
+/**
+ * @fileoverview KPISetup component.
+ * Provides functionality for KPISetup.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -136,6 +141,11 @@ function LoadingSkeleton() {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function KPISetup() {
   const [kpis, setKpis] = React.useState([]);
   const [categories, setCategories] = React.useState([]);

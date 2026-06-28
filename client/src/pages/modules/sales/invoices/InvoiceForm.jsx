@@ -1,3 +1,8 @@
+/**
+ * @fileoverview InvoiceForm component.
+ * Provides functionality for InvoiceForm.
+ */
+
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
@@ -13,6 +18,11 @@ import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { toast } from "react-toastify";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function InvoiceForm() {
   const { canEditDiscount, canAccessPath } = usePermission();
   const navigate = useNavigate();

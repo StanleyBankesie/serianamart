@@ -1,7 +1,17 @@
+/**
+ * @fileoverview A UI toggle switch for swapping between light and dark themes.
+ */
+
 import React from 'react';
 
 import { useTheme } from '../theme/ThemeContext.jsx';
 
+/**
+ * ThemeToggle component
+ * Uses the ThemeContext to access and mutate the global visual theme.
+ * 
+ * @returns {JSX.Element} A stylized toggle button.
+ */
 export default function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';

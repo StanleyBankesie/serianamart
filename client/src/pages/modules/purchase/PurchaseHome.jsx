@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Main entry point and router for the Purchase module.
+ * Configures all sub-routes for purchase orders, requisitions, bills, and reports.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";

@@ -1,8 +1,18 @@
+/**
+ * @fileoverview ExceptionalPermissionsList component.
+ * Provides functionality for ExceptionalPermissionsList.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExceptionalPermissionsList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

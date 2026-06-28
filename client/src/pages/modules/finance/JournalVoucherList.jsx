@@ -1,3 +1,8 @@
+/**
+ * @fileoverview JournalVoucherList component.
+ * Provides functionality for JournalVoucherList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -12,6 +17,11 @@ import {
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function JournalVoucherList() {
   const { canPerformAction } = usePermission();
   const [vouchers, setVouchers] = useState([]);

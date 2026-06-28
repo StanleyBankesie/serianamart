@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ExecSalesThisWeekPage component.
+ * Provides functionality for ExecSalesThisWeekPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -6,6 +11,11 @@ import * as XLSX from "xlsx";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExecSalesThisWeekPage() {
   const [items, setItems] = useState([]);
   const [cards, setCards] = useState({});

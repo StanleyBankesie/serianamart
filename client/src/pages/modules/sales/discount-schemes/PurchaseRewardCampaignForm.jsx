@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PurchaseRewardCampaignForm component.
+ * Provides functionality for PurchaseRewardCampaignForm.
+ */
+
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -98,6 +103,11 @@ function ItemPicker({ items, selectedIds, onChange, label }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseRewardCampaignForm() {
   const navigate = useNavigate();
   const { id } = useParams();

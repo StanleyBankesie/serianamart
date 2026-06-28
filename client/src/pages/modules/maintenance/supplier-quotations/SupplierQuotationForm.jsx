@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SupplierQuotationForm component.
+ * Provides functionality for SupplierQuotationForm.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -7,6 +12,11 @@ import { filterByPrefix } from "@/utils/searchUtils.js";
 const STATUSES = ["DRAFT","UNDER_REVIEW","APPROVED","REJECTED"];
 
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SupplierQuotationForm() {
   const navigate = useNavigate();
   const { id } = useParams();

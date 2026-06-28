@@ -1,9 +1,19 @@
+/**
+ * @fileoverview LowStockNotificationsPage component.
+ * Provides functionality for LowStockNotificationsPage.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../api/client";
 import { toast } from "react-toastify";
 import { Mail, Package, AlertTriangle } from "lucide-react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LowStockNotificationsPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

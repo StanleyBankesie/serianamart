@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PotentialCustomerList component.
+ * Provides functionality for PotentialCustomerList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -8,6 +13,11 @@ import { useAfterSaveRefresh } from "../../../../hooks/useAfterSaveRefresh.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PotentialCustomerList() {
   const navigate = useNavigate();
   const dispatch = useDispatch();

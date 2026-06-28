@@ -2,6 +2,10 @@ import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 dotenv.config();
 
+/**
+ * Test function to execute a SQL query using the DB configuration from environment variables.
+ * @returns {Promise<void>}
+ */
 async function test() {
   const conn = await mysql.createConnection({
     host: process.env.DB_HOST || 'localhost',

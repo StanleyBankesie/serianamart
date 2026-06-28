@@ -1,9 +1,23 @@
+/**
+ * @fileoverview Protected route wrapper component.
+ * Ensures that only authenticated users with correct permissions can access certain routes.
+ */
+
 import React, { useEffect } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
 import { useAuth } from "./AuthContext.jsx";
 import { usePermission } from "./PermissionContext.jsx";
 
+/**
+ * ProtectedRoute component
+ * Verifies user authentication and branch/module permissions before rendering children.
+ * Redirects to /login or /select-branch if access is denied.
+ * 
+ * @param {Object} props
+ * @param {React.ReactNode} props.children - The protected component to render.
+ * @returns {JSX.Element|null} The component or a redirect element.
+ */
 export default function ProtectedRoute({ children }) {
   const { token, initialized, user, scope, setScope } = useAuth();
   const { loading, canAccessPath } = usePermission();

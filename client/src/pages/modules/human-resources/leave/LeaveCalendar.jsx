@@ -1,3 +1,8 @@
+/**
+ * @fileoverview LeaveCalendar component.
+ * Provides functionality for LeaveCalendar.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -39,6 +44,11 @@ function monthGrid(year, month) {
   return days;
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveCalendar() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);

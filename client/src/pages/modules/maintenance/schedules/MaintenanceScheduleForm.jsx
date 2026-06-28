@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceScheduleForm component.
+ * Provides functionality for MaintenanceScheduleForm.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -6,6 +11,11 @@ import { api } from "../../../../api/client";
 const FREQUENCIES = ["Daily","Weekly","Biweekly","Monthly","Quarterly","Biannual","Annual"];
 const STATUSES = ["ACTIVE","INACTIVE","SUSPENDED"];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceScheduleForm() {
   const navigate = useNavigate();
   const { id } = useParams();

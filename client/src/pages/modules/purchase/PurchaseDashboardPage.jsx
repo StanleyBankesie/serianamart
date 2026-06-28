@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Dashboard page for the Purchase module.
+ * Displays key purchasing metrics, order trends, and top suppliers.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -88,6 +93,12 @@ function SimpleBarChart({ title, data, palette = [] }) {
   );
 }
 
+/**
+ * PurchaseDashboardPage component
+ * Renders the primary analytics view for the purchasing department.
+ * 
+ * @returns {JSX.Element} The rendered dashboard.
+ */
 export default function PurchaseDashboardPage() {
   const location = useLocation();
   const backTo =

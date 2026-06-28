@@ -1,8 +1,18 @@
+/**
+ * @fileoverview OffersList component.
+ * Provides functionality for OffersList.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function OffersList() {
   const [items, setItems] = React.useState([]);
   const [loading, setLoading] = React.useState(false);

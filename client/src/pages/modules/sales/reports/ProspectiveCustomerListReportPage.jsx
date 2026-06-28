@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProspectiveCustomerListReportPage component.
+ * Provides functionality for ProspectiveCustomerListReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
@@ -5,6 +10,11 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProspectiveCustomerListReportPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

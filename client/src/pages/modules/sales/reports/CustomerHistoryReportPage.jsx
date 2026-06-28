@@ -1,3 +1,8 @@
+/**
+ * @fileoverview CustomerHistoryReportPage component.
+ * Provides functionality for CustomerHistoryReportPage.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
@@ -8,6 +13,11 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CustomerHistoryReportPage() {
   const [customerId, setCustomerId] = useState("");
   const [customers, setCustomers] = useState([]);

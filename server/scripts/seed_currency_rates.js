@@ -1,5 +1,19 @@
+/**
+ * @file seed_currency_rates.js
+ * @description Script to seed initial currency configurations and their exchange rates.
+ * Populates the `fin_currencies` and `fin_currency_rates` tables with standard currencies 
+ * (USD, GHS, EUR, GBP) and sets up sample historical rates for testing.
+ */
+
 import { pool } from "../db/pool.js";
 
+/**
+ * Main execution function to seed currencies and exchange rates.
+ * Connects to the database, upserts the base and foreign currencies,
+ * resolves their database IDs, and seeds standard daily rates.
+ * 
+ * @returns {Promise<void>} Resolves when currency and rate seeding is complete.
+ */
 async function seedCurrencyRates() {
   const conn = await pool.getConnection();
   try {

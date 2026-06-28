@@ -49,13 +49,17 @@ if (lines[9877]?.includes('resolvePurchaseOrderCurrencyBindings')) {
 // Note: I need to handle the lines after these if they were part of the multi-line object.
 // But since I'm replacing the WHOLE call with a single line, I need to remove the following lines that were part of the old call.
 
+// Utility function to clean up multi-line function calls after replacement
 function cleanUp(startIdx) {
+    // Check if the starting line opens an object
     if (lines[startIdx]?.includes('({')) {
         let i = startIdx + 1;
+        // Loop through subsequent lines until the closing bracket is found
         while (i < lines.length && !lines[i].includes('});')) {
             lines[i] = ''; // clear it
             i++;
         }
+        // Clear the final closing bracket line if found
         if (i < lines.length && lines[i].includes('});')) {
             lines[i] = ''; // clear the closing
         }
@@ -90,6 +94,7 @@ const blocks = [
 // Surgical string replacement is hard because they are identical.
 // I'll use index based replacement.
 
+// Utility function to replace a substring at a specific index
 function replaceAtIndex(str, oldSub, newSub, index) {
     return str.substring(0, index) + newSub + str.substring(index + oldSub.length);
 }

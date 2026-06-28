@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PosReturnForm component.
+ * Provides functionality for PosReturnForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
@@ -31,6 +36,11 @@ function FilterableSelect({
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosReturnForm() {
   const [now, setNow] = useState(new Date());
   const [searchSaleId, setSearchSaleId] = useState("");

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SettingsPage component.
+ * Provides functionality for SettingsPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -10,6 +15,11 @@ const TABS = [
   { key: "departments", label: "Departments" },
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general");
   const [pushEnabled, setPushEnabled] = useState(() => {

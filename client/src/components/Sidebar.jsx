@@ -1,7 +1,19 @@
+/**
+ * @fileoverview Sidebar component.
+ * Provides the main navigation menu, filtering items based on module permissions.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { usePermission } from "../auth/PermissionContext.jsx";
 
+/**
+ * Sidebar component
+ * Renders the left navigation menu containing all available modules and sub-pages.
+ * Automatically filters links based on the active user's permissions.
+ * 
+ * @returns {JSX.Element} The rendered sidebar.
+ */
 export default function Sidebar() {
   const location = useLocation();
   const { isModuleEnabled, canAccessPath } = usePermission();
@@ -223,9 +235,14 @@ export default function Sidebar() {
       path: "/service",
       children: [
         {
-          key: "service-requests",
-          label: "Service Requests",
-          path: "/service/requests",
+          key: "customer-service-requests",
+          label: "Customer Service Requests",
+          path: "/service-management/customer-service-requests",
+        },
+        {
+          key: "supplier-service-requests",
+          label: "Supplier Service Requests",
+          path: "/service-management/supplier-service-requests",
         },
         {
           key: "maintenance-schedule",
@@ -307,6 +324,12 @@ export default function Sidebar() {
     isModuleEnabled(item.key),
   );
 
+  /**
+   * Recursively renders a menu item and its children.
+   * @param {Object} item - The menu item configuration.
+   * @param {number} [level=0] - The nesting level of the item.
+   * @returns {JSX.Element|null} The rendered menu item.
+   */
   function renderMenuItem(item, level = 0) {
     const isActive = location.pathname.startsWith(item.path);
     const hasChildren = item.children && item.children.length > 0;

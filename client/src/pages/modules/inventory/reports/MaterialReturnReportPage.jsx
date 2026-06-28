@@ -1,9 +1,19 @@
+/**
+ * @fileoverview MaterialReturnReportPage component.
+ * Provides functionality for MaterialReturnReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaterialReturnReportPage() {
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);

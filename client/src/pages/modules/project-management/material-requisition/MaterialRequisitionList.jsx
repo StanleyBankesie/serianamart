@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaterialRequisitionList component.
+ * Provides functionality for MaterialRequisitionList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
@@ -8,7 +13,12 @@ import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 
-export default function PMMaterialRequisitionList() {
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
+export default function MaterialRequisitionList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

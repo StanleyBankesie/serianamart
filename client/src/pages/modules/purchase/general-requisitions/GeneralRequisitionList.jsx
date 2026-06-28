@@ -1,3 +1,8 @@
+/**
+ * @fileoverview GeneralRequisitionList component.
+ * Provides functionality for GeneralRequisitionList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
@@ -13,6 +18,11 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function GeneralRequisitionList() {
   const navigate = useNavigate();
   const { hasExceptional, canReverseApproval } = usePermission();

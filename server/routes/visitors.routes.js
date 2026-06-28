@@ -1,4 +1,8 @@
-﻿import express from "express";
+﻿/**
+ * @file visitors.routes.js
+ * @description Express routes for managing visitors and entry logs.
+ */
+import express from "express";
 import { requireAuth, requireCompanyScope, requireBranchScope } from "../middleware/auth.js";
 import { requireAnyPermission } from "../middleware/requirePermission.js";
 import { query } from "../db/pool.js";
@@ -6,6 +10,10 @@ import { query } from "../db/pool.js";
 const router = express.Router();
 
 // List visitors with filters
+/**
+ * Retrieves all visitor records.
+ * @route GET /visitors
+ */
 router.get(
   "/",
   requireAuth,

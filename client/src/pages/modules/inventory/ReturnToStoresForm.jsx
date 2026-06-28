@@ -1,7 +1,17 @@
+/**
+ * @fileoverview ReturnToStoresForm component.
+ * Provides functionality for ReturnToStoresForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ReturnToStoresForm() {
   const { id } = useParams();
   const navigate = useNavigate();

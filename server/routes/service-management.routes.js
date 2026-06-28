@@ -6,6 +6,11 @@ import {
 } from "../middleware/auth.js";
 import { requireAnyPermission } from "../middleware/requirePermission.js";
 import { query } from "../db/pool.js";
+import { httpError } from "../utils/httpError.js";
+import {
+  resolveWorkflowSelection,
+  getInactiveWorkflowBehavior,
+} from "../utils/workflowResolution.js";
 
 const router = express.Router();
 
@@ -463,12 +468,9 @@ router.get(
           o.estimated_cost,
           0 AS actual_labor_cost,
           COALESCE((
-            SELECT SUM(COALESCE(m.qty,0) * 0),
-          m.created_at,
-          u.username AS created_by_name
+            SELECT SUM(COALESCE(m.qty,0))
          FROM pur_service_execution_materials m 
             JOIN pur_service_executions e ON e.id = m.execution_id
-        LEFT JOIN adm_users u ON u.id = m.created_by
          WHERE e.order_id = o.id
           ), 0) AS material_cost,
           COALESCE(o.estimated_cost,0) AS total_cost,
@@ -551,6 +553,165 @@ router.get(
         { companyId, branchId, branchIdsStr },
       ).catch(() => []);
       res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---- Supplier Service Request Status Update ----
+router.put(
+  "/supplier-service-requests/:id/status",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const status = String(req.body?.status || "").trim();
+      if (!status) throw httpError(400, "VALIDATION_ERROR", "Status is required");
+      await query(
+        `UPDATE pur_general_requisitions SET status = :status WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, status, companyId, branchId, branchIdsStr },
+      );
+      res.json({ status });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---- Supplier Service Request Submit (forward for approval) ----
+router.post(
+  "/supplier-service-requests/:id/submit",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const amount = req.body?.amount ?? null;
+      const workflowIdOverride = toNumber(req.body?.workflow_id);
+      const docRouteBase = "/purchase/general-requisitions";
+      const { activeWorkflow: activeWf } =
+        await resolveWorkflowSelection({
+          companyId,
+          workflowIdOverride,
+          docRouteBase,
+          typeSynonyms: ["GENERAL_REQUISITION", "General Requisition"],
+          amount,
+        });
+      if (!activeWf) {
+        await query(
+          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+          { id, companyId, branchId, branchIdsStr },
+        );
+        return res.json({ status: "APPROVED" });
+      }
+
+      const steps = await query(
+        `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`,
+        { wf: activeWf.id },
+      );
+      if (!steps.length) {
+        await query(
+          `UPDATE pur_general_requisitions SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+          { id, companyId, branchId, branchIdsStr },
+        );
+        return res.json({ status: "APPROVED" });
+      }
+      const first = steps[0];
+      if (!first.approver_user_id) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Workflow step 1 has no approver_user_id configured",
+        );
+      }
+      const allowedUsers = await query(
+        `SELECT approver_user_id FROM adm_workflow_step_approvers WHERE workflow_id = :wf AND step_order = :ord`,
+        { wf: activeWf.id, ord: first.step_order },
+      );
+      const allowedSet = new Set(
+        allowedUsers.map((r) => Number(r.approver_user_id)),
+      );
+      const targetUserIdRaw = req.body?.target_user_id;
+      let assignedToUserId = Number(first.approver_user_id);
+      if (targetUserIdRaw != null && allowedSet.has(Number(targetUserIdRaw))) {
+        assignedToUserId = Number(targetUserIdRaw);
+      } else if (allowedUsers.length > 0) {
+        assignedToUserId = Number(allowedUsers[0].approver_user_id);
+      }
+      const dwRes = await query(
+        `INSERT INTO adm_document_workflows
+            (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
+          VALUES
+            (:companyId, :workflowId, :documentId, 'GENERAL_REQUISITION', :amount, :stepOrder, 'PENDING', :assignedTo)`,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          documentId: id,
+          amount: amount === null ? null : Number(amount),
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      const instanceId = dwRes.insertId;
+      await query(
+        `INSERT INTO adm_workflow_tasks
+            (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+          VALUES
+            (:companyId, :workflowId, :dwId, :documentId, 'GENERAL_REQUISITION', :stepOrder, :assignedTo, 'PENDING')`,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          dwId: instanceId,
+          documentId: id,
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      );
+      await query(
+        `INSERT INTO adm_workflow_logs
+            (document_workflow_id, step_order, action, actor_user_id, comments)
+          VALUES
+            (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)`,
+        {
+          dwId: instanceId,
+          stepOrder: first.step_order,
+          actor: req.user.sub,
+          comments: "",
+        },
+      );
+      await query(
+        `UPDATE pur_general_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
+      );
+      const refRows = await query(
+        `SELECT requisition_no FROM pur_general_requisitions WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchId, branchIdsStr },
+      );
+      const grRef = refRows.length ? refRows[0].requisition_no : null;
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+           VALUES (:companyId, :userId, :title, :message, :link, 0)`,
+        {
+          companyId,
+          userId: assignedToUserId,
+          title: "Approval Required",
+          message: grRef
+            ? `General Requisition ${grRef} requires your approval`
+            : `General Requisition #${id} requires your approval`,
+          link: `/administration/workflows/approvals/${instanceId}`,
+        },
+      );
+      res.status(201).json({ instanceId, status: "PENDING_APPROVAL" });
     } catch (err) {
       next(err);
     }

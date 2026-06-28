@@ -1,8 +1,18 @@
+/**
+ * @fileoverview ServiceExecutionsList component.
+ * Provides functionality for ServiceExecutionsList.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import api from "../../../../api/client.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceExecutionsList() {
   const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
@@ -43,7 +53,7 @@ export default function ServiceExecutionsList() {
           <Link to="/service-management" className="btn-secondary">
             Back to Menu
           </Link>
-          <Link to="/service-management/service-execution" className="btn">
+          <Link to="/service-management/service-execution" className="btn-success">
             New Execution
           </Link>
         </div>
@@ -65,13 +75,14 @@ export default function ServiceExecutionsList() {
                   <tr>
                     <th>Execution No</th>
                     <th>Order No</th>
-                    <th>Type</th>
+                    <th>Customer</th>
                     <th>Supervisor</th>
                     <th>Date</th>
+                    <th>Work Status</th>
                     <th>Status</th>
                     <th>Actions</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
+                    <th>Created By</th>
+                    <th>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -79,28 +90,31 @@ export default function ServiceExecutionsList() {
                     <tr key={it.id}>
                       <td>{it.execution_no || ""}</td>
                       <td>{it.order_no || ""}</td>
-                      <td>{String(it.order_type || "")}</td>
+                      <td>{it.customer_name || ""}</td>
                       <td>
                         {it.assigned_supervisor_username ||
                           it.assigned_supervisor_user_id ||
                           ""}
                       </td>
                       <td>{it.execution_date || ""}</td>
+                      <td>{it.work_status || ""}</td>
                       <td>{it.status || ""}</td>
-                      <td>
+                      <td className="px-2 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <Link
-                            to={`/service-management/service-executions/${it.id}`}
+                            to={`/service-management/service-execution?id=${it.id}&mode=view`}
                             className={`btn-secondary btn-sm ${!canPerformAction("service-management:service-executions", "view") ? 'invisible pointer-events-none' : ''}`}
                           >
                             View
                           </Link>
-                          <Link
-                            to={`/service-management/service-execution?id=${it.id}&mode=edit`}
-                            className={`btn-primary btn-sm ${!canPerformAction("service-management:service-executions", "edit") ? 'invisible pointer-events-none' : ''}`}
-                          >
-                            Edit
-                          </Link>
+                          {it.status !== "POSTED" && it.status !== "APPROVED" && (
+                            <Link
+                              to={`/service-management/service-execution?id=${it.id}&mode=edit`}
+                              className={`btn-primary btn-sm ${!canPerformAction("service-management:service-executions", "edit") ? 'invisible pointer-events-none' : ''}`}
+                            >
+                              Edit
+                            </Link>
+                          )}
                         </div>
                       </td>
                       <td>{it.created_by_name || "-"}</td>
@@ -109,7 +123,7 @@ export default function ServiceExecutionsList() {
                   ))}
                   {!items.length && (
                     <tr>
-                      <td colSpan={7} className="text-center text-slate-500">
+                      <td colSpan={10} className="text-center text-slate-500">
                         No service executions found
                       </td>
                     </tr>

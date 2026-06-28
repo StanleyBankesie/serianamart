@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PurchaseOrdersImportForm component.
+ * Provides functionality for PurchaseOrdersImportForm.
+ */
+
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
@@ -13,6 +18,11 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseOrdersImportForm() {
   const { id } = useParams();
   const location = useLocation();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProjectReports component.
+ * Provides functionality for ProjectReports.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Activity, DollarSign, Clock, Briefcase, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
@@ -13,6 +18,11 @@ const StatCard = ({ icon, label, value, color }) => (
   </div>
 );
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProjectReports() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);

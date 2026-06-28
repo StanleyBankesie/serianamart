@@ -1,5 +1,17 @@
+/**
+ * @fileoverview A reusable timeline component to display history or chronological events.
+ */
+
 import React from "react";
 
+/**
+ * TimelineComponent component
+ * Renders a vertical list of timeline events with a title, description, and timestamp.
+ * 
+ * @param {Object} props
+ * @param {Array} props.items - The list of timeline events to display.
+ * @returns {JSX.Element} The rendered timeline component.
+ */
 export default function TimelineComponent({ items }) {
   return (
     <div className="space-y-3">

@@ -1,7 +1,17 @@
+/**
+ * @fileoverview CostCentersPage component.
+ * Provides functionality for CostCentersPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { api } from "../../../../api/client";
 import { Link } from "react-router-dom";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CostCentersPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

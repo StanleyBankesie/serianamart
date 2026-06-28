@@ -1,9 +1,19 @@
+/**
+ * @fileoverview AttendanceForm component.
+ * Provides functionality for AttendanceForm.
+ */
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { filterAndSort } from "../../../../utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AttendanceForm() {
   const navigate = useNavigate();
   const { id } = useParams();

@@ -1,9 +1,19 @@
+/**
+ * @fileoverview EmployeeList component.
+ * Provides functionality for EmployeeList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function EmployeeList() {
   const navigate = useNavigate();
   const { canPerformAction } = usePermission();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview FinanceRoutes component.
+ * Provides functionality for FinanceRoutes.
+ */
+
 import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
@@ -51,6 +56,11 @@ import FinanceDashboardPage from "./FinanceDashboardPage.jsx";
 import BankReconciliationsReportPage from "./banking/reports/BankReconciliationsReportPage.jsx";
 import BankReconciliationTransactionReportPage from "./banking/reports/BankReconciliationTransactionReportPage.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function FinanceRoutes() {
   return (
     <Routes>

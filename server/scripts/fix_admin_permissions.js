@@ -1,7 +1,9 @@
+// Database Configuration and Dependencies
 import * as dotenv from 'dotenv';
 dotenv.config({ path: './server/.env' });
 import { query } from "../db/pool.js";
 
+// Defined System Modules
 const MODULES = [
   "administration",
   "sales",
@@ -17,6 +19,7 @@ const MODULES = [
   "service-management"
 ];
 
+// Main execution function to fix RBAC settings for the super admin user
 async function run() {
   try {
     console.log("Starting RBAC Fix for User ID 1...");

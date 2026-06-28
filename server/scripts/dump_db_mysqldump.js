@@ -1,3 +1,10 @@
+/**
+ * @file dump_db_mysqldump.js
+ * @description Script to create a MySQL database dump using mysqldump.
+ * Loads environment variables and executes the dump process, saving the output
+ * to the `backups` directory.
+ */
+
 import mysqldump from "mysqldump";
 import dotenv from "dotenv";
 import fs from "fs";
@@ -19,6 +26,12 @@ if (isProd && fs.existsSync(prodEnv)) {
   dotenv.config({ path: localEnv, override: true });
 }
 
+/**
+ * Generates a formatted timestamp string for the backup filename.
+ * Format: YYYYMMDD_HHMMSS
+ * 
+ * @returns {string} The formatted timestamp string.
+ */
 function ts() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
@@ -31,6 +44,13 @@ function ts() {
   return `${y}${m}${day}_${hh}${mm}${ss}`;
 }
 
+/**
+ * Main execution function.
+ * Reads database credentials from environment variables and triggers
+ * the database dump process. Exits the process on failure.
+ * 
+ * @returns {Promise<void>} Resolves when the backup is complete.
+ */
 async function run() {
   const host = process.env.DB_HOST;
   const port = Number(process.env.DB_PORT || 3306);

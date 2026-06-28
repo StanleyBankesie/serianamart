@@ -1,8 +1,18 @@
+/**
+ * @fileoverview LeaveRequestForm component.
+ * Provides functionality for LeaveRequestForm.
+ */
+
 import React from "react";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveRequestForm() {
   const navigate = useNavigate();
   const [form, setForm] = React.useState({

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview EfficiencyReport component.
+ * Provides functionality for EfficiencyReport.
+ */
+
 import React, { useState, useEffect } from "react";
 import { 
   BarChart3, 
@@ -15,6 +20,11 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function EfficiencyReport() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);

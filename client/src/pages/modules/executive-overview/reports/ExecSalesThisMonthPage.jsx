@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ExecSalesThisMonthPage component.
+ * Provides functionality for ExecSalesThisMonthPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -6,6 +11,11 @@ import * as XLSX from "xlsx";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExecSalesThisMonthPage() {
   const [items, setItems] = useState([]);
   const [cards, setCards] = useState({});

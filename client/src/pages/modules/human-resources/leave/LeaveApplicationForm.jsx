@@ -1,8 +1,18 @@
+/**
+ * @fileoverview LeaveApplicationForm component.
+ * Provides functionality for LeaveApplicationForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveApplicationForm() {
   const navigate = useNavigate();
   const [types, setTypes] = useState([]);

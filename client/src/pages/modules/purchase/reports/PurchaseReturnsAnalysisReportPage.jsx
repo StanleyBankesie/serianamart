@@ -1,8 +1,18 @@
+/**
+ * @fileoverview PurchaseReturnsAnalysisReportPage component.
+ * Provides functionality for PurchaseReturnsAnalysisReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseReturnsAnalysisReportPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

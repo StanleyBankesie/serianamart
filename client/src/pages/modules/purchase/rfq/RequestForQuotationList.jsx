@@ -1,3 +1,8 @@
+/**
+ * @fileoverview RequestForQuotationList component.
+ * Provides functionality for RequestForQuotationList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -5,6 +10,11 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RequestForQuotationList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");

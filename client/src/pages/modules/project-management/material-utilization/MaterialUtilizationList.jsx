@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaterialUtilizationList component.
+ * Provides functionality for MaterialUtilizationList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
@@ -7,7 +12,12 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
-export default function PMMaterialUtilizationList() {
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
+export default function MaterialUtilizationList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProductionSetup component.
+ * Provides functionality for ProductionSetup.
+ */
+
 import React from "react";
 import { 
   Settings2, 
@@ -11,6 +16,11 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProductionSetup() {
   const settings = [
     {

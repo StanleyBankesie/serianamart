@@ -1,3 +1,8 @@
+/**
+ * @fileoverview QuotationList component.
+ * Provides functionality for QuotationList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -15,6 +20,11 @@ import {
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { X } from "lucide-react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function QuotationList() {
   const navigate = useNavigate();
   const { canPerformAction, exceptionalPerms } = usePermission();

@@ -1,5 +1,15 @@
+/**
+ * @fileoverview SalesReports component.
+ * Provides functionality for SalesReports.
+ */
+
 import React from 'react';
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalesReports() {
   const reports = [
     { title: 'Sales by Customer', description: 'Sales totals grouped by customer (placeholder)' },

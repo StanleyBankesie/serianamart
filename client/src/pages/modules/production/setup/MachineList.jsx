@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MachineList component.
+ * Provides functionality for MachineList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { 
   Plus, 
@@ -12,6 +17,11 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MachineList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

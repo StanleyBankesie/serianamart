@@ -1,3 +1,8 @@
+/**
+ * @fileoverview AccountGroupsPage component.
+ * Provides functionality for AccountGroupsPage.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -5,6 +10,11 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AccountGroupsPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

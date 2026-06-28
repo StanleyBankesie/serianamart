@@ -1,3 +1,8 @@
+/**
+ * @fileoverview CashCollectionDetails component.
+ * Provides functionality for CashCollectionDetails.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import jsPDF from "jspdf";
@@ -40,6 +45,11 @@ function isCredit(it) {
   return String(it.payment_method || "").toUpperCase() === "CREDIT";
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function CashCollectionDetails() {
   const { canPerformAction } = usePermission();
   const [loading, setLoading] = useState(false);

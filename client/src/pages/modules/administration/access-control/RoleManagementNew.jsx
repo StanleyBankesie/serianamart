@@ -1,3 +1,8 @@
+/**
+ * @fileoverview RoleManagementNew component.
+ * Provides functionality for RoleManagementNew.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -10,7 +15,12 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
-export default function RoleManagement() {
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
+export default function RoleManagementNew() {
   const [roles, setRoles] = useState([]);
   const {
     sorted: rolesSorted,

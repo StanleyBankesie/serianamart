@@ -2397,9 +2397,7 @@ export default function PosSalesEntry() {
                         <tr className="bg-slate-50 text-slate-700">
                           <th className="px-3 py-2 text-left">Item Code</th>
                           <th className="px-3 py-2 text-left">Item Name</th>
-                          <th className="px-3 py-2 text-right">
-                            Available Qty
-                          </th>
+                          
                           <th className="px-3 py-2 text-right">Price</th>
                           <th className="px-3 py-2 text-right">QTY</th>
                           <th className="px-3 py-2 text-right">Discount</th>
@@ -2422,9 +2420,7 @@ export default function PosSalesEntry() {
                             <tr key={it.id}>
                               <td className="px-3 py-2">{it.code}</td>
                               <td className="px-3 py-2">{it.name}</td>
-                              <td className="px-3 py-2 text-right">
-                                {Number(it.availQty || 0)}
-                              </td>
+                              
                               <td className="px-3 py-2 text-right">
                                 {`GH₵ ${unitPrice.toFixed(2)}`}
                               </td>

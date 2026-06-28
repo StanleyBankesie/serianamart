@@ -1,9 +1,20 @@
+/**
+ * @fileoverview PostCreator component.
+ * Provides a form to create new posts in the social feed.
+ */
+
 import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import "./PostCreator.css";
 import { toast } from "react-toastify";
 import api from "../../api/client";
 
+/**
+ * PostCreator component
+ * @param {Object} props
+ * @param {Function} props.onPostCreated - Callback when a post is successfully created.
+ * @returns {JSX.Element}
+ */
 export default function PostCreator({ onPostCreated }) {
   const { user } = useAuth();
   const [content, setContent] = useState("");
@@ -38,6 +49,10 @@ export default function PostCreator({ onPostCreated }) {
     fetchUserProfile();
   }, [user?.id, user?.sub]);
 
+  /**
+   * Handles image file selection.
+   * @param {Event} e - The input change event.
+   */
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -105,6 +120,10 @@ export default function PostCreator({ onPostCreated }) {
     };
   }, [previewUrl]);
 
+  /**
+   * Handles submitting the new post.
+   * @param {Event} e - The form submit event.
+   */
   const handleSubmit = async (e) => {
     e.preventDefault();
 

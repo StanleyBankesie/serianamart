@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SubmitAppraisals component.
+ * Provides functionality for SubmitAppraisals.
+ */
+
 import React, { useEffect, useState, useCallback } from "react";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
@@ -568,6 +573,11 @@ function BulkConfirmModal({ count, action, onConfirm, onCancel, loading }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SubmitAppraisals() {
   const [appraisals, setAppraisals] = useState([]);
   const [loading, setLoading] = useState(true);

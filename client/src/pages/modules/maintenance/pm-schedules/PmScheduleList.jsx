@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PmScheduleList component.
+ * Provides functionality for PmScheduleList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { 
   Link, useNavigate 
@@ -22,6 +27,11 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PmScheduleList() {
   const { canPerformAction } = usePermission();
   const navigate = useNavigate();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview EquipmentList component.
+ * Provides functionality for EquipmentList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -8,6 +13,11 @@ import DocumentAttachmentsModal from "../../../../components/attachments/Documen
 
 const statusColors = { ACTIVE:"bg-green-100 text-green-700", INACTIVE:"bg-slate-100 text-slate-600", DECOMMISSIONED:"bg-red-100 text-red-600" };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function EquipmentList() {
   const navigate = useNavigate();
   const location = useLocation();

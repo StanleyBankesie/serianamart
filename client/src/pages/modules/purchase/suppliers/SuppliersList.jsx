@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SuppliersList component.
+ * Provides functionality for SuppliersList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
@@ -7,6 +12,11 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SuppliersList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [suppliers, setSuppliers] = useState([]);

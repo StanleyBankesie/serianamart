@@ -1,15 +1,28 @@
+/**
+ * @file socket.js
+ * @description Configures and manages Socket.IO for real-time bidirectional event-based communication.
+ */
 import { Server } from "socket.io";
 import { query } from "../db/pool.js";
 import { verifyAccessToken } from "../services/token.service.js";
 
+// Maintain a global singleton instance of the Socket server
 let ioInstance = null;
+// Track active online users in memory for quick presence checking
 const onlineUsers = new Set();
 
 /**
  * Initialize Socket.io server
  * Handles real-time communication for social feed
  */
+/**
+ * Initializes the Socket.IO server and binds it to the provided HTTP server.
+ *
+ * @param {import('http').Server} server - The Node.js HTTP server instance.
+ * @returns {import('socket.io').Server} The initialized Socket.IO server.
+ */
 export const initializeSocket = (server) => {
+  // Boot and configure Socket.IO on top of the HTTP server
   ioInstance = new Server(server, {
     cors: {
       origin: function (origin, callback) {
@@ -25,6 +38,7 @@ export const initializeSocket = (server) => {
   });
 
   ioInstance.use(async (socket, next) => {
+    // Intercept socket connections to enforce JWT authentication
     try {
       const token = socket.handshake.auth?.token;
       if (!token) {
@@ -34,12 +48,17 @@ export const initializeSocket = (server) => {
       socket.user = payload;
       next();
     } catch (error) {
-      console.error("Socket.io auth error:", error);
+      if (error.name === "TokenExpiredError") {
+        console.error("Socket.io auth error: TokenExpiredError: jwt expired");
+      } else {
+        console.error("Socket.io auth error:", error);
+      }
       next(new Error("Authentication error"));
     }
   });
 
   ioInstance.on("connection", (socket) => {
+    // Handle newly authenticated user connections
     const userId = socket.user?.sub || socket.user?.id || socket.handshake.query.userId;
     const warehouseId = socket.handshake.query.warehouseId;
 
@@ -66,6 +85,7 @@ export const initializeSocket = (server) => {
     }
 
     // Join personal room
+    // Automatically subscribe user to personal, warehouse, and company channels
     socket.join(`user_${userId}`);
 
     // Join warehouse room if warehouse user
@@ -92,6 +112,7 @@ export const initializeSocket = (server) => {
     });
 
     // Event: Disconnect
+    // Clean up socket state and emit offline presence upon disconnect
     socket.on("disconnect", (reason) => {
       console.log(`❌ User ${userId} disconnected - Reason: ${reason}`);
       if (userId) {
@@ -118,6 +139,7 @@ export const initializeSocket = (server) => {
     });
 
     // ---------------- New Chat (WhatsApp-like) ----------------
+    // Handle joining and leaving chat conversation channels
     socket.on("join_conversation", (conversationId) => {
       try {
         const cid = Number(conversationId);
@@ -153,6 +175,7 @@ export const initializeSocket = (server) => {
       } catch {}
     });
     socket.on("send_message", async ({ conversation_id, content }) => {
+      // Ingest incoming chat messages and broadcast to channel participants
       try {
         const cid = Number(conversation_id);
         if (!Number.isFinite(cid) || !String(content || "").trim()) return;
@@ -175,6 +198,7 @@ export const initializeSocket = (server) => {
       } catch {}
     });
     socket.on("mark_delivered", async ({ message_id }) => {
+      // Process delivery receipts for chat messages
       try {
         const id = Number(message_id);
         if (!Number.isFinite(id)) return;
@@ -186,6 +210,7 @@ export const initializeSocket = (server) => {
       } catch {}
     });
     socket.on("mark_read", async ({ conversation_id }) => {
+      // Update read receipts to indicate a user has seen the latest messages
       try {
         const cid = Number(conversation_id);
         if (!Number.isFinite(cid)) return;
@@ -224,7 +249,14 @@ export const initializeSocket = (server) => {
 /**
  * Get Socket.io instance for emitting events
  */
+/**
+ * Retrieves the active Socket.IO server instance.
+ * Throws an error if socket.io has not been initialized.
+ *
+ * @returns {import('socket.io').Server}
+ */
 export const getIO = () => {
+  // Provide access to the initialized socket instance for external modules
   if (!ioInstance) {
     throw new Error("Socket.io not initialized");
   }
@@ -232,10 +264,12 @@ export const getIO = () => {
 };
 
 export const isUserOnline = (userId) => {
+  // Check real-time presence of a specific user
   return onlineUsers.has(String(userId));
 };
 
 export const getOnlineUserIds = () => {
+  // Return an array of all currently active socket users
   return Array.from(onlineUsers);
 };
 

@@ -1,3 +1,7 @@
+/**
+ * @fileoverview A reusable badge component to display approval/workflow statuses.
+ */
+
 import React from "react";
 
 const map = {
@@ -7,6 +11,14 @@ const map = {
   REJECTED: "bg-red-100 text-red-700",
 };
 
+/**
+ * StatusBadge component
+ * Normalizes the status string and applies predefined color classes.
+ * 
+ * @param {Object} props
+ * @param {string} props.value - The status string (e.g., 'APPROVED', 'REJECTED').
+ * @returns {JSX.Element} A styled span indicating the status.
+ */
 export default function StatusBadge({ value }) {
   const v = String(value || "").toUpperCase();
   const cls = map[v] || "bg-slate-100 text-slate-700";

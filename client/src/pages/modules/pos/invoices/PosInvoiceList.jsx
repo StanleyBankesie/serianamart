@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PosInvoiceList component.
+ * Provides functionality for PosInvoiceList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import jsPDF from "jspdf";
@@ -59,6 +64,11 @@ async function waitForImages(container) {
   ]);
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosInvoiceList() {
   const { user } = useAuth();
   const { canPerformAction } = usePermission();
@@ -552,6 +562,7 @@ export default function PosInvoiceList() {
           sale?.sale_no || "-"
         }</span></div>
         <div class="row"><span>Date:</span><span>${dateStr}</span></div>
+        <div class="row"><span>Cashier:</span><span>${sale?.created_by_name || "Cashier"}</span></div>
         <div class="row"><span>Payment:</span><span>${method}</span></div>
         <table>
           <thead>

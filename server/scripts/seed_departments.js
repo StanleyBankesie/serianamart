@@ -1,5 +1,18 @@
+/**
+ * @file seed_departments.js
+ * @description Script to seed initial departmental structures.
+ * Upserts default departments (Finance, Operations, Sales) into
+ * the `adm_departments` table for the primary company and branch.
+ */
+
 import { pool } from '../db/pool.js';
 
+/**
+ * Main execution function.
+ * Connects to the database and populates basic department records.
+ * 
+ * @returns {Promise<void>} Resolves when seeding completes successfully.
+ */
 async function run() {
   const conn = await pool.getConnection();
   try {

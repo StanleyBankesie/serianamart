@@ -1,3 +1,8 @@
+/**
+ * @fileoverview DiagnosticsPage component.
+ * Provides functionality for DiagnosticsPage.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -19,6 +24,11 @@ function statusDetail(err) {
   return "no response";
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DiagnosticsPage() {
   const [running, setRunning] = React.useState(false);
   const [ranAt, setRanAt] = React.useState(null);

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview React hook for managing client-side sorting of arrays.
+ * Provides sort state (key, direction) and sorting functions for data tables.
+ */
+
 import { useState, useMemo, useCallback } from "react";
 
 function compareValues(a, b) {
@@ -27,6 +32,15 @@ function compareValues(a, b) {
   return 0;
 }
 
+/**
+ * useSort hook
+ * Manages sort configuration and applies sorting logic to a dataset.
+ * 
+ * @param {Array} data - The array of objects to sort.
+ * @param {string} defaultKey - The default property key to sort by.
+ * @param {string} defaultDir - The default sort direction ('asc' or 'desc').
+ * @returns {Object} An object containing the sorted data, current sortKey, sortDir, and a toggle function.
+ */
 export default function useSort(data, defaultKey = "", defaultDir = "asc") {
   const [sortKey, setSortKey] = useState(defaultKey);
   const [sortDir, setSortDir] = useState(defaultDir);

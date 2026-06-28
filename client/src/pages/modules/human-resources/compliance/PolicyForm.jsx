@@ -1,9 +1,19 @@
+/**
+ * @fileoverview PolicyForm component.
+ * Provides functionality for PolicyForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PolicyForm() {
   const navigate = useNavigate();
   const { id } = useParams();

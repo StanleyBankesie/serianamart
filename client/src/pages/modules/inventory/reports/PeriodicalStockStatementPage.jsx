@@ -100,7 +100,7 @@ export default function PeriodicalStockStatementPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
+          <div className="flex flex-wrap gap-4 items-end mb-6">
             <div>
               <label className="label">From</label>
               <input
@@ -167,7 +167,7 @@ export default function PeriodicalStockStatementPage() {
                 ))}
               </datalist>
             </div>
-            <div className="md:col-span-1 flex items-end gap-2 justify-end">
+            <div className="flex items-end gap-3 sm:ml-auto flex-wrap">
               <button
                 type="button"
                 className="btn-secondary"

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview BomList component.
+ * Provides functionality for BomList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { 
@@ -17,6 +22,11 @@ import { toast } from "react-toastify";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BomList() {
   const [boms, setBoms] = useState([]);
   const [loading, setLoading] = useState(true);

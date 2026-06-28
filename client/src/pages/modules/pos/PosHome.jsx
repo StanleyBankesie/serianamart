@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PosHome module routing and dashboard landing page.
+ * Handles POS analytics overview, offline sync status, and routing for POS operations.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, Route, Routes } from "react-router-dom";
 
@@ -20,6 +25,12 @@ import { preloadPosData } from "../../../offline/posPreloader.js";
 import PosReconciliation from "./PosReconciliation.jsx";
 import PosOnHold from "./PosOnHold.jsx";
 
+/**
+ * PosLanding component
+ * Displays the main Point of Sale dashboard, including daily statistics and module navigation.
+ * 
+ * @returns {JSX.Element} The POS module landing view.
+ */
 function PosLanding() {
   const [overview, setOverview] = useState(null);
   const [now, setNow] = useState(new Date());
@@ -193,6 +204,12 @@ function PosLanding() {
   );
 }
 
+/**
+ * PosSyncStatus component
+ * Displays an offline/online indicator and the number of pending/failed POS transactions in the sync queue.
+ * 
+ * @returns {JSX.Element|null} The status banner or null if online with no pending queue.
+ */
 function PosSyncStatus() {
   const { pending, failed, items } = useOfflineQueue();
   const [online, setOnline] = useState(navigator.onLine);
@@ -225,6 +242,13 @@ function PosSyncStatus() {
   );
 }
 
+/**
+ * PosHome component
+ * Root router for the Point of Sale module. Maps URL paths to specific POS components.
+ * Also preloads POS data on mount for offline support.
+ * 
+ * @returns {JSX.Element} The nested routes for the POS module.
+ */
 export default function PosHome() {
   useEffect(() => { preloadPosData(); }, []);
   return (

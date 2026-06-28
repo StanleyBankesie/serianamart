@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ExpenseList component.
+ * Provides functionality for ExpenseList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Plus, Loader2, DollarSign } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -6,6 +11,11 @@ import { toast } from "react-toastify";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExpenseList() {
   const [items, setItems] = useState([]);
   const [projects, setProjects] = useState([]);

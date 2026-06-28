@@ -1,8 +1,18 @@
+/**
+ * @fileoverview PdcPostingForm component.
+ * Provides functionality for PdcPostingForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PdcPostingForm() {
   const { id } = useParams();
   const [loading, setLoading] = useState(true);

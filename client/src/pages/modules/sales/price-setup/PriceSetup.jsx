@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PriceSetup component.
+ * Provides functionality for PriceSetup.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
@@ -5,6 +10,11 @@ import { api } from "../../../../api/client";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 import "./PriceSetup.css";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PriceSetup() {
   const [activeTab, setActiveTab] = useState("standard");
   const [sellingView, setSellingView] = useState("picker");

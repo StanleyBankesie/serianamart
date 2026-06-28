@@ -1,7 +1,23 @@
+/**
+ * @fileoverview DocumentAttachmentsModal component.
+ * Modal for viewing, adding, and removing attachments for documents.
+ */
+
 import React, { useEffect, useState, useRef } from "react";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 
+/**
+ * DocumentAttachmentsModal component
+ * @param {Object} props
+ * @param {boolean} props.open - Whether the modal is open.
+ * @param {Function} props.onClose - Callback to close the modal.
+ * @param {string} props.docType - The document type.
+ * @param {number|string} props.docId - The document ID.
+ * @param {boolean} [props.allowPreview=true] - Whether to allow file previews.
+ * @param {boolean} [props.readOnly=false] - Whether the modal is in read-only mode.
+ * @returns {JSX.Element|null}
+ */
 export default function DocumentAttachmentsModal({
   open,
   onClose,
@@ -17,6 +33,11 @@ export default function DocumentAttachmentsModal({
   const fileRef = useRef(null);
   const [pendingList, setPendingList] = useState([]); // [{file, preview, meta}]
   const apiOriginRef = useRef("");
+  /**
+   * Builds the full URL for an attachment.
+   * @param {string} s - The relative or absolute path.
+   * @returns {string} The formatted URL.
+   */
   const buildHref = (s) => {
     const file = String(s || "");
     if (/^https?:\/\//i.test(file)) return file;
@@ -34,6 +55,11 @@ export default function DocumentAttachmentsModal({
     // Fallback to API-prefixed path so dev proxy forwards to backend
     return `/api${uploadsPath}`;
   };
+  /**
+   * Formats a byte size into a human-readable string.
+   * @param {number} b - Size in bytes.
+   * @returns {string} Formatted string.
+   */
   const formatBytes = (b) => {
     const n = Number(b);
     if (!Number.isFinite(n) || n < 0) return "";
@@ -84,6 +110,10 @@ export default function DocumentAttachmentsModal({
     };
   }, [open, docType, docId]);
 
+  /**
+   * Handles file selection from the input.
+   * @param {Event} e - The change event.
+   */
   function onPickFile(e) {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -112,6 +142,9 @@ export default function DocumentAttachmentsModal({
     setError("");
   }
 
+  /**
+   * Saves all pending attachments to the server.
+   */
   async function onSaveAttachment() {
     if (!pendingList.length) {
       setError("Please choose at least one file");
@@ -167,6 +200,10 @@ export default function DocumentAttachmentsModal({
     }
   }
 
+  /**
+   * Removes an attachment by ID.
+   * @param {number|string} id - The attachment ID.
+   */
   async function onRemove(id) {
     try {
       await api.delete(`/documents/${docType}/${docId}/attachments/${id}`);

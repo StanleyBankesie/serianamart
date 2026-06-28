@@ -1,3 +1,8 @@
+/**
+ * @fileoverview WorkSchedule component.
+ * Provides functionality for WorkSchedule.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -6,6 +11,11 @@ import { toast } from "react-toastify";
 const DAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const DAY_KEYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function WorkSchedule() {
   const [employees, setEmployees] = useState([]);
   const [shifts, setShifts] = useState([]);

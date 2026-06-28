@@ -1,8 +1,18 @@
+/**
+ * @fileoverview BankReconciliationForm component.
+ * Provides functionality for BankReconciliationForm.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BankReconciliationForm() {
   const { id } = useParams();
   const navigate = useNavigate();

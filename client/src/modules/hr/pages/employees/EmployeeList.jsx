@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Employee listing page component.
+ * Displays a data table of employees with search and creation capabilities.
+ */
+
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -7,6 +12,12 @@ import FormModal from "../../../hr/components/FormModal.jsx";
 import StatusBadge from "../../../hr/components/StatusBadge.jsx";
 import { hrService } from "../../../hr/services/hrService.js";
 
+/**
+ * EmployeeList component
+ * Manages fetching, rendering, and adding new employees within the HR module.
+ * 
+ * @returns {JSX.Element} The employee list page.
+ */
 export default function EmployeeList() {
   const navigate = useNavigate();
   const [rows, setRows] = React.useState([]);

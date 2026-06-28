@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SalaryPostingPage component.
+ * Provides functionality for SalaryPostingPage.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -10,6 +15,11 @@ const fmt = (n) =>
     maximumFractionDigits: 2,
   });
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalaryPostingPage() {
   const navigate = useNavigate();
   const [periods, setPeriods] = useState([]);

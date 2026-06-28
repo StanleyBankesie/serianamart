@@ -1,9 +1,19 @@
+/**
+ * @fileoverview Form component for creating or editing a warehouse.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "api/client";
 import { useAuth } from "../../../auth/AuthContext.jsx";
 
+/**
+ * WarehouseForm component
+ * Manages the data entry and submission for warehouse records.
+ * 
+ * @returns {JSX.Element} The warehouse form view.
+ */
 export default function WarehouseForm() {
   const { id } = useParams();
   const navigate = useNavigate();

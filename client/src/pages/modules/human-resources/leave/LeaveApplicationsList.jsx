@@ -1,8 +1,18 @@
+/**
+ * @fileoverview LeaveApplicationsList component.
+ * Provides functionality for LeaveApplicationsList.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveApplicationsList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

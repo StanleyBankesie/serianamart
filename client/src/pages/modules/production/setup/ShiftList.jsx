@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ShiftList component.
+ * Provides functionality for ShiftList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { 
   Plus, 
@@ -12,6 +17,11 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ShiftList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

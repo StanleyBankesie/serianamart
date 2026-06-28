@@ -1,3 +1,8 @@
+/**
+ * @fileoverview RequestForQuotationForm component.
+ * Provides functionality for RequestForQuotationForm.
+ */
+
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
@@ -7,6 +12,11 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RequestForQuotationForm() {
   const { id } = useParams();
   const navigate = useNavigate();

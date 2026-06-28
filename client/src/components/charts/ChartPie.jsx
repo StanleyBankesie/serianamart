@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ChartPie component.
+ * Renders a pie or doughnut chart using Chart.js.
+ */
+
 import React, { useEffect, useRef } from "react";
 import { loadChartJs } from "@/lib/loadChartJs.js";
 
@@ -7,6 +12,15 @@ const PALETTE = [
   "#fb7185", "#f97316",
 ];
 
+/**
+ * ChartPie component
+ * @param {Object} props
+ * @param {Array} props.data - Array of data objects {label, value}.
+ * @param {boolean} [props.donut=false] - Whether to render as a doughnut chart.
+ * @param {Array} [props.colors=[]] - Array of color strings for the chart slices.
+ * @param {number} [props.height=320] - Height of the chart container.
+ * @returns {JSX.Element}
+ */
 export default function ChartPie({ data, donut = false, colors = [], height = 320 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);

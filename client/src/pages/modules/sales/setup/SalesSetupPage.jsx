@@ -1,9 +1,20 @@
+/**
+ * @fileoverview Setup and configuration page for the Sales module.
+ * Provides tabbed management for sales zones, return reasons, and price types.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 
+/**
+ * SalesSetupPage component
+ * Loads list data based on the active tab and provides basic CRUD capabilities via a unified form.
+ * 
+ * @returns {JSX.Element} The sales setup interface.
+ */
 export default function SalesSetupPage() {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);

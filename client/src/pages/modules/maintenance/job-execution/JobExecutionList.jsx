@@ -1,3 +1,8 @@
+/**
+ * @fileoverview JobExecutionList component.
+ * Provides functionality for JobExecutionList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, Search, ChevronRight, Plus, Eye } from "lucide-react";
@@ -12,6 +17,11 @@ function Badge({ value, colorMap }) {
   return <span className={`inline-block px-2 py-0.5 text-xs rounded font-medium ${colorMap[v] || "bg-slate-100 text-slate-600"}`}>{v}</span>;
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function JobExecutionList() {
   const navigate = useNavigate();
   const location = useLocation();

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceMaterialRequisitionList component.
+ * Provides functionality for MaintenanceMaterialRequisitionList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -8,6 +13,11 @@ import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceMaterialRequisitionList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);

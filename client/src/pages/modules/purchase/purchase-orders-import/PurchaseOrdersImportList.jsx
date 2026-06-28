@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PurchaseOrdersImportList component.
+ * Provides functionality for PurchaseOrdersImportList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
@@ -17,6 +22,11 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseOrdersImportList() {
   const location = useLocation();
   const navigate = useNavigate();

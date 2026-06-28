@@ -1,3 +1,8 @@
+/**
+ * @fileoverview DowntimeLogForm component.
+ * Provides functionality for DowntimeLogForm.
+ */
+
 import React, { useState, useEffect } from "react";
 import { 
   ArrowLeft, 
@@ -15,6 +20,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DowntimeLogForm() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);

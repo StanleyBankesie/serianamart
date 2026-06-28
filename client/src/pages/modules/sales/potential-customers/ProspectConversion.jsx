@@ -1,9 +1,19 @@
+/**
+ * @fileoverview ProspectConversion component.
+ * Provides functionality for ProspectConversion.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProspectConversion() {
   const navigate = useNavigate();
   const dispatch = useDispatch();

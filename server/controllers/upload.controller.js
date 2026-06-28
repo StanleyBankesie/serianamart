@@ -1,9 +1,18 @@
+/**
+ * @file upload.controller.js
+ * @description Controller for file uploads, primarily handling Cloudinary integration and local fallback.
+ */
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { query } from "../db/pool.js";
 
+/**
+ * Ensures the local uploads directory exists, creating it if necessary.
+ * 
+ * @returns {string} The absolute path to the uploads directory.
+ */
 export const ensureUploadDir = () => {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -14,6 +23,14 @@ export const ensureUploadDir = () => {
   return uploadDir;
 };
 
+/**
+ * Retrieves a system setting value from the database, falling back through branch/company hierarchy.
+ *
+ * @param {string} key - The setting key to look up.
+ * @param {number|null} companyId - Optional company ID.
+ * @param {number|null} branchId - Optional branch ID.
+ * @returns {Promise<string|null>} The setting value or null.
+ */
 async function getSystemSetting(key, companyId = null, branchId = null) {
   try {
     await query(`
@@ -51,6 +68,12 @@ async function getSystemSetting(key, companyId = null, branchId = null) {
   return rows?.[0]?.setting_value || null;
 }
 
+/**
+ * Fetches Cloudinary configuration settings from the system database.
+ *
+ * @param {object} scope - The request scope containing companyId and branchId.
+ * @returns {Promise<object|null>} Cloudinary config object or null if incomplete.
+ */
 async function getCloudinaryConfig(scope) {
   const companyId = scope?.companyId ?? null;
   const branchId = scope?.branchId ?? null;
@@ -78,6 +101,13 @@ async function getCloudinaryConfig(scope) {
   return null;
 }
 
+/**
+ * Handles file uploads, preferring Cloudinary if configured, otherwise falls back or fails.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export const uploadFile = async (req, res, next) => {
   try {
     if (!req.file) {

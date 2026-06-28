@@ -1,5 +1,21 @@
+/**
+ * @file seed_fin_coa_sample.js
+ * @description Script to seed a sample Chart of Accounts (COA) for the finance module.
+ * Populates account groups (Assets, Liabilities, Equity, Income, Expenses), 
+ * standard general ledger (GL) accounts, and maps sample bank accounts to them.
+ */
+
 import { pool } from "../db/pool.js";
 
+/**
+ * Main execution function to seed the Chart of Accounts.
+ * Iterates through all existing companies, discovers the base currency,
+ * inserts hierarchical account groups, inserts specific GL accounts,
+ * and sets up sample branch-level bank accounts. Uses a transaction
+ * to ensure atomic operation.
+ * 
+ * @returns {Promise<void>} Resolves when the COA is fully seeded.
+ */
 async function seedCoa() {
   const connection = await pool.getConnection();
   try {

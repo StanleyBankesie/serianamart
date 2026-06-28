@@ -1,7 +1,18 @@
+/**
+ * @fileoverview HR Module Menu Page.
+ * Displays navigation links for all sub-modules within the Human Resources system.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import PageHeader from "../../hr/components/PageHeader.jsx";
 
+/**
+ * HRMenu component
+ * Renders a categorized dashboard of HR features (Recruitment, Attendance, Payroll, etc.).
+ * 
+ * @returns {JSX.Element} The HR module menu page.
+ */
 export default function HRMenu() {
   const sections = [
     {

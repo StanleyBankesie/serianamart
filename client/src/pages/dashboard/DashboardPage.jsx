@@ -1,7 +1,17 @@
+/**
+ * @fileoverview DashboardPage component (internal module dashboard).
+ * Displays a basic welcome message and instructions for the module dashboard shell.
+ */
+
 import React from "react";
 
 import { useAuth } from "../../auth/AuthContext.jsx";
 
+/**
+ * DashboardPage component
+ * 
+ * @returns {JSX.Element} A simplified welcome UI for the dashboard.
+ */
 export default function DashboardPage() {
   const { user } = useAuth();
 

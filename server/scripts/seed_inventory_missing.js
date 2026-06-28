@@ -1,5 +1,21 @@
+/**
+ * @file seed_inventory_missing.js
+ * @description Script to initialize and seed foundational inventory configuration tables.
+ * Creates missing tables (inv_item_groups, inv_item_categories, inv_item_types)
+ * if they do not exist, ensures the `item_type` column is present in `inv_items`,
+ * and seeds default data across all companies.
+ */
+
 import { pool } from "../db/pool.js";
 
+/**
+ * Main execution function to seed missing inventory tables and data.
+ * Executes table creations and schema modifications sequentially,
+ * followed by data insertion loops for default groups, categories,
+ * item types, and units of measure (UOMs). Uses a transaction.
+ * 
+ * @returns {Promise<void>} Resolves when schema updates and seeding are complete.
+ */
 async function seedInventoryMissing() {
   const connection = await pool.getConnection();
   try {

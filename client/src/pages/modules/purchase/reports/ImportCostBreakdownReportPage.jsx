@@ -1,9 +1,19 @@
+/**
+ * @fileoverview ImportCostBreakdownReportPage component.
+ * Provides functionality for ImportCostBreakdownReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ImportCostBreakdownReportPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

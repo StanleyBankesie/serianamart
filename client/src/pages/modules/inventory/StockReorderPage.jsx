@@ -1,3 +1,8 @@
+/**
+ * @fileoverview StockReorderPage component.
+ * Provides functionality for StockReorderPage.
+ */
+
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../api/client";
@@ -19,6 +24,11 @@ import {
   Upload,
 } from "lucide-react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function StockReorderPage() {
   const [reorderPoints, setReorderPoints] = useState([]);
   const [items, setItems] = useState([]);

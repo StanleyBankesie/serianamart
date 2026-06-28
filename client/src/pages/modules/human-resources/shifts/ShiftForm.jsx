@@ -1,9 +1,19 @@
+/**
+ * @fileoverview ShiftForm component.
+ * Provides functionality for ShiftForm.
+ */
+
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ShiftForm() {
   const navigate = useNavigate();
   const { id } = useParams();

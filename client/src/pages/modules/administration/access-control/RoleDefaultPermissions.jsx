@@ -1,7 +1,17 @@
+/**
+ * @fileoverview RoleDefaultPermissions component.
+ * Provides functionality for RoleDefaultPermissions.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function RoleDefaultPermissions() {
   const [roles, setRoles] = useState([]);
   const [modules, setModules] = useState([]);

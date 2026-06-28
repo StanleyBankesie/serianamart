@@ -1,8 +1,17 @@
+/**
+ * @fileoverview SocialFeedNotification component.
+ * Displays real-time notifications for new posts and comments.
+ */
+
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSocket } from "../../hooks/useSocket";
 import "./SocialFeedNotification.css";
 
+/**
+ * SocialFeedNotification component
+ * @returns {JSX.Element}
+ */
 export default function SocialFeedNotification() {
   const [unreadItems, setUnreadItems] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -61,10 +70,17 @@ export default function SocialFeedNotification() {
     };
   }, [socket]);
 
+  /**
+   * Handles clicking on the notification badge.
+   */
   const handleBadgeClick = () => {
     setShowModal(true);
   };
 
+  /**
+   * Handles clicking on a specific notification item.
+   * @param {Object} item - The clicked notification item.
+   */
   const handleItemClick = (item) => {
     setShowModal(false);
     setUnreadItems((prev) => prev.filter((i) => i.postId !== item.postId));

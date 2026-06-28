@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ServiceOrdersList component.
+ * Provides functionality for ServiceOrdersList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -6,6 +11,11 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import { toast } from "react-toastify";
 import { ListAttachmentIconButton } from "@/components/list/ListDocActionIconButtons.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceOrdersList() {
   const location = useLocation();
   const { canPerformAction } = usePermission();
@@ -93,7 +103,8 @@ export default function ServiceOrdersList() {
                 <tr>
                   <th>Order No</th>
                   <th>Date</th>
-                  <th>Customer</th>
+                  <th>Order Type</th>
+                    <th>Customer/Contractor</th>
                   <th>Service</th>
                   <th>Status</th>
                   <th>Total</th>
@@ -105,7 +116,7 @@ export default function ServiceOrdersList() {
               <tbody>
                 {!loading && filtered.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="text-center text-slate-500">
+                    <td colSpan="10" className="text-center text-slate-500">
                       No service orders
                     </td>
                   </tr>
@@ -114,7 +125,8 @@ export default function ServiceOrdersList() {
                   <tr key={it.id}>
                     <td>{it.order_no}</td>
                     <td>{it.order_date}</td>
-                    <td>{it.customer_name}</td>
+                    <td>{it.order_type}</td>
+                      <td>{it.customer_name}</td>
                     <td>{it.service_type}</td>
                     <td>{it.status}</td>
                     <td className="text-right">
@@ -156,7 +168,7 @@ export default function ServiceOrdersList() {
                         </div>
                       </div>
                     </td>
-                    <td>{it.created_by_username || it.created_by_name || "-"}</td>
+                    <td>{it.created_by_username || it.created_by_name || it.requestor_name || "-"}</td>
                     <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}

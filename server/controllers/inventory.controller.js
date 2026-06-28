@@ -1,4 +1,9 @@
-﻿import { query } from "../db/pool.js";
+/**
+ * @file inventory.controller.js
+ * @description Manages inventory items, stock balances, warehouses, and related configurations.
+ * Handles item creation, updates, and bulk stock adjustments.
+ */
+import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 
 async function hasColumn(tableName, columnName) {
@@ -272,6 +277,13 @@ async function resolveOrCreateGroupId(companyId, raw) {
   }
 }
 
+/**
+ * Retrieves a list of all inventory items for a company, including their current stock balances and categorization.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const listItems = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
@@ -336,6 +348,13 @@ export const listItems = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves a list of active warehouses associated with the current company and allowed branch contexts.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const listWarehouses = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -356,6 +375,14 @@ export const listWarehouses = async (req, res, next) => {
   }
 };
 
+/**
+ * Updates stock balances for multiple items simultaneously in a specific warehouse and branch.
+ * Resolves item IDs dynamically via codes if explicit IDs are not provided.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const bulkUpdateStockBalances = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -452,6 +479,13 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves the details of a single inventory item by its ID.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getItemById = async (req, res, next) => {
   try {
     const { companyId = null } = req.scope || {};
@@ -476,6 +510,14 @@ export const getItemById = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new inventory item and resolves missing related entities (like category, group, currency)
+ * on the fly if auto-creation or bulk-import modes are active.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createItem = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
@@ -629,6 +671,13 @@ export const createItem = async (req, res, next) => {
   }
 };
 
+/**
+ * Updates an existing inventory item's properties, preventing naming collisions.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const updateItem = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
@@ -747,6 +796,14 @@ export const updateItem = async (req, res, next) => {
   }
 };
 
+/**
+ * Inserts new or updates existing inventory items from an array of payloads.
+ * Automatically generates missing item codes sequentially if necessary.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const bulkUpsertItems = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();

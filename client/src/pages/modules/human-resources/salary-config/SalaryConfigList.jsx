@@ -1,3 +1,8 @@
+/**
+ * @fileoverview SalaryConfigList component.
+ * Provides functionality for SalaryConfigList.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
@@ -23,6 +28,11 @@ const CONFIG_CARDS = [
   },
 ];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalaryConfigList() {
   return (
     <Guard moduleKey="human-resources">

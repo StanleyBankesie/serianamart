@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaterialUtilizationForm component.
+ * Provides functionality for MaterialUtilizationForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -11,7 +16,12 @@ function normalizeDate(v) {
   return s.includes("T") ? s.split("T")[0] : s;
 }
 
-export default function PMMaterialUtilizationForm() {
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
+export default function MaterialUtilizationForm() {
   const { uoms, loading: uomsLoading } = useUoms();
   const { id } = useParams();
   const navigate = useNavigate();

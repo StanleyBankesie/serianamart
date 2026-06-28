@@ -1,3 +1,8 @@
+/**
+ * @fileoverview DashboardForm component.
+ * Provides functionality for DashboardForm.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
@@ -12,6 +17,11 @@ const fmtCurrency = (n) => {
   })}`;
 };
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DashboardForm() {
   const navigate = useNavigate();
   const { id } = useParams();

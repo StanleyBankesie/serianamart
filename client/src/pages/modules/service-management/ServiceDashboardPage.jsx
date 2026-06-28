@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ServiceDashboardPage component.
+ * Provides functionality for ServiceDashboardPage.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
@@ -104,6 +109,11 @@ function SimpleBarChart({ title, data, palette = [] }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ServiceDashboardPage() {
   const location = useLocation();
   const backTo =

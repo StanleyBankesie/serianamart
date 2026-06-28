@@ -1,5 +1,14 @@
+/**
+ * @fileoverview API Service for the HR module.
+ * Provides methods for employee management, recruitment, attendance, and payroll operations.
+ */
+
 import { api } from "../../../api/client.js";
 
+/**
+ * hrService
+ * Encapsulates all backend API calls for HR-related features.
+ */
 export const hrService = {
   listEmployees(params) {
     return api.get("/hr/employees", { params });

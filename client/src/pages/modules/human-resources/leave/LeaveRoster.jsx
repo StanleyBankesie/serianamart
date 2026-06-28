@@ -1,9 +1,19 @@
+/**
+ * @fileoverview LeaveRoster component.
+ * Provides functionality for LeaveRoster.
+ */
+
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function LeaveRoster() {
   const [departments, setDepartments] = useState([]);
   const [employees, setEmployees] = useState([]);

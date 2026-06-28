@@ -1,3 +1,8 @@
+/**
+ * @fileoverview MaintenanceRosterForm component.
+ * Provides functionality for MaintenanceRosterForm.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -5,6 +10,11 @@ import { api } from "../../../../api/client";
 
 const STATUSES = ["DRAFT","ACTIVE","CLOSED"];
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function MaintenanceRosterForm() {
   const navigate = useNavigate();
   const { id } = useParams();

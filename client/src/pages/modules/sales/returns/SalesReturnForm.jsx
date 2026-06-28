@@ -1,9 +1,19 @@
+/**
+ * @fileoverview SalesReturnForm component.
+ * Provides functionality for SalesReturnForm.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 import { Plus, Trash2 } from "lucide-react";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function SalesReturnForm() {
   const navigate = useNavigate();
   const { id: returnRouteId } = useParams();

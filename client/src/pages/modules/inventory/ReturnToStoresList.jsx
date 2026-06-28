@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ReturnToStoresList component.
+ * Provides functionality for ReturnToStoresList.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -14,6 +19,11 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ReturnToStoresList() {
   const location = useLocation();
   const [searchTerm, setSearchTerm] = useState("");

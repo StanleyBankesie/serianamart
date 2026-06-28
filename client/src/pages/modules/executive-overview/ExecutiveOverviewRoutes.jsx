@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ExecutiveOverviewRoutes component.
+ * Provides functionality for ExecutiveOverviewRoutes.
+ */
+
 import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
@@ -11,6 +16,11 @@ import ExecSalesThisMonthPage from "./reports/ExecSalesThisMonthPage.jsx";
 import ExecSalesThisWeekPage from "./reports/ExecSalesThisWeekPage.jsx";
 import ExecSupplierOutstandingPage from "./reports/ExecSupplierOutstandingPage.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ExecutiveOverviewRoutes() {
   return (
     <Routes>

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview ProfitAndLossReportPage component.
+ * Provides functionality for ProfitAndLossReportPage.
+ */
+
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
@@ -7,6 +12,11 @@ import jsPDF from "jspdf";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function ProfitAndLossReportPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

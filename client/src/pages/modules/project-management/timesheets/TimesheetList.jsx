@@ -1,3 +1,8 @@
+/**
+ * @fileoverview TimesheetList component.
+ * Provides functionality for TimesheetList.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Plus, Clock, Paperclip } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -7,6 +12,11 @@ import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function TimesheetList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

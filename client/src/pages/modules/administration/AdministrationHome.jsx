@@ -1,3 +1,8 @@
+/**
+ * @fileoverview AdministrationHome component.
+ * Provides functionality for AdministrationHome.
+ */
+
 import React from "react";
 import { Link, Route, Routes } from "react-router-dom";
 import ModuleDashboard from "../../../components/ModuleDashboard";
@@ -270,6 +275,11 @@ function AdministrationLanding() {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AdministrationHome() {
   return (
     <Routes>

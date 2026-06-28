@@ -1,8 +1,20 @@
+/**
+ * @fileoverview Form component for creating or editing an inventory item.
+ * Captures extensive item properties including pricing, stock thresholds, and categorization.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 
+/**
+ * ItemForm component
+ * Manages the data entry for a single item, resolving lookups (categories, groups, UOMs)
+ * on mount to populate select fields.
+ * 
+ * @returns {JSX.Element} The item form view.
+ */
 export default function ItemForm() {
   const { id } = useParams();
   const navigate = useNavigate();

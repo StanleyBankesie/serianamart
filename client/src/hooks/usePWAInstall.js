@@ -1,5 +1,19 @@
+/**
+ * @file usePWAInstall.js
+ * @description Hook to manage Progressive Web App (PWA) installation.
+ */
+
 import { useEffect, useMemo, useState } from "react";
 
+/**
+ * Hook to handle PWA installation prompt and status.
+ * @returns {Object} An object containing PWA installation state and functions.
+ * @returns {boolean} returns.isInstallable - Whether the app can be installed.
+ * @returns {boolean} returns.isInstalled - Whether the app is already installed.
+ * @returns {boolean} returns.isPWASupported - Whether the browser supports service workers.
+ * @returns {Function} returns.handleInstall - Function to prompt the user to install the PWA.
+ * @returns {Function} returns.dismissPrompt - Function to dismiss the installation prompt.
+ */
 export default function usePWAInstall() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installed, setInstalled] = useState(false);

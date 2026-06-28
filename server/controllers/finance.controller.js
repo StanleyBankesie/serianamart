@@ -1,3 +1,8 @@
+/**
+ * @file finance.controller.js
+ * @description Central controller for financial operations.
+ * Handles vouchers, accounts, taxes, currencies, fiscal years, and reports.
+ */
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import {
@@ -75,6 +80,14 @@ async function ensureBankAccountsColumns() {
 // Run on startup
 ensureBankAccountsColumns();
 
+// ============================================================================
+// Database Initialization & Schema Updates
+// ============================================================================
+
+/**
+ * Ensures that the fin_voucher_lines table has the necessary currency columns.
+ * Specifically adds currency_id and exchange_rate to support multi-currency vouchers.
+ */
 async function ensureVoucherLineCurrencyColumns() {
   try {
     const [cols] = await pool.execute(
@@ -101,6 +114,11 @@ async function ensureVoucherLineCurrencyColumns() {
 }
 ensureVoucherLineCurrencyColumns();
 
+/**
+ * Ensures that the account balances table and related schema objects exist.
+ * Adds balance_type to fin_accounts and creates the fin_account_balances table.
+ * Backfills account default balance types based on their group nature (ASSET/EXPENSE -> DEBIT, etc).
+ */
 async function ensureAccountBalanceObjects() {
   let conn;
   try {
@@ -156,6 +174,11 @@ async function ensureAccountBalanceObjects() {
 // Run on startup
 ensureAccountBalanceObjects();
 
+/**
+ * Ensures that purchase bills have payment tracking columns and status triggers.
+ * Adds amount_paid and payment_status to pur_bills, and sets up triggers to auto-update
+ * the payment status on INSERT and UPDATE.
+ */
 async function ensurePurBillsPaymentStatusObjects() {
   let conn;
   try {
@@ -223,6 +246,15 @@ async function ensurePurBillsPaymentStatusObjects() {
   }
 }
 
+// ============================================================================
+// Utility Functions & Middleware
+// ============================================================================
+
+/**
+ * Express middleware to ensure a required ID parameter is present and valid.
+ * Converts the parameter to a string if valid, otherwise returns a 400 error.
+ * @param {string} name - The name of the parameter to check.
+ */
 export function requireIdParam(name) {
   return (req, _res, next) => {
     const id = Number(req.params[name]);
@@ -232,6 +264,14 @@ export function requireIdParam(name) {
   };
 }
 
+/**
+ * Retrieves and increments the next available voucher number for a given company and voucher type.
+ * Calculates the appropriate prefix and sequencing format.
+ * @param {Object} params - Parameters object.
+ * @param {number} params.companyId - The ID of the company.
+ * @param {number} params.voucherTypeId - The ID of the voucher type.
+ * @returns {Promise<string>} The generated voucher number.
+ */
 async function nextVoucherNo({ companyId, voucherTypeId }) {
   const conn = await pool.getConnection();
   try {
@@ -272,6 +312,12 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
   }
 }
 
+/**
+ * Resolves the ID of an active voucher type given its code and company ID.
+ * @param {Object} conn - The database connection.
+ * @param {Object} params - The companyId and code.
+ * @returns {Promise<number>} The voucher type ID, or 0 if not found.
+ */
 async function resolveVoucherTypeIdByCode(conn, { companyId, code }) {
   const [rows] = await conn.execute(
     "SELECT id FROM fin_voucher_types WHERE company_id = :companyId AND code = :code AND is_active = 1 LIMIT 1",
@@ -281,6 +327,12 @@ async function resolveVoucherTypeIdByCode(conn, { companyId, code }) {
   return id || 0;
 }
 
+/**
+ * Finds a voucher type based on a requested code or alias (e.g. PV, PUV, PAYV).
+ * Handles logic to find related purchase or payment voucher types if an exact match isn't found.
+ * @param {Object} params - The companyId and requestedCode.
+ * @returns {Promise<Object|null>} The voucher type object, or null.
+ */
 async function findVoucherTypeByRequest({ companyId, requestedCode }) {
   const normalizedCode = String(requestedCode || "").toUpperCase();
   if (!normalizedCode) return null;
@@ -329,6 +381,12 @@ async function findVoucherTypeByRequest({ companyId, requestedCode }) {
   return rows?.[0] || null;
 }
 
+/**
+ * Ensures that a voucher type exists for a given request code.
+ * If it doesn't exist, it creates a new voucher type with default settings.
+ * @param {Object} params - The companyId and requestedCode.
+ * @returns {Promise<Object|null>} The existing or newly created voucher type object.
+ */
 async function ensureVoucherTypeForRequest({ companyId, requestedCode }) {
   const existing = await findVoucherTypeByRequest({ companyId, requestedCode });
   if (existing?.id) return existing;
@@ -386,15 +444,32 @@ async function ensureVoucherTypeForRequest({ companyId, requestedCode }) {
   return findVoucherTypeByRequest({ companyId, requestedCode });
 }
 
+/**
+ * Pads a number with leading zeros to ensure it is at least 2 characters long.
+ * @param {number|string} n - The number to pad.
+ * @returns {string} The zero-padded string.
+ */
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
+/**
+ * Converts a Date object to a YYYY-MM-DD string format.
+ * @param {Date} d - The Date object.
+ * @returns {string} The formatted date string, or empty string if invalid.
+ */
 function toYmd(d) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+/**
+ * Checks if a specific column exists in a given table.
+ * @param {Object} conn - The database connection.
+ * @param {string} tableName - The name of the table.
+ * @param {string} columnName - The name of the column to check.
+ * @returns {Promise<boolean>} True if the column exists, false otherwise.
+ */
 async function hasColumn(conn, tableName, columnName) {
   const [rows] = await conn.execute(
     `
@@ -409,6 +484,18 @@ async function hasColumn(conn, tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+// ============================================================================
+// Fiscal & Tax Utilities
+// ============================================================================
+
+/**
+ * Resolves the fiscal year ID for a given date.
+ * If a matching fiscal year does not exist, it generates one based on the company's
+ * start month setting and creates the record.
+ * @param {Object} conn - The database connection.
+ * @param {Object} params - companyId and dateYmd string.
+ * @returns {Promise<number>} The ID of the resolved fiscal year.
+ */
 async function resolveFiscalYearIdForDate(conn, { companyId, dateYmd }) {
   let target = String(dateYmd || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {
@@ -489,6 +576,12 @@ async function resolveFiscalYearIdForDate(conn, { companyId, dateYmd }) {
   return newId;
 }
 
+/**
+ * Loads the active tax components and their details for a specific tax code.
+ * @param {Object} conn - The database connection.
+ * @param {Object} params - companyId and taxCodeId.
+ * @returns {Promise<Array>} Array of tax components sorted by compound level and order.
+ */
 async function loadTaxComponentsByCodeTx(conn, { companyId, taxCodeId }) {
   const [rows] = await conn.execute(
     `SELECT c.tax_detail_id,
@@ -508,6 +601,14 @@ async function loadTaxComponentsByCodeTx(conn, { companyId, taxCodeId }) {
   return Array.isArray(rows) ? rows : [];
 }
 
+/**
+ * Allocates a total tax amount among multiple tax components based on their compound levels
+ * and rates. Handles rounding differences to ensure the sum matches the expected tax amount.
+ * @param {number} baseAmount - The base amount before tax.
+ * @param {number} taxAmount - The total expected tax amount.
+ * @param {Array} components - Array of tax components.
+ * @returns {Array} List of components with their allocated amounts.
+ */
 function allocateTaxComponents(baseAmount, taxAmount, components) {
   const base = Math.max(0, Number(baseAmount || 0));
   const expectedTax = Math.max(0, Number(taxAmount || 0));
@@ -547,6 +648,14 @@ function allocateTaxComponents(baseAmount, taxAmount, components) {
   return rounded.filter((r) => Number(r.amount || 0) > 0);
 }
 
+/**
+ * Ensures a financial account exists for a specific tax component.
+ * Retrieves an existing account or creates a new one under 'Tax Receivables' (ASSET) 
+ * for purchases, or 'Tax Payables' (LIABILITY) for sales/others.
+ * @param {Object} conn - Database connection.
+ * @param {Object} params - Configuration details (companyId, taxDetailId, componentName, isPurchase).
+ * @returns {Promise<number>} The ID of the tax account.
+ */
 async function ensureTaxComponentAccountTx(
   conn,
   { companyId, taxDetailId, componentName, isPurchase },
@@ -635,6 +744,13 @@ async function ensureTaxComponentAccountTx(
   return finalAccountId;
 }
 
+/**
+ * Processes and splits voucher line amounts into their respective tax components.
+ * Creates new voucher lines for each tax component and adjusts the original base line amounts.
+ * @param {Object} conn - Transaction connection.
+ * @param {Object} params - Parameters including voucherId, lines, voucherType, etc.
+ * @returns {Promise<Object>} Contains totalDebitAdj and totalCreditAdj values.
+ */
 async function processVoucherTaxSplitTx(
   conn,
   { voucherId, companyId, branchId, branchIdsStr, lines, voucherType, exchangeRate },
@@ -727,6 +843,17 @@ async function processVoucherTaxSplitTx(
   return { totalDebitAdj, totalCreditAdj };
 }
 
+// ============================================================================
+// Group and Financial Account Utilities
+// ============================================================================
+
+/**
+ * Ensures an account group exists by code or name. If neither is found, inserts a new group.
+ * Handles duplicate entry conflicts gracefully by re-querying.
+ * @param {Object} conn - The database connection.
+ * @param {Object} params - Properties of the group (companyId, code, name, nature, parentId).
+ * @returns {Promise<number>} The ID of the account group.
+ */
 async function ensureGroupIdTx(
   conn,
   { companyId, code, name, nature, parentId },
@@ -909,6 +1036,13 @@ export async function getNextNumericCode(conn, { companyId, table, nature }) {
   return `${prefix}${String(nextNum).padStart(4, "0")}`;
 }
 
+/**
+ * Generates and returns the next voucher number based on the requested voucher type.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getNextVoucherNo = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -949,6 +1083,13 @@ export const getNextVoucherNo = async (req, res, next) => {
   }
 };
 
+/**
+ * Transitions a draft or returned voucher into a submitted state, routing it through workflow approvals.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const submitVoucher = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
@@ -1154,6 +1295,14 @@ export const submitVoucher = async (req, res, next) => {
   }
 };
 
+/**
+ * Synchronizes and initializes a default chart of accounts for the company if they don't exist.
+ * Sets up basic groups and required control accounts.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const syncAccounts = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
@@ -1281,6 +1430,13 @@ export const syncAccounts = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves a list of account groups, optionally tracking whether they have associated accounts.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const listAccountGroups = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -1361,6 +1517,13 @@ export const listAccountGroups = async (req, res, next) => {
   }
 };
 
+/**
+ * Fetches the chart of accounts for the company, optionally filtering by active status or specific groups.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const listChartOfAccounts = async (req, res, next) => {
   try {
     await ensureAccountBalanceObjects();
@@ -1411,6 +1574,13 @@ export const listExpenseAccounts = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new financial account under a specific group, assigning currency and balance types.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createAccount = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -1555,6 +1725,13 @@ export const updateAccountActiveStatus = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves the current balance for a specific account.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getAccountBalance = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -1846,6 +2023,14 @@ export const getVoucherById = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new voucher (Journal, Payment, Receipt, Purchase, etc.) with its associated lines.
+ * Handles transaction boundaries, resolving voucher types, ensuring balanced entries for drafts vs submitted,
+ * calculating tax splits, and updating related bills/invoices when applied.
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createVoucher = async (req, res, next) => {
   let conn;
   try {
@@ -2436,6 +2621,13 @@ export const createVoucher = async (req, res, next) => {
   }
 };
 
+/**
+ * Updates an existing voucher's basic properties (date, narration, exchange rate, status).
+ * Does not modify voucher lines.
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const updateVoucher = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -2470,6 +2662,13 @@ export const updateVoucher = async (req, res, next) => {
   }
 };
 
+/**
+ * Handles bulk import of vouchers from an uploaded XLSX file.
+ * Validates, parses, and creates vouchers and their lines transactionally.
+ * @param {import('express').Request} req - Express request object (expects req.file).
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const bulkImportVouchers = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {

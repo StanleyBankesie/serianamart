@@ -1,9 +1,19 @@
+/**
+ * @fileoverview AttendanceDashboard component.
+ * Provides functionality for AttendanceDashboard.
+ */
+
 import React from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function AttendanceDashboard() {
   const [summary, setSummary] = React.useState({
     present: 0,

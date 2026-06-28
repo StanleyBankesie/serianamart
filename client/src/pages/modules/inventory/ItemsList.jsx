@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Main item listing page for the Inventory module.
+ * Provides a paginated, filterable, and sortable table of all inventory items,
+ * along with bulk operations like excel export.
+ */
+
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -7,6 +13,12 @@ import * as XLSX from "xlsx";
 import { autosizeWorksheetColumns } from "../../../utils/xlsxUtils";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ * ItemsList component
+ * Displays inventory items and manages search, filter, and pagination states.
+ * 
+ * @returns {JSX.Element} The item list view.
+ */
 export default function ItemsList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);

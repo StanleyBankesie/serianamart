@@ -1,3 +1,8 @@
+/**
+ * @fileoverview DirectPurchaseList component.
+ * Provides functionality for DirectPurchaseList.
+ */
+
 import React, { useEffect, useState } from "react";
 import { api } from "../../../../api/client.js";
 import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
@@ -14,6 +19,11 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function DirectPurchaseList() {
   const navigate = useNavigate();
   const location = useLocation();

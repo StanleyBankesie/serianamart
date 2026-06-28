@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Utility functions for string searching, ranking, and filtering.
+ * Uses text normalization to handle diacritics and case-insensitive matching.
+ */
+
+/**
+ * Normalizes a string by converting it to lowercase and removing diacritics.
+ * 
+ * @param {string} s - The string to normalize.
+ * @returns {string} The normalized string.
+ */
 export function normalizeString(s) {
   return String(s || "")
     .toLowerCase()
@@ -5,6 +16,12 @@ export function normalizeString(s) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+/**
+ * Finds the index of a match at a word boundary.
+ * @param {string} haystack - The string to search within.
+ * @param {string} needle - The string to search for.
+ * @returns {number} The index of the match, or -1 if not found.
+ */
 function wordBoundaryIndex(haystack, needle) {
   // Find if needle matches at start of any word in haystack
   const idx = haystack.indexOf(needle);
@@ -14,6 +31,13 @@ function wordBoundaryIndex(haystack, needle) {
   return /\s|[_\-./]/.test(prev) ? idx : -1;
 }
 
+/**
+ * Ranks a match based on its position and word boundaries.
+ * 
+ * @param {string} str - The target string.
+ * @param {string} query - The search query.
+ * @returns {number} The computed rank score (lower is better).
+ */
 export function rankMatch(str, query) {
   const h = normalizeString(str);
   const q = normalizeString(query);
@@ -27,6 +51,14 @@ export function rankMatch(str, query) {
   return Infinity;
 }
 
+/**
+ * Filters and sorts an array of items based on a search query.
+ * @param {Array} items - The items to filter and sort.
+ * @param {Object} options - The filter options.
+ * @param {string} options.query - The search query.
+ * @param {Function} options.getKeys - Function to extract searchable keys from an item.
+ * @returns {Array} The filtered and sorted array.
+ */
 export function filterAndSort(items, { query, getKeys }) {
   const q = normalizeString(query || "");
   if (!q) return items.slice();
@@ -50,6 +82,15 @@ export function filterAndSort(items, { query, getKeys }) {
   return scored.map((s) => s.it);
 }
 
+/**
+ * Filters items by checking if any of their searchable fields start with the query.
+ * @param {Array} items - The items to filter.
+ * @param {Object} options - The filter options.
+ * @param {string} options.query - The search query.
+ * @param {Function} [options.getKeys] - Optional function to extract keys from an item.
+ * @param {Array<string>} [options.searchFields] - Optional list of property names to search in each item.
+ * @returns {Array} An array of up to 20 matching items.
+ */
 export function filterByPrefix(items, { query, getKeys, searchFields }) {
   const q = normalizeString(query || "");
   if (!q) return [];

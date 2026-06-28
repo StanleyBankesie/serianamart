@@ -1,3 +1,8 @@
+/**
+ * @fileoverview BranchList component.
+ * Provides functionality for BranchList.
+ */
+
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
@@ -250,6 +255,11 @@ function UserAssignmentTab({ branches, companies, onUpdate }) {
   );
 }
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function BranchList() {
   const [activeTab, setActiveTab] = useState("branches"); // Default to branches as requested by sync task
   const [branches, setBranches] = useState([]);
