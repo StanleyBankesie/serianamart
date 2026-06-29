@@ -522,6 +522,13 @@ async function ensureServiceConfirmationTables() {
       KEY idx_sc_scope (company_id, branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await hasColumn("inv_service_confirmations", "order_no"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE inv_service_confirmations ADD COLUMN order_no VARCHAR(50) NULL AFTER execution_id",
+      );
+    } catch {}
+  }
   await pool.query(`
     CREATE TABLE IF NOT EXISTS inv_service_confirmation_details (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -816,6 +823,20 @@ async function ensureServiceOrderColumns() {
       "ALTER TABLE pur_service_orders MODIFY COLUMN status ENUM('DRAFT','SUBMITTED','APPROVED','REJECTED','CANCELLED','DONE') NOT NULL DEFAULT 'SUBMITTED'",
     );
   } catch {}
+  if (!(await hasColumn("pur_service_orders", "created_by"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE pur_service_orders ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER assigned_supervisor_username",
+      );
+    } catch {}
+  }
+  if (!(await hasColumn("pur_service_orders", "created_at"))) {
+    try {
+      await pool.query(
+        "ALTER TABLE pur_service_orders ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER created_by",
+      );
+    } catch {}
+  }
 }
 async function ensureServiceExecutionTables() {
   if (!(await hasTable("pur_service_executions"))) {
@@ -3501,7 +3522,7 @@ router.get(
              pur_service_orders.created_at,
              u.username AS created_by_name
            FROM pur_service_orders
-          LEFT JOIN adm_users u ON u.id = created_by
+          LEFT JOIN adm_users u ON u.id = pur_service_orders.created_by
          WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            ${type ? "AND order_type = :type" : ""}
          ORDER BY order_date DESC, id DESC
