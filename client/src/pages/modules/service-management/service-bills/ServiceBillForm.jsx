@@ -13,28 +13,54 @@ import { filterByPrefix } from "@/utils/searchUtils.js";
 function StatusBadge({ status }) {
   const s = String(status || "").toLowerCase();
   const map = {
-    paid: { label: "✓ PAID", cls: "bg-green-100 text-green-700 border-green-200" },
-    overdue: { label: "⚠ OVERDUE", cls: "bg-red-100 text-red-700 border-red-200" },
-    pending: { label: "⏳ PENDING", cls: "bg-amber-100 text-amber-700 border-amber-200" },
-    completed: { label: "✓ COMPLETED", cls: "bg-green-100 text-green-700 border-green-200" },
+    paid: {
+      label: "✓ PAID",
+      cls: "bg-green-100 text-green-700 border-green-200",
+    },
+    overdue: {
+      label: "⚠ OVERDUE",
+      cls: "bg-red-100 text-red-700 border-red-200",
+    },
+    pending: {
+      label: "⏳ PENDING",
+      cls: "bg-amber-100 text-amber-700 border-amber-200",
+    },
+    completed: {
+      label: "✓ COMPLETED",
+      cls: "bg-green-100 text-green-700 border-green-200",
+    },
   };
   const d = map[s] || map.pending;
-  return <span className={`inline-block px-3 py-1 text-xs rounded border ${d.cls}`}>{d.label}</span>;
+  return (
+    <span className={`inline-block px-3 py-1 text-xs rounded border ${d.cls}`}>
+      {d.label}
+    </span>
+  );
 }
 
 function PaymentBadge({ payment }) {
   const p = String(payment || "").toLowerCase();
   const map = {
-    paid: { label: "Paid", cls: "bg-green-100 text-green-700 border-green-200" },
-    unpaid: { label: "Unpaid", cls: "bg-amber-100 text-amber-700 border-amber-200" },
+    paid: {
+      label: "Paid",
+      cls: "bg-green-100 text-green-700 border-green-200",
+    },
+    unpaid: {
+      label: "Unpaid",
+      cls: "bg-amber-100 text-amber-700 border-amber-200",
+    },
   };
   const d = map[p] || map.unpaid;
-  return <span className={`inline-block px-3 py-1 text-xs rounded border ${d.cls}`}>{d.label}</span>;
+  return (
+    <span className={`inline-block px-3 py-1 text-xs rounded border ${d.cls}`}>
+      {d.label}
+    </span>
+  );
 }
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function ServiceBillForm() {
@@ -43,7 +69,9 @@ export default function ServiceBillForm() {
   const { id } = useParams();
   const { getExchangeRate } = useExchangeRate();
   const readOnly =
-    String(new URLSearchParams(location.search).get("mode") || "").toLowerCase() === "view";
+    String(
+      new URLSearchParams(location.search).get("mode") || "",
+    ).toLowerCase() === "view";
   const disabledClass = readOnly
     ? "bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
     : "";
@@ -92,14 +120,22 @@ export default function ServiceBillForm() {
   const [taxCodes, setTaxCodes] = useState([]);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
 
-  const [currentBillId, setCurrentBillId] = useState(id && id !== "new" ? Number(id) : null);
+  const [currentBillId, setCurrentBillId] = useState(
+    id && id !== "new" ? Number(id) : null,
+  );
 
   const baseCurrencyCode = useMemo(() => {
-    return finCurrencies.find((c) => Number(c.is_base) === 1 || c.is_base === true)?.code || "GHS";
+    return (
+      finCurrencies.find((c) => Number(c.is_base) === 1 || c.is_base === true)
+        ?.code || "GHS"
+    );
   }, [finCurrencies]);
 
   const selectedCurrencyCode = useMemo(() => {
-    return finCurrencies.find((c) => String(c.id) === String(bill.currency_id))?.code || "";
+    return (
+      finCurrencies.find((c) => String(c.id) === String(bill.currency_id))
+        ?.code || ""
+    );
   }, [finCurrencies, bill.currency_id]);
 
   const methods = [
@@ -109,7 +145,8 @@ export default function ServiceBillForm() {
     { key: "bank", label: "Bank Transfer", icon: "🏦" },
   ];
 
-  const update = (field, value) => setBill((prev) => ({ ...prev, [field]: value }));
+  const update = (field, value) =>
+    setBill((prev) => ({ ...prev, [field]: value }));
 
   const toYmd = (v) => {
     if (!v) return null;
@@ -132,10 +169,12 @@ export default function ServiceBillForm() {
 
   useEffect(() => {
     const uniqueTaxIds = Array.from(
-      new Set([
-        ...lines.map((l) => String(l.tax_code_id)).filter(Boolean),
-        newItem.tax_code_id ? String(newItem.tax_code_id) : null,
-      ].filter(Boolean)),
+      new Set(
+        [
+          ...lines.map((l) => String(l.tax_code_id)).filter(Boolean),
+          newItem.tax_code_id ? String(newItem.tax_code_id) : null,
+        ].filter(Boolean),
+      ),
     );
     const missing = uniqueTaxIds.filter((id) => !(id in taxComponentsByCode));
     if (missing.length) {
@@ -163,7 +202,9 @@ export default function ServiceBillForm() {
         taxTotal += amt;
       });
     } else if (newItem.tax_code_id) {
-      const tc = taxCodes.find((t) => String(t.id) === String(newItem.tax_code_id));
+      const tc = taxCodes.find(
+        (t) => String(t.id) === String(newItem.tax_code_id),
+      );
       const tcRate = tc ? Number(tc.rate_percent) || 0 : 0;
       const amt = (taxableTotal * tcRate) / 100;
       if (tcRate > 0) {
@@ -191,7 +232,9 @@ export default function ServiceBillForm() {
             const res = await api.get(`/finance/item-tax/${value}`);
             const tax = res.data?.tax;
             if (tax && tax.id) {
-              setNewItem((p) => (p.item_id === value ? { ...p, tax_code_id: String(tax.id) } : p));
+              setNewItem((p) =>
+                p.item_id === value ? { ...p, tax_code_id: String(tax.id) } : p,
+              );
             }
           } catch {}
         };
@@ -204,7 +247,9 @@ export default function ServiceBillForm() {
   const addItemToLines = () => {
     if (!newItem.item_id || !newItem.qty) return;
     const { taxTotal, taxableTotal } = calcNewItemTaxBreakdown();
-    const it = serviceItems.find((x) => String(x.id) === String(newItem.item_id));
+    const it = serviceItems.find(
+      (x) => String(x.id) === String(newItem.item_id),
+    );
     const uo = uoms.find((u) => String(u.id) === String(newItem.uom_id));
 
     setLines((prev) => [
@@ -220,10 +265,18 @@ export default function ServiceBillForm() {
       },
     ]);
 
-    setNewItem({ item_id: "", category: "", qty: 1, rate: 0, discount_percent: 0, tax_code_id: "" });
+    setNewItem({
+      item_id: "",
+      category: "",
+      qty: 1,
+      rate: 0,
+      discount_percent: 0,
+      tax_code_id: "",
+    });
   };
 
-  const removeRow = (idx) => setLines((prev) => prev.filter((_, i) => i !== idx));
+  const removeRow = (idx) =>
+    setLines((prev) => prev.filter((_, i) => i !== idx));
 
   const recalcLine = (line) => {
     const qty = Number(line.qty) || 0;
@@ -236,7 +289,9 @@ export default function ServiceBillForm() {
     let taxAmount = 0;
     const comps = taxComponentsByCode[String(line.tax_code_id)] || [];
     if (comps.length > 0) {
-      comps.forEach((c) => { taxAmount += (taxable * (Number(c.rate_percent) || 0)) / 100; });
+      comps.forEach((c) => {
+        taxAmount += (taxable * (Number(c.rate_percent) || 0)) / 100;
+      });
     }
 
     return { ...line, tax_amount: taxAmount, line_total: taxable + taxAmount };
@@ -250,7 +305,9 @@ export default function ServiceBillForm() {
         if (field === "item_id") {
           const it = serviceItems.find((i) => String(i.id) === String(value));
           if (it?.uom) {
-            const u = uoms.find((uom) => String(uom.uom_code) === String(it.uom));
+            const u = uoms.find(
+              (uom) => String(uom.uom_code) === String(it.uom),
+            );
             next.uom_id = u ? String(u.id) : "";
           }
         }
@@ -281,14 +338,24 @@ export default function ServiceBillForm() {
           const rate = Number(c.rate_percent) || 0;
           const amt = (taxable * rate) / 100;
           const name = c.component_name;
-          if (!compTotals[name]) compTotals[name] = { amount: 0, rate, sort_order: c.sort_order || 0 };
+          if (!compTotals[name])
+            compTotals[name] = {
+              amount: 0,
+              rate,
+              sort_order: c.sort_order || 0,
+            };
           compTotals[name].amount += amt;
         });
       }
     }
 
     const components = Object.keys(compTotals)
-      .map((name) => ({ name, amount: compTotals[name].amount, rate: compTotals[name].rate, sort_order: compTotals[name].sort_order }))
+      .map((name) => ({
+        name,
+        amount: compTotals[name].amount,
+        rate: compTotals[name].rate,
+        sort_order: compTotals[name].sort_order,
+      }))
       .sort((a, b) => a.sort_order - b.sort_order);
 
     const taxTotal = components.reduce((s, c) => s + c.amount, 0);
@@ -296,48 +363,104 @@ export default function ServiceBillForm() {
     const other = Number(bill.other_charges || 0);
     const total = sub - itemDiscounts + taxTotal + freight + other;
 
-    return { subtotal: sub, discountAmount: itemDiscounts, taxAmount: taxTotal, freight, other, total, components };
-  }, [lines, bill.freight_charges, bill.other_charges, taxCodes, taxComponentsByCode]);
+    return {
+      subtotal: sub,
+      discountAmount: itemDiscounts,
+      taxAmount: taxTotal,
+      freight,
+      other,
+      total,
+      components,
+    };
+  }, [
+    lines,
+    bill.freight_charges,
+    bill.other_charges,
+    taxCodes,
+    taxComponentsByCode,
+  ]);
 
   useEffect(() => {
-    setBill((prev) => ({ ...prev, subtotal: totals.subtotal, tax: totals.taxAmount, total: totals.total }));
+    setBill((prev) => ({
+      ...prev,
+      subtotal: totals.subtotal,
+      tax: totals.taxAmount,
+      total: totals.total,
+    }));
   }, [totals.subtotal, totals.taxAmount, totals.total]);
 
   useEffect(() => {
     let mounted = true;
     async function loadLookups() {
       try {
-        const [supRes, svcOrdersRes, curRes, itemsRes, uomsRes, taxesRes] = await Promise.all([
-          api.get("/purchase/suppliers", { params: { contractor: "Y" } }).catch(() => ({ data: { items: [] } })),
-          api.get("/purchase/service-orders").catch(() => ({ data: { items: [] } })),
-          api.get("/finance/currencies").catch(() => ({ data: { items: [] } })),
-          api.get("/inventory/items").catch(() => ({ data: { items: [] } })),
-          api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
-          api.get("/finance/tax-codes?form=SERVICE_BILL").catch(() => ({ data: { items: [] } })),
-        ]);
+        const [supRes, svcOrdersRes, curRes, itemsRes, uomsRes, taxesRes] =
+          await Promise.all([
+            api
+              .get("/purchase/suppliers", { params: { contractor: "Y" } })
+              .catch(() => ({ data: { items: [] } })),
+            api
+              .get("/purchase/service-orders")
+              .catch(() => ({ data: { items: [] } })),
+            api
+              .get("/finance/currencies")
+              .catch(() => ({ data: { items: [] } })),
+            api.get("/inventory/items").catch(() => ({ data: { items: [] } })),
+            api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
+            api
+              .get("/finance/tax-codes?form=SERVICE_BILL")
+              .catch(() => ({ data: { items: [] } })),
+          ]);
         if (!mounted) return;
 
-        setSuppliers(Array.isArray(supRes.data?.items) ? supRes.data.items : []);
-        const allOrders = Array.isArray(svcOrdersRes.data?.items) ? svcOrdersRes.data.items : [];
+        setSuppliers(
+          Array.isArray(supRes.data?.items) ? supRes.data.items : [],
+        );
+        const allOrders = Array.isArray(svcOrdersRes.data?.items)
+          ? svcOrdersRes.data.items
+          : [];
         const validStatuses = ["DONE"];
-        setConfirmedServices(allOrders.filter((o) => validStatuses.includes(String(o.status || "").toUpperCase())));
+        setConfirmedServices(
+          allOrders.filter((o) =>
+            validStatuses.includes(String(o.status || "").toUpperCase()),
+          ),
+        );
         setUoms(Array.isArray(uomsRes.data?.items) ? uomsRes.data.items : []);
 
-        const currs = Array.isArray(curRes.data?.items) ? curRes.data.items : [];
+        const currs = Array.isArray(curRes.data?.items)
+          ? curRes.data.items
+          : [];
         setFinCurrencies(currs);
-        const base = currs.find((c) => Number(c.is_base) === 1) || currs.find((c) => /ghs/i.test(String(c.code || "")));
+        const base =
+          currs.find((c) => Number(c.is_base) === 1) ||
+          currs.find((c) => /ghs/i.test(String(c.code || "")));
         setBaseFinCurrencyId(base ? Number(base.id) : null);
 
-        const items = Array.isArray(itemsRes.data?.items) ? itemsRes.data.items : [];
-        const svc = items.filter((it) => String(it.service_item || "").toUpperCase() === "Y");
-        setServiceItems(svc.map((x) => ({ id: x.id, item_name: x.item_name, item_code: x.item_code, uom: x.uom, cost_price: x.cost_price })));
+        const items = Array.isArray(itemsRes.data?.items)
+          ? itemsRes.data.items
+          : [];
+        const svc = items.filter(
+          (it) => String(it.service_item || "").toUpperCase() === "Y",
+        );
+        setServiceItems(
+          svc.map((x) => ({
+            id: x.id,
+            item_name: x.item_name,
+            item_code: x.item_code,
+            uom: x.uom,
+            cost_price: x.cost_price,
+          })),
+        );
 
-        const fetchedTaxCodes = Array.isArray(taxesRes.data?.items) ? taxesRes.data.items : [];
+        const fetchedTaxCodes = Array.isArray(taxesRes.data?.items)
+          ? taxesRes.data.items
+          : [];
         setTaxCodes(fetchedTaxCodes);
       } catch {}
     }
     loadLookups();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -348,29 +471,45 @@ export default function ServiceBillForm() {
         const s = res.data?.nextNo;
         const n = Number(String(s || "").replace(/\D/g, "")) || 1;
         if (!mounted) return;
-        setBill((p) => (p.bill_no ? p : { ...p, bill_no: `SVB-${String(n).padStart(6, "0")}` }));
+        setBill((p) =>
+          p.bill_no
+            ? p
+            : { ...p, bill_no: `SVB-${String(n).padStart(6, "0")}` },
+        );
       } catch {
         if (!mounted) return;
-        setBill((p) => (p.bill_no ? p : { ...p, bill_no: `SVB-${String(1).padStart(6, "0")}` }));
+        setBill((p) =>
+          p.bill_no
+            ? p
+            : { ...p, bill_no: `SVB-${String(1).padStart(6, "0")}` },
+        );
       }
     }
     getNextBillNo();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
     if (!bill.currency_id || finCurrencies.length === 0) return;
-    const selected = finCurrencies.find((c) => String(c.id) === String(bill.currency_id));
-    const base = finCurrencies.find((c) => Number(c.is_base) === 1 || c.is_base === true);
+    const selected = finCurrencies.find(
+      (c) => String(c.id) === String(bill.currency_id),
+    );
+    const base = finCurrencies.find(
+      (c) => Number(c.is_base) === 1 || c.is_base === true,
+    );
     if (!selected || !base) return;
 
     if (selected.code === base.code) {
-      if (bill.exchange_rate !== 1) setBill((p) => ({ ...p, exchange_rate: 1 }));
+      if (bill.exchange_rate !== 1)
+        setBill((p) => ({ ...p, exchange_rate: 1 }));
       return;
     }
 
     getExchangeRate(selected.code, base.code).then((rate) => {
-      if (rate && bill.exchange_rate !== rate) setBill((p) => ({ ...p, exchange_rate: rate }));
+      if (rate && bill.exchange_rate !== rate)
+        setBill((p) => ({ ...p, exchange_rate: rate }));
     });
   }, [bill.currency_id, finCurrencies]);
 
@@ -382,13 +521,16 @@ export default function ServiceBillForm() {
         setLoading(true);
         const res = await api.get(`/purchase/service-bills/${id}`);
         const item = res.data?.item || {};
-        const details = Array.isArray(res.data?.details) ? res.data.details : [];
+        const details = Array.isArray(res.data?.details)
+          ? res.data.details
+          : [];
         if (!mounted) return;
 
         setBill({
           bill_no: item.bill_no || "",
           status: String(item.status || "pending").toLowerCase(),
-          bill_date: toYmd(item.bill_date) || new Date().toISOString().split("T")[0],
+          bill_date:
+            toYmd(item.bill_date) || new Date().toISOString().split("T")[0],
           due_date: toYmd(item.due_date) || "",
           service_date: toYmd(item.service_date) || "",
           supplier_id: item.supplier_id ? String(item.supplier_id) : "",
@@ -427,13 +569,24 @@ export default function ServiceBillForm() {
       }
     }
     loadExisting();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [id]);
 
   const saveBill = async (statusOverride) => {
-    if (!bill.bill_date) { setError("Bill Date is required"); return; }
-    if (!bill.supplier_id) { setError("Supplier is required"); return; }
-    if (lines.length === 0) { setError("At least one service line is required"); return; }
+    if (!bill.bill_date) {
+      setError("Bill Date is required");
+      return;
+    }
+    if (!bill.supplier_id) {
+      setError("Supplier is required");
+      return;
+    }
+    if (lines.length === 0) {
+      setError("At least one service line is required");
+      return;
+    }
 
     setSaving(true);
     setError("");
@@ -499,14 +652,19 @@ export default function ServiceBillForm() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/service-management/service-bills" className="btn-secondary">
+          <Link
+            to="/service-management/service-bills"
+            className="btn-secondary"
+          >
             ← Back
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
               {id && id !== "new" ? "Edit" : "New"} Service Bill
             </h1>
-            <p className="text-sm mt-1">Prepare and issue bill for services provided</p>
+            <p className="text-sm mt-1">
+              Prepare and issue bill for services provided
+            </p>
           </div>
         </div>
         <div className="text-right">
@@ -516,10 +674,18 @@ export default function ServiceBillForm() {
       </div>
 
       {successMsg && (
-        <div className="mb-3 p-3 rounded bg-green-50 border border-green-200 text-green-700 text-sm">{successMsg}</div>
+        <div className="mb-3 p-3 rounded bg-green-50 border border-green-200 text-green-700 text-sm">
+          {successMsg}
+        </div>
       )}
-      {loading && <div className="p-4 bg-white rounded shadow text-center">Loading...</div>}
-      {error && <div className="p-4 text-red-600 bg-white rounded shadow">{error}</div>}
+      {loading && (
+        <div className="p-4 bg-white rounded shadow text-center">
+          Loading...
+        </div>
+      )}
+      {error && (
+        <div className="p-4 text-red-600 bg-white rounded shadow">{error}</div>
+      )}
 
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg">
@@ -534,7 +700,13 @@ export default function ServiceBillForm() {
         <div className="card-body grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           <div className="form-group">
             <label className="label required">Bill Date</label>
-            <input type="date" className={`input ${disabledClass}`} value={bill.bill_date} onChange={(e) => update("bill_date", e.target.value)} readOnly={readOnly} />
+            <input
+              type="date"
+              className={`input ${disabledClass}`}
+              value={bill.bill_date}
+              onChange={(e) => update("bill_date", e.target.value)}
+              readOnly={readOnly}
+            />
           </div>
           <div className="form-group">
             <label className="label required">Supplier</label>
@@ -545,9 +717,15 @@ export default function ServiceBillForm() {
                 placeholder="Search supplier..."
                 disabled={readOnly}
                 value={
-                  suppliers.find((s) => String(s.id) === String(bill.supplier_id))?.supplier_name ||
-                  suppliers.find((s) => String(s.id) === String(bill.supplier_id))?.name ||
-                  suppliers.find((s) => String(s.id) === String(bill.supplier_id))?.company ||
+                  suppliers.find(
+                    (s) => String(s.id) === String(bill.supplier_id),
+                  )?.supplier_name ||
+                  suppliers.find(
+                    (s) => String(s.id) === String(bill.supplier_id),
+                  )?.name ||
+                  suppliers.find(
+                    (s) => String(s.id) === String(bill.supplier_id),
+                  )?.company ||
                   supplierSearch
                 }
                 onChange={(e) => {
@@ -556,13 +734,21 @@ export default function ServiceBillForm() {
                   update("relatedExecId", ""); // clear related service when supplier changes
                 }}
               />
-              {!readOnly && supplierSearch && (
+              {!readOnly &&
+                supplierSearch &&
                 (() => {
                   const q = supplierSearch.trim();
-                  const matched = q ? filterByPrefix(suppliers, {
-                    query: q,
-                    searchFields: ["supplier_name", "name", "company", "supplier_code"],
-                  }).slice(0, 10) : [];
+                  const matched = q
+                    ? filterByPrefix(suppliers, {
+                        query: q,
+                        searchFields: [
+                          "supplier_name",
+                          "name",
+                          "company",
+                          "supplier_code",
+                        ],
+                      }).slice(0, 10)
+                    : [];
                   return matched.length > 0 ? (
                     <div className="absolute z-30 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
                       {matched.map((s) => (
@@ -577,13 +763,16 @@ export default function ServiceBillForm() {
                               update("currency_id", Number(s.currency_id));
                             }
                             setSupplierSearch("");
-                            
+
                             // Auto-select confirmed service
                             const supCode = s.supplier_code || s.code || null;
-                            const matches = confirmedServices.filter(so => 
-                              supCode && 
-                              String(so.contractor_code) === String(supCode) && 
-                              String(so.status || "").toUpperCase() === "DONE"
+                            const matches = confirmedServices.filter(
+                              (so) =>
+                                supCode &&
+                                String(so.contractor_code) ===
+                                  String(supCode) &&
+                                String(so.status || "").toUpperCase() ===
+                                  "DONE",
                             );
                             if (matches.length === 1) {
                               update("relatedExecId", String(matches[0].id));
@@ -592,8 +781,14 @@ export default function ServiceBillForm() {
                             }
                           }}
                         >
-                          <div className="font-medium text-slate-800 text-sm">{s.supplier_name || s.name || s.company}</div>
-                          {s.supplier_code && <div className="text-xs text-slate-500">{s.supplier_code}</div>}
+                          <div className="font-medium text-slate-800 text-sm">
+                            {s.supplier_name || s.name || s.company}
+                          </div>
+                          {s.supplier_code && (
+                            <div className="text-xs text-slate-500">
+                              {s.supplier_code}
+                            </div>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -604,44 +799,100 @@ export default function ServiceBillForm() {
                       </div>
                     </div>
                   ) : null;
-                })()
-              )}
+                })()}
             </div>
           </div>
           <div className="form-group">
             <label className="label">Confirmed Service</label>
-            <select className={`input ${disabledClass}`} value={bill.relatedExecId || ""} onChange={(e) => update("relatedExecId", e.target.value)} disabled={readOnly}>
+            <select
+              className={`input ${disabledClass}`}
+              value={bill.relatedExecId || ""}
+              onChange={(e) => update("relatedExecId", e.target.value)}
+              disabled={readOnly}
+            >
               <option value="">-- Select Confirmed Service --</option>
               {(() => {
-                const selectedSup = suppliers.find(s => String(s.id) === String(bill.supplier_id));
-                const supCode = selectedSup?.supplier_code || selectedSup?.code || null;
+                const selectedSup = suppliers.find(
+                  (s) => String(s.id) === String(bill.supplier_id),
+                );
+                const supCode =
+                  selectedSup?.supplier_code || selectedSup?.code || null;
                 return confirmedServices
-                  .filter(so => supCode && String(so.contractor_code) === String(supCode) && String(so.status || "").toUpperCase() === "DONE")
-                  .map((so) => (<option key={so.id} value={String(so.id)}>{so.order_no} - {so.customer_name || so.service_type || ""}</option>));
+                  .filter(
+                    (so) =>
+                      supCode &&
+                      String(so.contractor_code) === String(supCode) &&
+                      String(so.status || "").toUpperCase() === "DONE",
+                  )
+                  .map((so) => (
+                    <option key={so.id} value={String(so.id)}>
+                      {so.order_no} -{" "}
+                      {so.customer_name || so.service_type || ""}
+                    </option>
+                  ));
               })()}
             </select>
           </div>
           <div className="form-group">
             <label className="label">Due Date</label>
-            <input type="date" className={`input ${disabledClass}`} value={bill.due_date} onChange={(e) => update("due_date", e.target.value)} readOnly={readOnly} />
+            <input
+              type="date"
+              className={`input ${disabledClass}`}
+              value={bill.due_date}
+              onChange={(e) => update("due_date", e.target.value)}
+              readOnly={readOnly}
+            />
           </div>
           <div className="form-group">
             <label className="label">Service Date</label>
-            <input type="date" className={`input ${disabledClass}`} value={bill.service_date} onChange={(e) => update("service_date", e.target.value)} readOnly={readOnly} />
+            <input
+              type="date"
+              className={`input ${disabledClass}`}
+              value={bill.service_date}
+              onChange={(e) => update("service_date", e.target.value)}
+              readOnly={readOnly}
+            />
           </div>
           <div className="form-group">
             <label className="label">Currency</label>
-            <select className={`input ${disabledClass}`} value={bill.currency_id} onChange={(e) => update("currency_id", e.target.value)} disabled={readOnly}>
-              {finCurrencies.map((c) => (<option key={c.id} value={c.id}>{c.code || c.currency_code} - {c.name || c.currency_name}</option>))}
+            <select
+              className={`input ${disabledClass}`}
+              value={bill.currency_id}
+              onChange={(e) => update("currency_id", e.target.value)}
+              disabled={readOnly}
+            >
+              {finCurrencies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.code || c.currency_code} - {c.name || c.currency_name}
+                </option>
+              ))}
             </select>
           </div>
           <div className="form-group">
-            <label className="label">Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}</label>
-            <input type="number" step="0.000001" className={`input text-right ${disabledClass}`} value={bill.exchange_rate} onChange={(e) => update("exchange_rate", e.target.value)} readOnly />
+            <label className="label">
+              Exchange Rate{" "}
+              {selectedCurrencyCode
+                ? `(${baseCurrencyCode} per ${selectedCurrencyCode})`
+                : ""}
+            </label>
+            <input
+              type="number"
+              step="0.000001"
+              className={`input text-right ${disabledClass}`}
+              value={bill.exchange_rate}
+              onChange={(e) => update("exchange_rate", e.target.value)}
+              readOnly
+            />
           </div>
           <div className="form-group">
             <label className="label">Payment Terms (Days)</label>
-            <input type="number" className={`input text-right ${disabledClass}`} value={bill.payment_terms} onChange={(e) => update("payment_terms", e.target.value)} readOnly={readOnly} />
+            <input
+              type="number"
+              className={`input text-right ${disabledClass}`}
+              value={bill.payment_terms}
+              onChange={(e) => update("payment_terms", e.target.value)}
+              readOnly={readOnly}
+            />
           </div>
         </div>
       </div>
@@ -653,10 +904,14 @@ export default function ServiceBillForm() {
         <div className="card-body">
           {!readOnly && (
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg mb-6">
-              <h4 className="text-sm font-semibold mb-3 text-brand">Add Service</h4>
+              <h4 className="text-sm font-semibold mb-3 text-brand">
+                Add Service
+              </h4>
               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-3">
                 <div className="md:col-span-4">
-                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">Service Item *</label>
+                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">
+                    Service Item *
+                  </label>
                   <div className="relative">
                     <input
                       id="service-bill-item-search"
@@ -668,56 +923,95 @@ export default function ServiceBillForm() {
                       onChange={(e) => {
                         setItemQuery(e.target.value);
                         if (newItem.item_id) {
-                          setNewItem((prev) => ({ ...prev, item_id: "", item_name: "", rate: 0 }));
+                          setNewItem((prev) => ({
+                            ...prev,
+                            item_id: "",
+                            item_name: "",
+                            rate: 0,
+                          }));
                         }
                       }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
                           const q = itemQuery.trim();
-                          const results = q ? filterByPrefix(serviceItems, { query: q, searchFields: ["item_code", "item_name"] }) : [];
+                          const results = q
+                            ? filterByPrefix(serviceItems, {
+                                query: q,
+                                searchFields: ["item_code", "item_name"],
+                              })
+                            : [];
                           if (!q || !results.length) return;
                           e.preventDefault();
-                          handleNewItemChange({ target: { name: "item_id", value: results[0].id } });
+                          handleNewItemChange({
+                            target: { name: "item_id", value: results[0].id },
+                          });
                           setItemQuery(results[0].item_name);
                         }
                       }}
                     />
                     {(() => {
                       const q = itemQuery.trim();
-                      const results = q ? filterByPrefix(serviceItems, { query: q, searchFields: ["item_code", "item_name"] }) : [];
-                      return results.length && !newItem.item_id ? (
-                        (() => {
-                          const el = document.getElementById("service-bill-item-search");
-                          const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
-                          return (
-                            <div
-                              className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
-                              style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
-                            >
-                              {results.map((o) => (
-                                <button
-                                  type="button"
-                                  key={o.id}
-                                  className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    handleNewItemChange({ target: { name: "item_id", value: String(o.id) } });
-                                    setItemQuery(o.item_name);
-                                  }}
-                                >
-                                  {o.item_code} - {o.item_name}
-                                </button>
-                              ))}
-                            </div>
-                          );
-                        })()
-                      ) : null;
+                      const results = q
+                        ? filterByPrefix(serviceItems, {
+                            query: q,
+                            searchFields: ["item_code", "item_name"],
+                          })
+                        : [];
+                      return results.length && !newItem.item_id
+                        ? (() => {
+                            const el = document.getElementById(
+                              "service-bill-item-search",
+                            );
+                            const r = el
+                              ? el.getBoundingClientRect()
+                              : { bottom: 0, left: 0, width: 0 };
+                            return (
+                              <div
+                                className="bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                style={{
+                                  position: "fixed",
+                                  top: `${r.bottom + 4}px`,
+                                  left: `${r.left}px`,
+                                  width: `${r.width}px`,
+                                  zIndex: 9999,
+                                }}
+                              >
+                                {results.map((o) => (
+                                  <button
+                                    type="button"
+                                    key={o.id}
+                                    className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      handleNewItemChange({
+                                        target: {
+                                          name: "item_id",
+                                          value: String(o.id),
+                                        },
+                                      });
+                                      setItemQuery(o.item_name);
+                                    }}
+                                  >
+                                    {o.item_code} - {o.item_name}
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()
+                        : null;
                     })()}
                   </div>
                 </div>
                 <div className="md:col-span-3">
-                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">Category</label>
-                  <select name="category" className="input text-sm w-full" value={newItem.category} onChange={handleNewItemChange}>
+                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">
+                    Category
+                  </label>
+                  <select
+                    name="category"
+                    className="input text-sm w-full"
+                    value={newItem.category}
+                    onChange={handleNewItemChange}
+                  >
                     <option value="">Select category</option>
                     <option value="installation">Installation</option>
                     <option value="maintenance">Maintenance</option>
@@ -726,43 +1020,92 @@ export default function ServiceBillForm() {
                   </select>
                 </div>
                 <div className="md:col-span-2">
-                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">Qty</label>
-                  <input type="number" name="qty" className="input text-sm w-full" value={newItem.qty} onChange={handleNewItemChange} />
+                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">
+                    Qty
+                  </label>
+                  <input
+                    type="number"
+                    name="qty"
+                    className="input text-sm w-full"
+                    value={newItem.qty}
+                    onChange={handleNewItemChange}
+                  />
                 </div>
                 <div className="md:col-span-3">
-                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">Rate</label>
-                  <input type="number" name="rate" className="input text-sm w-full" value={newItem.rate} onChange={handleNewItemChange} />
+                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">
+                    Rate
+                  </label>
+                  <input
+                    type="number"
+                    name="rate"
+                    className="input text-sm w-full"
+                    value={newItem.rate}
+                    onChange={handleNewItemChange}
+                  />
                 </div>
-                
+
                 <div className="md:col-span-3">
-                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">Disc %</label>
-                  <input type="number" name="discount_percent" className="input text-sm w-full" value={newItem.discount_percent} onChange={handleNewItemChange} />
+                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">
+                    Disc %
+                  </label>
+                  <input
+                    type="number"
+                    name="discount_percent"
+                    className="input text-sm w-full"
+                    value={newItem.discount_percent}
+                    onChange={handleNewItemChange}
+                  />
                 </div>
                 <div className="md:col-span-4">
-                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">Tax Code</label>
-                  <select name="tax_code_id" className="input text-sm w-full" value={newItem.tax_code_id} onChange={handleNewItemChange}>
+                  <label className="text-xs uppercase font-semibold text-slate-500 mb-1 block">
+                    Tax Code
+                  </label>
+                  <select
+                    name="tax_code_id"
+                    className="input text-sm w-full"
+                    value={newItem.tax_code_id}
+                    onChange={handleNewItemChange}
+                  >
                     <option value="">No Tax</option>
-                    {taxCodes.map((t) => (<option key={t.id} value={String(t.id)}>{t.name}</option>))}
+                    {taxCodes.map((t) => (
+                      <option key={t.id} value={String(t.id)}>
+                        {t.name}
+                      </option>
+                    ))}
                   </select>
-                  
-                  {newItem.tax_code_id && calcNewItemTaxBreakdown().components.length > 0 && (
-                    <div className="border border-brand/20 bg-brand/5 rounded-md p-2 text-[11px] mt-2">
-                      <span className="font-bold block border-b border-brand/10 mb-1">Tax Calculation:</span>
-                      {calcNewItemTaxBreakdown().components.map((c) => (
-                        <div key={c.name} className="flex justify-between">
-                          <span>{c.name} ({c.rate}%):</span>
-                          <span className="font-semibold">{c.amount.toFixed(2)}</span>
+
+                  {newItem.tax_code_id &&
+                    calcNewItemTaxBreakdown().components.length > 0 && (
+                      <div className="border border-brand/20 bg-brand/5 rounded-md p-2 text-[11px] mt-2">
+                        <span className="font-bold block border-b border-brand/10 mb-1">
+                          Tax Calculation:
+                        </span>
+                        {calcNewItemTaxBreakdown().components.map((c) => (
+                          <div key={c.name} className="flex justify-between">
+                            <span>
+                              {c.name} ({c.rate}%):
+                            </span>
+                            <span className="font-semibold">
+                              {c.amount.toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                        <div className="flex justify-between border-t border-brand/10 mt-1 pt-1 font-bold italic">
+                          <span>Total Tax:</span>
+                          <span>
+                            {calcNewItemTaxBreakdown().taxTotal.toFixed(2)}
+                          </span>
                         </div>
-                      ))}
-                      <div className="flex justify-between border-t border-brand/10 mt-1 pt-1 font-bold italic">
-                        <span>Total Tax:</span>
-                        <span>{calcNewItemTaxBreakdown().taxTotal.toFixed(2)}</span>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
                 <div className="md:col-span-5 flex items-end justify-end">
-                  <button type="button" className="btn btn-primary px-6 py-2 text-sm flex items-center gap-2 h-10 w-full sm:w-auto justify-center" onClick={addItemToLines} disabled={!newItem.item_id || !newItem.qty}>
+                  <button
+                    type="button"
+                    className="btn btn-primary px-6 py-2 text-sm flex items-center gap-2 h-10 w-full sm:w-auto justify-center"
+                    onClick={addItemToLines}
+                    disabled={!newItem.item_id || !newItem.qty}
+                  >
                     <span>+</span> Add Service
                   </button>
                 </div>
@@ -786,7 +1129,14 @@ export default function ServiceBillForm() {
               </thead>
               <tbody>
                 {lines.length === 0 ? (
-                  <tr><td colSpan="9" className="text-center py-10 text-slate-400 bg-slate-50 italic">No service items added yet.</td></tr>
+                  <tr>
+                    <td
+                      colSpan="9"
+                      className="text-center py-10 text-slate-400 bg-slate-50 italic"
+                    >
+                      No service items added yet.
+                    </td>
+                  </tr>
                 ) : (
                   lines.map((row, i) => {
                     const qty = Number(row.qty || 0);
@@ -802,31 +1152,79 @@ export default function ServiceBillForm() {
                         <td>{i + 1}</td>
                         <td>
                           {!readOnly ? (
-                            <select className="input text-xs w-full" value={row.item_id || ""} onChange={(e) => handleLineChange(row.id, "item_id", e.target.value)}>
+                            <select
+                              className="input text-xs w-full"
+                              value={row.item_id || ""}
+                              onChange={(e) =>
+                                handleLineChange(
+                                  row.id,
+                                  "item_id",
+                                  e.target.value,
+                                )
+                              }
+                            >
                               <option value="">Select item</option>
-                              {serviceItems.map((it) => (<option key={it.id} value={String(it.id)}>{it.item_name}</option>))}
+                              {serviceItems.map((it) => (
+                                <option key={it.id} value={String(it.id)}>
+                                  {it.item_name}
+                                </option>
+                              ))}
                             </select>
                           ) : (
-                            <span className="font-medium text-[#0E3646]">{row.item_name || row.desc || "Unknown"}</span>
+                            <span className="font-medium text-[#0E3646]">
+                              {row.item_name || row.desc || "Unknown"}
+                            </span>
                           )}
                         </td>
-                        <td className="text-xs text-slate-700 capitalize">{row.category}</td>
+                        <td className="text-xs text-slate-700 capitalize">
+                          {row.category}
+                        </td>
                         <td className="text-right">
                           {!readOnly ? (
-                            <input type="number" className="input text-right text-xs w-20" value={row.qty} onChange={(e) => handleLineChange(row.id, "qty", e.target.value)} />
-                          ) : row.qty}
+                            <input
+                              type="number"
+                              className="input text-right text-xs w-20"
+                              value={row.qty}
+                              onChange={(e) =>
+                                handleLineChange(row.id, "qty", e.target.value)
+                              }
+                            />
+                          ) : (
+                            row.qty
+                          )}
                         </td>
                         <td className="text-right font-mono">
                           {!readOnly ? (
-                            <input type="number" className="input text-right text-xs w-24" value={row.rate} onChange={(e) => handleLineChange(row.id, "rate", e.target.value)} />
-                          ) : Number(row.rate).toFixed(2)}
+                            <input
+                              type="number"
+                              className="input text-right text-xs w-24"
+                              value={row.rate}
+                              onChange={(e) =>
+                                handleLineChange(row.id, "rate", e.target.value)
+                              }
+                            />
+                          ) : (
+                            Number(row.rate).toFixed(2)
+                          )}
                         </td>
-                        <td className="text-right text-red-500">{row.discount_percent}%</td>
-                        <td className="text-right text-slate-500">{tax.toFixed(2)}</td>
-                        <td className="text-right font-bold text-[#0E3646]">{total.toFixed(2)}</td>
+                        <td className="text-right text-red-500">
+                          {row.discount_percent}%
+                        </td>
+                        <td className="text-right text-slate-500">
+                          {tax.toFixed(2)}
+                        </td>
+                        <td className="text-right font-bold text-[#0E3646]">
+                          {total.toFixed(2)}
+                        </td>
                         {!readOnly && (
                           <td className="text-center">
-                            <button type="button" className="text-red-500 hover:text-red-800 transition-colors text-xs" onClick={() => removeRow(i)}>Remove</button>
+                            <button
+                              type="button"
+                              className="text-red-500 hover:text-red-800 transition-colors text-xs"
+                              onClick={() => removeRow(i)}
+                            >
+                              Remove
+                            </button>
                           </td>
                         )}
                       </tr>
@@ -840,38 +1238,55 @@ export default function ServiceBillForm() {
             <div className="w-72 space-y-2 text-sm">
               <div className="flex justify-between items-center py-1">
                 <span className="text-slate-600">Sub Total:</span>
-                <span className="font-semibold">{totals.subtotal.toFixed(2)}</span>
+                <span className="font-semibold">
+                  {totals.subtotal.toFixed(2)}
+                </span>
               </div>
               <div className="flex justify-between items-center py-1 text-red-600">
                 <span className="text-slate-600">Discount Amount:</span>
                 <span>-{totals.discountAmount.toFixed(2)}</span>
               </div>
               {totals.components.length > 0 && (
-              <>
-              <div className="flex justify-between items-center py-2 border-b border-slate-200">
-                <span className="font-medium">Tax</span>
-                <span className="font-bold">{totals.taxAmount.toFixed(2)}</span>
-              </div>
-              {totals.components.map((c) => (
-                <div key={c.name} className="flex justify-between items-center py-1 text-xs text-slate-500 pl-4">
-                  <span>{c.name} ({c.rate}%):</span>
-                  <span>{Number(c.amount || 0).toFixed(2)}</span>
-                </div>
-              ))}
-              </>
+                <>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-200">
+                    <span className="font-medium">Tax</span>
+                    <span className="font-bold">
+                      {totals.taxAmount.toFixed(2)}
+                    </span>
+                  </div>
+                  {totals.components.map((c) => (
+                    <div
+                      key={c.name}
+                      className="flex justify-between items-center py-1 text-xs text-slate-500 pl-4"
+                    >
+                      <span>
+                        {c.name} ({c.rate}%):
+                      </span>
+                      <span>{Number(c.amount || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </>
               )}
-              <div className="flex justify-between items-center py-1">
+              {/* <div className="flex justify-between items-center py-1">
                 <span className="text-slate-600">Freight Charges:</span>
                 {!readOnly ? (
                   <input className={`input w-28 text-right text-xs ${disabledClass}`} type="number" value={bill.freight_charges} onChange={(e) => update("freight_charges", e.target.value)} readOnly={readOnly} />
                 ) : totals.freight.toFixed(2)}
-              </div>
-              <div className="flex justify-between items-center py-1">
+              </div> */}
+              {/* <div className="flex justify-between items-center py-1">
                 <span className="text-slate-600">Other Charges:</span>
                 {!readOnly ? (
-                  <input className={`input w-28 text-right text-xs ${disabledClass}`} type="number" value={bill.other_charges} onChange={(e) => update("other_charges", e.target.value)} readOnly={readOnly} />
-                ) : totals.other.toFixed(2)}
-              </div>
+                  <input
+                    className={`input w-28 text-right text-xs ${disabledClass}`}
+                    type="number"
+                    value={bill.other_charges}
+                    onChange={(e) => update("other_charges", e.target.value)}
+                    readOnly={readOnly}
+                  />
+                ) : (
+                  totals.other.toFixed(2)
+                )}
+              </div> */}
               <div className="flex justify-between items-center pt-3 mt-1 border-t-2 border-slate-900 dark:border-slate-100 text-lg font-bold text-[#0E3646]">
                 <span>Total Amount:</span>
                 <span>{totals.total.toFixed(2)}</span>
@@ -881,27 +1296,47 @@ export default function ServiceBillForm() {
         </div>
       </div>
 
-
-
       <div className="card">
         <div className="card-header bg-brand text-white rounded-t-lg">
           <div className="font-semibold">Notes</div>
         </div>
         <div className="card-body">
-          <textarea className={`input ${disabledClass}`} rows={3} value={bill.notes} onChange={(e) => update("notes", e.target.value)} placeholder="Additional notes..." readOnly={readOnly} />
+          <textarea
+            className={`input ${disabledClass}`}
+            rows={3}
+            value={bill.notes}
+            onChange={(e) => update("notes", e.target.value)}
+            placeholder="Additional notes..."
+            readOnly={readOnly}
+          />
         </div>
       </div>
 
       <div className="flex justify-end gap-2">
-        <button type="button" className="btn-secondary" onClick={() => navigate("/service-management/service-bills")} disabled={saving}>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => navigate("/service-management/service-bills")}
+          disabled={saving}
+        >
           Cancel
         </button>
         {!readOnly && (
           <>
-            <button type="button" className="btn bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded" onClick={() => saveBill("PENDING")} disabled={saving}>
+            <button
+              type="button"
+              className="btn bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded"
+              onClick={() => saveBill("PENDING")}
+              disabled={saving}
+            >
               Save as Draft
             </button>
-            <button type="button" className="btn-primary" onClick={() => saveBill()} disabled={saving}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => saveBill()}
+              disabled={saving}
+            >
               {saving ? "Saving..." : "Save Bill"}
             </button>
           </>

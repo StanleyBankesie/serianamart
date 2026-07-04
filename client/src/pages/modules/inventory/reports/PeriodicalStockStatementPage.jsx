@@ -20,8 +20,57 @@ export default function PeriodicalStockStatementPage() {
   const [loading, setLoading] = useState(false);
   const [itemOptions, setItemOptions] = useState([]);
 
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [searchVal, setSearchVal] = useState("");
+
+  const [showGroupDropdown, setShowGroupDropdown] = useState(false);
+  const [groupSearchVal, setGroupSearchVal] = useState("");
+
+  const itemSelectOptions = React.useMemo(() => {
+    if (!itemOptions) return [];
+    return itemOptions.map((p) => ({
+      value: String(p.id),
+      label: `${p.item_code} - ${p.item_name}`,
+      barcode: p.barcode,
+      item_code: p.item_code,
+      item_name: p.item_name,
+    }));
+  }, [itemOptions]);
+
+  const itemSearchResults = React.useMemo(() => {
+    if (!searchVal) return [];
+    const lower = searchVal.toLowerCase();
+    return itemSelectOptions.filter(
+      (o) =>
+        (o.barcode && o.barcode.toLowerCase() === lower) ||
+        (o.item_code && o.item_code.toLowerCase().includes(lower)) ||
+        (o.item_name && o.item_name.toLowerCase().includes(lower)),
+    );
+  }, [searchVal, itemSelectOptions]);
+
+  const groupSelectOptions = React.useMemo(() => {
+    if (!groups) return [];
+    return groups.map((g) => ({
+      value: String(g.id),
+      label: g.group_name,
+      group_name: g.group_name,
+    }));
+  }, [groups]);
+
+  const groupSearchResults = React.useMemo(() => {
+    if (!groupSearchVal) return [];
+    const lower = groupSearchVal.toLowerCase();
+    return groupSelectOptions.filter(
+      (o) => o.group_name && o.group_name.toLowerCase().includes(lower),
+    );
+  }, [groupSearchVal, groupSelectOptions]);
+
   async function run() {
     try {
+      if (!from && !to && !warehouseId && !itemGroupId && !q) {
+        setItems([]);
+        return;
+      }
       setLoading(true);
       const res = await api.get(
         "/inventory/reports/periodical-stock-statement",
@@ -35,7 +84,14 @@ export default function PeriodicalStockStatementPage() {
           },
         },
       );
-      setItems(res.data?.items || []);
+      const mappedItems = (res.data?.items || []).map((r) => ({
+        ...r,
+        opening_value: (Number(r.opening_qty) || 0) * (Number(r.cost_price) || 0),
+        receipt_value: (Number(r.receipts_qty) || 0) * (Number(r.cost_price) || 0),
+        issue_value: (Number(r.issues_qty) || 0) * (Number(r.cost_price) || 0),
+        closing_value: (Number(r.closing_qty) || 0) * (Number(r.cost_price) || 0),
+      }));
+      setItems(mappedItems);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load report");
     } finally {
@@ -77,7 +133,7 @@ export default function PeriodicalStockStatementPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, warehouseId, itemGroupId, q]);
 
-  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "txn_date", "desc");
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "item_name", "asc");
 
   return (
     <div className="space-y-4">
@@ -134,38 +190,135 @@ export default function PeriodicalStockStatementPage() {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="relative">
               <label className="label">Item Group</label>
-              <select
-                className="input"
-                value={itemGroupId}
-                onChange={(e) => setItemGroupId(e.target.value)}
-              >
-                <option value="">All</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.group_name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <input
+                  className="input pr-10"
+                  type="text"
+                  placeholder="Type to search group..."
+                  value={groupSearchVal}
+                  onChange={(e) => {
+                    setGroupSearchVal(e.target.value);
+                    setShowGroupDropdown(true);
+                  }}
+                  onFocus={() => setShowGroupDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowGroupDropdown(false), 200)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (!groupSearchVal) {
+                        setItemGroupId("");
+                      } else if (groupSearchResults.length) {
+                        setItemGroupId(groupSearchResults[0].value);
+                        setGroupSearchVal("");
+                        setShowGroupDropdown(false);
+                      }
+                    }
+                  }}
+                />
+                <div className="absolute right-3 top-3 text-slate-400">
+                  <svg
+                    width="20"
+                    height="20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </div>
+              </div>
+              {showGroupDropdown && groupSearchVal && groupSearchResults.length > 0 ? (
+                <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto z-50">
+                  {groupSearchResults.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      className="w-full text-left px-4 py-3 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-b border-slate-100 dark:border-slate-700/50 last:border-0"
+                      onClick={() => {
+                        setItemGroupId(o.value);
+                        setGroupSearchVal("");
+                        setShowGroupDropdown(false);
+                      }}
+                    >
+                      <div className="font-medium text-slate-900 dark:text-slate-100">
+                        {o.group_name}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
-            <div>
+            <div className="relative">
               <label className="label">Item</label>
-              <input
-                className="input"
-                type="text"
-                placeholder="Item code or name…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                list="statement_item_options"
-              />
-              <datalist id="statement_item_options">
-                {itemOptions.slice(0, 1000).map((it) => (
-                  <option key={it.id} value={it.item_code}>
-                    {it.item_name}
-                  </option>
-                ))}
-              </datalist>
+              <div className="relative">
+                <input
+                  className="input pr-10"
+                  type="text"
+                  placeholder="Scan barcode or type..."
+                  value={searchVal}
+                  onChange={(e) => {
+                    setSearchVal(e.target.value);
+                    setShowDropdown(true);
+                  }}
+                  onFocus={() => setShowDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (!searchVal) {
+                        setQ("");
+                      } else if (itemSearchResults.length) {
+                        setQ(itemSearchResults[0].item_code);
+                        setSearchVal("");
+                        setShowDropdown(false);
+                      }
+                    }
+                  }}
+                />
+                <div className="absolute right-3 top-3 text-slate-400">
+                  <svg
+                    width="20"
+                    height="20"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                    />
+                  </svg>
+                </div>
+              </div>
+              {showDropdown && searchVal && itemSearchResults.length > 0 ? (
+                <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto z-50">
+                  {itemSearchResults.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      className="w-full text-left px-4 py-3 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-b border-slate-100 dark:border-slate-700/50 last:border-0"
+                      onClick={() => {
+                        setQ(o.item_code);
+                        setSearchVal("");
+                        setShowDropdown(false);
+                      }}
+                    >
+                      <div className="font-medium text-slate-900 dark:text-slate-100">
+                        {o.item_name}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <div className="flex items-end gap-3 sm:ml-auto flex-wrap">
               <button
@@ -184,7 +337,14 @@ export default function PeriodicalStockStatementPage() {
                 onClick={() => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
-                  const ws = XLSX.utils.json_to_sheet(rows);
+                  const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
+                    "Item Code": r.item_code,
+                    "Item Name": r.item_name,
+                    "Opening Value": r.opening_value,
+                    "Receipt Value": r.receipt_value,
+                    "Issue Value": r.issue_value,
+                    "Closing Value": r.closing_value
+                  })));
                   const wb = XLSX.utils.book_new();
                   XLSX.utils.book_append_sheet(
                     wb,
@@ -209,12 +369,12 @@ export default function PeriodicalStockStatementPage() {
                   doc.text("Periodical Stock Statement", 10, y);
                   y += 8;
                   doc.setFontSize(10);
-                  doc.text("Date", 10, y);
-                  doc.text("Document", 45, y);
-                  doc.text("Item", 95, y);
-                  doc.text("In", 140, y);
-                  doc.text("Out", 165, y);
-                  doc.text("Balance", 190, y, { align: "right" });
+                  doc.text("Item Code", 10, y);
+                  doc.text("Item Name", 40, y);
+                  doc.text("Opening", 100, y, { align: "right" });
+                  doc.text("Receipts", 130, y, { align: "right" });
+                  doc.text("Issues", 160, y, { align: "right" });
+                  doc.text("Closing", 190, y, { align: "right" });
                   y += 4;
                   doc.line(10, y, 200, y);
                   y += 5;
@@ -223,26 +383,12 @@ export default function PeriodicalStockStatementPage() {
                       doc.addPage();
                       y = 15;
                     }
-                    const dt = r.txn_date
-                      ? new Date(r.txn_date).toLocaleDateString()
-                      : "-";
-                    const docno = String(r.doc_no || "-");
-                    const item = String(
-                      r.item_name || r.item_code || "-",
-                    ).slice(0, 40);
-                    const inq = String(Number(r.qty_in || 0).toLocaleString());
-                    const outq = String(
-                      Number(r.qty_out || 0).toLocaleString(),
-                    );
-                    const bal = String(
-                      Number(r.balance_qty || 0).toLocaleString(),
-                    );
-                    doc.text(dt, 10, y);
-                    doc.text(docno, 45, y);
-                    doc.text(item, 95, y);
-                    doc.text(inq, 140, y);
-                    doc.text(outq, 165, y);
-                    doc.text(bal, 190, y, { align: "right" });
+                    doc.text(String(r.item_code || "-"), 10, y);
+                    doc.text(String(r.item_name || "-").slice(0, 30), 40, y);
+                    doc.text(Number(r.opening_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2}), 100, y, { align: "right" });
+                    doc.text(Number(r.receipt_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2}), 130, y, { align: "right" });
+                    doc.text(Number(r.issue_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2}), 160, y, { align: "right" });
+                    doc.text(Number(r.closing_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2}), 190, y, { align: "right" });
                     y += 5;
                   });
                   doc.save("periodical-stock-statement.pdf");
@@ -255,35 +401,33 @@ export default function PeriodicalStockStatementPage() {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="table">
+            <table className="table table-fixed w-full">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <SortableHeader label="Date" sortKey="txn_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Document" sortKey="document" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="In" sortKey="in" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
-                  <SortableHeader label="Out" sortKey="out" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
-                  <SortableHeader label="Balance" sortKey="balance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Item Code" sortKey="item_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Item Name" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Opening Value" sortKey="opening_value" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Receipt Value" sortKey="receipt_value" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Issue Value" sortKey="issue_value" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Closing Value" sortKey="closing_value" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {(order === "new" ? items.slice().reverse() : items).map((r, idx) => (
-                  <tr key={r.id || idx}>
-                    <td>
-                      {r.txn_date
-                        ? new Date(r.txn_date).toLocaleDateString()
-                        : "-"}
-                    </td>
-                    <td className="font-medium">{r.doc_no || "-"}</td>
-                    <td>{r.item_name || r.item_code}</td>
+                {(order === "new" ? sorted_items.slice().reverse() : sorted_items).map((r, idx) => (
+                  <tr key={r.item_id || idx}>
+                    <td className="font-medium">{r.item_code || "-"}</td>
+                    <td>{r.item_name || "-"}</td>
                     <td className="text-right">
-                      {Number(r.qty_in || 0).toLocaleString()}
+                      {Number(r.opening_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="text-right">
-                      {Number(r.qty_out || 0).toLocaleString()}
+                      {Number(r.receipt_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="text-right">
-                      {Number(r.balance_qty || 0).toLocaleString()}
+                      {Number(r.issue_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-right">
+                      {Number(r.closing_value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                   </tr>
                 ))}
