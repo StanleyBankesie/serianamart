@@ -12,16 +12,15 @@ import "./utils/loadServerEnv.js";
  * @param {string} label - A label indicating the error context (e.g., "unhandledRejection").
  * @param {Error|any} err - The error object or reason.
  */
+import fs from "fs";
+
 function logProcessError(label, err) {
   const error = err instanceof Error ? err : new Error(String(err));
-  console.error(`[Process] ${label}`);
-  console.error(
-    `[Process] code=${error.code || "n/a"} errno=${error.errno ?? "n/a"} sqlMessage=${error.sqlMessage || "n/a"}`,
-  );
-  console.error(`[Process] message=${error.message}`);
-  if (error.stack) {
-    console.error(error.stack);
-  }
+  const msg = `[Process] ${label}\nCode: ${error.code || "n/a"}\nMessage: ${error.message}\nStack: ${error.stack}\n`;
+  console.error(msg);
+  try {
+    fs.appendFileSync("CRASH_REPORT.txt", new Date().toISOString() + "\n" + msg + "\n---\n");
+  } catch (e) {}
 }
 
 // Global Unhandled Promise Rejection Handler
