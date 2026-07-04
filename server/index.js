@@ -138,7 +138,12 @@ const allowedOrigins = (() => {
   if (raw) {
     return raw
       .split(",")
-      .map((s) => s.trim())
+      .map((s) =>
+        s
+          .trim()
+          .replace(/^['"`]+|['"`]+$/g, "")
+          .replace(/\/$/, ""),
+      )
       .filter(Boolean);
   }
   return [
@@ -147,22 +152,61 @@ const allowedOrigins = (() => {
     "http://localhost:5174",
     "http://127.0.0.1:5174",
     "https://serianamart.omnisuite-erp.com",
+    "https://www.serianamart.omnisuite-erp.com",
   ];
 })();
 
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  const normalizedOrigin = String(origin)
+    .trim()
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .replace(/\/$/, "");
+  return allowedOrigins.includes(normalizedOrigin);
+};
+
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
-    const normalizedOrigin = origin.replace(/\/$/, "");
-    if (allowedOrigins.includes(normalizedOrigin)) return cb(null, true);
+    if (isAllowedOrigin(origin)) return cb(null, true);
     console.log("[CORS] Rejected Origin:", origin);
-    // Temporarily allow it to see if this is the issue
-    return cb(null, true);
+    return cb(new Error(`CORS origin not allowed: ${origin}`));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+    "x-user-id",
+    "x-company-id",
+    "x-branch-id",
+  ],
+  exposedHeaders: ["Content-Length", "Content-Type"],
   optionsSuccessStatus: 204,
 };
+
+app.use((req, res, next) => {
+  const origin = String(req.headers.origin || "");
+  if (isAllowedOrigin(origin) && origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET,POST,PUT,DELETE,OPTIONS",
+    );
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-id, x-company-id, x-branch-id",
+    );
+  }
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+  next();
+});
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
