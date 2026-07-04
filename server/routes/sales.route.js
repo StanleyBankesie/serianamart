@@ -1,6 +1,7 @@
 // Third-party Library Imports
 import express from "express";
 
+import { cacheListResponse } from "../middleware/cache.middleware.js";
 // Authentication & Authorization Middleware Dependencies
 import {
   requireAuth,
@@ -2484,6 +2485,7 @@ router.get(
     "SAL.ORDER.VIEW",
     "SAL.INVOICE.VIEW",
   ]),
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       await ensureQuotationTables();
@@ -3156,25 +3158,30 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   requirePermission("SAL.ORDER.VIEW"),
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
       const branchId = req.scope.branchId;
-  const branchIdsStr = req.scope.branchIdsStr;
+      const branchIdsStr = req.scope.branchIdsStr;
+      
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.max(1, Math.min(500, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
 
-      // Ensure is_active and deleted_at columns exist
-      try {
-        await query(
-          "ALTER TABLE sal_orders ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
-        );
-      } catch {}
-      try {
-        await query(
-          "ALTER TABLE sal_orders ADD COLUMN deleted_at DATETIME NULL",
-        );
-      } catch {}
+      // Count query
+      const [countResult] = await query(
+        `SELECT COUNT(*) AS total
+         FROM sal_orders o
+         WHERE o.company_id = :companyId 
+           AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
+           AND COALESCE(o.is_active,'Y') = 'Y'`,
+        { companyId, branchIdsStr }
+      ).catch(() => [{ total: 0 }]);
+      const total = countResult.total || 0;
 
+      // Optimized query with pagination
       const items = await query(
         `
         SELECT 
@@ -3184,83 +3191,34 @@ router.get(
           o.customer_id, 
           c.customer_name AS customer_name,
           o.priority,
-          CASE 
-            WHEN a.has_approved = 1 THEN 'APPROVED'
-            WHEN iw.has_inactive_pending = 1 THEN 'APPROVED'
-            WHEN x.assigned_to_user_id IS NOT NULL THEN 'PENDING_APPROVAL'
-            ELSE o.status
-          END AS status, 
+          o.status, 
           o.total_amount,
           EXISTS(
-            SELECT 1,
-          i.created_at,
-          u.username AS created_by_name
-         FROM sal_invoices i
-        LEFT JOIN adm_users u ON u.id = i.created_by
-          WHERE i.company_id = :companyId
-                AND (:branchIdsStr = '' OR FIND_IN_SET(i.branch_id, :branchIdsStr))
-                AND i.sales_order_id = o.id
-             LIMIT 1
-          ) AS has_invoice,
-          u.username AS forwarded_to_username
+            SELECT 1 FROM sal_invoices i
+            WHERE i.company_id = :companyId
+              AND i.sales_order_id = o.id
+          ) AS has_invoice
         FROM sal_orders o
-        LEFT JOIN (
-          SELECT t.document_id, t.assigned_to_user_id
-          FROM adm_document_workflows t
-          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
-          JOIN (
-            SELECT document_id, MAX(id) AS max_id
-            FROM adm_document_workflows
-            WHERE company_id = :companyId
-              AND status = 'PENDING'
-              AND (
-                document_type = 'SALES_ORDER' OR 
-                document_type = 'Sales Order' OR
-                document_type LIKE 'SALES_ORDER:%'
-              )
-            GROUP BY document_id
-          ) m ON m.max_id = t.id
-        ) x ON x.document_id = o.id
-        LEFT JOIN (
-          SELECT t.document_id, 1 AS has_inactive_pending
-          FROM adm_document_workflows t
-          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 0
-          WHERE t.company_id = :companyId
-            AND t.status = 'PENDING'
-            AND (
-              t.document_type = 'SALES_ORDER' OR 
-              t.document_type = 'Sales Order' OR
-              t.document_type LIKE 'SALES_ORDER:%'
-            )
-          GROUP BY t.document_id
-        ) iw ON iw.document_id = o.id
-        LEFT JOIN (
-          SELECT t.document_id, 1 AS has_approved
-          FROM adm_document_workflows t
-          JOIN adm_workflows w ON w.id = t.workflow_id AND w.is_active = 1
-          JOIN (
-            SELECT document_id, MAX(id) AS max_id
-            FROM adm_document_workflows
-            WHERE company_id = :companyId
-              AND status = 'APPROVED'
-              AND (
-                document_type = 'SALES_ORDER' OR 
-                document_type = 'Sales Order' OR
-                document_type LIKE 'SALES_ORDER:%'
-              )
-            GROUP BY document_id
-          ) m ON m.max_id = t.id
-        ) a ON a.document_id = o.id
         LEFT JOIN sal_customers c
           ON c.id = o.customer_id AND c.company_id = :companyId
-        LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
-        WHERE o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
+        WHERE o.company_id = :companyId 
+          AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
           AND COALESCE(o.is_active,'Y') = 'Y'
         ORDER BY o.order_date DESC, o.id DESC
+        LIMIT :limit OFFSET :offset
         `,
-        { companyId, branchId, branchIdsStr },
+        { companyId, branchIdsStr, limit, offset },
       ).catch(() => []);
-      res.json({ items: Array.isArray(items) ? items : [] });
+
+      res.json({
+        items: Array.isArray(items) ? items : [],
+        pagination: {
+          total,
+          page,
+          pageSize: limit,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
     } catch (e) {
       next(e);
     }
@@ -3317,16 +3275,6 @@ router.delete(
           "Cannot cancel: order linked to an invoice",
         );
       }
-      try {
-        await query(
-          "ALTER TABLE sal_orders ADD COLUMN is_active ENUM('Y','N') NOT NULL DEFAULT 'Y'",
-        );
-      } catch {}
-      try {
-        await query(
-          "ALTER TABLE sal_orders ADD COLUMN deleted_at DATETIME NULL",
-        );
-      } catch {}
       await query(
         "UPDATE sal_orders SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW() WHERE id = :id AND company_id = :CompanyId AND branch_id = :BranchId",
         { id, CompanyId: companyId, BranchId: branchId, branchIdsStr },
@@ -3974,16 +3922,30 @@ router.get(
   requireCompanyScope,
   requireBranchScope,
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
       const branchId = req.scope.branchId;
-  const branchIdsStr = req.scope.branchIdsStr;
+      const branchIdsStr = req.scope.branchIdsStr;
       const customerId = req.query.customer_id
         ? Number(req.query.customer_id)
         : null;
-      const items = await query(
-        `SELECT 
+
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.max(1, Math.min(500, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
+
+      // Count query
+      let countQuery = `SELECT COUNT(*) AS total FROM sal_invoices i WHERE i.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(i.branch_id, :branchIdsStr))`;
+      if (customerId) countQuery += ` AND i.customer_id = :customerId`;
+
+      const [countResult] = await query(countQuery, { companyId, branchIdsStr, customerId }).catch(() => [{ total: 0 }]);
+      const total = countResult.total || 0;
+
+      // Optimized paginated query
+      let sql = `
+        SELECT 
            i.id,
            i.invoice_no,
            i.invoice_date,
@@ -4000,40 +3962,40 @@ router.get(
            i.sales_order_id,
            i.service_execution_id,
            i.remarks,
-           MAX(it.vat_on_sales_id) AS tax_code_id,
-          i.created_at,
-          u.username AS created_by_name
-         FROM sal_invoices i
-         LEFT JOIN sal_customers c
-           ON c.id = i.customer_id AND c.company_id = i.company_id
-         LEFT JOIN sal_invoice_details d
-           ON d.invoice_id = i.id
-         LEFT JOIN inv_items it
-           ON it.id = d.item_id AND it.company_id = i.company_id
-        LEFT JOIN adm_users u ON u.id = i.created_by
-WHERE i.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(i.branch_id, :branchIdsStr))
-           ${customerId ? "AND i.customer_id = :customerId" : ""}
-         GROUP BY
-           i.id,
-           i.invoice_no,
-           i.invoice_date,
-           i.customer_id,
-           c.customer_name,
-           i.payment_status,
-           i.status,
-           i.net_amount,
-           i.balance_amount,
-           i.tax_amount,
-           i.price_type,
-           i.payment_type,
-           i.warehouse_id,
-           i.sales_order_id,
-           i.service_execution_id,
-           i.remarks
-         ORDER BY i.invoice_date DESC, i.id DESC`,
-        { companyId, branchId, branchIdsStr, customerId },
-      ).catch(() => []);
-      res.json({ items: Array.isArray(items) ? items : [] });
+           i.created_at,
+           u.username AS created_by_name,
+           (
+             SELECT MAX(it.vat_on_sales_id) 
+             FROM sal_invoice_details d
+             JOIN inv_items it ON it.id = d.item_id 
+             WHERE d.invoice_id = i.id AND it.company_id = i.company_id
+           ) AS tax_code_id
+        FROM sal_invoices i
+        LEFT JOIN sal_customers c
+          ON c.id = i.customer_id AND c.company_id = i.company_id
+        LEFT JOIN adm_users u 
+          ON u.id = i.created_by
+        WHERE i.company_id = :companyId 
+          AND (:branchIdsStr = '' OR FIND_IN_SET(i.branch_id, :branchIdsStr))
+      `;
+
+      if (customerId) {
+        sql += ` AND i.customer_id = :customerId`;
+      }
+
+      sql += ` ORDER BY i.invoice_date DESC, i.id DESC LIMIT :limit OFFSET :offset`;
+
+      const items = await query(sql, { companyId, branchIdsStr, customerId, limit, offset }).catch(() => []);
+
+      res.json({
+        items: Array.isArray(items) ? items : [],
+        pagination: {
+          total,
+          page,
+          pageSize: limit,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
     } catch (e) {
       next(e);
     }
@@ -5308,6 +5270,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {
@@ -8060,6 +8023,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   requireAnyPermission(["SAL.INVOICE.VIEW", "SAL.ORDER.VIEW"]),
   async (req, res, next) => {
     try {

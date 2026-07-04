@@ -4,6 +4,7 @@
  * stock balances, GRNs, transfers, adjustments, and settings.
  */
 import express from "express";
+import { cacheListResponse } from "../middleware/cache.middleware.js";
 import * as XLSX from "xlsx";
 import {
   requireAuth,
@@ -1622,6 +1623,7 @@ router.get(
   requireCompanyScope,
   requireBranchScope,
   requirePermission("INV.MATERIAL_REQUISITION.VIEW"),
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       await ensureMaterialRequisitionApprovalTrigger();
@@ -1655,6 +1657,17 @@ router.get(
         where += ` AND r.status = :status`;
         params.status = statusFilter;
       }
+      const page = Math.max(1, parseInt(req.query.page || "1", 10));
+      const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+      const offset = (page - 1) * limit;
+
+      let countSql = `SELECT COUNT(*) AS total FROM inv_material_requisitions r ${where}`;
+      const countRes = await query(countSql, params);
+      const total = Number(countRes[0]?.total || 0);
+
+      params.limit = limit;
+      params.offset = offset;
+
       const rows = await query(
         `
         SELECT r.id,
@@ -1701,11 +1714,19 @@ router.get(
         LEFT JOIN adm_users cu ON cu.id = r.created_by
         ${where}
         GROUP BY r.id
-        ORDER BY r.requisition_date DESC, r.id DESC
+        ORDER BY r.requisition_date DESC, r.id DESC LIMIT :limit OFFSET :offset
         `,
         params,
       );
-      res.json({ items: rows });
+      res.json({ 
+        items: rows,
+        pagination: {
+          page,
+          pageSize: limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
     } catch (err) {
       next(err);
     }
@@ -1921,35 +1942,40 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId = null } = req.scope || {};
-      const warehouseId = toNumber(req.query?.warehouseId);
-      const q = String(req.query?.q || "").trim();
-      const params = { companyId, branchId };
-      let where = "v.company_id = :companyId AND v.branch_id = :branchId";
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const fromDate = req.query?.from && req.query.from !== 'null' ? `${req.query.from} 00:00:00` : '1900-01-01 00:00:00';
+      const toDate = req.query?.to && req.query.to !== 'null' ? `${req.query.to} 23:59:59` : '2999-12-31 23:59:59';
+      const warehouseId = req.query?.warehouseId ? Number(req.query.warehouseId) : null;
+      const q = req.query?.q ? String(req.query.q).trim() : "";
+      
+      const params = { companyId, branchId, branchIdsStr, fromDate, toDate };
+      let lWhere = "l.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(l.branch_id, :branchIdsStr))";
       if (warehouseId) {
-        where += " AND v.warehouse_id = :warehouseId";
+        lWhere += " AND l.warehouse_id = :warehouseId";
         params.warehouseId = warehouseId;
       }
+
+      let iWhere = "i.company_id = :companyId";
       if (q) {
-        where += " AND (i.item_code LIKE :q OR i.item_name LIKE :q)";
+        iWhere += " AND (i.item_code LIKE :q OR i.item_name LIKE :q)";
         params.q = `%${q}%`;
       }
+
       const rows = await query(
         `
         SELECT 
-          v.item_id,
-          v.warehouse_id,
+          i.id AS item_id,
           i.item_code,
           i.item_name,
-          v.opening_qty,
-          0 AS receipts_qty,
-          0 AS issues_qty,
-          v.closing_qty,
-          v.created_at,
-          u.username AS created_by_name
-         FROM v_inv_stock_summary v
-        LEFT JOIN inv_items i ON i.id = v.item_id
-         WHERE ${where}
+          COALESCE(SUM(CASE WHEN l.transaction_date < :fromDate OR l.transaction_reason = 'Opening Balance' THEN l.qty_change ELSE 0 END), 0) AS opening_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change > 0 AND (l.transaction_reason IS NULL OR l.transaction_reason != 'Opening Balance') THEN l.qty_change ELSE 0 END), 0) AS receipts_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change < 0 THEN ABS(l.qty_change) ELSE 0 END), 0) AS issues_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date <= :toDate OR l.transaction_reason = 'Opening Balance' THEN l.qty_change ELSE 0 END), 0) AS closing_qty
+        FROM inv_items i
+        LEFT JOIN v_inv_stock_ledger_computed l ON l.item_id = i.id AND ${lWhere}
+        WHERE ${iWhere}
+        GROUP BY i.id, i.item_code, i.item_name
+        HAVING opening_qty != 0 OR receipts_qty != 0 OR issues_qty != 0 OR closing_qty != 0
         ORDER BY i.item_name ASC
         `,
         params,
@@ -1968,12 +1994,13 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
+      await ensureReportingViews();
       const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
       const itemGroupId = toNumber(req.query?.itemGroupId);
       const q = String(req.query?.q || "").trim();
-      const fromDate = req.query?.from ? `${req.query.from} 00:00:00` : '1900-01-01 00:00:00';
-      const toDate = req.query?.to ? `${req.query.to} 23:59:59` : '2999-12-31 23:59:59';
+      const fromDate = req.query?.from && req.query.from !== 'null' ? `${req.query.from} 00:00:00` : '1900-01-01 00:00:00';
+      const toDate = req.query?.to && req.query.to !== 'null' ? `${req.query.to} 23:59:59` : '2999-12-31 23:59:59';
       
       const params = { companyId, branchId, branchIdsStr, fromDate, toDate };
       
@@ -2000,12 +2027,12 @@ router.get(
           i.item_code,
           i.item_name,
           i.cost_price,
-          COALESCE(SUM(CASE WHEN l.transaction_date < :fromDate THEN l.qty_change ELSE 0 END), 0) AS opening_qty,
-          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change > 0 THEN l.qty_change ELSE 0 END), 0) AS receipts_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date < :fromDate OR l.transaction_reason = 'Opening Balance' THEN l.qty_change ELSE 0 END), 0) AS opening_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change > 0 AND (l.transaction_reason IS NULL OR l.transaction_reason != 'Opening Balance') THEN l.qty_change ELSE 0 END), 0) AS receipts_qty,
           COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change < 0 THEN ABS(l.qty_change) ELSE 0 END), 0) AS issues_qty,
-          COALESCE(SUM(CASE WHEN l.transaction_date <= :toDate THEN l.qty_change ELSE 0 END), 0) AS closing_qty
+          COALESCE(SUM(CASE WHEN l.transaction_date <= :toDate OR l.transaction_reason = 'Opening Balance' THEN l.qty_change ELSE 0 END), 0) AS closing_qty
         FROM inv_items i
-        LEFT JOIN inv_stock_ledger l ON l.item_id = i.id AND ${lWhere}
+        LEFT JOIN v_inv_stock_ledger_computed l ON l.item_id = i.id AND ${lWhere}
         WHERE ${iWhere}
         GROUP BY i.id, i.item_code, i.item_name, i.cost_price
         HAVING opening_qty != 0 OR receipts_qty != 0 OR issues_qty != 0 OR closing_qty != 0
@@ -2842,6 +2869,43 @@ async function ensureItemBatchTables() {
 
 // ─── Reporting Views ──────────────────────────────────────────────────────────
 async function ensureReportingViews() {
+  await query(`DROP VIEW IF EXISTS v_inv_stock_ledger_computed`).catch(() => {});
+  await query(`
+    CREATE VIEW v_inv_stock_ledger_computed AS
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.qty_accepted, 0) AS qty_change, h.grn_date AS transaction_date, 'GRN' AS type, NULL AS transaction_reason
+    FROM inv_goods_receipt_notes h JOIN inv_goods_receipt_note_details d ON d.grn_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.qty, 0), h.updation_date, 'UPDATE', h.reason AS transaction_reason
+    FROM inv_stock_updations h JOIN inv_stock_updation_details d ON d.updation_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.adjusted_stock - d.current_stock, 0), h.adjustment_date, 'ADJUST', NULL AS transaction_reason
+    FROM inv_stock_adjustments h JOIN inv_stock_adjustment_details d ON d.adjustment_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.qty_returned, 0), h.rts_date, 'RTS', NULL AS transaction_reason
+    FROM inv_return_to_stores h JOIN inv_return_to_stores_details d ON d.rts_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.qty_returned, 0), h.return_date, 'SR', NULL AS transaction_reason
+    FROM sal_returns h JOIN sal_return_details d ON d.return_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, -COALESCE(d.qty_issued, 0), h.issue_date, 'ISSUE', NULL AS transaction_reason
+    FROM inv_issue_to_requirement h JOIN inv_issue_to_requirement_details d ON d.issue_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, COALESCE(i.warehouse_id, h.branch_id), d.item_id, -COALESCE(d.quantity, 0), h.delivery_date, 'DELIVERY', NULL AS transaction_reason
+    FROM sal_deliveries h 
+    JOIN sal_delivery_details d ON d.delivery_id = h.id 
+    LEFT JOIN sal_invoices i ON i.id = h.invoice_id 
+    WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.from_warehouse_id, d.item_id, -COALESCE(d.qty, 0), h.transfer_date, 'TF_OUT', NULL AS transaction_reason
+    FROM inv_stock_transfers h JOIN inv_stock_transfer_details d ON d.transfer_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.to_branch_id, h.to_warehouse_id, d.item_id, COALESCE(d.received_qty, 0), h.received_date, 'TF_IN', NULL AS transaction_reason
+    FROM inv_stock_transfers h JOIN inv_stock_transfer_details d ON d.transfer_id = h.id WHERE h.status IN ('received', 'completed')
+    UNION ALL
+    SELECT company_id, branch_id, warehouse_id, item_id, qty_change, transaction_date, transaction_type AS type, NULL AS transaction_reason
+    FROM inv_stock_ledger WHERE transaction_type NOT IN ('GRN', 'STOCK_UPDATION', 'STOCK_ADJUSTMENT', 'ISSUE_TO_REQUIREMENT', 'STOCK_TRANSFER_OUT', 'STOCK_TRANSFER_IN')
+  `).catch((e) => { console.error('Error creating v_inv_stock_ledger_computed', e) });
+
   await query(`DROP VIEW IF EXISTS v_inv_stock_summary`).catch(() => {});
   await query(`
     CREATE VIEW v_inv_stock_summary AS
@@ -5358,10 +5422,19 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       await ensureStockAdjustmentTables();
       const { companyId, branchId = null } = req.scope || {};
+      const page = Math.max(1, parseInt(req.query.page || "1", 10));
+      const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+      const offset = (page - 1) * limit;
+
+      const countSql = `SELECT COUNT(*) AS total FROM inv_stock_adjustments a WHERE a.company_id = :companyId AND a.branch_id = :branchId`;
+      const countRes = await query(countSql, { companyId, branchId });
+      const total = Number(countRes[0]?.total || 0);
+
       const rows = await query(
         `
         SELECT a.id, a.adjustment_no, a.adjustment_date, a.status,
@@ -5391,11 +5464,19 @@ router.get(
           LEFT JOIN adm_users cu ON cu.id = a.created_by
          WHERE a.company_id = :companyId AND a.branch_id = :branchId
          GROUP BY a.id
-         ORDER BY a.adjustment_date DESC, a.id DESC
+         ORDER BY a.adjustment_date DESC, a.id DESC LIMIT :limit OFFSET :offset
         `,
-         { companyId, branchId, companyId2: companyId, companyId3: companyId },
+         { companyId, branchId, companyId2: companyId, companyId3: companyId, limit, offset },
        );
-       res.json({ items: rows || [] });
+       res.json({ 
+         items: rows || [],
+         pagination: {
+           page,
+           pageSize: limit,
+           total,
+           totalPages: Math.ceil(total / limit)
+         }
+       });
      } catch (e) {
        next(e);
      }
@@ -5408,10 +5489,19 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       await ensureStockTransferTables();
       const { companyId, branchId = null } = req.scope || {};
+      const page = Math.max(1, parseInt(req.query.page || "1", 10));
+      const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+      const offset = (page - 1) * limit;
+
+      const countSql = `SELECT COUNT(*) AS total FROM inv_stock_transfers t WHERE t.company_id = :companyId AND t.branch_id = :branchId`;
+      const countRes = await query(countSql, { companyId, branchId });
+      const total = Number(countRes[0]?.total || 0);
+
       const rows = await query(
         `
         SELECT t.id, t.transfer_no, t.transfer_date, t.status,
@@ -5433,11 +5523,19 @@ router.get(
         LEFT JOIN adm_users u ON u.id = t.created_by
          WHERE t.company_id = :companyId AND t.branch_id = :branchId
          GROUP BY t.id
-         ORDER BY t.transfer_date DESC, t.id DESC
+         ORDER BY t.transfer_date DESC, t.id DESC LIMIT :limit OFFSET :offset
         `,
-        { companyId, branchId },
+        { companyId, branchId, limit, offset },
       );
-      res.json({ items: rows || [] });
+      res.json({ 
+        items: rows || [],
+        pagination: {
+          page,
+          pageSize: limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
     } catch (e) {
       next(e);
     }
@@ -5552,6 +5650,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       const { companyId, branchId = null } = req.scope || {};
@@ -5562,6 +5661,17 @@ router.get(
         where += " AND g.grn_type = :grnType";
         params.grnType = grnType;
       }
+      const page = Math.max(1, parseInt(req.query.page || "1", 10));
+      const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+      const offset = (page - 1) * limit;
+
+      let countSql = `SELECT COUNT(*) AS total FROM inv_goods_receipt_notes g ${where}`;
+      const countRes = await query(countSql, params);
+      const total = Number(countRes[0]?.total || 0);
+
+      params.limit = limit;
+      params.offset = offset;
+
       const rows = await query(
         `
         SELECT g.id, g.grn_no, g.grn_date, g.grn_type, g.status,
@@ -5587,11 +5697,19 @@ router.get(
           LEFT JOIN adm_users u_appr ON u_appr.id = x.assigned_to_user_id
           LEFT JOIN adm_users u_creator ON u_creator.id = g.created_by
          ${where}
-         ORDER BY g.grn_date DESC, g.id DESC
+         ORDER BY g.grn_date DESC, g.id DESC LIMIT :limit OFFSET :offset
         `,
         params,
       );
-      res.json({ items: rows || [] });
+      res.json({ 
+        items: rows || [],
+        pagination: {
+          page,
+          pageSize: limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
     } catch (e) {
       next(e);
     }
@@ -6094,6 +6212,8 @@ async function ensureIssueToRequirementTables() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `).catch(() => {});
 
+  await query(`ALTER TABLE inv_issue_to_requirement ADD COLUMN IF NOT EXISTS requisition_source VARCHAR(20) DEFAULT 'inventory' AFTER requisition_id`).catch(() => {});
+
   await query(`
     CREATE TABLE IF NOT EXISTS inv_issue_to_requirement_details (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -6245,6 +6365,7 @@ router.post(
         department_id,
         issue_type,
         requisition_id,
+        requisition_source,
         status,
         remarks,
         details = [],
@@ -6264,9 +6385,9 @@ router.post(
         `
         INSERT INTO inv_issue_to_requirement
         (company_id, branch_id, issue_no, issue_date, warehouse_id, issued_to,
-         department_id, issue_type, requisition_id, status, remarks, created_by)
+         department_id, issue_type, requisition_id, requisition_source, status, remarks, created_by)
         VALUES (:companyId, :branchId, :issueNo, :issueDate, :warehouseId, :issuedTo,
-                :departmentId, :issueType, :requisitionId, :status, :remarks, :createdBy)
+                :departmentId, :issueType, :requisitionId, :requisitionSource, :status, :remarks, :createdBy)
         `,
         {
           companyId: companyId || null,
@@ -6279,6 +6400,7 @@ router.post(
           issueType:
             (issue_type ? String(issue_type).trim() : null) || "GENERAL",
           requisitionId: toNumber(requisition_id) || null,
+          requisitionSource: (requisition_source ? String(requisition_source).trim() : null) || "inventory",
           status: (status ? String(status).trim() : null) || "DRAFT",
           remarks: remarks ? String(remarks).trim() || null : null,
           createdBy: userId || null,
@@ -6339,6 +6461,7 @@ router.put(
         department_id,
         issue_type,
         requisition_id,
+        requisition_source,
         status,
         remarks,
         details = [],
@@ -6365,7 +6488,7 @@ router.put(
         UPDATE inv_issue_to_requirement
         SET issue_date = :issueDate, warehouse_id = :warehouseId, issued_to = :issuedTo,
             department_id = :departmentId, issue_type = :issueType,
-            requisition_id = :requisitionId, status = :status, remarks = :remarks
+            requisition_id = :requisitionId, requisition_source = :requisitionSource, status = :status, remarks = :remarks
         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         `,
         {
@@ -6379,6 +6502,7 @@ router.put(
           issueType:
             (issue_type ? String(issue_type).trim() : null) || "GENERAL",
           requisitionId: toNumber(requisition_id) || null,
+          requisitionSource: (requisition_source ? String(requisition_source).trim() : null) || "inventory",
           status: (status ? String(status).trim() : null) || "DRAFT",
           remarks: remarks ? String(remarks).trim() || null : null,
         },
@@ -8488,6 +8612,8 @@ router.post(
       const description = body.description
         ? String(body.description).trim() || null
         : null;
+      const openingQuantity = Number(body.opening_quantity || 0);
+      const openingWarehouseId = body.opening_warehouse_id ? toNumber(body.opening_warehouse_id) : null;
 
       if (!itemCode || !itemName) {
         throw httpError(
@@ -8548,6 +8674,63 @@ router.post(
       );
       const result = Array.isArray(resultRaw) ? resultRaw[0] : resultRaw;
       const itemId = result.insertId;
+
+      if (openingQuantity > 0 && openingWarehouseId) {
+        const updationNo = `UPD-OP-${Date.now()}`;
+        
+        // 1. Create Stock Updation Header
+        const updRaw = await query(
+          `INSERT INTO inv_stock_updations 
+             (company_id, warehouse_id, updation_no, updation_date, reason, status, created_by)
+           VALUES 
+             (:companyId, :warehouseId, :updationNo, NOW(), 'Opening Balance', 'APPROVED', :createdBy)`,
+          {
+            companyId: companyId || null,
+            warehouseId: openingWarehouseId,
+            updationNo,
+            createdBy: userId
+          }
+        );
+        const updationId = (Array.isArray(updRaw) ? updRaw[0] : updRaw).insertId;
+        
+        // 2. Create Stock Updation Detail
+        await query(
+          `INSERT INTO inv_stock_updation_details 
+             (updation_id, item_id, qty, uom, current_stock, created_by)
+           VALUES 
+             (:updationId, :itemId, :qty, :uom, 0, :createdBy)`,
+          {
+            updationId,
+            itemId,
+            qty: openingQuantity,
+            uom: uom || "PCS",
+            createdBy: userId
+          }
+        );
+
+        // 3. Update physical stock balance
+        const sbRows = await query(
+          `SELECT qty FROM inv_stock_balances 
+            WHERE company_id = :companyId AND warehouse_id = :warehouseId AND item_id = :itemId
+            LIMIT 1`,
+          { companyId: companyId || null, warehouseId: openingWarehouseId, itemId }
+        );
+        
+        if (Array.isArray(sbRows) && sbRows.length > 0) {
+          await query(
+            `UPDATE inv_stock_balances SET qty = qty + :delta, updated_at = NOW()
+              WHERE company_id = :companyId AND warehouse_id = :warehouseId AND item_id = :itemId`,
+            { delta: openingQuantity, companyId: companyId || null, warehouseId: openingWarehouseId, itemId }
+          );
+        } else {
+          await query(
+            `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
+             VALUES (:companyId, NULL, :warehouseId, :itemId, :qty)`,
+            { companyId: companyId || null, warehouseId: openingWarehouseId, itemId, qty: openingQuantity }
+          );
+        }
+      }
+
       res.status(201).json({ id: itemId, item_code: itemCode });
     } catch (e) {
       // Handle duplicate key errors

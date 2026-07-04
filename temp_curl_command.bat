@@ -1,1 +1,0 @@
-curl -X POST -H "Content-Type: application/json" -d "{\"module_name\":\"test\",\"action\":\"test\",\"message\":\"test log entry\"}" http://localhost:4002/api/admin/activity/log

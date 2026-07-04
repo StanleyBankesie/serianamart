@@ -1,15 +1,22 @@
 /**
  * @file socket.js
  * @description Configures and manages Socket.IO for real-time bidirectional event-based communication.
+ * Uses Redis adapter for multi-instance support.
  */
 import { Server } from "socket.io";
+import { createAdapter } from "@socket.io/redis-adapter";
 import { query } from "../db/pool.js";
-import { verifyAccessToken } from "../services/token.service.js";
+import {
+  lookupGraceToken,
+  verifyAccessToken,
+} from "../services/token.service.js";
+import { getRedis } from "./redis.js";
 
 // Maintain a global singleton instance of the Socket server
 let ioInstance = null;
-// Track active online users in memory for quick presence checking
-const onlineUsers = new Set();
+// Track active online users — use Redis when available, fallback to in-memory
+let onlineUsers = new Set();
+let useRedisPresence = false;
 
 /**
  * Initialize Socket.io server
@@ -17,6 +24,7 @@ const onlineUsers = new Set();
  */
 /**
  * Initializes the Socket.IO server and binds it to the provided HTTP server.
+ * Uses Redis adapter when available for multi-instance support.
  *
  * @param {import('http').Server} server - The Node.js HTTP server instance.
  * @returns {import('socket.io').Server} The initialized Socket.IO server.
@@ -31,42 +39,121 @@ export const initializeSocket = (server) => {
       methods: ["GET", "POST"],
       credentials: true,
     },
-    pingInterval: 25000, // Send ping every 25 seconds
-    pingTimeout: 60000, // Wait 60 seconds for pong response before disconnect
+    pingInterval: 25000,
+    pingTimeout: 60000,
     maxHttpBufferSize: 1e6,
     transports: ["websocket", "polling"],
   });
 
-  ioInstance.use(async (socket, next) => {
-    // Intercept socket connections to enforce JWT authentication
+  // Attach Redis adapter if available
+  (async () => {
     try {
-      const token = socket.handshake.auth?.token;
-      if (!token) {
+      const redis = getRedis();
+      const subClient = redis.duplicate();
+      const pubClient = redis.duplicate();
+      await Promise.all([
+        new Promise((resolve, reject) => {
+          subClient.on("connect", resolve);
+          subClient.on("error", reject);
+        }),
+        new Promise((resolve, reject) => {
+          pubClient.on("connect", resolve);
+          pubClient.on("error", reject);
+        }),
+      ]);
+      ioInstance.adapter(createAdapter(pubClient, subClient));
+      useRedisPresence = true;
+      console.log("[Socket] Redis adapter attached — multi-instance mode enabled");
+    } catch (err) {
+      useRedisPresence = false;
+      console.log("[Socket] Redis adapter unavailable, using in-memory presence:", err.message);
+    }
+  })();
+
+  ioInstance.use(async (socket, next) => {
+    try {
+      const { parseCookieHeader } = await import("../services/token.service.js");
+      const cookies = parseCookieHeader(socket.handshake.headers.cookie || "");
+      const sessionId = cookies.omnisuite_session;
+
+      if (!sessionId) {
+        const rawToken =
+          socket.handshake.auth?.token ||
+          socket.handshake.auth?.accessToken ||
+          socket.handshake.query?.accessToken ||
+          socket.handshake.headers?.authorization ||
+          "";
+        const bearerToken = String(rawToken || "").startsWith("Bearer ")
+          ? String(rawToken).slice(7).trim()
+          : String(rawToken || "").trim();
+
+        if (!bearerToken) {
+          return next(new Error("Authentication required"));
+        }
+
+        try {
+          socket.user = verifyAccessToken(bearerToken);
+          return next();
+        } catch {
+          const gracePayload = await lookupGraceToken(bearerToken);
+          if (gracePayload) {
+            socket.user = gracePayload;
+            return next();
+          }
+          return next(new Error("Authentication required"));
+        }
+      }
+
+      const { cacheGet } = await import("./redis.js");
+      const sessionData = await cacheGet(`omnisuite_session:${sessionId}`);
+
+      if (!sessionData || !sessionData.user) {
+        const rawToken =
+          socket.handshake.auth?.token ||
+          socket.handshake.auth?.accessToken ||
+          socket.handshake.query?.accessToken ||
+          socket.handshake.headers?.authorization ||
+          "";
+        const bearerToken = String(rawToken || "").startsWith("Bearer ")
+          ? String(rawToken).slice(7).trim()
+          : String(rawToken || "").trim();
+
+        if (bearerToken) {
+          try {
+            socket.user = verifyAccessToken(bearerToken);
+            return next();
+          } catch {
+            const gracePayload = await lookupGraceToken(bearerToken);
+            if (gracePayload) {
+              socket.user = gracePayload;
+              return next();
+            }
+          }
+        }
         return next(new Error("Authentication required"));
       }
-      const payload = verifyAccessToken(token);
-      socket.user = payload;
+
+      socket.user = sessionData.user;
       next();
     } catch (error) {
-      if (error.name === "TokenExpiredError") {
-        console.error("Socket.io auth error: TokenExpiredError: jwt expired");
-      } else {
-        console.error("Socket.io auth error:", error);
-      }
+      console.error("Socket.io auth error:", error);
       next(new Error("Authentication error"));
     }
   });
 
   ioInstance.on("connection", (socket) => {
-    // Handle newly authenticated user connections
     const userId = socket.user?.sub || socket.user?.id || socket.handshake.query.userId;
     const warehouseId = socket.handshake.query.warehouseId;
 
     console.log(`✅ User ${userId} connected to socket`);
     if (userId) {
-      onlineUsers.add(String(userId));
+      // Add to presence set (Redis or in-memory)
+      if (useRedisPresence) {
+        getRedis().sadd("sm:online_users", String(userId)).catch(() => {});
+      } else {
+        onlineUsers.add(String(userId));
+      }
       ioInstance.to(`user_${userId}`).emit("presence:update", { online: true });
-      // Update presence table and broadcast
       (async () => {
         try {
           await query(
@@ -84,39 +171,32 @@ export const initializeSocket = (server) => {
       })();
     }
 
-    // Join personal room
-    // Automatically subscribe user to personal, warehouse, and company channels
     socket.join(`user_${userId}`);
-
-    // Join warehouse room if warehouse user
     if (warehouseId) {
       socket.join(`warehouse_${warehouseId}`);
     }
-
-    // Join company room
     socket.join("company");
 
-    // Event: User is viewing a specific post (for notifications)
     socket.on("viewing_post", (postId) => {
       socket.join(`post_${postId}`);
     });
 
-    // Event: User stopped viewing a post
     socket.on("stop_viewing_post", (postId) => {
       socket.leave(`post_${postId}`);
     });
 
-    // Event: Handle socket errors
     socket.on("error", (error) => {
       console.error(`⚠️ Socket error for User ${userId}:`, error);
     });
 
-    // Event: Disconnect
-    // Clean up socket state and emit offline presence upon disconnect
     socket.on("disconnect", (reason) => {
       console.log(`❌ User ${userId} disconnected - Reason: ${reason}`);
       if (userId) {
-        onlineUsers.delete(String(userId));
+        if (useRedisPresence) {
+          getRedis().srem("sm:online_users", String(userId)).catch(() => {});
+        } else {
+          onlineUsers.delete(String(userId));
+        }
         ioInstance.to(`user_${userId}`).emit("presence:update", {
           online: false,
         });
@@ -138,8 +218,7 @@ export const initializeSocket = (server) => {
       }
     });
 
-    // ---------------- New Chat (WhatsApp-like) ----------------
-    // Handle joining and leaving chat conversation channels
+    // Chat events
     socket.on("join_conversation", (conversationId) => {
       try {
         const cid = Number(conversationId);
@@ -175,7 +254,6 @@ export const initializeSocket = (server) => {
       } catch {}
     });
     socket.on("send_message", async ({ conversation_id, content }) => {
-      // Ingest incoming chat messages and broadcast to channel participants
       try {
         const cid = Number(conversation_id);
         if (!Number.isFinite(cid) || !String(content || "").trim()) return;
@@ -198,7 +276,6 @@ export const initializeSocket = (server) => {
       } catch {}
     });
     socket.on("mark_delivered", async ({ message_id }) => {
-      // Process delivery receipts for chat messages
       try {
         const id = Number(message_id);
         if (!Number.isFinite(id)) return;
@@ -210,7 +287,6 @@ export const initializeSocket = (server) => {
       } catch {}
     });
     socket.on("mark_read", async ({ conversation_id }) => {
-      // Update read receipts to indicate a user has seen the latest messages
       try {
         const cid = Number(conversation_id);
         if (!Number.isFinite(cid)) return;
@@ -236,7 +312,6 @@ export const initializeSocket = (server) => {
       } catch {}
     });
 
-    // Error handling
     socket.on("error", (error) => {
       console.error("Socket.io error:", error);
     });
@@ -249,28 +324,35 @@ export const initializeSocket = (server) => {
 /**
  * Get Socket.io instance for emitting events
  */
-/**
- * Retrieves the active Socket.IO server instance.
- * Throws an error if socket.io has not been initialized.
- *
- * @returns {import('socket.io').Server}
- */
 export const getIO = () => {
-  // Provide access to the initialized socket instance for external modules
   if (!ioInstance) {
     throw new Error("Socket.io not initialized");
   }
   return ioInstance;
 };
 
-export const isUserOnline = (userId) => {
-  // Check real-time presence of a specific user
+export const isUserOnline = async (userId) => {
+  if (useRedisPresence) {
+    try {
+      const result = await getRedis().sismember("sm:online_users", String(userId));
+      return result === 1;
+    } catch {
+      return false;
+    }
+  }
   return onlineUsers.has(String(userId));
 };
 
-export const getOnlineUserIds = () => {
-  // Return an array of all currently active socket users
-  return Array.from(onlineUsers);
+export const getOnlineUserIds = async () => {
+  if (useRedisPresence) {
+    try {
+      const members = await getRedis().smembers("sm:online_users");
+      return members.map(Number);
+    } catch {
+      return [];
+    }
+  }
+  return Array.from(onlineUsers).map(Number);
 };
 
 export default { initializeSocket, getIO };

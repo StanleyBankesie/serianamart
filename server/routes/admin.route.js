@@ -2749,4 +2749,110 @@ router.get(
   getCurrentCompany,
 );
 
+// ===== System Settings (Backups) =====
+router.get(
+  "/settings/backups",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSystemSettingsTable();
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const rows = await query(
+        `
+        SELECT setting_key, setting_value
+         FROM adm_system_settings
+         WHERE (company_id = :companyId OR company_id IS NULL)
+          AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
+          AND setting_key IN (
+            'BACKUP_S3_BUCKET', 'BACKUP_S3_REGION', 'BACKUP_S3_ENDPOINT', 'BACKUP_S3_ACCESS_KEY', 'BACKUP_S3_SECRET_KEY',
+            'BACKUP_GDRIVE_CLIENT_EMAIL', 'BACKUP_GDRIVE_PRIVATE_KEY', 'BACKUP_GDRIVE_FOLDER_ID',
+            'BACKUP_B2_BUCKET', 'BACKUP_B2_ENDPOINT', 'BACKUP_B2_ACCESS_KEY', 'BACKUP_B2_SECRET_KEY'
+          )
+        ORDER BY company_id DESC, branch_id DESC
+        `,
+        { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr },
+      );
+      const map = {};
+      for (const r of rows) map[r.setting_key] = r.setting_value;
+      
+      res.json({
+        data: {
+          s3: {
+            bucket: map.BACKUP_S3_BUCKET || "",
+            region: map.BACKUP_S3_REGION || "",
+            endpoint: map.BACKUP_S3_ENDPOINT || "",
+            access_key: map.BACKUP_S3_ACCESS_KEY || "",
+            has_secret: !!map.BACKUP_S3_SECRET_KEY,
+          },
+          gdrive: {
+            client_email: map.BACKUP_GDRIVE_CLIENT_EMAIL || "",
+            folder_id: map.BACKUP_GDRIVE_FOLDER_ID || "",
+            has_private_key: !!map.BACKUP_GDRIVE_PRIVATE_KEY,
+          },
+          b2: {
+            bucket: map.BACKUP_B2_BUCKET || "",
+            endpoint: map.BACKUP_B2_ENDPOINT || "",
+            access_key: map.BACKUP_B2_ACCESS_KEY || "",
+            has_secret: !!map.BACKUP_B2_SECRET_KEY,
+          }
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/settings/backups",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSystemSettingsTable();
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const { s3 = {}, gdrive = {}, b2 = {} } = req.body || {};
+      
+      const updates = [];
+      const addUpdate = (key, val) => {
+        if (val !== undefined) updates.push([key, String(val).trim()]);
+      };
+
+      // S3
+      addUpdate('BACKUP_S3_BUCKET', s3.bucket);
+      addUpdate('BACKUP_S3_REGION', s3.region);
+      addUpdate('BACKUP_S3_ENDPOINT', s3.endpoint);
+      addUpdate('BACKUP_S3_ACCESS_KEY', s3.access_key);
+      if (s3.secret_key) addUpdate('BACKUP_S3_SECRET_KEY', s3.secret_key);
+
+      // GDrive
+      addUpdate('BACKUP_GDRIVE_CLIENT_EMAIL', gdrive.client_email);
+      addUpdate('BACKUP_GDRIVE_FOLDER_ID', gdrive.folder_id);
+      if (gdrive.private_key) addUpdate('BACKUP_GDRIVE_PRIVATE_KEY', gdrive.private_key);
+
+      // B2
+      addUpdate('BACKUP_B2_BUCKET', b2.bucket);
+      addUpdate('BACKUP_B2_ENDPOINT', b2.endpoint);
+      addUpdate('BACKUP_B2_ACCESS_KEY', b2.access_key);
+      if (b2.secret_key) addUpdate('BACKUP_B2_SECRET_KEY', b2.secret_key);
+
+      for (const [key, value] of updates) {
+        await query(
+          `
+          INSERT INTO adm_system_settings (company_id, branch_id, setting_key, setting_value)
+          VALUES (:companyId, :branchId, :key, :value)
+          ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+          `,
+          { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr, key, value }
+        );
+      }
+      
+      res.json({ message: "Backup settings saved successfully" });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export default router;

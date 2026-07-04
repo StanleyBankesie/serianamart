@@ -403,7 +403,7 @@ router.post("/messages", async (req, res, next) => {
       .filter((n) => Number.isFinite(n));
     // If receiver not in room, set delivered later when they connect and send push
     let delivered = false;
-    if (receiverId && isUserOnline && isUserOnline(receiverId)) {
+    if (receiverId && isUserOnline && await isUserOnline(receiverId)) {
       await query(
         `UPDATE chat_messages SET status = 'delivered', delivered_at = NOW() WHERE id = :id`,
         { id: mid },

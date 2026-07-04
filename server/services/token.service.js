@@ -2,6 +2,7 @@ import crypto from "crypto";
 /**
  * @file token.service.js
  * @description Manages authentication tokens, JWT signing/verifying, and cookie operations.
+ * Uses Redis for token grace period to prevent 401 cascade during refresh.
  */
 import jwt from "jsonwebtoken";
 
@@ -15,12 +16,12 @@ const REFRESH_COOKIE_NAME =
   "omnisuite_refresh_token";
 const ACCESS_TOKEN_EXPIRES_IN =
   String(process.env.ACCESS_TOKEN_EXPIRES_IN || "").trim() || "15m";
-const SESSION_REFRESH_DAYS = Math.max(
+const SESSION_REFRESH_HOURS = Math.max(
   1,
-  Number(process.env.REFRESH_TOKEN_SESSION_DAYS || 1),
+  Number(process.env.SESSION_REFRESH_HOURS || 24 * 7),
 );
-const REMEMBER_REFRESH_DAYS = Math.max(
-  SESSION_REFRESH_DAYS,
+const REMEMBER_REFRESH_HOURS = Math.max(
+  SESSION_REFRESH_HOURS,
   Number(process.env.REFRESH_TOKEN_REMEMBER_DAYS || 30),
 );
 const LOGIN_FAILURE_LIMIT = Math.max(
@@ -118,7 +119,9 @@ export function parseCookieHeader(cookieHeader = "") {
     const key = trimmed.slice(0, idx).trim();
     const value = trimmed.slice(idx + 1).trim();
     if (!key) continue;
-    cookies[key] = decodeURIComponent(value);
+    if (cookies[key] === undefined) {
+      cookies[key] = decodeURIComponent(value);
+    }
   }
   return cookies;
 }
@@ -130,15 +133,22 @@ export function readRefreshTokenFromRequest(req) {
 }
 
 // Utility Function: Builds cookie settings based on environment and rememberMe status
-function buildRefreshCookieOptions({ rememberMe = false, expiresAt = null } = {}) {
+function buildRefreshCookieOptions(
+  req,
+  { rememberMe = false, expiresAt = null } = {},
+) {
+  // SameSite=None requires Secure=true (HTTPS). On HTTP (dev), use lax.
   const options = {
     httpOnly: true,
     secure: isProduction(),
     sameSite: isProduction() ? "none" : "lax",
     path: "/api",
   };
-  if (isProduction()) {
-    options.domain = ".omnisuite-erp.com";
+  if (isProduction() && req) {
+    const origin = req.headers?.origin || "";
+    if (origin.includes("omnisuite-erp.com")) {
+      options.domain = ".omnisuite-erp.com";
+    }
   }
   if (rememberMe && expiresAt instanceof Date) {
     options.expires = expiresAt;
@@ -148,30 +158,75 @@ function buildRefreshCookieOptions({ rememberMe = false, expiresAt = null } = {}
 }
 
 // Utility Function: Assigns the refresh token to the response cookie
-export function setRefreshTokenCookie(res, refreshToken, options = {}) {
+export function setRefreshTokenCookie(req, res, refreshToken, options = {}) {
   res.cookie(
     REFRESH_COOKIE_NAME,
     refreshToken,
-    buildRefreshCookieOptions(options),
+    buildRefreshCookieOptions(req, options),
   );
 }
 
 // Utility Function: Clears the refresh token cookie upon logout
-export function clearRefreshTokenCookie(res) {
+export function clearRefreshTokenCookie(req, res) {
   res.clearCookie(
     REFRESH_COOKIE_NAME,
-    buildRefreshCookieOptions({ rememberMe: false }),
+    buildRefreshCookieOptions(req, { rememberMe: false }),
   );
 }
 
 // Utility Function: Hashes refresh token for secure database storage
 export function hashRefreshToken(token) {
-  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(String(token || ""))
+    .digest("hex");
 }
 
 // Utility Function: Generates a cryptographically strong random token
 export function generateRefreshToken() {
   return crypto.randomBytes(48).toString("hex");
+}
+
+// Utility Function: Hashes access token for Redis grace period key
+function hashAccessToken(token) {
+  return crypto
+    .createHash("sha256")
+    .update(String(token || ""))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+const GRACE_PERIOD_SECONDS = 120; // 2 minutes grace period
+
+/**
+ * Store the old access token in Redis during refresh to prevent 401 cascade.
+ * The old token is valid for 15 minutes; we keep it for 2 minutes after refresh
+ * so in-flight requests can still be authenticated.
+ * @param {string} oldAccessToken - The expired/expiring access token.
+ * @param {Object} newPayload - The decoded payload of the NEW access token.
+ */
+export async function storeGraceToken(oldAccessToken, newPayload) {
+  try {
+    const { cacheSet } = await import("../utils/redis.js");
+    const key = `auth:grace:${hashAccessToken(oldAccessToken)}`;
+    await cacheSet(key, { newPayload }, GRACE_PERIOD_SECONDS);
+  } catch {}
+}
+
+/**
+ * Look up a recently-refreshed token from Redis grace period.
+ * @param {string} oldAccessToken - The expired access token.
+ * @returns {Object|null} The new payload if found, null otherwise.
+ */
+export async function lookupGraceToken(oldAccessToken) {
+  try {
+    const { cacheGet } = await import("../utils/redis.js");
+    const key = `auth:grace:${hashAccessToken(oldAccessToken)}`;
+    const data = await cacheGet(key);
+    return data?.newPayload || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -181,7 +236,11 @@ export function generateRefreshToken() {
  */
 export function verifyAccessToken(token) {
   const payload = jwt.verify(String(token || ""), getJwtSecret());
-  if (!payload || typeof payload !== "object" || payload.token_type !== "access") {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    payload.token_type !== "access"
+  ) {
     throw httpError(401, "INVALID_TOKEN", "Invalid access token");
   }
   return payload;
@@ -258,16 +317,20 @@ export async function ensureAuthTables() {
       WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME = 'trg_adm_users_pw_status'`,
   );
   if (!trigRows?.length) {
-    await query(
-      `CREATE TRIGGER trg_adm_users_pw_status
-       BEFORE UPDATE ON adm_users
-       FOR EACH ROW
-       BEGIN
-         IF OLD.password_hash <> NEW.password_hash THEN
-           SET NEW.status = 'Y';
-         END IF;
-       END`,
-    );
+    try {
+      await query(
+        `CREATE TRIGGER trg_adm_users_pw_status
+         BEFORE UPDATE ON adm_users
+         FOR EACH ROW
+         BEGIN
+           IF OLD.password_hash <> NEW.password_hash THEN
+             SET NEW.status = 'Y';
+           END IF;
+         END`,
+      );
+    } catch (e) {
+      if (e?.code !== "ER_TRG_ALREADY_EXISTS") throw e;
+    }
   }
 
   await query(
@@ -373,8 +436,12 @@ export async function buildAuthUserPayload(user, permissions = []) {
       { userId: Number(user.id) },
     );
     if (branchRows && branchRows.length > 0) {
-      allBranchIds = [...new Set(branchRows.map((r) => Number(r.branch_id)).filter(Boolean))];
-      allCompanyIds = [...new Set(branchRows.map((r) => Number(r.company_id)).filter(Boolean))];
+      allBranchIds = [
+        ...new Set(branchRows.map((r) => Number(r.branch_id)).filter(Boolean)),
+      ];
+      allCompanyIds = [
+        ...new Set(branchRows.map((r) => Number(r.company_id)).filter(Boolean)),
+      ];
     }
   } catch {
     // fallback to default branch_id if query fails
@@ -418,13 +485,20 @@ export async function buildAuthUserPayload(user, permissions = []) {
  * @param {Array} [params.permissions=[]] - List of permissions.
  * @returns {Promise<{accessToken: string, refreshToken: string, userPayload: Object}>}
  */
-export async function createSessionTokens({ user, rememberMe = false, permissions = [] }) {
+export async function createSessionTokens({
+  user,
+  rememberMe = false,
+  permissions = [],
+}) {
   await ensureAuthTables();
   const authUser = await buildAuthUserPayload(user, permissions);
   const accessToken = signAccessToken(authUser);
   const refreshToken = generateRefreshToken();
   const refreshTokenHash = hashRefreshToken(refreshToken);
-  const expiresAt = addDays(rememberMe ? REMEMBER_REFRESH_DAYS : SESSION_REFRESH_DAYS);
+  const addHours = (h) => new Date(Date.now() + h * 60 * 60 * 1000);
+  const expiresAt = addHours(
+    rememberMe ? REMEMBER_REFRESH_HOURS : SESSION_REFRESH_HOURS,
+  );
 
   await query(
     `
@@ -494,42 +568,64 @@ export async function consumeRefreshToken(rawToken) {
 const recentlyRotatedTokens = new Map();
 
 // Endpoint / Major Logic: Refreshes access tokens and rotates refresh tokens, supporting slight concurrency delay
-export async function rotateRefreshSession(rawToken) {
+export async function rotateRefreshSession(rawToken, oldAccessToken = null) {
   const tokenHash = hashRefreshToken(rawToken);
 
   if (recentlyRotatedTokens.has(tokenHash)) {
     const cached = recentlyRotatedTokens.get(tokenHash);
     if (Date.now() < cached.expiresAt) {
+      if (cached.promise) return await cached.promise;
       return cached.newTokens;
     }
   }
 
-  const refreshRecord = await consumeRefreshToken(rawToken);
-  const user = await getUserForAuth(refreshRecord.user_id);
-  if (!user || !Number(user.is_active)) {
+  const promise = (async () => {
+    const refreshRecord = await consumeRefreshToken(rawToken);
+    const user = await getUserForAuth(refreshRecord.user_id);
+    if (!user || !Number(user.is_active)) {
+      await revokeRefreshToken(rawToken);
+      throw httpError(401, "USER_INACTIVE", "User is inactive");
+    }
+
+    const permissions = await getUserPermissions(user.id);
     await revokeRefreshToken(rawToken);
-    throw httpError(401, "USER_INACTIVE", "User is inactive");
-  }
 
-  const permissions = await getUserPermissions(user.id);
-  await revokeRefreshToken(rawToken);
+    const newTokens = await createSessionTokens({
+      user,
+      rememberMe: refreshRecord.remember_me,
+      permissions,
+    });
 
-  const newTokens = await createSessionTokens({
-    user,
-    rememberMe: refreshRecord.remember_me,
-    permissions,
-  });
+    return newTokens;
+  })();
 
   recentlyRotatedTokens.set(tokenHash, {
-    newTokens,
+    promise,
     expiresAt: Date.now() + 30000,
   });
 
-  for (const [k, v] of recentlyRotatedTokens.entries()) {
-    if (Date.now() >= v.expiresAt) recentlyRotatedTokens.delete(k);
-  }
+  try {
+    const newTokens = await promise;
+    recentlyRotatedTokens.set(tokenHash, {
+      newTokens,
+      expiresAt: Date.now() + 30000,
+    });
 
-  return newTokens;
+    // Store old access token in Redis grace period to prevent 401 cascade
+    if (oldAccessToken && newTokens.user) {
+      await storeGraceToken(oldAccessToken, newTokens.user);
+    }
+
+    // Clean up expired cache entries
+    for (const [k, v] of recentlyRotatedTokens.entries()) {
+      if (Date.now() >= v.expiresAt) recentlyRotatedTokens.delete(k);
+    }
+
+    return newTokens;
+  } catch (error) {
+    recentlyRotatedTokens.delete(tokenHash);
+    throw error;
+  }
 }
 
 // Major Logic: Clears failed attempt counters on successful authentication

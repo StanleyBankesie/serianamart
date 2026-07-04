@@ -4,6 +4,7 @@
  * endpoints for accounts, vouchers, taxes, and financial reporting.
  */
 import express from "express";
+import { cacheListResponse } from "../middleware/cache.middleware.js";
 import {
   requireAuth,
   requireCompanyScope,
@@ -114,6 +115,7 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   financeController.listVouchers,
 );
 
@@ -381,6 +383,26 @@ router.delete(
   requireCompanyScope,
   financeController.requireIdParam("id"),
   financeController.deleteCurrencyRate,
+);
+
+// Exchange rate cache endpoint (Redis-backed, 1-hour TTL)
+import { getExchangeRates } from "../utils/exchangeRateCache.js";
+
+router.get(
+  "/exchange-rates/:base",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const { base } = req.params;
+      const result = await getExchangeRates(base);
+      if (!result) {
+        return res.status(502).json({ error: "EXCHANGE_RATE_FETCH_FAILED", message: "Failed to fetch exchange rates" });
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: "EXCHANGE_RATE_ERROR", message: err.message });
+    }
+  }
 );
 
 // Supplier Bills by Account
