@@ -175,78 +175,21 @@ const isAllowedOrigin = (origin) => {
   return allowedOrigins.includes(normalizedOrigin);
 };
 
-const DEFAULT_ALLOWED_HEADERS = [
-  "Origin",
-  "X-Requested-With",
-  "Content-Type",
-  "Accept",
-  "Authorization",
-  "x-user-id",
-  "x-company-id",
-  "x-branch-id",
-];
-
-const resolveAllowedHeaders = (req) => {
-  const requested = String(req.headers["access-control-request-headers"] || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return Array.from(new Set([...DEFAULT_ALLOWED_HEADERS, ...requested])).join(
-    ", ",
-  );
-};
-
 const corsOptions = {
   origin: (origin, cb) => {
     const normalizedOrigin = normalizeOrigin(origin);
     if (isAllowedOrigin(normalizedOrigin)) return cb(null, true);
-    console.log("[CORS] Rejected Origin:", normalizedOrigin || origin);
-    return cb(
-      new Error(`CORS origin not allowed: ${normalizedOrigin || origin}`),
-    );
+    if (origin) console.log("[CORS] Rejected Origin:", normalizedOrigin || origin);
+    return cb(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-  allowedHeaders: DEFAULT_ALLOWED_HEADERS,
   exposedHeaders: ["Content-Length", "Content-Type"],
   maxAge: 86400,
   optionsSuccessStatus: 204,
 };
 
-app.use((req, res, next) => {
-  const origin = normalizeOrigin(req.headers.origin || "");
-  const allowOrigin = Boolean(origin) && isAllowedOrigin(origin);
-  if (isAllowedOrigin(origin) && origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS",
-    );
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      resolveAllowedHeaders(req),
-    );
-    res.setHeader("Access-Control-Max-Age", "86400");
-  }
-  if (req.method === "OPTIONS") {
-    if (origin && !allowOrigin) {
-      console.warn(`[CORS] Rejected preflight for origin: ${origin}`);
-      return res
-        .status(403)
-        .json({ error: "CORS_ORIGIN_NOT_ALLOWED", origin });
-    }
-    if (origin) {
-      console.log(`[CORS] Accepted preflight for origin: ${origin}`);
-    }
-    return res.status(204).end();
-  }
-  next();
-});
-
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -827,14 +770,6 @@ if (process.env.NODE_ENV !== "test" && !socketsDisabled) {
 export { ioInstance as io };
 
 if (process.env.NODE_ENV !== "test") {
-  const _originalListen = server.listen.bind(server);
-  server.listen = function (port, callback) {
-    const p = isNaN(Number(port)) ? port : Number(port);
-    if (typeof p === "number") {
-      return _originalListen(p, "127.0.0.1", callback);
-    }
-    return _originalListen(p, callback);
-  };
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     initCronJobs();
