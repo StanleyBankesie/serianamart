@@ -33,10 +33,12 @@ process.on("unhandledRejection", (reason) => {
 
 process.on("uncaughtException", (error) => {
   logProcessError("uncaughtException", error);
+  process.exit(1);
 });
 
 // Start application by importing main entry point (index.js)
 // Catches and logs any top-level initialization errors
 import("./index.js").catch((error) => {
   logProcessError("bootstrap import failure", error);
+  process.exit(1);
 });
