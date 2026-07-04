@@ -133,63 +133,44 @@ const boolEnv = (v) => {
 };
 
 /* ---------------- CORS ---------------- */
-const DEFAULT_ALLOWED_ORIGINS = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:5174",
-  "https://serianamart.omnisuite-erp.com",
-  "https://www.serianamart.omnisuite-erp.com",
-];
-
-const normalizeOrigin = (value) => {
-  if (!value) return "";
-  const cleaned = String(value)
-    .trim()
-    .replace(/^['"`]+|['"`]+$/g, "")
-    .replace(/\/$/, "");
-  if (!cleaned) return "";
-  try {
-    return new URL(cleaned).origin;
-  } catch {
-    return cleaned;
-  }
-};
-
 const allowedOrigins = (() => {
   const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
   if (raw) {
     return raw
       .split(",")
-      .map((s) => normalizeOrigin(s))
+      .map((s) => s.trim())
       .filter(Boolean);
   }
-  return DEFAULT_ALLOWED_ORIGINS.map((origin) => normalizeOrigin(origin));
+  return [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "https://serianamart.omnisuite-erp.com",
+  ];
 })();
-
-console.log("[CORS] Allowed origins:", allowedOrigins.join(", ") || "(none)");
-
-const isAllowedOrigin = (origin) => {
-  if (!origin) return true;
-  const normalizedOrigin = normalizeOrigin(origin);
-  return allowedOrigins.includes(normalizedOrigin);
-};
 
 const corsOptions = {
   origin: (origin, cb) => {
-    const normalizedOrigin = normalizeOrigin(origin);
-    if (isAllowedOrigin(normalizedOrigin)) return cb(null, true);
-    if (origin) console.log("[CORS] Rejected Origin:", normalizedOrigin || origin);
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
     return cb(null, false);
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-  exposedHeaders: ["Content-Length", "Content-Type"],
-  maxAge: 86400,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-company-id",
+    "x-branch-id",
+    "x-user-id",
+    "x-skip-offline-queue",
+  ],
   optionsSuccessStatus: 204,
 };
 
 app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -770,7 +751,15 @@ if (process.env.NODE_ENV !== "test" && !socketsDisabled) {
 export { ioInstance as io };
 
 if (process.env.NODE_ENV !== "test") {
-  server.listen(PORT, "127.0.0.1", () => {
+  const _originalListen = server.listen.bind(server);
+  server.listen = function (port, callback) {
+    const p = isNaN(Number(port)) ? port : Number(port);
+    if (typeof p === "number") {
+      return _originalListen(p, "127.0.0.1", callback);
+    }
+    return _originalListen(p, callback);
+  };
+  server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     initCronJobs();
     console.log(`Mailer configured: ${isMailerConfigured() ? "yes" : "no"}`);
