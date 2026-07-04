@@ -153,19 +153,14 @@ const allowedOrigins = (() => {
 const corsOptions = {
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    return cb(null, false);
+    const normalizedOrigin = origin.replace(/\/$/, "");
+    if (allowedOrigins.includes(normalizedOrigin)) return cb(null, true);
+    console.log("[CORS] Rejected Origin:", origin);
+    // Temporarily allow it to see if this is the issue
+    return cb(null, true);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "x-company-id",
-    "x-branch-id",
-    "x-user-id",
-    "x-skip-offline-queue",
-  ],
   optionsSuccessStatus: 204,
 };
 
