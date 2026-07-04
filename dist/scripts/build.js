@@ -1,15 +1,24 @@
+/**
+ * @fileoverview Build script for the server application. Copies relevant files
+ * from the source directory to the dist directory, ignoring specific files and directories.
+ * @module scripts/build
+ */
+
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// Directories to ignore during copy
 const excludedDirs = new Set([".git", "node_modules", "scratch"]);
+// Specific environment files to ignore
 const excludedFiles = new Set([
   ".env",
   ".env.local",
   "server.env",
   "server.env.local",
 ]);
+// File name patterns to ignore (e.g., logs, debug files)
 const excludedFilePatterns = [
   /\.log$/i,
   /^debug_.*\.(txt|log)$/i,
@@ -17,18 +26,30 @@ const excludedFilePatterns = [
   /^\.trae_.*\.txt$/i,
 ];
 
+/**
+ * Recursively copies a directory and its contents from the source to the destination,
+ * excluding predefined files, patterns, and directories.
+ *
+ * @param {string} src - The source directory path.
+ * @param {string} dest - The destination directory path.
+ * @returns {Promise<void>} Resolves when the directory has been copied.
+ */
 async function copyDir(src, dest) {
+  // Create destination directory if it doesn't exist
   await fs.mkdir(dest, { recursive: true });
+  // Iterate through directory contents
   const entries = await fs.readdir(src, { withFileTypes: true });
   for (const entry of entries) {
     const s = path.join(src, entry.name);
     const d = path.join(dest, entry.name);
+    // Skip excluded directories
     if (entry.isDirectory() && excludedDirs.has(entry.name)) {
       continue;
     }
     if (entry.isFile() && excludedFiles.has(entry.name)) {
       continue;
     }
+    // Skip files matching excluded patterns
     if (
       entry.isFile() &&
       excludedFilePatterns.some((pattern) => pattern.test(entry.name))
@@ -42,7 +63,14 @@ async function copyDir(src, dest) {
     }
   }
 }
+/**
+ * Main build execution function. Removes the existing dist directory and triggers the copy.
+ *
+ * @returns {Promise<void>} Resolves when the build is complete.
+ */
+// Main build process orchestration
 async function run() {
+  // Resolve source and destination directories
   const srcDir = path.resolve(__dirname, "../");
   const distDir = path.resolve(__dirname, "../../dist");
   try {

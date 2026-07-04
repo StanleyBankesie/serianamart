@@ -1,5 +1,16 @@
+/**
+ * @fileoverview Database migration script to create tables for sales returns.
+ * @module scripts/create_sales_returns_tables
+ */
+
 import { pool } from "../db/pool.js";
 
+/**
+ * Creates 'sal_returns' and 'sal_return_details' tables to track customer returns.
+ * Exits the process when complete.
+ *
+ * @returns {Promise<void>} Resolves when the tables are created successfully.
+ */
 async function run() {
   const conn = await pool.getConnection();
   try {

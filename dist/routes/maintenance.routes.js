@@ -10,26 +10,6 @@ import * as mc from "../controllers/maintenance.controller.js";
 const router = express.Router();
 const auth = [requireAuth, requireCompanyScope, requireBranchScope];
 
-// ===== LEGACY WORK ORDERS =====
-router.get(
-  "/work-orders",
-  ...auth,
-  requirePermission("MAINT.WORK_ORDER.VIEW"),
-  mc.listWorkOrders,
-);
-router.get(
-  "/work-orders/:id",
-  ...auth,
-  requirePermission("MAINT.WORK_ORDER.VIEW"),
-  mc.getWorkOrderById,
-);
-router.post(
-  "/work-orders",
-  ...auth,
-  requirePermission("MAINT.WORK_ORDER.MANAGE"),
-  mc.createWorkOrder,
-);
-
 // ===== ASSETS =====
 router.get("/assets", ...auth, mc.listAssets);
 router.get("/assets/:id", ...auth, mc.getAssetById);
@@ -42,6 +22,7 @@ router.get("/maintenance-requests/next-no", ...auth, mc.getNextRequestNo);
 router.get("/maintenance-requests/:id", ...auth, mc.getRequestById);
 router.post("/maintenance-requests", ...auth, mc.createRequest);
 router.put("/maintenance-requests/:id", ...auth, mc.updateRequest);
+router.post("/maintenance-requests/:id/submit", ...auth, mc.submitRequest);
 
 // ===== JOB ORDERS =====
 router.get("/job-orders", ...auth, mc.listJobOrders);
@@ -122,5 +103,21 @@ router.post("/assets/downtime", ...auth, mc.createDowntimeLog);
 
 // ===== REPORTS =====
 router.get("/reports/downtime", ...auth, mc.getDowntimeReport);
+
+// ===== MAINTENANCE MATERIAL REQUISITIONS =====
+router.get("/material-requisitions/next-no", ...auth, mc.getNextMaintMRNo);
+router.get("/material-requisitions", ...auth, mc.listMaintMaterialRequisitions);
+router.get("/material-requisitions/:id", ...auth, mc.getMaintMaterialRequisitionById);
+router.post("/material-requisitions", ...auth, mc.createMaintMaterialRequisition);
+router.put("/material-requisitions/:id", ...auth, mc.updateMaintMaterialRequisition);
+router.post("/material-requisitions/:id/submit", ...auth, mc.submitMaintMaterialRequisition);
+
+// ===== MAINTENANCE MATERIAL RECEIPTS =====
+router.get("/material-receipts", ...auth, mc.listMaintMaterialReceipts);
+router.get("/material-receipts/:id", ...auth, mc.getMaintMaterialReceiptById);
+router.post("/material-receipts", ...auth, mc.createMaintMaterialReceipt);
+router.put("/material-receipts/:id", ...auth, mc.updateMaintMaterialReceipt);
+router.get("/issue-to-requirement/maint", ...auth, mc.getPendingMaintIssueToRequirement);
+router.get("/issue-to-requirement/maint/:issueId", ...auth, mc.getMaintIssueToRequirementDetail);
 
 export default router;

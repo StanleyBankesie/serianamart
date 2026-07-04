@@ -10,6 +10,7 @@ let _tablesReady = false;
  * implicit-commit issues that break in-progress transactions.
  */
 export async function ensureStockBalancesWarehouseInfrastructure(connOrPool) {
+  // Early exit if the infrastructure check already passed this lifecycle
   if (_tablesReady) return;
   const q = connOrPool
     ? (sql, params) => connOrPool.execute(sql, params).then((r) => r[0])
@@ -152,6 +153,14 @@ export async function ensureStockBalancesWarehouseInfrastructure(connOrPool) {
  * Positive qtyChange → INFLOW  (inserts a new row in inv_stock_balances).
  * Negative qtyChange → OUTFLOW (delegates to FIFO consumer).
  */
+/**
+ * Records an inventory movement in the stock ledger and updates stock balances.
+ * Executes within a provided database transaction.
+ * @param {import('mysql2/promise').Connection} conn - Database transaction connection.
+ * @param {Object} params - Movement parameters.
+ * @returns {Promise<void>}
+ */
+// Endpoint / Major Logic: General-purpose stock movement router
 export async function recordMovementTx(conn, params) {
   await ensureStockBalancesWarehouseInfrastructure();
 
@@ -285,12 +294,20 @@ export async function recordMovementTx(conn, params) {
    OUTFLOW (FIFO)  –  consumeStockFIFOTx
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * Consumes stock using FIFO (First-In, First-Out) logic, deducting from batches.
+ * Executes within a provided database transaction.
+ * @param {import('mysql2/promise').Connection} conn - Database transaction connection.
+ * @param {Object} params - Consumption parameters.
+ * @returns {Promise<void>}
+ */
+// Internal Logic: Outflow processor applying FIFO rules
 export async function consumeStockFIFOTx(conn, params) {
   await ensureStockBalancesWarehouseInfrastructure();
 
   const {
     companyId,
-    branchId,
+    branchId = null,
     warehouseId,
     itemId,
     transactionType,
@@ -314,6 +331,7 @@ export async function consumeStockFIFOTx(conn, params) {
     { companyId, warehouseId, itemId },
   );
 
+  // Iterate through available batches sequentially (oldest first)
   for (const batch of batches) {
     if (remaining <= 0) break;
     const consume = Math.min(remaining, Number(batch.qty));
@@ -355,12 +373,63 @@ export async function consumeStockFIFOTx(conn, params) {
 
     remaining -= consume;
   }
+
+  // If still remaining after consuming all available batches, record negative balance
+  if (remaining > 0) {
+    const [existingNeg] = await conn.execute(
+      `SELECT id FROM inv_stock_balances
+       WHERE company_id = :companyId
+         AND warehouse_id = :warehouseId
+         AND item_id = :itemId
+       LIMIT 1`,
+      { companyId, warehouseId, itemId },
+    );
+    if (existingNeg.length > 0) {
+      await conn.execute(
+        `UPDATE inv_stock_balances SET qty = qty - :remaining WHERE id = :id`,
+        { remaining, id: existingNeg[0].id },
+      );
+    } else {
+      await conn.execute(
+        `INSERT INTO inv_stock_balances
+          (company_id, branch_id, warehouse_id, item_id, qty, entry_date)
+         VALUES
+          (:companyId, :branchId, :warehouseId, :itemId, :remaining, NOW())`,
+        {
+          companyId,
+          branchId,
+          warehouseId,
+          itemId,
+          remaining: -remaining,
+        },
+      );
+    }
+    await conn.execute(
+      `INSERT INTO inv_stock_ledger
+        (company_id, branch_id, warehouse_id, item_id, transaction_type,
+         qty_change, source_ref, created_by)
+       VALUES
+        (:companyId, :branchId, :warehouseId, :itemId, :transactionType,
+         :qtyChange, :sourceRef, :createdBy)`,
+      {
+        companyId,
+        branchId,
+        warehouseId,
+        itemId,
+        transactionType,
+        qtyChange: -remaining,
+        sourceRef,
+        createdBy,
+      },
+    );
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    RESERVE  –  reserveStockTx  (Stock Transfer creation)
    ═══════════════════════════════════════════════════════════════════════════ */
 
+// Endpoint / Major Logic: Shifts available stock into reserved state for transfers
 export async function reserveStockTx(conn, params) {
   await ensureStockBalancesWarehouseInfrastructure();
 
@@ -432,6 +501,7 @@ export async function reserveStockTx(conn, params) {
    TRANSFER ACCEPTANCE  –  moveReservedStockTx
    ═══════════════════════════════════════════════════════════════════════════ */
 
+// Endpoint / Major Logic: Completes a transfer by moving reserved stock to the destination warehouse
 export async function moveReservedStockTx(conn, params) {
   await ensureStockBalancesWarehouseInfrastructure();
 

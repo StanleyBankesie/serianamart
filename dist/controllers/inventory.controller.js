@@ -1,5 +1,11 @@
+/**
+ * @file inventory.controller.js
+ * @description Manages inventory items, stock balances, warehouses, and related configurations.
+ * Handles item creation, updates, and bulk stock adjustments.
+ */
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import { cacheGet, cacheSet, cacheDelPattern } from "../utils/redis.js";
 
 async function hasColumn(tableName, columnName) {
   const rows = await query(
@@ -272,10 +278,17 @@ async function resolveOrCreateGroupId(companyId, raw) {
   }
 }
 
+/**
+ * Retrieves a list of all inventory items for a company, including their current stock balances and categorization.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const listItems = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const groupCol = (await hasColumn("inv_items", "group_id"))
       ? "group_id"
       : "item_group_id";
@@ -322,13 +335,13 @@ export const listItems = async (req, res, next) => {
         GROUP BY company_id, branch_id, item_id
       ) sb
         ON sb.company_id = i.company_id
-       AND sb.branch_id = :branchId
+       AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
        AND sb.item_id = i.id
         LEFT JOIN adm_users u ON u.id = i.created_by
          WHERE i.company_id = :companyId
       ORDER BY i.item_name ASC
       `,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
     res.json({ items: rows });
   } catch (err) {
@@ -336,29 +349,53 @@ export const listItems = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves a list of active warehouses associated with the current company and allowed branch contexts.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const listWarehouses = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    
+    const cacheKey = `warehouses:company:${companyId}:branches:${branchIdsStr}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ items: cached });
+    }
+    
     const rows = await query(`
       SELECT w.id, w.warehouse_code, w.warehouse_name, w.location, w.is_active, w.branch_id,
           w.created_at,
           u.username AS created_by_name
          FROM inv_warehouses w
         LEFT JOIN adm_users u ON u.id = w.created_by
-         WHERE w.company_id = :companyId AND w.branch_id = :branchId
+         WHERE w.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(w.branch_id, :branchIdsStr))
       ORDER BY w.warehouse_name ASC
       `,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
+    
+    await cacheSet(cacheKey, rows, 86400).catch(() => {});
     res.json({ items: rows });
   } catch (err) {
     next(err);
   }
 };
 
+/**
+ * Updates stock balances for multiple items simultaneously in a specific warehouse and branch.
+ * Resolves item IDs dynamically via codes if explicit IDs are not provided.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const bulkUpdateStockBalances = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const body = req.body || {};
     const rows = Array.isArray(body.rows) ? body.rows : [];
     const warehouseId =
@@ -374,7 +411,7 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
           u.username AS created_by_name
          FROM inv_warehouses
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId 
+         WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) 
            AND UPPER(warehouse_code) = :code 
          LIMIT 1`,
         { companyId, branchId, code: warehouseCode.toUpperCase() },
@@ -435,7 +472,7 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
            ON DUPLICATE KEY UPDATE qty = :qty`,
           {
             companyId,
-            branchId,
+            branchId, branchIdsStr,
             warehouseId: resolvedWarehouseId,
             itemId,
             qty,
@@ -452,9 +489,16 @@ export const bulkUpdateStockBalances = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves the details of a single inventory item by its ID.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getItemById = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -476,10 +520,18 @@ export const getItemById = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new inventory item and resolves missing related entities (like category, group, currency)
+ * on the fly if auto-creation or bulk-import modes are active.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createItem = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const body = req.body || {};
     const groupCol = (await hasColumn("inv_items", "group_id"))
       ? "group_id"
@@ -629,10 +681,17 @@ export const createItem = async (req, res, next) => {
   }
 };
 
+/**
+ * Updates an existing inventory item's properties, preventing naming collisions.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const updateItem = async (req, res, next) => {
   try {
     await ensureItemFlagColumns();
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     const groupCol = (await hasColumn("inv_items", "group_id"))
       ? "group_id"
@@ -747,481 +806,17 @@ export const updateItem = async (req, res, next) => {
   }
 };
 
-export const bulkUpsertItems = async (req, res, next) => {
-  try {
-    await ensureItemFlagColumns();
-    const { companyId } = req.scope;
-    const body = req.body || {};
-    const rows = Array.isArray(body.rows) ? body.rows : [];
-    const autoCreate = !!body.auto_create_missing || !!body.bulk_import;
-    if (!rows.length)
-      return res.json({ inserted: 0, updated: 0, failed: 0, errors: [] });
-
-    const groupCol = (await hasColumn("inv_items", "group_id"))
-      ? "group_id"
-      : "item_group_id";
-    const yn = (v, def = "N") => {
-      if (v === undefined || v === null) return def;
-      const s = String(v).toUpperCase();
-      if (s === "Y") return "Y";
-      if (s === "N") return "N";
-      return Boolean(v) ? "Y" : "N";
-    };
-
-    let baseNextNum = null;
-    const needNextCode = rows.some(
-      (r) => !String(r.item_code || r.ITEM_CODE || "").trim(),
-    );
-    if (needNextCode) {
-      const rec = await query(`
-        SELECT item_code,
-          created_at,
-          u.username AS created_by_name
-         FROM inv_items
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
-        ORDER BY CAST(item_code AS UNSIGNED) DESC
-        LIMIT 1
-        `,
-        { companyId },
-      );
-      baseNextNum = rec.length ? parseInt(rec[0].item_code, 10) + 1 : 1;
-    }
-    const usedCodes = new Set();
-
-    let inserted = 0;
-    let updated = 0;
-    let failed = 0;
-    const errors = [];
-
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i] || {};
-      try {
-        const itemName = String(r.item_name || r.ITEM_NAME || "").trim();
-        if (!itemName) {
-          failed += 1;
-          errors.push({
-            index: i + 1,
-            item_name: "",
-            message: "Missing ITEM_NAME",
-          });
-          continue;
-        }
-        let itemCode = String(r.item_code || r.ITEM_CODE || "").trim();
-        if (!itemCode) {
-          if (baseNextNum == null) {
-            const rec2 = await query(`
-              SELECT item_code,
-          created_at,
-          u.username AS created_by_name
-         FROM inv_items
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND item_code REGEXP '^[0-9]+$'
-              ORDER BY CAST(item_code AS UNSIGNED) DESC
-              LIMIT 1
-              `,
-              { companyId },
-            );
-            baseNextNum = rec2.length ? parseInt(rec2[0].item_code, 10) + 1 : 1;
-          }
-          do {
-            itemCode = String(baseNextNum).padStart(6, "0");
-            baseNextNum += 1;
-          } while (usedCodes.has(itemCode));
-        }
-        usedCodes.add(itemCode);
-
-        const uom =
-          String(r.uom || r.UOM || r.BASE_UOM || "PCS").trim() || "PCS";
-        const itemType = r.item_type || r.ITEM_TYPE || null;
-        const barcode = r.barcode || r.BARCODE || null;
-        const costPrice = Number(
-          r.cost_price || r.COST_PRICE || r.STANDARD_COST || 0,
-        );
-        const sellingPrice = Number(r.selling_price || r.SELLING_PRICE || 0);
-        let currencyId = Number(r.currency_id || r.CURRENCY_ID || 0) || null;
-        let priceTypeId =
-          Number(r.price_type_id || r.PRICE_TYPE_ID || 0) || null;
-        const imageUrl = r.image_url || r.IMAGE_URL || r.IMAGE || null;
-        let vatOnPurchaseId =
-          Number(r.vat_on_purchase_id || r.VAT_ON_PURCHASE_ID || 0) || null;
-        let vatOnSalesId =
-          Number(r.vat_on_sales_id || r.VAT_ON_SALES_ID || 0) || null;
-        let purchaseAccountId =
-          Number(r.purchase_account_id || r.PURCHASE_ACCOUNT_ID || 0) || null;
-        let salesAccountId =
-          Number(r.sales_account_id || r.SALES_ACCOUNT_ID || 0) || null;
-        let categoryId = Number(r.category_id || r.CATEGORY_ID || 0) || null;
-        let itemGroupId =
-          Number(r.item_group_id || r.group_id || r.ITEM_GROUP_ID || 0) || null;
-
-        if (!categoryId) {
-          categoryId =
-            (await resolveCategoryId(
-              companyId,
-              r.category_label || r.CATEGORY_LABEL,
-            )) ||
-            (await resolveCategoryId(
-              companyId,
-              r.category_name || r.CATEGORY_NAME,
-            )) ||
-            (await resolveCategoryId(
-              companyId,
-              r.category_code || r.CATEGORY_CODE,
-            ));
-          if (!categoryId && autoCreate) {
-            categoryId =
-              (await resolveOrCreateCategoryId(
-                companyId,
-                r.category_label || r.CATEGORY_LABEL,
-              )) ||
-              (await resolveOrCreateCategoryId(
-                companyId,
-                r.category_name || r.CATEGORY_NAME,
-              )) ||
-              (await resolveOrCreateCategoryId(
-                companyId,
-                r.category_code || r.CATEGORY_CODE,
-              ));
-          }
-        }
-        if (!itemGroupId) {
-          itemGroupId =
-            (await resolveGroupId(companyId, r.group_label || r.GROUP_LABEL)) ||
-            (await resolveGroupId(companyId, r.group_name || r.GROUP_NAME)) ||
-            (await resolveGroupId(companyId, r.group_code || r.GROUP_CODE));
-          if (!itemGroupId && autoCreate) {
-            itemGroupId =
-              (await resolveOrCreateGroupId(
-                companyId,
-                r.group_label || r.GROUP_LABEL,
-              )) ||
-              (await resolveOrCreateGroupId(
-                companyId,
-                r.group_name || r.GROUP_NAME,
-              )) ||
-              (await resolveOrCreateGroupId(
-                companyId,
-                r.group_code || r.GROUP_CODE,
-              ));
-          }
-        }
-        if (!currencyId) {
-          currencyId =
-            (await resolveCurrencyId(
-              companyId,
-              r.currency_code || r.CURRENCY_CODE,
-            )) ||
-            (await resolveCurrencyId(
-              companyId,
-              r.currency_name || r.CURRENCY_NAME,
-            ));
-        }
-        if (!priceTypeId) {
-          priceTypeId =
-            (await resolvePriceTypeId(
-              companyId,
-              r.price_type ||
-                r.PRICE_TYPE ||
-                r.price_type_name ||
-                r.PRICE_TYPE_NAME,
-            )) || null;
-        }
-        if (!vatOnPurchaseId) {
-          vatOnPurchaseId =
-            (await resolveTaxCodeId(
-              companyId,
-              r.vat_on_purchase_code ||
-                r.VAT_ON_PURCHASE_CODE ||
-                r.vat_purchase ||
-                r.VAT_PURCHASE,
-            )) ||
-            (await resolveTaxCodeId(
-              companyId,
-              r.vat_on_purchase_name || r.VAT_ON_PURCHASE_NAME,
-            )) ||
-            null;
-        }
-        if (!vatOnSalesId) {
-          vatOnSalesId =
-            (await resolveTaxCodeId(
-              companyId,
-              r.vat_on_sales_code ||
-                r.VAT_ON_SALES_CODE ||
-                r.vat_sales ||
-                r.VAT_SALES,
-            )) ||
-            (await resolveTaxCodeId(
-              companyId,
-              r.vat_on_sales_name || r.VAT_ON_SALES_NAME,
-            )) ||
-            null;
-        }
-        if (!purchaseAccountId) {
-          purchaseAccountId =
-            (await resolveAccountId(
-              companyId,
-              r.purchase_account_code || r.PURCHASE_ACCOUNT_CODE,
-            )) ||
-            (await resolveAccountId(
-              companyId,
-              r.purchase_account_name || r.PURCHASE_ACCOUNT_NAME,
-            )) ||
-            (await resolveAccountId(
-              companyId,
-              r.purchase_account || r.PURCHASE_ACCOUNT,
-            )) ||
-            null;
-        }
-        if (!salesAccountId) {
-          salesAccountId =
-            (await resolveAccountId(
-              companyId,
-              r.sales_account_code || r.SALES_ACCOUNT_CODE,
-            )) ||
-            (await resolveAccountId(
-              companyId,
-              r.sales_account_name || r.SALES_ACCOUNT_NAME,
-            )) ||
-            (await resolveAccountId(
-              companyId,
-              r.sales_account || r.SALES_ACCOUNT,
-            )) ||
-            null;
-        }
-
-        const serviceItem = yn(r.service_item, "N");
-        const isStockable = yn(r.is_stockable, "N");
-        const isSellable = yn(r.is_sellable, "N");
-        const isPurchasable = yn(r.is_purchasable, "N");
-        const isActive =
-          r.is_active === undefined ? 1 : Number(Boolean(r.is_active));
-        const minStock = Number(r.min_stock_level || r.MIN_STOCK_LEVEL || 0);
-        const maxStock = Number(r.max_stock_level || r.MAX_STOCK_LEVEL || 0);
-        const reorderLevel = Number(r.reorder_level || r.REORDER_LEVEL || 0);
-        const safetyStock = Number(r.safety_stock || r.SAFETY_STOCK || 0);
-        const description = r.description || r.DESCRIPTION || null;
-
-        const exists = await query(`SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM inv_items
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND UPPER(item_name) = UPPER(:itemName) LIMIT 1`,
-          { companyId, itemName },
-        );
-        if (exists.length) {
-          const id = Number(exists[0].id);
-          await query(`
-            UPDATE inv_items
-            SET item_code = :itemCode,
-                item_name = :itemName,
-                uom = :uom,
-                item_type = :itemType,
-                barcode = :barcode,
-                cost_price = :costPrice,
-                selling_price = :sellingPrice,
-                currency_id = :currencyId,
-                price_type_id = :priceTypeId,
-                image_url = :imageUrl,
-                vat_on_purchase_id = :vatOnPurchaseId,
-                vat_on_sales_id = :vatOnSalesId,
-                purchase_account_id = :purchaseAccountId,
-                sales_account_id = :salesAccountId,
-                category_id = :categoryId,
-                ${groupCol} = :itemGroupId,
-                service_item = :serviceItem,
-                is_stockable = :isStockable,
-                is_sellable = :isSellable,
-                is_purchasable = :isPurchasable,
-                is_active = :isActive
-            WHERE id = :id AND company_id = :companyId
-            `,
-            {
-              id,
-              companyId,
-              itemCode,
-              itemName,
-              uom,
-              itemType,
-              barcode,
-              costPrice,
-              sellingPrice,
-              currencyId,
-              priceTypeId,
-              imageUrl,
-              vatOnPurchaseId,
-              vatOnSalesId,
-              purchaseAccountId,
-              salesAccountId,
-              categoryId,
-              itemGroupId,
-              serviceItem,
-              isStockable,
-              isSellable,
-              isPurchasable,
-              isActive,
-            },
-          );
-          updated += 1;
-        } else {
-          await query(`
-            INSERT INTO inv_items (company_id, item_code, item_name, uom, item_type, barcode, cost_price, selling_price, currency_id, price_type_id, image_url, vat_on_purchase_id, vat_on_sales_id, purchase_account_id, sales_account_id, category_id, ${groupCol}, service_item, is_stockable, is_sellable, is_purchasable, is_active, min_stock_level, max_stock_level, reorder_level, safety_stock, description)
-            VALUES (:companyId, :itemCode, :itemName, :uom, :itemType, :barcode, :costPrice, :sellingPrice, :currencyId, :priceTypeId, :imageUrl, :vatOnPurchaseId, :vatOnSalesId, :purchaseAccountId, :salesAccountId, :categoryId, :itemGroupId, :serviceItem, :isStockable, :isSellable, :isPurchasable, :isActive, :minStock, :maxStock, :reorderLevel, :safetyStock, :description)
-            `,
-            {
-              companyId,
-              itemCode,
-              itemName,
-              uom,
-              itemType,
-              barcode,
-              costPrice,
-              sellingPrice,
-              currencyId,
-              priceTypeId,
-              imageUrl,
-              vatOnPurchaseId,
-              vatOnSalesId,
-              purchaseAccountId,
-              salesAccountId,
-              categoryId,
-              itemGroupId,
-              serviceItem,
-              isStockable,
-              isSellable,
-              isPurchasable,
-              isActive,
-              minStock,
-              maxStock,
-              reorderLevel,
-              safetyStock,
-              description,
-            },
-          );
-          inserted += 1;
-        }
-      } catch (e) {
-        failed += 1;
-        const msg = e?.message || "Upload failed";
-        errors.push({
-          index: i + 1,
-          item_name: String(rows[i]?.item_name || rows[i]?.ITEM_NAME || ""),
-          message: msg,
-        });
-      }
-    }
-    res.json({ inserted, updated, failed, errors });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const getWarehouseById = async (req, res, next) => {
-  try {
-    const { companyId, branchId } = req.scope;
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0)
-      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const rows = await query(`
-      SELECT w.*,
-          w.created_at,
-          u.username AS created_by_name
-         FROM inv_warehouses w
-        LEFT JOIN adm_users u ON u.id = w.created_by
-         WHERE w.id = :id AND w.company_id = :companyId AND w.branch_id = :branchId
-      LIMIT 1
-      `,
-      { id, companyId, branchId },
-    );
-    if (!rows.length) throw httpError(404, "NOT_FOUND", "Warehouse not found");
-    res.json({ item: rows[0] });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const createWarehouse = async (req, res, next) => {
-  try {
-    const { companyId, branchId } = req.scope;
-    const body = req.body || {};
-    const warehouseCode = String(body.warehouse_code || "").trim();
-    const warehouseName = String(body.warehouse_name || "").trim();
-    const location = body.location ? String(body.location).trim() : null;
-    const isActive =
-      body.is_active === undefined ? 1 : Number(Boolean(body.is_active));
-    if (!warehouseCode || !warehouseName)
-      throw httpError(
-        400,
-        "VALIDATION_ERROR",
-        "warehouse_code and warehouse_name are required",
-      );
-    const result = await query(`
-      INSERT INTO inv_warehouses (company_id, branch_id, warehouse_code, warehouse_name, location, is_active)
-      VALUES (:companyId, :branchId, :warehouseCode, :warehouseName, :location, :isActive)
-      `,
-      {
-        companyId,
-        branchId,
-        warehouseCode,
-        warehouseName,
-        location,
-        isActive,
-      },
-    );
-    res.status(201).json({ id: result.insertId });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const updateWarehouse = async (req, res, next) => {
-  try {
-    const { companyId, branchId } = req.scope;
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0)
-      throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    const body = req.body || {};
-    const warehouseCode = String(body.warehouse_code || "").trim();
-    const warehouseName = String(body.warehouse_name || "").trim();
-    const location = body.location ? String(body.location).trim() : null;
-    const isActive =
-      body.is_active === undefined ? 1 : Number(Boolean(body.is_active));
-    if (!warehouseCode || !warehouseName)
-      throw httpError(
-        400,
-        "VALIDATION_ERROR",
-        "warehouse_code and warehouse_name are required",
-      );
-    const upd = await query(`
-      UPDATE inv_warehouses
-      SET warehouse_code = :warehouseCode,
-          warehouse_name = :warehouseName,
-          location = :location,
-          is_active = :isActive
-      WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
-      `,
-      {
-        id,
-        companyId,
-        branchId,
-        warehouseCode,
-        warehouseName,
-        location,
-        isActive,
-      },
-    );
-    if (!upd.affectedRows)
-      throw httpError(404, "NOT_FOUND", "Warehouse not found");
-    res.json({ ok: true });
-  } catch (err) {
-    next(err);
-  }
-};
-
+/**
+ * Inserts new or updates existing inventory items from an array of payloads.
+ * Automatically generates missing item codes sequentially if necessary.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const linkWarehouseBranch = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1242,7 +837,7 @@ export const linkWarehouseBranch = async (req, res, next) => {
          WHERE id = :branchId
       LIMIT 1
       `,
-      { branchId: targetBranchId },
+      { branchId, branchIdsStr: targetBranchId },
     );
     const branch = branchRow?.[0];
     if (!branch) throw httpError(404, "NOT_FOUND", "Target branch not found");
@@ -1272,10 +867,10 @@ export const linkWarehouseBranch = async (req, res, next) => {
       throw httpError(403, "FORBIDDEN", "Branch access denied");
     const upd = await query(`
       UPDATE inv_warehouses
-      SET branch_id = :branchId
+      SET (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       WHERE id = :id AND company_id = :companyId
       `,
-      { id, companyId, branchId: targetBranchId },
+      { id, companyId, branchId, branchIdsStr: targetBranchId },
     );
     if (!upd.affectedRows)
       throw httpError(404, "NOT_FOUND", "Warehouse not found");
@@ -1287,7 +882,7 @@ export const linkWarehouseBranch = async (req, res, next) => {
 
 export const getNextItemCode = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const rows = await query(`
       SELECT item_code,
           created_at,
@@ -1311,7 +906,7 @@ export const getNextItemCode = async (req, res, next) => {
 
 export const listItemGroups = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const rows = await query(`
       SELECT g.id,
              g.group_code,
@@ -1337,7 +932,7 @@ export const listItemGroups = async (req, res, next) => {
 
 export const getItemGroupById = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1361,7 +956,7 @@ export const getItemGroupById = async (req, res, next) => {
 
 export const createItemGroup = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const body = req.body || {};
     const groupCode = String(body.group_code || "").trim();
     const groupName = String(body.group_name || "").trim();
@@ -1387,7 +982,7 @@ export const createItemGroup = async (req, res, next) => {
 
 export const updateItemGroup = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1428,7 +1023,7 @@ export const updateItemGroup = async (req, res, next) => {
 
 export const listItemCategories = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const rows = await query(`
       SELECT c.id,
              c.category_code,
@@ -1454,7 +1049,7 @@ export const listItemCategories = async (req, res, next) => {
 
 export const getItemCategoryById = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1479,7 +1074,7 @@ export const getItemCategoryById = async (req, res, next) => {
 
 export const createItemCategory = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const body = req.body || {};
     const categoryCode = String(body.category_code || "").trim();
     const categoryName = String(body.category_name || "").trim();
@@ -1505,7 +1100,7 @@ export const createItemCategory = async (req, res, next) => {
 
 export const updateItemCategory = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1546,7 +1141,7 @@ export const updateItemCategory = async (req, res, next) => {
 
 export const deleteItemCategory = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1576,7 +1171,7 @@ export const deleteItemCategory = async (req, res, next) => {
 
 export const listItemTypes = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const rows = await query(`
       SELECT t.id, t.type_code, t.type_name, t.is_active,
           t.created_at,
@@ -1596,7 +1191,7 @@ export const listItemTypes = async (req, res, next) => {
 
 export const getItemTypeById = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1620,7 +1215,7 @@ export const getItemTypeById = async (req, res, next) => {
 
 export const createItemType = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const body = req.body || {};
     const typeCode = String(body.type_code || "").trim();
     const typeName = String(body.type_name || "").trim();
@@ -1645,7 +1240,7 @@ export const createItemType = async (req, res, next) => {
 
 export const updateItemType = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1678,7 +1273,7 @@ export const updateItemType = async (req, res, next) => {
 
 export const deleteItemType = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1695,7 +1290,7 @@ export const deleteItemType = async (req, res, next) => {
 
 export const listUnitConversions = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const rows = await query(`
       SELECT c.id,
              c.item_id,
@@ -1723,7 +1318,7 @@ export const listUnitConversions = async (req, res, next) => {
 
 export const getUnitConversionById = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1748,7 +1343,7 @@ export const getUnitConversionById = async (req, res, next) => {
 
 export const createUnitConversion = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const body = req.body || {};
     const itemId = Number(body.item_id || 0);
     const fromUom = String(body.from_uom || "").trim();
@@ -1782,7 +1377,7 @@ export const createUnitConversion = async (req, res, next) => {
 
 export const updateUnitConversion = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const id = Number(req.params.id);
     if (!Number.isFinite(id) || id <= 0)
       throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1826,7 +1421,7 @@ export const updateUnitConversion = async (req, res, next) => {
 
 export const listUoms = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const rows = await query(`
       SELECT u.*,
           u.created_at,
@@ -1846,7 +1441,7 @@ export const listUoms = async (req, res, next) => {
 
 export const createUom = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const body = req.body || {};
     const uomCode = String(body.uom_code || "").trim();
     const uomName = String(body.uom_name || "").trim();
@@ -1869,3 +1464,4 @@ export const createUom = async (req, res, next) => {
     next(err);
   }
 };
+

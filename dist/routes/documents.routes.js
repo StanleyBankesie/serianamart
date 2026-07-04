@@ -1,3 +1,4 @@
+// Route Dependencies
 import express from "express";
 import Handlebars from "handlebars";
 import sanitizeHtml from "sanitize-html";
@@ -13,8 +14,14 @@ import { join } from "path";
 import { existsSync } from "fs";
 import crypto from "crypto";
 
+/**
+ * Resolves and calculates tax summary for a given list of document items.
+ * Fetches tax components based on item tax codes and calculates compound taxes.
+ * Useful for summarizing total tax broken down by tax component.
+ */
 async function resolveTaxSummary(items, companyId) {
   const summary = {}; // name -> { amount, rate }
+  // Calculate tax code ids present in the items to minimize queries
   const taxCodeIds = [...new Set(items.map((i) => i.tax_code_id).filter(Boolean))];
   if (taxCodeIds.length === 0) return [];
 
@@ -38,7 +45,7 @@ async function resolveTaxSummary(items, companyId) {
   });
 
   items.forEach((item) => {
-    const netAmount = Number(item.amount || item.total_net_amount || 0);
+    const netAmount = Number(item.net_amount || item.amount || 0);
     const comps = compsByCode[item.tax_code_id] || [];
     if (comps.length === 0) return;
 
@@ -85,6 +92,9 @@ Handlebars.registerHelper("formatDate", function (date) {
 Handlebars.registerHelper("inc", function (value) {
   return parseInt(value) + 1;
 });
+Handlebars.registerHelper("json", function (value) {
+  return JSON.stringify(value, null, 2);
+});
 Handlebars.registerHelper("salary_slip_amount", function (val) {
   const n = Number(val || 0);
   if (!Number.isFinite(n)) return "";
@@ -93,7 +103,21 @@ Handlebars.registerHelper("salary_slip_amount", function (val) {
     maximumFractionDigits: 2,
   });
 });
+Handlebars.registerHelper("taxTotal", function (...args) {
+  const options = args[args.length - 1];
+  const items = args.length > 1 ? args[0] : (this?.items || this?.sales_order?.items || []);
+  const arr = Array.isArray(items) ? items : [];
+  const sum = arr.reduce((s, it) => s + Number(it.tax || it.tax_amount || 0), 0);
+  if (options && options.fn) {
+    return options.fn({ taxTotal: sum });
+  }
+  return sum;
+});
 
+/**
+ * Converts various document type string aliases into a standardized canonical document type.
+ * Used for consistently handling document types across different endpoints and templates.
+ */
 function canonicalDocumentType(type) {
   const t = String(type || "")
     .trim()
@@ -142,6 +166,14 @@ function canonicalDocumentType(type) {
     t === "pv"
   ) {
     return "payment-voucher";
+  }
+  if (
+    t === "receipt-voucher" ||
+    t === "receipt voucher" ||
+    t === "receipt_voucher" ||
+    t === "rv"
+  ) {
+    return "receipt-voucher";
   }
   if (t === "salary-slip" || t === "salaryslip" || t === "payslip") {
     return "salary-slip";
@@ -212,9 +244,13 @@ function canonicalDocumentType(type) {
   if (t === "supplier-quotation" || t === "supplier quotation" || t === "supplier_quotation") {
     return "supplier-quotation";
   }
-  return t || "general-template";
+  return t;
 }
 
+/**
+ * Expands a given document type into an array of its known aliases/synonyms.
+ * Useful for matching template assignments when a template is tied to an alias rather than the canonical name.
+ */
 function expandDocumentTypeAliases(type) {
   const c = canonicalDocumentType(type);
   if (c === "general-template") {
@@ -348,150 +384,56 @@ function expandDocumentTypeAliases(type) {
   return [c];
 }
 
+/**
+ * Converts all document type synonyms to lowercase for case-insensitive matching.
+ */
 function docTypeSynonymsLower(type) {
   return expandDocumentTypeAliases(type).map((v) =>
     String(v).trim().toLowerCase(),
   );
 }
 
-function getDefaultSampleTemplate(type) {
-  const canonical = canonicalDocumentType(type);
-  const head = `<style>
-    * { box-sizing: border-box; font-family: Arial, sans-serif; }
-    .doc { max-width: 800px; margin: 0 auto; padding: 12px; }
-    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .logo { height: 60px; object-fit: contain; }
-    .company { text-align: right; font-size: 12px; }
-    .company .name { font-weight: bold; font-size: 18px; }
-    .titlebar { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 12px 0; }
-    .line { flex: 1; border-top: 2px solid #000; }
-    .title { font-weight: bold; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
-  </style>`;
-  const header = `
-    <div class="header">
-      <img class="logo" src="{{company.logo}}" alt="Logo"/>
-      <div class="company">
-        <div class="name">{{company.name}}</div>
-        <div>{{company.address}}</div>
-        <div>{{company.address2}}</div>
-        <div>{{company.phone}} • {{company.email}} • {{company.website}}</div>
-      </div>
-    </div>
-  `;
-  const title = (t) =>
-    `<div class="titlebar"><div class="line"></div><div class="title">${t}</div><div class="line"></div></div>`;
-  if (canonical === "sales-order") {
-    return `${head}<div class="doc">${header}${title("* Sales Order *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each sales_order.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "invoice") {
-    return `${head}<div class="doc">${header}${title("* Sales Invoice *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each invoice.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "delivery-note") {
-    return `${head}<div class="doc">${header}${title("* Delivery Note *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Ordered</th><th>Delivered</th></tr></thead><tbody>{{#each delivery.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{qty_ordered}}</td><td>{{qty_delivered}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "quotation") {
-    return `${head}<div class="doc">${header}${title("* Quotation *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each quotation.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td>{{quantity}}</td><td>{{price}}</td><td>{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "payment-voucher") {
-    return `${head}<div class="doc">${header}${title("* Payment Voucher *")}<table><thead><tr><th>#</th><th>Account</th><th>Description</th><th>Debit</th><th>Credit</th></tr></thead><tbody>{{#each payment_voucher.items}}<tr><td>{{inc @index}}</td><td>{{account_name}}</td><td>{{description}}</td><td>{{debit}}</td><td>{{credit}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "salary-slip") {
-    return `${head}<div class="doc">${header}${title("* Salary Slip *")}<table><thead><tr><th>Description</th><th>Amount</th></tr></thead><tbody>{{#each payslip.rows}}<tr><td>{{earning_label}}</td><td>{{salary_slip_amount earning_amount}}</td></tr>{{/each}}</tbody></table><div style="margin-top:8px;display:flex;gap:12px"><div><strong>Total Earnings:</strong> {{salary_slip_amount salary_slip.total_earnings}}</div><div><strong>Total Deductions:</strong> {{salary_slip_amount salary_slip.total_deductions}}</div></div></div>`;
-  }
-  if (canonical === "purchase-order") {
-    return `${head}<div class="doc">${header}${title("* Purchase Order *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each purchase_order.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "direct-purchase") {
-    return `${head}<div class="doc">${header}${title("* Direct Purchase *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Qty</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each direct_purchase.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{quantity}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  if (canonical === "purchase-bill") {
-    return `${head}<div class="doc">${header}${title("* Purchase Bill *")}
-    <div style="margin-bottom: 12px; font-size: 12px; display: flex; justify-content: space-between;">
-      <div>
-        <div><strong>Supplier:</strong> {{supplier.name}}</div>
-        <div>{{supplier.address}}</div>
-        <div>{{supplier.phone}}</div>
-        <div>{{supplier.email}}</div>
-      </div>
-      <div style="text-align: right;">
-        <div><strong>Bill No:</strong> {{purchase_bill.number}}</div>
-        <div><strong>Date:</strong> {{purchase_bill.date}}</div>
-        <div><strong>Status:</strong> {{purchase_bill.status}}</div>
-      </div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Code</th>
-          <th>Description</th>
-          <th class="num">Qty</th>
-          <th>UOM</th>
-          <th class="num">Price</th>
-          <th class="num">Disc%</th>
-          <th class="num">Tax</th>
-          <th class="num">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{#each purchase_bill.items}}
-        <tr>
-          <td>{{inc @index}}</td>
-          <td>{{code}}</td>
-          <td>{{name}}</td>
-          <td class="num">{{quantity}}</td>
-          <td>{{uom}}</td>
-          <td class="num">{{price}}</td>
-          <td class="num">{{discount}}%</td>
-          <td class="num">{{tax}}</td>
-          <td class="num">{{amount}}</td>
-        </tr>
-        {{/each}}
-      </tbody>
-    </table>
-    <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
-      <div style="width: 250px; font-size: 12px;">
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>Sub Total:</span>
-          <span>{{purchase_bill.sub_total}}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>Total Discount:</span>
-          <span>{{purchase_bill.discount_total}}</span>
-        </div>
-        {{#each purchase_bill.tax_summary}}
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>{{name}} ({{rate}}%):</span>
-          <span>{{amount}}</span>
-        </div>
-        {{/each}}
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>Freight Charges:</span>
-          <span>{{purchase_bill.freight_charges}}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #eee; padding: 4px 0;">
-          <span>Other Charges:</span>
-          <span>{{purchase_bill.other_charges}}</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; padding: 4px 0; border-top: 1px solid #000;">
-          <span>Grand Total:</span>
-          <span>{{purchase_bill.total}}</span>
-        </div>
-      </div>
-    </div>
-    </div>`;
-  }
-  if (canonical === "grn") {
-    return `${head}<div class="doc">${header}${title("* Goods Receipt Note *")}<table><thead><tr><th>#</th><th>Code</th><th>Description</th><th>Ordered</th><th>Received</th><th>Accepted</th><th>UOM</th><th>Price</th><th>Amount</th></tr></thead><tbody>{{#each grn.items}}<tr><td>{{inc @index}}</td><td>{{code}}</td><td>{{name}}</td><td class="num">{{ordered}}</td><td class="num">{{received}}</td><td class="num">{{accepted}}</td><td>{{uom}}</td><td class="num">{{price}}</td><td class="num">{{amount}}</td></tr>{{/each}}</tbody></table></div>`;
-  }
-  return `${head}<div class="doc">${header}${title("* Document *")}</div>`;
-}
+
 
 // Browser singleton for PDF rendering
 let _browser = null;
 
+/**
+ * Attempts to locate the Chrome/Chromium executable on the system.
+ * Checks environment variables, puppeteer bundle, and common Linux paths.
+ * Returns the path if found, otherwise undefined.
+ */
+async function findChromeExecutablePath(puppeteer) {
+  // 1. Environment variable (common in production)
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    const p = process.env.PUPPETEER_EXECUTABLE_PATH;
+    if (existsSync(p)) return p;
+  }
+
+  // 2. Puppeteer-bundled Chromium
+  try {
+    const p = puppeteer.executablePath();
+    if (p && existsSync(p)) return p;
+  } catch {}
+
+  // 3. Common Linux paths
+  const linuxPaths = [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+  ];
+  for (const p of linuxPaths) {
+    if (existsSync(p)) return p;
+  }
+
+  return undefined;
+}
+
+/**
+ * Launches a headless Puppeteer browser instance (or re-uses an existing one).
+ * Optimized for container environments by disabling sandbox and dev shm.
+ */
 async function launchBrowser() {
   if (_browser) return _browser;
 
@@ -503,40 +445,12 @@ async function launchBrowser() {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--single-process",
     ],
   };
 
-  // Try known executable paths first (Windows)
-  const candidatePaths = [
-    join(
-      "C:",
-      "Users",
-      "stanl",
-      ".cache",
-      "puppeteer",
-      "chrome",
-      "win64-146.0.7680.153",
-      "chrome-win64",
-      "chrome.exe",
-    ),
-    join(
-      process.cwd(),
-      "node_modules",
-      "puppeteer",
-      ".local-chromium",
-      "win64-123456",
-      "chrome-win64",
-      "chrome.exe",
-    ),
-  ];
-
-  let executablePath;
-  for (const p of candidatePaths) {
-    if (existsSync(p)) {
-      executablePath = p;
-      break;
-    }
-  }
+  const executablePath = await findChromeExecutablePath(puppeteer);
 
   try {
     _browser = await puppeteer.launch({ ...launchArgs, executablePath });
@@ -556,6 +470,10 @@ async function launchBrowser() {
   return _browser;
 }
 
+/**
+ * Fetches the company logo from the database and converts it to a base64 Data URI.
+ * Determines the MIME type (PNG, JPEG, GIF) based on magic bytes of the image buffer.
+ */
 async function getCompanyLogoDataUri(companyId) {
   try {
     const rows = await query(
@@ -603,6 +521,10 @@ async function getCompanyLogoDataUri(companyId) {
   }
 }
 
+/**
+ * Returns mock/dummy preview data for various document types.
+ * Used when generating a template preview before a real document exists.
+ */
 async function loadPreviewData(type, companyId, branchId) {
   const [company] = await query(`
     SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
@@ -634,33 +556,54 @@ async function loadPreviewData(type, companyId, branchId) {
         number: "SO-PREVIEW",
         date: new Date().toDateString(),
         status: "DRAFT",
-        sub_total: 0,
-        tax_amount: 0,
-        total: 0,
+        sub_total: 250,
+        tax_amount: 31.25,
+        total: 281.25,
+        discount_amount: 0,
+        net_amount: 281.25,
         remarks: "",
+        payment_type: "CASH",
+        price_type: null,
         qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent("SALES_ORDER|PREVIEW|SO-PREVIEW|" + new Date().toISOString().slice(0, 10))}`,
+        tax_code: "VAT-STANDARD",
+        tax_components: [
+          { name: "VAT", rate: "12.5%", amount: "31.25" },
+          { name: "NHIL", rate: "2.5%", amount: "6.25" },
+        ],
         items: [
           {
             name: "Sample Item",
             code: "ITEM001",
             quantity: 2,
             price: 100,
+            value: 200,
             discount: 0,
+            discount_amount: 0,
             amount: 200,
             net: 200,
-            tax: 0,
+            tax: 25,
             uom: "PCS",
+            tax_code_id: 1,
+            tax_components: [
+              { name: "VAT", rate: "12.5", amount: "25.00" },
+            ],
           },
           {
             name: "Sample Item 2",
             code: "ITEM002",
             quantity: 1,
             price: 50,
+            value: 50,
             discount: 0,
+            discount_amount: 0,
             amount: 50,
             net: 50,
-            tax: 0,
+            tax: 6.25,
             uom: "PCS",
+            tax_code_id: 1,
+            tax_components: [
+              { name: "VAT", rate: "12.5", amount: "6.25" },
+            ],
           },
         ],
       },
@@ -740,6 +683,7 @@ async function loadPreviewData(type, companyId, branchId) {
   if (type === "payment-voucher") {
     return {
       company: company || {},
+      approved_by: undefined,
       payment_voucher: {
         id: 0,
         number: "",
@@ -747,22 +691,16 @@ async function loadPreviewData(type, companyId, branchId) {
         narration: "",
         total_debit: 250,
         total_credit: 250,
+        type_code: "PV",
+        type_name: "Payment Voucher",
+        payment_method: "Cash",
+        currency: "GHS",
         items: [
           {
             account_code: "1000",
             account_name: "Cash",
             description: "Sample",
             debit: 250,
-            credit: 0,
-            reference_no: "",
-          },
-          {
-            account_code: "4000",
-            account_name: "Sales",
-            description: "Sample",
-            debit: 0,
-            credit: 250,
-            reference_no: "",
           },
         ],
       },
@@ -783,16 +721,21 @@ async function loadPreviewData(type, companyId, branchId) {
         number: "",
         date: new Date().toDateString(),
         status: "DRAFT",
-        sub_total: 0,
-        tax_amount: 0,
-        total: 0,
+        sub_total: 250,
+        discount_total: 0,
+        tax_total: 0,
+        grand_total: 250,
+        total: 250,
         remarks: "",
+        valid_until: null,
+        terms_and_conditions: "",
         items: [
           {
             name: "Sample Item",
             code: "ITEM001",
             quantity: 2,
             price: 100,
+            value: 200,
             discount: 0,
             amount: 200,
             net: 200,
@@ -804,6 +747,7 @@ async function loadPreviewData(type, companyId, branchId) {
             code: "ITEM002",
             quantity: 1,
             price: 50,
+            value: 50,
             discount: 0,
             amount: 50,
             net: 50,
@@ -817,31 +761,25 @@ async function loadPreviewData(type, companyId, branchId) {
   if (type === "receipt-voucher") {
     return {
       company: company || {},
+      approved_by: undefined,
       receipt_voucher: {
         id: 0,
         number: "",
         date: new Date().toDateString(),
         narration: "",
         total_debit: 0,
-        total_credit: 0,
+        total_credit: 250,
         type_code: "RV",
         type_name: "Receipt Voucher",
+        received_from: "Sample Customer",
+        payment_mode: "Cash",
+        currency: "GHS",
         items: [
-          {
-            account_code: "1000",
-            account_name: "Cash",
-            description: "Sample",
-            debit: 250,
-            credit: 0,
-            reference_no: "",
-          },
           {
             account_code: "1100",
             account_name: "Receivables",
             description: "Sample",
-            debit: 0,
             credit: 250,
-            reference_no: "",
           },
         ],
       },
@@ -1028,6 +966,51 @@ async function loadPreviewData(type, companyId, branchId) {
       },
     };
   }
+  if (type === "grn") {
+    return {
+      company: { ...(company || {}), logo: `/api/admin/companies/${companyId}/logo` },
+      vendor: {
+        name: "Sample Supplier Ltd",
+        address: "Industrial Area",
+        address2: "Suite 12",
+        city: "Tema",
+        state: "Greater Accra",
+        country: "Ghana",
+      },
+      qr_code: `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent("GRN|PREVIEW|GRN-PREVIEW|" + new Date().toISOString().slice(0, 10))}`,
+      grn: {
+        number: "GRN-PREVIEW-001",
+        date: new Date().toDateString(),
+        po_reference: "PO-2024-001",
+        delivery_note_no: "DN-2024-001",
+        warehouse: "Main Warehouse",
+        vehicle_no: "GT-1234-24",
+        status: "RECEIVED",
+        item_count: 3,
+        total_po_quantity: 9,
+        total_received_quantity: 9,
+        total_rejected_quantity: 1,
+        total_accepted_quantity: 8,
+        inspection_remarks: "All items inspected and quality verified.",
+        remarks: "Goods received in satisfactory condition.",
+        inspected_by: "Samuel Quaye",
+        inspection_date: new Date().toDateString(),
+        carrier: "Swift Transport Ltd",
+        delivery_condition: "Good",
+        items: [
+          { code: "RM001", name: "Raw Material Alpha", po_quantity: 5, received_quantity: 5, rejected_quantity: 0, accepted_quantity: 5, unit: "KGS", condition: "ACCEPTED" },
+          { code: "RM002", name: "Raw Material Beta", po_quantity: 3, received_quantity: 3, rejected_quantity: 1, accepted_quantity: 2, unit: "KGS", condition: "PARTIAL" },
+          { code: "PK001", name: "Packaging Box", po_quantity: 1, received_quantity: 1, rejected_quantity: 0, accepted_quantity: 1, unit: "PCS", condition: "ACCEPTED" },
+        ],
+      },
+      received_by: "Kofi Mensah",
+      inspected_by: "Samuel Quaye",
+      store_manager: "Ama Serwaa",
+    };
+  }
+  if (canonicalDocumentType(type) === "general-template") {
+    return { company: company || {} };
+  }
   throw httpError(400, "VALIDATION_ERROR", "Unsupported type");
 }
 
@@ -1071,7 +1054,7 @@ async function loadData(type, id, companyId, branchId) {
       LEFT JOIN sal_customers c
         ON c.id = o.customer_id AND c.company_id = o.company_id
         LEFT JOIN adm_users u ON u.id = o.created_by
-         WHERE o.id = :id AND o.company_id = :companyId AND o.branch_id = :branchId
+         WHERE o.id = :id AND o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1160,6 +1143,58 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     const extraRow = extra?.[0] || {};
     const items = Array.isArray(details) ? details : [];
+    const compRows = await query(`SELECT c.tax_code_id, td.component_name as name, c.rate_percent as rate, c.compound_level
+       FROM fin_tax_components c
+       JOIN fin_tax_details td ON td.id = c.tax_detail_id
+       WHERE c.company_id = :companyId AND c.is_active = 1
+       ORDER BY c.compound_level ASC, c.sort_order ASC`,
+      { companyId },
+    ).catch(() => []);
+    const compsByCode = {};
+    compRows.forEach((c) => {
+      if (!compsByCode[c.tax_code_id]) compsByCode[c.tax_code_id] = [];
+      compsByCode[c.tax_code_id].push(c);
+    });
+    const templateItems = items.map((d) => {
+      const itemComps = [];
+      const comps = compsByCode[d.tax_code_id] || [];
+      const netAmt = Number(d.net_amount || 0);
+      if (comps.length > 0 && netAmt > 0) {
+        const levels = {};
+        comps.forEach((c) => {
+          const lvl = c.compound_level || 0;
+          if (!levels[lvl]) levels[lvl] = [];
+          levels[lvl].push(c);
+        });
+        const sortedLvls = Object.keys(levels).map(Number).sort((a, b) => a - b);
+        let base = netAmt;
+        sortedLvls.forEach((lvl) => {
+          levels[lvl].forEach((c) => {
+            const tax = base * (Number(c.rate) / 100);
+            itemComps.push({ name: c.name, rate: c.rate, amount: tax.toFixed(2) });
+            base += tax;
+          });
+        });
+      }
+      const value = Number(d.quantity || 0) * Number(d.unit_price || 0);
+      return {
+        name: d.item_name,
+        description: d.item_name,
+        code: d.item_code,
+        quantity: d.quantity,
+        price: d.unit_price,
+        value,
+        discount: d.discount_percent,
+        discount_amount: value * (Number(d.discount_percent || 0) / 100),
+        amount: d.total_amount,
+        net: d.net_amount,
+        tax: d.tax_amount,
+        uom: d.uom,
+        tax_code_id: d.tax_code_id,
+        tax_components: itemComps,
+      };
+    });
+    const totalDiscountAmt = templateItems.reduce((s, it) => s + Number(it.discount_amount || 0), 0);
     const soObj = {
       company: company || {},
       customer: {
@@ -1183,10 +1218,11 @@ async function loadData(type, id, companyId, branchId) {
         actual_delivery_date: order.actual_delivery_date,
         payment_terms: order.payment_terms,
         priority: order.priority,
-        sub_total: order.sub_total,
+        sub_total: Math.round(templateItems.reduce((s, it) => s + Number(it.value || 0), 0) * 100) / 100,
+        discount_amount: Math.round(totalDiscountAmt * 100) / 100,
         tax_amount: order.tax_amount,
-        total: order.total_amount,
-        net_amount: order.total_amount,
+        total: 0,
+        net_amount: 0,
         remarks: order.remarks,
         price_type: order.price_type || null,
         payment_type: order.payment_type || null,
@@ -1195,25 +1231,17 @@ async function loadData(type, id, companyId, branchId) {
         currency_id: order.currency_id || null,
         currency_code: extraRow?.currency_code || null,
         exchange_rate: order.exchange_rate || null,
-        discount_amount: order.discount_amount || 0,
         shipping_charges: order.shipping_charges || 0,
         internal_notes: order.internal_notes || null,
         customer_notes: order.customer_notes || null,
         tax_summary,
-        items: items.map((d) => ({
-          name: d.item_name,
-          description: d.item_name,
-          code: d.item_code,
-          quantity: d.quantity,
-          price: d.unit_price,
-          discount: d.discount_percent,
-          amount: d.total_amount,
-          net: d.net_amount,
-          tax: d.tax_amount,
-          uom: d.uom,
-        })),
+        items: templateItems,
       },
     };
+    soObj.sales_order.total = Math.round(
+      (soObj.sales_order.sub_total - soObj.sales_order.discount_amount + Number(soObj.sales_order.tax_amount || 0)) * 100
+    ) / 100;
+    soObj.sales_order.net_amount = soObj.sales_order.total;
     try {
       const qrPayload = encodeURIComponent(
         `SALES_ORDER|${order.id}|${order.order_no || ""}|${order.order_date || ""}|${order.customer_name || ""}`,
@@ -1224,7 +1252,7 @@ async function loadData(type, id, companyId, branchId) {
     soObj.tax_summary = tax_summary;
     soObj.document = soObj.sales_order;
     soObj.order = soObj.sales_order;
-    soObj.items = soObj.sales_order.items;
+    soObj.items = templateItems;
     return soObj;
   }
   if (type === "invoice") {
@@ -1258,7 +1286,7 @@ async function loadData(type, id, companyId, branchId) {
       LEFT JOIN sal_customers c
         ON c.id = i.customer_id AND c.company_id = i.company_id
         LEFT JOIN adm_users u ON u.id = i.created_by
-         WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
+         WHERE i.id = :id AND i.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(i.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1311,8 +1339,8 @@ async function loadData(type, id, companyId, branchId) {
       `,
       { id, companyId },
     ).catch(() => []);
-    
-    const tax_summary = await resolveTaxSummary(details, companyId);
+    const tax_summary = await resolveTaxSummary(details || [], companyId);
+
     const [company] = await query(`
       SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
           created_at,
@@ -1347,6 +1375,11 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     const extraRow = extra?.[0] || {};
     const items = Array.isArray(details) ? details : [];
+    const invSubTotal = items.reduce((s, d) => s + Number(d.unit_price || 0) * Number(d.quantity || 0), 0);
+    const invDiscountAmount = items.reduce((s, d) => {
+      const lineTotal = Number(d.unit_price || 0) * Number(d.quantity || 0);
+      return s + lineTotal * (Number(d.discount_percent || 0) / 100);
+    }, 0);
     const invObj = {
       company: company || {},
       customer: {
@@ -1376,6 +1409,8 @@ async function loadData(type, id, companyId, branchId) {
         warehouse_id: inv.warehouse_id || null,
         warehouse_name: extraRow?.warehouse_name || null,
         net_total: inv.net_amount,
+        sub_total: invSubTotal,
+        discount_amount: invDiscountAmount,
         total: inv.total_amount,
         remarks: inv.remarks,
         tax_summary,
@@ -1385,6 +1420,7 @@ async function loadData(type, id, companyId, branchId) {
           code: d.item_code,
           quantity: d.quantity,
           price: d.unit_price,
+          value: Number(d.unit_price || 0) * Number(d.quantity || 0),
           discount: d.discount_percent,
           amount: d.total_amount,
           net: d.net_amount,
@@ -1416,7 +1452,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_orders p
       LEFT JOIN pur_suppliers s ON s.id = p.supplier_id
         LEFT JOIN adm_users u ON u.id = p.created_by
-         WHERE p.id = :id AND p.company_id = :companyId AND p.branch_id = :branchId
+         WHERE p.id = :id AND p.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1496,14 +1532,14 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_direct_purchase_hdr h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
         LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+         WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
     ).catch(() => []);
     if (!hdr) throw httpError(404, "NOT_FOUND", "Document not found");
     const details = await query(`
-      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, d.tax_code_id, i.item_code, i.item_name,
+      SELECT d.id, d.item_id, d.qty, d.uom, d.unit_price, d.discount_percent, d.tax_percent, d.line_total, d.tax_code_id, d.line_total AS net_amount, i.item_code, i.item_name,
           d.created_at,
           u.username AS created_by_name
          FROM pur_direct_purchase_dtl d
@@ -1527,7 +1563,12 @@ async function loadData(type, id, companyId, branchId) {
       `,
       { companyId },
     ).catch(() => []);
+    const whRow = await query(`SELECT warehouse_name FROM inv_warehouses WHERE id = :wid AND company_id = :companyId LIMIT 1`, { wid: hdr.warehouse_id, companyId }).catch(() => []);
+    const warehouseName = whRow?.[0]?.warehouse_name || "";
     const items = Array.isArray(details) ? details : [];
+    const itemCount = items.length;
+    const totalQuantity = items.reduce((s, d) => s + Number(d.qty || 0), 0);
+    const computedSubTotal = items.reduce((s, d) => s + Number(d.qty || 0) * Number(d.unit_price || 0), 0);
     const dpObj = {
       company: company || {},
       supplier: {
@@ -1541,28 +1582,41 @@ async function loadData(type, id, companyId, branchId) {
         number: hdr.dp_no,
         date: hdr.dp_date ? String(hdr.dp_date).slice(0, 10) : null,
         status: hdr.status,
-        remarks: hdr.remarks || "",
-        total: hdr.net_amount || 0,
-        items: items.map((d) => ({
-          name: d.item_name,
-          description: d.item_name,
-          code: d.item_code,
-          quantity: d.qty,
-          uom: d.uom,
-          price: d.unit_price,
-          discount: d.discount_percent || 0,
-          tax: d.tax_percent || 0,
-          amount:
-            d.line_total != null
-              ? d.line_total
-              : Number(d.qty || 0) * Number(d.unit_price || 0),
-        })),
+        invoice_date: hdr.supplier_invoice_date ? String(hdr.supplier_invoice_date).slice(0, 10) : null,
+        supplier_invoice_no: hdr.supplier_invoice_number || "",
+        warehouse: warehouseName,
+        sub_total: Number(hdr.subtotal) || computedSubTotal,
+        discount_amount: Number(hdr.discount_amount) || 0,
+        tax_amount: Number(hdr.tax_amount) || 0,
+        total: Number(hdr.net_amount) || 0,
+        payment_mode: hdr.payment_type || "",
+        item_count: itemCount,
+        total_quantity: totalQuantity,
+        tax_summary,
+        items: items.map((d) => {
+          const val = Number(d.qty || 0) * Number(d.unit_price || 0);
+          return {
+            name: d.item_name,
+            description: d.item_name,
+            code: d.item_code,
+            quantity: d.qty,
+            uom: d.uom,
+            price: d.unit_price,
+            value: val,
+            discount: d.discount_percent || 0,
+            tax: d.tax_percent || 0,
+            amount: d.line_total != null ? d.line_total : val,
+          };
+        }),
       },
     };
     try {
       const qrPayload = encodeURIComponent(`DIRECT_PURCHASE|${hdr.id}|${hdr.dp_no || ""}|${hdr.dp_date || ""}|${hdr.supplier_name || ""}`);
-      dpObj.direct_purchase.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+      dpObj.qr_code = qrUrl;
+      dpObj.direct_purchase.qr_code = qrUrl;
     } catch {}
+    dpObj.tax_summary = tax_summary;
     dpObj.document = dpObj.direct_purchase;
     dpObj.items = dpObj.direct_purchase.items;
     return dpObj;
@@ -1575,7 +1629,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_bills b
       LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.id = :id AND b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1658,7 +1712,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM inv_goods_receipt_notes g
       LEFT JOIN pur_suppliers s ON s.id = g.supplier_id
         LEFT JOIN adm_users u ON u.id = g.created_by
-         WHERE g.id = :id AND g.company_id = :companyId AND g.branch_id = :branchId
+         WHERE g.id = :id AND g.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(g.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1757,7 +1811,7 @@ async function loadData(type, id, companyId, branchId) {
       LEFT JOIN sal_customers c
         ON c.id = d.customer_id AND c.company_id = d.company_id
         LEFT JOIN adm_users u ON u.id = d.created_by
-         WHERE d.id = :id AND d.company_id = :companyId AND d.branch_id = :branchId
+         WHERE d.id = :id AND d.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(d.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -1988,7 +2042,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_orders h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
         LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+         WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2061,7 +2115,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM inv_grn h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
         LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+         WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2125,7 +2179,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM pur_direct_purchase_hdr h
       LEFT JOIN pur_suppliers s ON s.id = h.supplier_id
         LEFT JOIN adm_users u ON u.id = h.created_by
-         WHERE h.id = :id AND h.company_id = :companyId AND h.branch_id = :branchId
+         WHERE h.id = :id AND h.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(h.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2201,6 +2255,8 @@ async function loadData(type, id, companyId, branchId) {
         q.total_amount,
         q.net_amount,
         q.remarks,
+        q.valid_until,
+        q.terms_and_conditions,
         COALESCE(NULLIF(q.customer_name, ''), c.customer_name, '') AS customer_name,
         COALESCE(c.address, '') AS customer_address,
         COALESCE(c.city, '') AS customer_city,
@@ -2214,7 +2270,7 @@ async function loadData(type, id, companyId, branchId) {
       LEFT JOIN sal_customers c
         ON c.id = q.customer_id AND c.company_id = q.company_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
+         WHERE q.id = :id AND q.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2246,7 +2302,7 @@ async function loadData(type, id, companyId, branchId) {
       SELECT
         d.id,
         d.item_id,
-        d.quantity,
+        d.qty AS quantity,
         d.unit_price,
         d.discount_percent,
         d.total_amount,
@@ -2268,7 +2324,6 @@ async function loadData(type, id, companyId, branchId) {
       { id, companyId },
     ).catch(() => []);
 
-    const tax_summary = await resolveTaxSummary(details, companyId);
     const [company] = await query(`
       SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
           created_at,
@@ -2303,6 +2358,74 @@ async function loadData(type, id, companyId, branchId) {
     ).catch(() => []);
     const extraRow = extra?.[0] || {};
     const items = Array.isArray(details) ? details : [];
+    const qCompsRows = await query(`SELECT c.tax_code_id, td.component_name as name, c.rate_percent as rate, c.compound_level
+       FROM fin_tax_components c
+       JOIN fin_tax_details td ON td.id = c.tax_detail_id
+       WHERE c.company_id = :companyId AND c.is_active = 1
+       ORDER BY c.compound_level ASC, c.sort_order ASC`,
+      { companyId },
+    ).catch(() => []);
+    const qCompsByCode = {};
+    qCompsRows.forEach((c) => {
+      if (!qCompsByCode[c.tax_code_id]) qCompsByCode[c.tax_code_id] = [];
+      qCompsByCode[c.tax_code_id].push(c);
+    });
+    const qTemplateItems = items.map((d) => {
+      const itemComps = [];
+      const comps = qCompsByCode[d.tax_code_id] || [];
+      const netAmt = Number(d.net_amount) || Number(d.total_amount) || 0;
+      if (comps.length > 0 && netAmt > 0) {
+        const levels = {};
+        comps.forEach((c) => {
+          const lvl = c.compound_level || 0;
+          if (!levels[lvl]) levels[lvl] = [];
+          levels[lvl].push(c);
+        });
+        const sortedLvls = Object.keys(levels).map(Number).sort((a, b) => a - b);
+        let base = netAmt;
+        sortedLvls.forEach((lvl) => {
+          levels[lvl].forEach((c) => {
+            const tax = base * (Number(c.rate) / 100);
+            itemComps.push({ name: c.name, rate: c.rate, amount: tax.toFixed(2) });
+            base += tax;
+          });
+        });
+      }
+      const itemValue = Number(d.quantity || 0) * Number(d.unit_price || 0);
+      return {
+        name: d.item_name,
+        description: d.item_name,
+        code: d.item_code,
+        quantity: d.quantity,
+        price: d.unit_price,
+        value: itemValue,
+        discount: d.discount_percent,
+        amount: d.total_amount,
+        net: d.net_amount,
+        tax: d.tax_amount,
+        uom: d.uom,
+        tax_code_id: d.tax_code_id,
+        tax_components: itemComps,
+      };
+    });
+    const computedSubTotal = qTemplateItems.reduce((s, i) => s + Number(i.value || 0), 0);
+    const computedDiscountTotal = qTemplateItems.reduce((s, i) => {
+      const v = Number(i.value || 0);
+      return s + v * (Number(i.discount || 0) / 100);
+    }, 0);
+    const computedTaxTotal = qTemplateItems.reduce((s, i) => s + Number(i.tax || 0), 0);
+    const computedGrandTotal = (computedSubTotal - computedDiscountTotal) + computedTaxTotal;
+    const taxCompMap = {};
+    qTemplateItems.forEach((item) => {
+      (item.tax_components || []).forEach((tc) => {
+        if (!taxCompMap[tc.name]) taxCompMap[tc.name] = { name: tc.name, rate: tc.rate, amount: 0 };
+        taxCompMap[tc.name].amount += Number(tc.amount || 0);
+      });
+    });
+    const tax_summary = Object.values(taxCompMap).map((tc) => ({
+      ...tc,
+      amount: tc.amount.toFixed(2),
+    }));
     const qObj = {
       company: company || {},
       customer: {
@@ -2328,26 +2451,23 @@ async function loadData(type, id, companyId, branchId) {
         exchange_rate: q.exchange_rate || null,
         warehouse_id: q.warehouse_id || null,
         warehouse_name: extraRow?.warehouse_name || null,
-        sub_total: q.net_amount,
-        tax_amount: items.reduce(
-          (acc, d) => acc + Number(d.tax_amount || 0),
-          0,
-        ),
+        sub_total: computedSubTotal,
+        discount_total: computedDiscountTotal,
+        tax_total: computedTaxTotal,
+        grand_total: computedGrandTotal,
         total: q.total_amount,
         remarks: q.remarks,
+        valid_until: q.valid_until || null,
+        terms_and_conditions: q.terms_and_conditions || "",
         tax_summary,
-        items: items.map((d) => ({
-          name: d.item_name,
-          description: d.item_name,
-          code: d.item_code,
-          quantity: d.quantity,
-          price: d.unit_price,
-          discount: d.discount_percent,
-          amount: Number(d.net_amount || 0) + Number(d.tax_amount || 0),
-          net: d.net_amount,
-          tax: d.tax_amount,
-          uom: d.uom,
-        })),
+        items: qTemplateItems,
+        _debug: {
+          qCompsRowsCount: qCompsRows.length,
+          qCompsByCodeKeys: Object.keys(qCompsByCode).join(","),
+          detailsCount: (details||[]).length,
+          details: JSON.stringify((details||[]).map(d=>({ item_id: d.item_id, tax_type: d.tax_code_id, net_amount: d.net_amount, total_amount: d.total_amount }))),
+          itemsTC: JSON.stringify(qTemplateItems.map(i=>({ code: i.code, tc: i.tax_components, netAmt: i.net }))),
+        },
       },
     };
     try {
@@ -2360,7 +2480,7 @@ async function loadData(type, id, companyId, branchId) {
     qObj.tax_summary = tax_summary;
     qObj.document = qObj.quotation;
     qObj.quote = qObj.quotation;
-    qObj.items = qObj.quotation.items;
+    qObj.items = qTemplateItems;
     return qObj;
   }
   if (type === "payment-voucher") {
@@ -2373,14 +2493,20 @@ async function loadData(type, id, companyId, branchId) {
         v.total_debit,
         v.total_credit,
         v.created_by,
+        v.approved_by,
+        v.currency_id,
         vt.code AS voucher_type_code,
         vt.name AS voucher_type_name,
           v.created_at,
-          u.username AS created_by_name
+          u.username AS created_by_name,
+          approver.username AS approved_by_name,
+          cur.code AS currency_code
          FROM fin_vouchers v
       JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
         LEFT JOIN adm_users u ON u.id = v.created_by
-         WHERE v.id = :id AND v.company_id = :companyId AND v.branch_id = :branchId
+        LEFT JOIN adm_users approver ON approver.id = v.approved_by
+        LEFT JOIN fin_currencies cur ON cur.id = v.currency_id
+         WHERE v.id = :id AND v.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2418,6 +2544,7 @@ async function loadData(type, id, companyId, branchId) {
         l.debit,
         l.credit,
         l.reference_no,
+        l.payment_method,
           l.created_at,
           u.username AS created_by_name
          FROM fin_voucher_lines l
@@ -2436,29 +2563,34 @@ async function loadData(type, id, companyId, branchId) {
          WHERE id = :companyId LIMIT 1`,
       { companyId },
     ).catch(() => []);
+    const narration = String(voucher.narration || "");
+    const firstPaymentMethod = (lines || []).find((l) => l.payment_method)?.payment_method || "";
     const voucherObj = {
       company: company || {},
       employee: employee || undefined,
       prepared_by: employee?.username || employee?.name || undefined,
+      approved_by: voucher.approved_by_name || undefined,
       payment_voucher: {
         id: voucher.id,
         number: voucher.voucher_no,
         date: voucher.voucher_date
           ? String(voucher.voucher_date).slice(0, 10)
           : null,
-        narration: voucher.narration,
+        narration: narration,
         total_debit: voucher.total_debit,
         total_credit: voucher.total_credit,
         type_code: voucher.voucher_type_code,
         type_name: voucher.voucher_type_name,
-        items: (lines || []).map((l) => ({
-          account_code: l.account_code,
-          account_name: l.account_name,
-          description: l.description,
-          debit: l.debit,
-          credit: l.credit,
-          reference_no: l.reference_no,
-        })),
+        payment_method: firstPaymentMethod,
+        currency: voucher.currency_code || "",
+        items: (lines || [])
+          .filter((l) => Number(l.debit || 0) !== 0)
+          .map((l) => ({
+            account_code: l.account_code,
+            account_name: l.account_name,
+            description: l.description,
+            debit: l.debit,
+          })),
       },
     };
     try {
@@ -2470,6 +2602,133 @@ async function loadData(type, id, companyId, branchId) {
     voucherObj.document = voucherObj.payment_voucher;
     voucherObj.voucher = voucherObj.payment_voucher;
     voucherObj.items = voucherObj.payment_voucher.items;
+    return voucherObj;
+  }
+  if (type === "receipt-voucher") {
+    const [voucher] = await query(`
+      SELECT 
+        v.id,
+        v.voucher_no,
+        v.voucher_date,
+        v.narration,
+        v.total_debit,
+        v.total_credit,
+        v.created_by,
+        v.approved_by,
+        v.currency_id,
+        vt.code AS voucher_type_code,
+        vt.name AS voucher_type_name,
+          v.created_at,
+          u.username AS created_by_name,
+          approver.username AS approved_by_name,
+          cur.code AS currency_code
+         FROM fin_vouchers v
+      JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
+        LEFT JOIN adm_users u ON u.id = v.created_by
+        LEFT JOIN adm_users approver ON approver.id = v.approved_by
+        LEFT JOIN fin_currencies cur ON cur.id = v.currency_id
+         WHERE v.id = :id AND v.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr))
+      LIMIT 1
+      `,
+      { id, companyId, branchId },
+    ).catch(() => []);
+    if (!voucher) throw httpError(404, "NOT_FOUND", "Document not found");
+    let employee = null;
+    if (voucher.created_by) {
+      const [u] = await query(`
+        SELECT id, username, email, full_name,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_users
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :uid
+        LIMIT 1
+        `,
+        { uid: voucher.created_by },
+      ).catch(() => []);
+      if (u) {
+        employee = {
+          id: u.id,
+          username: u.username,
+          email: u.email,
+          name: u.full_name || u.username,
+        };
+      }
+    }
+    const lines = await query(`
+      SELECT 
+        l.id,
+        l.line_no,
+        a.code AS account_code,
+        a.name AS account_name,
+        l.description,
+        l.debit,
+        l.credit,
+        l.reference_no,
+        l.payment_method,
+          l.created_at,
+          u.username AS created_by_name
+         FROM fin_voucher_lines l
+      LEFT JOIN fin_accounts a ON a.id = l.account_id
+        LEFT JOIN adm_users u ON u.id = l.created_by
+         WHERE l.voucher_id = :id
+      ORDER BY l.line_no ASC
+      `,
+      { id },
+    ).catch(() => []);
+    const [company] = await query(`SELECT id, name, address, city, state, postal_code, country, telephone, email, website,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_companies
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE id = :companyId LIMIT 1`,
+      { companyId },
+    ).catch(() => []);
+    const narration = String(voucher.narration || "");
+    const parseToken = (label) => {
+      const re = new RegExp(`${label}\\s*:\\s*([^|]+)`, "i");
+      const m = narration.match(re);
+      return m ? m[1].trim() : "";
+    };
+    const firstPaymentMethod = (lines || []).find((l) => l.payment_method)?.payment_method || "";
+    const voucherObj = {
+      company: company || {},
+      employee: employee || undefined,
+      prepared_by: employee?.username || employee?.name || undefined,
+      approved_by: voucher.approved_by_name || undefined,
+      receipt_voucher: {
+        id: voucher.id,
+        number: voucher.voucher_no,
+        date: voucher.voucher_date
+          ? String(voucher.voucher_date).slice(0, 10)
+          : null,
+        narration: narration,
+        total_debit: voucher.total_debit,
+        total_credit: voucher.total_credit,
+        type_code: voucher.voucher_type_code,
+        type_name: voucher.voucher_type_name,
+        received_from: parseToken("Received from") || (lines || []).find((l) => Number(l.credit || 0) > 0)?.account_name || "",
+        payment_mode: firstPaymentMethod,
+        currency: voucher.currency_code || "",
+        items: (lines || [])
+          .filter((l) => Number(l.credit || 0) !== 0)
+          .map((l) => ({
+            account_code: l.account_code,
+            account_name: l.account_name,
+            description: l.description,
+            credit: l.credit,
+          })),
+      },
+    };
+    try {
+      const qrPayload = encodeURIComponent(
+        `${voucher.voucher_type_name.toUpperCase()}|${voucher.id}|${voucher.voucher_no || ""}|${voucher.voucher_date || ""}|${voucher.total_credit || voucher.total_debit || ""}`,
+      );
+      voucherObj.receipt_voucher.qr_code = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrPayload}`;
+    } catch {}
+    voucherObj.document = voucherObj.receipt_voucher;
+    voucherObj.voucher = voucherObj.receipt_voucher;
+    voucherObj.items = voucherObj.receipt_voucher.items;
     return voucherObj;
   }
   if (type === "salary-slip") {
@@ -2641,7 +2900,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM maint_bills b
       LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.id = :id AND b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2701,7 +2960,7 @@ async function loadData(type, id, companyId, branchId) {
           u.username AS created_by_name
          FROM pur_service_bills b
         LEFT JOIN adm_users u ON u.id = b.created_by
-         WHERE b.id = :id AND b.company_id = :companyId AND b.branch_id = :branchId
+         WHERE b.id = :id AND b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2763,7 +3022,7 @@ async function loadData(type, id, companyId, branchId) {
          FROM maint_supplier_quotations q
       LEFT JOIN pur_suppliers s ON s.id = q.supplier_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-         WHERE q.id = :id AND q.company_id = :companyId AND q.branch_id = :branchId
+         WHERE q.id = :id AND q.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(q.branch_id, :branchIdsStr))
       LIMIT 1
       `,
       { id, companyId, branchId },
@@ -2828,7 +3087,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = canonicalDocumentType(String(req.params.type || "").trim());
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -2907,7 +3166,6 @@ router.get(
       };
       const strictName = nameMap[type] || null;
 
-      // Always try to get the strict-named template, even if we already found another template
       if (strictName) {
         const [rowByName] = await query(`SELECT id, html_content,
                   header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
@@ -2921,45 +3179,7 @@ router.get(
            LIMIT 1`,
           { companyId, strictName },
         ).catch(() => []);
-        if (rowByName) {
-          tplObj = rowByName;
-        } else {
-          const fmt = String(
-            req.query.format || req.body?.format || "html",
-          ).toLowerCase();
-          if (fmt === "pdf") {
-            let page = null;
-            try {
-              const browser = await launchBrowser();
-              page = await browser.newPage();
-              await page.setContent(
-                "<!DOCTYPE html><html><head></head><body></body></html>",
-                { waitUntil: "domcontentloaded" },
-              );
-              const pdf = await page.pdf({
-                printBackground: true,
-                preferCSSPageSize: true,
-                margin: { top: "0", bottom: "0", left: "0", right: "0" },
-              });
-              res.setHeader("Content-Type", "application/pdf");
-              res.setHeader(
-                "Content-Length",
-                Buffer.byteLength(Buffer.from(pdf)),
-              );
-              res.setHeader(
-                "Content-Disposition",
-                `attachment; filename="${type}-${id}.pdf"`,
-              );
-              res.send(Buffer.from(pdf));
-              return;
-            } finally {
-              if (page) await page.close().catch(() => {});
-            }
-          }
-          res.setHeader("Content-Type", "text/html; charset=utf-8");
-          res.status(200).send("");
-          return;
-        }
+        if (rowByName) tplObj = rowByName;
       }
 
       const aliasesLower = tplObj ? [] : docTypeSynonymsLower(type);
@@ -3001,29 +3221,6 @@ router.get(
           paramsAny,
         ).catch(() => []);
         if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
-      }
-
-      // If no specific template found, fall back to general-template (report header)
-      if (!tplObj) {
-        try {
-          const aliasesFallback = docTypeSynonymsLower("general-template");
-          const placeholdersFb = aliasesFallback.map((_, i) => `:gfb${i}`).join(", ");
-          const paramsFb = { companyId };
-          aliasesFallback.forEach((val, i) => (paramsFb[`gfb${i}`] = val));
-          const [fbRow] = await query(`SELECT id, html_content,
-                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                    document_type,
-            created_at,
-            u.username AS created_by_name
-           FROM document_templates
-          LEFT JOIN adm_users u ON u.id = created_by
-           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersFb})
-             ORDER BY is_default DESC, updated_at DESC
-             LIMIT 1`,
-            paramsFb,
-          ).catch(() => []);
-          if (fbRow) tplObj = fbRow;
-        } catch {}
       }
 
       // If still no template, return blank
@@ -3075,61 +3272,6 @@ router.get(
         );
       } catch {}
 
-      // Load general/header template
-      let generalTpl = null;
-      try {
-        const aliasesLowerG = docTypeSynonymsLower("general-template");
-        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
-        const paramsG = { companyId };
-        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(`SELECT id,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
-           LIMIT 1`,
-          paramsG,
-        ).catch(() => []);
-        if (rows && rows.length) {
-          generalTpl = rows[0];
-        } else {
-          const ins = await query(`INSERT INTO document_templates
-               (company_id, name, document_type, html_content, is_default, created_by,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-             VALUES
-               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
-            {
-              companyId,
-              name: "Default General Template",
-              dt: "general-template",
-              html: getDefaultSampleTemplate("general-template"),
-              createdBy: req.user?.id || null,
-            },
-          ).catch(() => null);
-          if (ins && ins.insertId) {
-            await query(`UPDATE document_templates SET is_default = 0
-               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
-              { ...paramsG, id: ins.insertId },
-            ).catch(() => null);
-            const [row] = await query(`SELECT id,
-                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId
-               LIMIT 1`,
-              { id: ins.insertId, companyId },
-            ).catch(() => []);
-            if (row) generalTpl = row;
-          }
-        }
-      } catch {}
-
       const data = await loadData(type, id, companyId, branchId);
 
       // Merge company header fields
@@ -3141,32 +3283,26 @@ router.get(
         const merged = {
           ...data.company,
           name:
-            tplObj.header_name || generalTpl?.header_name || data.company.name,
+            tplObj.header_name || data.company.name,
           address:
             tplObj.header_address ||
-            generalTpl?.header_address ||
             data.company.address,
           address2:
             tplObj.header_address2 ||
-            generalTpl?.header_address2 ||
             data.company.address2,
           phone:
             tplObj.header_phone ||
-            generalTpl?.header_phone ||
             data.company.telephone ||
             data.company.phone,
           email:
             tplObj.header_email ||
-            generalTpl?.header_email ||
             data.company.email,
           website:
             tplObj.header_website ||
-            generalTpl?.header_website ||
             data.company.website,
           logo:
             embeddedLogo ||
             tplObj.header_logo_url ||
-            generalTpl?.header_logo_url ||
             logoDefault,
         };
         data.company = { ...merged, telephone: merged.phone };
@@ -3375,7 +3511,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = canonicalDocumentType(String(req.params.type || "").trim());
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -3416,6 +3552,25 @@ router.post(
 
       const canonical = canonicalDocumentType(type);
       const aliasesLower = docTypeSynonymsLower(type);
+
+      // 0. Priority 0: If feature_name is provided, look for a template linked to that feature
+      const featureName =
+        req.body?.feature_name || req.query?.feature_name || "";
+      if (!tplObj && featureName) {
+        const [featureTpl] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name
+           FROM document_templates
+           WHERE company_id = :companyId AND feature_names IS NOT NULL
+             AND feature_names != ''
+             AND (feature_names LIKE :fnLike ESCAPE '\\\\')
+           ORDER BY is_default DESC, updated_at DESC
+           LIMIT 1`,
+          { companyId, fnLike: `%"${featureName}"%` },
+        ).catch(() => []);
+        if (featureTpl) tplObj = featureTpl;
+      }
 
       // 1. First priority: Check if there is an active user default template (is_default = 1) for this document type synonym
       if (!tplObj) {
@@ -3514,29 +3669,6 @@ router.post(
         if (Array.isArray(anyItems) && anyItems.length) tplObj = anyItems[0];
       }
 
-      // If no specific template found, fall back to general-template (report header)
-      if (!tplObj) {
-        try {
-          const aliasesFallback = docTypeSynonymsLower("general-template");
-          const placeholdersFb = aliasesFallback.map((_, i) => `:gfb${i}`).join(", ");
-          const paramsFb = { companyId };
-          aliasesFallback.forEach((val, i) => (paramsFb[`gfb${i}`] = val));
-          const [fbRow] = await query(`SELECT id, html_content,
-                    header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                    document_type,
-            created_at,
-            u.username AS created_by_name
-           FROM document_templates
-          LEFT JOIN adm_users u ON u.id = created_by
-           WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersFb})
-             ORDER BY is_default DESC, updated_at DESC
-             LIMIT 1`,
-            paramsFb,
-          ).catch(() => []);
-          if (fbRow) tplObj = fbRow;
-        } catch {}
-      }
-
       // If still no template, return blank
       if (!tplObj) {
         const fmt = String(
@@ -3584,64 +3716,9 @@ router.post(
         );
       } catch {}
 
-      // Load general/header template
-      let generalTpl = null;
-      try {
-        const aliasesLowerG = docTypeSynonymsLower("general-template");
-        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
-        const paramsG = { companyId };
-        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(`SELECT id,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
-           LIMIT 1`,
-          paramsG,
-        ).catch(() => []);
-        if (rows && rows.length) {
-          generalTpl = rows[0];
-        } else {
-          const ins = await query(`INSERT INTO document_templates
-               (company_id, name, document_type, html_content, is_default, created_by,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-             VALUES
-               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
-            {
-              companyId,
-              name: "Default General Template",
-              dt: "general-template",
-              html: getDefaultSampleTemplate("general-template"),
-              createdBy: req.user?.id || null,
-            },
-          ).catch(() => null);
-          if (ins && ins.insertId) {
-            await query(`UPDATE document_templates SET is_default = 0
-               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
-              { ...paramsG, id: ins.insertId },
-            ).catch(() => null);
-            const [row] = await query(`SELECT id,
-                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId
-               LIMIT 1`,
-              { id: ins.insertId, companyId },
-            ).catch(() => []);
-            if (row) generalTpl = row;
-          }
-        }
-      } catch {}
-
       const data = await loadData(type, id, companyId, branchId);
 
-      // Merge company header fields (no general template)
+      // Merge company header fields
       if (data && data.company) {
         const origin = `${req.protocol}://${req.get("host")}`;
         const absolutize = (s) => {
@@ -3749,7 +3826,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureTemplateTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = String(req.params.type || "").trim();
       if (!type) throw httpError(400, "VALIDATION_ERROR", "Invalid request");
 
@@ -3765,6 +3842,25 @@ router.post(
       const aliasesLower = docTypeSynonymsLower(type);
       let tplObj = null;
       const canonical = canonicalDocumentType(type);
+
+      // 0. Priority 0: If feature_name is provided, look for a template linked to that feature
+      const featureName =
+        req.body?.feature_name || req.query?.feature_name || "";
+      if (!tplObj && featureName) {
+        const [featureTpl] = await query(
+          `SELECT id, html_content,
+                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
+                  document_type, name
+           FROM document_templates
+           WHERE company_id = :companyId AND feature_names IS NOT NULL
+             AND feature_names != ''
+             AND (feature_names LIKE :fnLike ESCAPE '\\\\')
+           ORDER BY is_default DESC, updated_at DESC
+           LIMIT 1`,
+          { companyId, fnLike: `%"${featureName}"%` },
+        ).catch(() => []);
+        if (featureTpl) tplObj = featureTpl;
+      }
 
       // 1. First priority: Check if there is an active user default template (is_default = 1) for this document type synonym
       if (!tplObj) {
@@ -3861,8 +3957,7 @@ router.post(
         if (Array.isArray(items) && items.length) tplObj = items[0];
       }
 
-      // If strict name requested and still not found, return blank
-      if (!tplObj && strictName) {
+      if (!tplObj) {
         const fmt = String(
           req.query.format || req.body?.format || "html",
         ).toLowerCase();
@@ -3873,9 +3968,7 @@ router.post(
             page = await browser.newPage();
             await page.setContent(
               "<!DOCTYPE html><html><head></head><body></body></html>",
-              {
-                waitUntil: "domcontentloaded",
-              },
+              { waitUntil: "domcontentloaded" },
             );
             const pdf = await page.pdf({
               printBackground: true,
@@ -3883,14 +3976,8 @@ router.post(
               margin: { top: "0", bottom: "0", left: "0", right: "0" },
             });
             res.setHeader("Content-Type", "application/pdf");
-            res.setHeader(
-              "Content-Length",
-              Buffer.byteLength(Buffer.from(pdf)),
-            );
-            res.setHeader(
-              "Content-Disposition",
-              `attachment; filename="${canonical}-preview.pdf"`,
-            );
+            res.setHeader("Content-Length", Buffer.byteLength(Buffer.from(pdf)));
+            res.setHeader("Content-Disposition", `attachment; filename="${canonical}-preview.pdf"`);
             res.send(Buffer.from(pdf));
             return;
           } finally {
@@ -3902,92 +3989,37 @@ router.post(
         return;
       }
 
-      let generalTpl = null;
-      try {
-        const aliasesLowerG = docTypeSynonymsLower("general-template");
-        const placeholdersG = aliasesLowerG.map((_, i) => `:gt${i}`).join(", ");
-        const paramsG = { companyId };
-        aliasesLowerG.forEach((val, i) => (paramsG[`gt${i}`] = val));
-        const rows = await query(`SELECT id,
-                  header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                  document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND is_default = 1
-           LIMIT 1`,
-          paramsG,
-        ).catch(() => []);
-        if (rows && rows.length) {
-          generalTpl = rows[0];
-        } else {
-          const ins = await query(`INSERT INTO document_templates
-               (company_id, name, document_type, html_content, is_default, created_by,
-                header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website)
-             VALUES
-               (:companyId, :name, :dt, :html, 1, :createdBy, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`,
-            {
-              companyId,
-              name: "Default General Template",
-              dt: "general-template",
-              html: getDefaultSampleTemplate("general-template"),
-              createdBy: req.user?.id || null,
-            },
-          ).catch(() => null);
-          if (ins && ins.insertId) {
-            await query(`UPDATE document_templates SET is_default = 0
-               WHERE company_id = :companyId AND LOWER(document_type) IN (${placeholdersG}) AND id <> :id`,
-              { ...paramsG, id: ins.insertId },
-            ).catch(() => null);
-            const [row] = await query(`SELECT id,
-                      header_logo_url, header_name, header_address, header_address2, header_phone, header_email, header_website,
-                      document_type,
-          created_at,
-          u.username AS created_by_name
-         FROM document_templates
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = :id AND company_id = :companyId
-               LIMIT 1`,
-              { id: ins.insertId, companyId },
-            ).catch(() => []);
-            if (row) generalTpl = row;
-          }
-        }
-      } catch {}
-
       const data = await loadPreviewData(type, companyId, branchId);
 
       if (data && data.company) {
         const logoDefault = `/api/admin/companies/${companyId}/logo`;
+        const embeddedLogo = tplObj.header_logo_url
+          ? null
+          : await getCompanyLogoDataUri(companyId);
         const merged = {
           ...data.company,
           name:
-            tplObj.header_name || generalTpl?.header_name || data.company.name,
+            tplObj.header_name || data.company.name,
           address:
             tplObj.header_address ||
-            generalTpl?.header_address ||
             data.company.address,
           address2:
             tplObj.header_address2 ||
-            generalTpl?.header_address2 ||
             data.company.address2,
           phone:
             tplObj.header_phone ||
-            generalTpl?.header_phone ||
             data.company.telephone ||
             data.company.phone,
           email:
             tplObj.header_email ||
-            generalTpl?.header_email ||
             data.company.email,
           website:
             tplObj.header_website ||
-            generalTpl?.header_website ||
             data.company.website,
-          logo: absolutize(
+          logo:
+            embeddedLogo ||
+            absolutize(
             tplObj.header_logo_url ||
-              generalTpl?.header_logo_url ||
               logoDefault,
           ),
         };
@@ -4008,17 +4040,7 @@ router.post(
         const tmpl = Handlebars.compile(String(tplObj.html_content || ""));
         html = tmpl(data);
       } catch (e) {
-        try {
-          const fallback = getDefaultSampleTemplate(type);
-          const tmpl2 = Handlebars.compile(String(fallback || ""));
-          html = tmpl2(data);
-        } catch {
-          html = `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif}</style></head><body>
-          <h3>${String(type).toUpperCase()} Document Preview</h3>
-          <p>Error: ${e.message}</p>
-          <pre>${JSON.stringify(data, null, 2)}</pre>
-          </body></html>`;
-        }
+        throw e;
       }
 
       // Do not alter UI formatting; keep template HTML as-is
@@ -4064,34 +4086,7 @@ router.post(
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(html);
     } catch (err) {
-      const format = String(
-        req.query.format || req.body?.format || "",
-      ).toLowerCase();
-      if (format === "pdf") return next(err);
-      try {
-        const type = String(req.params.type || "").trim();
-        const { companyId } = req.scope || {};
-        const fallback = getDefaultSampleTemplate(type);
-        const data = {
-          company: {
-            name: "",
-            address: "",
-            address2: "",
-            phone: "",
-            email: "",
-            logo: `/api/admin/companies/${companyId}/logo`,
-          },
-        };
-        const html = Handlebars.compile(String(fallback || ""))(data);
-        res.setHeader("Content-Type", "text/html; charset=utf-8");
-        res.status(200).send(html);
-      } catch {
-        res
-          .status(200)
-          .send(
-            "<html><body><h3>Document Preview</h3><p>Unable to render template; minimal fallback shown.</p></body></html>",
-          );
-      }
+      return next(err);
     }
   },
 );
@@ -4147,7 +4142,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -4160,12 +4155,12 @@ router.get(
          FROM adm_document_attachments
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND document_type = :type
           AND document_id = :id
         ORDER BY id DESC
         `,
-        { companyId, branchId, type, id },
+        { companyId, branchId, branchIdsStr, type, id },
       ).catch(() => []);
       const origin = `${req.protocol}://${req.get("host")}`;
       const items = Array.isArray(rawItems)
@@ -4200,7 +4195,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       if (!type || !id)
@@ -4226,7 +4221,7 @@ router.post(
         `,
         {
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           type,
           id,
           fileUrl,
@@ -4265,7 +4260,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureDocumentAttachmentsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const type = String(req.params.type || "").trim();
       const id = toNumber(req.params.id);
       const attId = toNumber(req.params.attId);
@@ -4279,23 +4274,23 @@ router.delete(
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :attId
           AND company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND document_type = :type
           AND document_id = :id
         LIMIT 1
         `,
-        { attId, companyId, branchId, type, id },
+        { attId, companyId, branchId, branchIdsStr, type, id },
       );
       const fileUrl = rows?.[0]?.file_url || null;
       await query(`
         DELETE FROM adm_document_attachments
         WHERE id = :attId
           AND company_id = :companyId
-          AND branch_id = :branchId
+          AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND document_type = :type
           AND document_id = :id
         `,
-        { attId, companyId, branchId, type, id },
+        { attId, companyId, branchId, branchIdsStr, type, id },
       ).catch(() => null);
 
       // Attempt Cloudinary deletion if URL is a Cloudinary asset
@@ -4313,7 +4308,7 @@ router.delete(
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE setting_key = :key
                 AND (company_id = :companyId OR company_id IS NULL)
-                AND (branch_id = :branchId OR branch_id IS NULL)
+                AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
               ORDER BY company_id DESC, branch_id DESC
               LIMIT 1
               `,
@@ -4420,7 +4415,7 @@ router.post("/raw-html-to-pdf", requireAuth, async (req, res, next) => {
       });
     } catch (err) {
       console.error("raw-html-to-pdf error:", err);
-      throw httpError(500, "RENDER_ERROR", "Failed to generate PDF from HTML");
+      throw httpError(500, "RENDER_ERROR", `PDF generation failed: ${err.message}`);
     } finally {
       if (page) await page.close().catch(() => {});
     }
@@ -4435,3 +4430,4 @@ router.post("/raw-html-to-pdf", requireAuth, async (req, res, next) => {
 });
 
 export default router;
+

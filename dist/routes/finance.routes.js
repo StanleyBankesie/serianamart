@@ -1,4 +1,10 @@
+/**
+ * @file finance.routes.js
+ * @description Defines the Express routes for the Finance module, including 
+ * endpoints for accounts, vouchers, taxes, and financial reporting.
+ */
 import express from "express";
+import { cacheListResponse } from "../middleware/cache.middleware.js";
 import {
   requireAuth,
   requireCompanyScope,
@@ -10,6 +16,10 @@ import * as financeController from "../controllers/finance.controller.js";
 const router = express.Router();
 
 // Accounts & COA (Moved to top to avoid shadowing)
+/**
+ * Retrieves the full Chart of Accounts.
+ * @route GET /chart-of-accounts
+ */
 router.get(
   "/chart-of-accounts",
   requireAuth,
@@ -25,6 +35,10 @@ router.get(
 );
 
 // Expense accounts endpoint
+/**
+ * Retrieves only expense accounts.
+ * @route GET /expense-accounts
+ */
 router.get(
   "/expense-accounts",
   requireAuth,
@@ -92,11 +106,16 @@ router.post(
   financeController.createVoucherType,
 );
 
+/**
+ * Lists financial vouchers based on query parameters.
+ * @route GET /vouchers
+ */
 router.get(
   "/vouchers",
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   financeController.listVouchers,
 );
 
@@ -156,6 +175,14 @@ router.post(
   requireCompanyScope,
   requireBranchScope,
   financeController.submitVoucher,
+);
+
+router.post(
+  "/vouchers/bulk-import",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.bulkImportVouchers,
 );
 
 // Account Groups
@@ -356,6 +383,26 @@ router.delete(
   requireCompanyScope,
   financeController.requireIdParam("id"),
   financeController.deleteCurrencyRate,
+);
+
+// Exchange rate cache endpoint (Redis-backed, 1-hour TTL)
+import { getExchangeRates } from "../utils/exchangeRateCache.js";
+
+router.get(
+  "/exchange-rates/:base",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const { base } = req.params;
+      const result = await getExchangeRates(base);
+      if (!result) {
+        return res.status(502).json({ error: "EXCHANGE_RATE_FETCH_FAILED", message: "Failed to fetch exchange rates" });
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: "EXCHANGE_RATE_ERROR", message: err.message });
+    }
+  }
 );
 
 // Supplier Bills by Account

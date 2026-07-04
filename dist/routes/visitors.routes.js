@@ -1,3 +1,7 @@
+﻿/**
+ * @file visitors.routes.js
+ * @description Express routes for managing visitors and entry logs.
+ */
 import express from "express";
 import { requireAuth, requireCompanyScope, requireBranchScope } from "../middleware/auth.js";
 import { requireAnyPermission } from "../middleware/requirePermission.js";
@@ -6,6 +10,10 @@ import { query } from "../db/pool.js";
 const router = express.Router();
 
 // List visitors with filters
+/**
+ * Retrieves all visitor records.
+ * @route GET /visitors
+ */
 router.get(
   "/",
   requireAuth,
@@ -14,11 +22,11 @@ router.get(
   requireAnyPermission(["SERVICE.VISITORS.VIEW", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { from, to, status, department, search } = req.query;
       
-      const clauses = ["v.company_id = :companyId", "v.branch_id = :branchId"];
-      const params = { companyId, branchId };
+      const clauses = ["v.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))"];
+      const params = { companyId, branchId, branchIdsStr };
       
       if (from) {
         clauses.push("v.visit_date >= :from");
@@ -84,7 +92,7 @@ router.get(
   requireAnyPermission(["SERVICE.VISITORS.VIEW", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { id } = req.params;
       
       const rows = await query(`
@@ -93,8 +101,8 @@ router.get(
           u.username AS created_by_name
         FROM svc_visitors_log v
         LEFT JOIN adm_users u ON u.id = v.created_by
-        WHERE v.id = :id AND v.company_id = :companyId AND v.branch_id = :branchId
-      `, { id, companyId, branchId });
+        WHERE v.id = :id AND v.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr))
+      `, { id, companyId, branchId, branchIdsStr });
       
       if (!rows || rows.length === 0) {
         return res.status(404).json({ message: "Visitor record not found" });
@@ -116,7 +124,7 @@ router.post(
   requireAnyPermission(["SERVICE.VISITORS.MANAGE", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const {
         visitorName,
         phoneNumber,
@@ -147,7 +155,7 @@ router.post(
         )
       `, {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         visitorName,
         phoneNumber: phoneNumber || null,
         organisation: organisation || null,
@@ -180,7 +188,7 @@ router.put(
   requireAnyPermission(["SERVICE.VISITORS.MANAGE", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { id } = req.params;
       const {
         visitorName,
@@ -197,8 +205,8 @@ router.put(
       
       const existing = await query(`
         SELECT id FROM svc_visitors_log 
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
-      `, { id, companyId, branchId });
+        WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
+      `, { id, companyId, branchId, branchIdsStr });
       
       if (!existing || existing.length === 0) {
         return res.status(404).json({ message: "Visitor record not found" });
@@ -217,11 +225,11 @@ router.put(
           purpose = :purpose,
           status = :status,
           updated_at = NOW()
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+        WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       `, {
         id,
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         visitorName,
         phoneNumber: phoneNumber || null,
         organisation: organisation || null,
@@ -250,13 +258,13 @@ router.delete(
   requireAnyPermission(["SERVICE.VISITORS.MANAGE", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { id } = req.params;
       
       const existing = await query(`
         SELECT id FROM svc_visitors_log 
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
-      `, { id, companyId, branchId });
+        WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
+      `, { id, companyId, branchId, branchIdsStr });
       
       if (!existing || existing.length === 0) {
         return res.status(404).json({ message: "Visitor record not found" });
@@ -264,8 +272,8 @@ router.delete(
       
       await query(`
         DELETE FROM svc_visitors_log 
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
-      `, { id, companyId, branchId });
+        WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
+      `, { id, companyId, branchId, branchIdsStr });
       
       res.json({ message: "Visitor record deleted successfully" });
     } catch (err) {
@@ -283,7 +291,7 @@ router.get(
   requireAnyPermission(["SERVICE.VISITORS.VIEW", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       
       const stats = await query(`
         SELECT 
@@ -292,19 +300,19 @@ router.get(
           SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed_visits,
           SUM(CASE WHEN visit_date = CURDATE() THEN 1 ELSE 0 END) AS today_visitors
         FROM svc_visitors_log
-        WHERE company_id = :companyId AND branch_id = :branchId
-      `, { companyId, branchId });
+        WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
+      `, { companyId, branchId, branchIdsStr });
       
       const byDepartment = await query(`
         SELECT 
           department_visited AS department,
           COUNT(*) AS count
         FROM svc_visitors_log
-        WHERE company_id = :companyId AND branch_id = :branchId
+        WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND department_visited IS NOT NULL
         GROUP BY department_visited
         ORDER BY count DESC
-      `, { companyId, branchId });
+      `, { companyId, branchId, branchIdsStr });
       
       res.json({ 
         stats: stats[0] || {},
@@ -325,11 +333,11 @@ router.get(
   requireAnyPermission(["SERVICE.VISITORS.VIEW", "SERVICE.MANAGE"]),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const { from, to, department } = req.query;
       
-      const clauses = ["v.company_id = :companyId", "v.branch_id = :branchId"];
-      const params = { companyId, branchId };
+      const clauses = ["v.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))"];
+      const params = { companyId, branchId, branchIdsStr };
       
       if (from) {
         clauses.push("v.visit_date >= :from");
@@ -395,15 +403,15 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       
       const departments = await query(`
         SELECT DISTINCT department_visited AS name
         FROM svc_visitors_log
-        WHERE company_id = :companyId AND branch_id = :branchId
+        WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND department_visited IS NOT NULL
         ORDER BY department_visited
-      `, { companyId, branchId });
+      `, { companyId, branchId, branchIdsStr });
       
       res.json({ items: departments.map(d => d.name) });
     } catch (err) {
@@ -413,3 +421,4 @@ router.get(
 );
 
 export default router;
+

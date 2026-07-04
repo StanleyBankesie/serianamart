@@ -3,9 +3,14 @@
  * This script tests the APPROVE action which should trigger email notifications
  */
 
+// Dependencies for database and mailer utilities
 import { query } from "../db/pool.js";
 import { sendMail, isMailerConfigured } from "../utils/mailer.js";
 
+/**
+ * Executes a series of checks to verify the workflow fix.
+ * Includes database verification, configuration checks, and sending a test email.
+ */
 const testWorkflowFix = async () => {
   console.log("\n=== Testing Workflow Fix ===\n");
 

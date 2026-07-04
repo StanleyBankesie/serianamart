@@ -1,22 +1,59 @@
+/**
+ * @fileoverview Migration script to clean up financial account codes, consolidating duplicates
+ * and converting six-digit numeric codes to four-digit alternatives.
+ * @module scripts/cleanup_fin_accounts_codes
+ */
+
 import { pool } from "../db/pool.js";
 
+/**
+ * Checks if a given code is a six-digit numeric string.
+ *
+ * @param {string|number} code - The code to check.
+ * @returns {boolean} True if the code matches a 6-digit numeric pattern.
+ */
 function isSixDigitNumeric(code) {
   return /^[0-9]{6}$/.test(String(code || ""));
 }
 
+/**
+ * Checks if a given code is a four-digit numeric string.
+ *
+ * @param {string|number} code - The code to check.
+ * @returns {boolean} True if the code matches a 4-digit numeric pattern.
+ */
 function isFourDigitNumeric(code) {
   return /^[0-9]{4}$/.test(String(code || ""));
 }
 
+/**
+ * Proposes a four-digit code by extracting the first 4 characters of a string.
+ *
+ * @param {string|number} code - The original code.
+ * @returns {string} The proposed 4-digit prefix or the original code if shorter.
+ */
 function toProposedFourDigit(code) {
   const s = String(code || "");
   return s.length >= 4 ? s.slice(0, 4) : s;
 }
 
+/**
+ * Pads a number with leading zeros to ensure it is 4 digits long.
+ *
+ * @param {number|string} n - The number to pad.
+ * @returns {string} The zero-padded 4-digit string.
+ */
 function padFourDigit(n) {
   return String(n).padStart(4, "0");
 }
 
+/**
+ * Finds the next available four-digit code by incrementing from a base value.
+ *
+ * @param {string|number} baseFourDigit - The starting code base.
+ * @param {Set<string>} usedCodes - A set of currently used codes to avoid duplicates.
+ * @returns {string|null} The next available padded 4-digit code, or null if exhaustion or invalid base.
+ */
 function findNextAvailableFourDigit(baseFourDigit, usedCodes) {
   const base = Number.parseInt(String(baseFourDigit || ""), 10);
   if (!Number.isFinite(base)) return null;
@@ -27,6 +64,13 @@ function findNextAvailableFourDigit(baseFourDigit, usedCodes) {
   return null;
 }
 
+/**
+ * Retrieves a list of foreign key references that point to `fin_accounts.id`.
+ *
+ * @param {import('mysql2/promise').Connection} connection - The database connection.
+ * @param {string} schemaName - The database schema name.
+ * @returns {Promise<Array<{table_name: string, column_name: string}>>} List of referencing tables and columns.
+ */
 async function getReferencingFks(connection, schemaName) {
   const [rows] = await connection.query(
     `
@@ -43,6 +87,15 @@ async function getReferencingFks(connection, schemaName) {
   return Array.isArray(rows) ? rows : [];
 }
 
+/**
+ * Updates foreign key references to point to a new account ID, effectively merging accounts.
+ *
+ * @param {import('mysql2/promise').Connection} connection - The database connection.
+ * @param {Array<{table_name: string, column_name: string}>} fks - Foreign keys to update.
+ * @param {number|string} fromId - The old account ID being replaced.
+ * @param {number|string} toId - The new account ID taking its place.
+ * @returns {Promise<void>} Resolves when all updates are completed.
+ */
 async function remapAccountId(connection, fks, fromId, toId) {
   for (const fk of fks) {
     const table = fk.table_name;
@@ -54,6 +107,14 @@ async function remapAccountId(connection, fks, fromId, toId) {
   }
 }
 
+/**
+ * Deletes a financial account if it has no remaining foreign key references.
+ *
+ * @param {import('mysql2/promise').Connection} connection - The database connection.
+ * @param {Array<{table_name: string, column_name: string}>} fks - Potential referencing tables.
+ * @param {number|string} accountId - The account ID to check and delete.
+ * @returns {Promise<boolean>} True if the account was deleted, false if still referenced.
+ */
 async function deleteAccountIfUnreferenced(connection, fks, accountId) {
   for (const fk of fks) {
     const table = fk.table_name;
@@ -68,6 +129,13 @@ async function deleteAccountIfUnreferenced(connection, fks, accountId) {
   return true;
 }
 
+/**
+ * Main migration execution function.
+ * Runs in a dry-run mode unless `--apply` is passed via command-line arguments.
+ * Consolidates accounts and converts codes to 4-digits.
+ *
+ * @returns {Promise<void>} Resolves when the script completes.
+ */
 async function main() {
   const apply = process.argv.includes("--apply");
 

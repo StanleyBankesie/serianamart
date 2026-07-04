@@ -1,4 +1,10 @@
+/**
+ * @fileoverview Inventory routes.
+ * Defines API endpoints for managing inventory, including items, warehouses,
+ * stock balances, GRNs, transfers, adjustments, and settings.
+ */
 import express from "express";
+import { cacheListResponse } from "../middleware/cache.middleware.js";
 import * as XLSX from "xlsx";
 import {
   requireAuth,
@@ -672,20 +678,22 @@ async function ensureStockTransferTables() {
 
 async function applyTransferReceiptMovementsTx(
   conn,
-  { companyId, transferId, createdBy = null },
+  { companyId, branchId, transferId, createdBy = null },
 ) {
+  // Use received_qty if set, otherwise fall back to accepted_qty, then original qty
   const [rows] = await conn.execute(
     `
     SELECT
       t.transfer_no,
       t.from_warehouse_id,
       t.to_warehouse_id,
-      COALESCE(tw.company_id, t.company_id) AS to_company_id,
-      COALESCE(tw.branch_id, t.to_branch_id, t.branch_id) AS to_branch_id,
+      COALESCE(fw.branch_id, t.from_branch_id, t.branch_id) AS from_branch_id,
+      COALESCE(tw.branch_id, t.to_branch_id, t.branch_id)   AS to_branch_id,
       d.item_id,
-      COALESCE(d.received_qty, 0) AS received_qty
+      COALESCE(d.received_qty, d.accepted_qty, d.qty, 0) AS effective_qty
     FROM inv_stock_transfers t
     JOIN inv_stock_transfer_details d ON d.transfer_id = t.id
+    LEFT JOIN inv_warehouses fw ON fw.id = t.from_warehouse_id
     LEFT JOIN inv_warehouses tw ON tw.id = t.to_warehouse_id
     WHERE t.id = :transferId
       AND t.company_id = :companyId
@@ -695,103 +703,25 @@ async function applyTransferReceiptMovementsTx(
   );
 
   for (const row of rows || []) {
-    const qtyToMove = Number(row.received_qty || 0);
+    const qtyToMove = Number(row.effective_qty || 0);
     const itemId = Number(row.item_id || 0);
     const fromWarehouseId = Number(row.from_warehouse_id || 0) || null;
     const toWarehouseId = Number(row.to_warehouse_id || 0) || null;
-    const toCompanyId = Number(row.to_company_id || 0) || companyId;
-    const toBranchId = Number(row.to_branch_id || 0) || null;
+    const toBranchId = Number(row.to_branch_id || 0) || branchId || null;
 
     if (!qtyToMove || !itemId || !fromWarehouseId || !toWarehouseId) continue;
 
-    let remainingSourceQty = qtyToMove;
-    const [sourceRows] = await conn.execute(
-      `
-      SELECT id, reserved_qty
-      FROM inv_stock_balances
-      WHERE company_id = :companyId
-        AND warehouse_id = :warehouseId
-        AND item_id = :itemId
-        AND COALESCE(reserved_qty, 0) > 0
-      ORDER BY entry_date ASC, id ASC
-      FOR UPDATE
-      `,
-      {
-        companyId,
-        warehouseId: fromWarehouseId,
-        itemId,
-      },
-    );
-
-    for (const sourceRow of sourceRows || []) {
-      if (remainingSourceQty <= 0) break;
-      const reservedQty = Number(sourceRow.reserved_qty || 0);
-      if (reservedQty <= 0) continue;
-      const deductQty = Math.min(remainingSourceQty, reservedQty);
-      await conn.execute(
-        `
-        UPDATE inv_stock_balances
-        SET reserved_qty = reserved_qty - :deductQty
-        WHERE id = :id
-        `,
-        { deductQty, id: sourceRow.id },
-      );
-      remainingSourceQty -= deductQty;
-    }
-
-    if (remainingSourceQty > 0) {
-      throw httpError(
-        400,
-        "VALIDATION_ERROR",
-        `Received qty exceeds reserved stock for item ${itemId}`,
-      );
-    }
-
-    const [destRows] = await conn.execute(
-      `
-      SELECT id
-      FROM inv_stock_balances
-      WHERE company_id = :companyId
-        AND warehouse_id = :warehouseId
-        AND item_id = :itemId
-      ORDER BY entry_date ASC, id ASC
-      LIMIT 1
-      FOR UPDATE
-      `,
-      {
-        companyId: toCompanyId,
-        warehouseId: toWarehouseId,
-        itemId,
-      },
-    );
-
-    if (destRows?.length) {
-      await conn.execute(
-        `
-        UPDATE inv_stock_balances
-        SET qty = qty + :qtyToMove
-        WHERE id = :id
-        `,
-        { qtyToMove, id: destRows[0].id },
-      );
-    } else {
-      await conn.execute(
-        `
-        INSERT INTO inv_stock_balances
-          (company_id, branch_id, warehouse_id, item_id, qty, reserved_qty, entry_date, source_type, source_id)
-        VALUES
-          (:companyId, :branchId, :warehouseId, :itemId, :qty, 0, NOW(), 'TRANSFER_IN', :sourceId)
-        `,
-        {
-          companyId: toCompanyId,
-          branchId: toBranchId,
-          warehouseId: toWarehouseId,
-          itemId,
-          qty: qtyToMove,
-          sourceId: transferId,
-        },
-      );
-    }
+    // Use the stock service moveReservedStockTx which handles graceful fallback
+    await moveReservedStockTx(conn, {
+      companyId,
+      branchId: toBranchId,
+      fromWarehouseId,
+      toWarehouseId,
+      itemId,
+      qtyToMove,
+      sourceRef: row.transfer_no || String(transferId),
+      createdBy,
+    });
   }
 }
 
@@ -985,7 +915,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureItemTypesTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const rows = await query(
         `
       SELECT id, type_code, type_name, is_active,
@@ -1012,7 +942,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureItemTypesTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const body = req.body || {};
       const typeCode = String(body.type_code || "").trim();
       const typeName = String(body.type_name || "").trim();
@@ -1044,7 +974,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureItemTypesTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1085,7 +1015,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureItemTypesTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -1124,7 +1054,7 @@ router.get(
       await ensureUomTable();
       await ensureItemTypesTable();
       // Assuming other tables are ensured elsewhere, but we at least handle the basic ones.
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
 
       const uoms = await query(
         "SELECT id, uom_code, uom_name FROM inv_uom WHERE is_active = 1 ORDER BY uom_name ASC",
@@ -1212,7 +1142,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureUnitConversionsTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT c.id,
@@ -1385,7 +1315,7 @@ router.get(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const warehouseId = toNumber(req.query.warehouse_id) || null;
       // Ensure table and UOM column exists with proper defaults
       await ensureItemsTable();
@@ -1469,7 +1399,7 @@ router.get(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const rows = await query(
         `SELECT item_code FROM inv_items 
          WHERE company_id = :companyId AND item_code LIKE 'ITM-%' 
@@ -1500,25 +1430,116 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureWarehousesTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const activeParam = String(req.query.active || "")
         .trim()
         .toLowerCase();
       const activeOnly = !["0", "false", "all"].includes(activeParam);
       const rows = await query(
         `
-        SELECT id, warehouse_code, warehouse_name, location, is_active,
+        SELECT id, warehouse_code, warehouse_name, location, branch_id, is_active,
           created_at,
           u.username AS created_by_name
          FROM inv_warehouses
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND branch_id = :branchId
+         WHERE company_id = :companyId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
            AND (:activeOnly = 0 OR is_active = 1)
         ORDER BY warehouse_name ASC
         `,
-        { companyId, branchId, activeOnly: activeOnly ? 1 : 0 },
+        { companyId, branchIdsStr: req.scope.branchIdsStr || '', activeOnly: activeOnly ? 1 : 0 },
       ).catch(() => []);
       res.json({ items: rows });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.get(
+  "/warehouses/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureWarehousesTable();
+      const { companyId, branchIdsStr } = req.scope;
+      const id = toNumber(req.params.id, 0);
+      const rows = await query(
+        `SELECT * FROM inv_warehouses
+         WHERE id = :id AND company_id = :companyId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id, companyId, branchIdsStr: branchIdsStr || '' }
+      );
+      if (!rows.length) throw httpError(404, "NOT_FOUND", "Warehouse not found");
+      res.json({ item: rows[0] });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/warehouses",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureWarehousesTable();
+      const { companyId, userId } = req.scope;
+      const body = req.body || {};
+      const branch_id = toNumber(body.branch_id, 0);
+      const [result] = await pool.execute(
+        `INSERT INTO inv_warehouses (
+           company_id, branch_id, warehouse_code, warehouse_name, location, is_active, created_by
+         ) VALUES (
+           :companyId, :branch_id, :warehouse_code, :warehouse_name, :location, :is_active, :userId
+         )`,
+        {
+          companyId,
+          branch_id: branch_id || null,
+          warehouse_code: body.warehouse_code || "",
+          warehouse_name: body.warehouse_name || "",
+          location: body.location || "",
+          is_active: body.is_active ? 1 : 0,
+          userId: userId || null,
+        }
+      );
+      res.json({ item: { id: result.insertId } });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.put(
+  "/warehouses/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureWarehousesTable();
+      const { companyId = null } = req.scope || {};
+      const id = toNumber(req.params.id, 0);
+      const body = req.body || {};
+      await pool.execute(
+        `UPDATE inv_warehouses SET
+           warehouse_code = :warehouse_code,
+           warehouse_name = :warehouse_name,
+           location = :location,
+           is_active = :is_active
+         WHERE id = :id AND company_id = :companyId`,
+        {
+          id,
+          companyId,
+          warehouse_code: body.warehouse_code || "",
+          warehouse_name: body.warehouse_name || "",
+          location: body.location || "",
+          is_active: body.is_active ? 1 : 0,
+        }
+      );
+      res.json({ ok: true });
     } catch (err) {
       next(err);
     }
@@ -1531,7 +1552,7 @@ router.get(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const itemId = req.params.id;
       const rows = await query(
         `
@@ -1560,7 +1581,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockBalancesWarehouseInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const warehouseId = toNumber(req.query.warehouse_id);
       const itemId = toNumber(req.query.item_id);
 
@@ -1602,10 +1623,11 @@ router.get(
   requireCompanyScope,
   requireBranchScope,
   requirePermission("INV.MATERIAL_REQUISITION.VIEW"),
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       await ensureMaterialRequisitionApprovalTrigger();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const statusFilter =
         String(req.query?.status || "")
           .trim()
@@ -1624,12 +1646,28 @@ router.get(
       let where = `
         WHERE r.company_id = :companyId AND r.branch_id = :branchId
           AND COALESCE(r.is_active,'Y') = 'Y'
+          AND NOT EXISTS (
+            SELECT 1 FROM inv_issue_to_requirement i
+            WHERE i.requisition_id = r.id
+              AND i.company_id = :companyId AND i.branch_id = :branchId
+          )
       `;
       const params = { companyId, branchId };
       if (statusFilter) {
         where += ` AND r.status = :status`;
         params.status = statusFilter;
       }
+      const page = Math.max(1, parseInt(req.query.page || "1", 10));
+      const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+      const offset = (page - 1) * limit;
+
+      let countSql = `SELECT COUNT(*) AS total FROM inv_material_requisitions r ${where}`;
+      const countRes = await query(countSql, params);
+      const total = Number(countRes[0]?.total || 0);
+
+      params.limit = limit;
+      params.offset = offset;
+
       const rows = await query(
         `
         SELECT r.id,
@@ -1676,11 +1714,19 @@ router.get(
         LEFT JOIN adm_users cu ON cu.id = r.created_by
         ${where}
         GROUP BY r.id
-        ORDER BY r.requisition_date DESC, r.id DESC
+        ORDER BY r.requisition_date DESC, r.id DESC LIMIT :limit OFFSET :offset
         `,
         params,
       );
-      res.json({ items: rows });
+      res.json({ 
+        items: rows,
+        pagination: {
+          page,
+          pageSize: limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
     } catch (err) {
       next(err);
     }
@@ -1695,7 +1741,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
       const q = String(req.query?.q || "").trim();
       const params = { companyId, branchId };
@@ -1719,9 +1765,9 @@ router.get(
           i.id AS item_id,
           i.item_code,
           i.item_name,
-          COALESCE(SUM(sb.qty), 0) AS total_qty,
+          COALESCE(SUM(sb.qty), 0) + COALESCE(SUM(sb.reserved_qty), 0) AS total_qty,
           COALESCE(SUM(sb.reserved_qty), 0) AS reserved_qty,
-          COALESCE(SUM(sb.qty), 0) - COALESCE(SUM(sb.reserved_qty), 0) AS available_qty,
+          COALESCE(SUM(sb.qty), 0) AS available_qty,
           i.created_at,
           u.username AS created_by_name
          FROM inv_items i
@@ -1751,7 +1797,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockBalancesWarehouseInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const rows = Array.isArray(body.rows)
         ? body.rows
@@ -1836,7 +1882,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
       const params = { companyId, branchId };
       const stockWhere = [
@@ -1896,35 +1942,40 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId } = req.scope;
-      const warehouseId = toNumber(req.query?.warehouseId);
-      const q = String(req.query?.q || "").trim();
-      const params = { companyId, branchId };
-      let where = "v.company_id = :companyId AND v.branch_id = :branchId";
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const fromDate = req.query?.from && req.query.from !== 'null' ? `${req.query.from} 00:00:00` : '1900-01-01 00:00:00';
+      const toDate = req.query?.to && req.query.to !== 'null' ? `${req.query.to} 23:59:59` : '2999-12-31 23:59:59';
+      const warehouseId = req.query?.warehouseId ? Number(req.query.warehouseId) : null;
+      const q = req.query?.q ? String(req.query.q).trim() : "";
+      
+      const params = { companyId, branchId, branchIdsStr, fromDate, toDate };
+      let lWhere = "l.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(l.branch_id, :branchIdsStr))";
       if (warehouseId) {
-        where += " AND v.warehouse_id = :warehouseId";
+        lWhere += " AND l.warehouse_id = :warehouseId";
         params.warehouseId = warehouseId;
       }
+
+      let iWhere = "i.company_id = :companyId";
       if (q) {
-        where += " AND (i.item_code LIKE :q OR i.item_name LIKE :q)";
+        iWhere += " AND (i.item_code LIKE :q OR i.item_name LIKE :q)";
         params.q = `%${q}%`;
       }
+
       const rows = await query(
         `
         SELECT 
-          v.item_id,
-          v.warehouse_id,
+          i.id AS item_id,
           i.item_code,
           i.item_name,
-          v.opening_qty,
-          0 AS receipts_qty,
-          0 AS issues_qty,
-          v.closing_qty,
-          v.created_at,
-          u.username AS created_by_name
-         FROM v_inv_stock_summary v
-        LEFT JOIN inv_items i ON i.id = v.item_id
-         WHERE ${where}
+          COALESCE(SUM(CASE WHEN l.transaction_date < :fromDate OR l.transaction_reason = 'Opening Balance' THEN l.qty_change ELSE 0 END), 0) AS opening_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change > 0 AND (l.transaction_reason IS NULL OR l.transaction_reason != 'Opening Balance') THEN l.qty_change ELSE 0 END), 0) AS receipts_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change < 0 THEN ABS(l.qty_change) ELSE 0 END), 0) AS issues_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date <= :toDate OR l.transaction_reason = 'Opening Balance' THEN l.qty_change ELSE 0 END), 0) AS closing_qty
+        FROM inv_items i
+        LEFT JOIN v_inv_stock_ledger_computed l ON l.item_id = i.id AND ${lWhere}
+        WHERE ${iWhere}
+        GROUP BY i.id, i.item_code, i.item_name
+        HAVING opening_qty != 0 OR receipts_qty != 0 OR issues_qty != 0 OR closing_qty != 0
         ORDER BY i.item_name ASC
         `,
         params,
@@ -1944,35 +1995,47 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const warehouseId = toNumber(req.query?.warehouseId);
+      const itemGroupId = toNumber(req.query?.itemGroupId);
       const q = String(req.query?.q || "").trim();
-      const params = { companyId, branchId };
-      let where = "v.company_id = :companyId AND v.branch_id = :branchId";
-      if (warehouseId) {
-        where += " AND v.warehouse_id = :warehouseId";
-        params.warehouseId = warehouseId;
+      const fromDate = req.query?.from && req.query.from !== 'null' ? `${req.query.from} 00:00:00` : '1900-01-01 00:00:00';
+      const toDate = req.query?.to && req.query.to !== 'null' ? `${req.query.to} 23:59:59` : '2999-12-31 23:59:59';
+      
+      const params = { companyId, branchId, branchIdsStr, fromDate, toDate };
+      
+      let iWhere = "i.company_id = :companyId";
+      if (itemGroupId) {
+        iWhere += " AND i.item_group_id = :itemGroupId";
+        params.itemGroupId = itemGroupId;
       }
       if (q) {
-        where += " AND (i.item_code LIKE :q OR i.item_name LIKE :q)";
+        iWhere += " AND (i.item_code LIKE :q OR i.item_name LIKE :q)";
         params.q = `%${q}%`;
       }
+      
+      let lWhere = "l.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(l.branch_id, :branchIdsStr))";
+      if (warehouseId) {
+        lWhere += " AND l.warehouse_id = :warehouseId";
+        params.warehouseId = warehouseId;
+      }
+
       const rows = await query(
         `
         SELECT 
-          v.item_id,
-          v.warehouse_id,
+          i.id AS item_id,
           i.item_code,
           i.item_name,
-          v.opening_qty,
-          0 AS receipts_qty,
-          0 AS issues_qty,
-          v.closing_qty,
-          v.created_at,
-          u.username AS created_by_name
-         FROM v_inv_stock_summary v
-        LEFT JOIN inv_items i ON i.id = v.item_id
-         WHERE ${where}
+          i.cost_price,
+          COALESCE(SUM(CASE WHEN l.transaction_date < :fromDate OR l.transaction_reason = 'Opening Balance' THEN l.qty_change ELSE 0 END), 0) AS opening_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change > 0 AND (l.transaction_reason IS NULL OR l.transaction_reason != 'Opening Balance') THEN l.qty_change ELSE 0 END), 0) AS receipts_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date >= :fromDate AND l.transaction_date <= :toDate AND l.qty_change < 0 THEN ABS(l.qty_change) ELSE 0 END), 0) AS issues_qty,
+          COALESCE(SUM(CASE WHEN l.transaction_date <= :toDate OR l.transaction_reason = 'Opening Balance' THEN l.qty_change ELSE 0 END), 0) AS closing_qty
+        FROM inv_items i
+        LEFT JOIN v_inv_stock_ledger_computed l ON l.item_id = i.id AND ${lWhere}
+        WHERE ${iWhere}
+        GROUP BY i.id, i.item_code, i.item_name, i.cost_price
+        HAVING opening_qty != 0 OR receipts_qty != 0 OR issues_qty != 0 OR closing_qty != 0
         ORDER BY i.item_name ASC
         `,
         params,
@@ -1992,7 +2055,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const from = toDateOnly(req.query?.from) || null;
       const to = toDateOnly(req.query?.to) || null;
       const warehouseId = toNumber(req.query?.warehouseId);
@@ -2057,7 +2120,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReportingViews();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const from = toDateOnly(req.query?.from) || null;
       const to = toDateOnly(req.query?.to) || null;
       const warehouseId = toNumber(req.query?.warehouseId);
@@ -2117,7 +2180,7 @@ router.get(
   requirePermission("INV.MATERIAL_REQUISITION.VIEW"),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const rows = await query(
@@ -2185,7 +2248,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const from = toDateOnly(req.query?.from) || null;
       const to = toDateOnly(req.query?.to) || null;
       const warehouseId = toNumber(req.query?.warehouseId);
@@ -2247,7 +2310,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const requisitionNo =
         body.requisition_no && String(body.requisition_no).trim()
@@ -2347,7 +2410,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureMaterialRequisitionApprovalTrigger();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -2464,7 +2527,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureMaterialRequisitionApprovalTrigger();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const amount = req.body?.amount ?? null;
@@ -2624,7 +2687,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureGRNTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { type } = req.query;
       const nextNo = await nextGRNNo(companyId, branchId, type || "LOCAL");
       res.json({ next_no: nextNo });
@@ -2642,7 +2705,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `SELECT r.id,
                r.rts_no,
@@ -2699,7 +2762,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const nextNo = await nextReturnNo(companyId, branchId);
       res.json({ next_no: nextNo });
     } catch (err) {
@@ -2717,7 +2780,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockTransferTables();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const nextNo = await nextTransferNo(companyId);
       res.json({ next_no: nextNo });
     } catch (err) {
@@ -2806,6 +2869,43 @@ async function ensureItemBatchTables() {
 
 // ─── Reporting Views ──────────────────────────────────────────────────────────
 async function ensureReportingViews() {
+  await query(`DROP VIEW IF EXISTS v_inv_stock_ledger_computed`).catch(() => {});
+  await query(`
+    CREATE VIEW v_inv_stock_ledger_computed AS
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.qty_accepted, 0) AS qty_change, h.grn_date AS transaction_date, 'GRN' AS type, NULL AS transaction_reason
+    FROM inv_goods_receipt_notes h JOIN inv_goods_receipt_note_details d ON d.grn_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.qty, 0), h.updation_date, 'UPDATE', h.reason AS transaction_reason
+    FROM inv_stock_updations h JOIN inv_stock_updation_details d ON d.updation_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.adjusted_stock - d.current_stock, 0), h.adjustment_date, 'ADJUST', NULL AS transaction_reason
+    FROM inv_stock_adjustments h JOIN inv_stock_adjustment_details d ON d.adjustment_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.qty_returned, 0), h.rts_date, 'RTS', NULL AS transaction_reason
+    FROM inv_return_to_stores h JOIN inv_return_to_stores_details d ON d.rts_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, COALESCE(d.qty_returned, 0), h.return_date, 'SR', NULL AS transaction_reason
+    FROM sal_returns h JOIN sal_return_details d ON d.return_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.warehouse_id, d.item_id, -COALESCE(d.qty_issued, 0), h.issue_date, 'ISSUE', NULL AS transaction_reason
+    FROM inv_issue_to_requirement h JOIN inv_issue_to_requirement_details d ON d.issue_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, COALESCE(i.warehouse_id, h.branch_id), d.item_id, -COALESCE(d.quantity, 0), h.delivery_date, 'DELIVERY', NULL AS transaction_reason
+    FROM sal_deliveries h 
+    JOIN sal_delivery_details d ON d.delivery_id = h.id 
+    LEFT JOIN sal_invoices i ON i.id = h.invoice_id 
+    WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.branch_id, h.from_warehouse_id, d.item_id, -COALESCE(d.qty, 0), h.transfer_date, 'TF_OUT', NULL AS transaction_reason
+    FROM inv_stock_transfers h JOIN inv_stock_transfer_details d ON d.transfer_id = h.id WHERE h.status != 'cancelled'
+    UNION ALL
+    SELECT h.company_id, h.to_branch_id, h.to_warehouse_id, d.item_id, COALESCE(d.received_qty, 0), h.received_date, 'TF_IN', NULL AS transaction_reason
+    FROM inv_stock_transfers h JOIN inv_stock_transfer_details d ON d.transfer_id = h.id WHERE h.status IN ('received', 'completed')
+    UNION ALL
+    SELECT company_id, branch_id, warehouse_id, item_id, qty_change, transaction_date, transaction_type AS type, NULL AS transaction_reason
+    FROM inv_stock_ledger WHERE transaction_type NOT IN ('GRN', 'STOCK_UPDATION', 'STOCK_ADJUSTMENT', 'ISSUE_TO_REQUIREMENT', 'STOCK_TRANSFER_OUT', 'STOCK_TRANSFER_IN')
+  `).catch((e) => { console.error('Error creating v_inv_stock_ledger_computed', e) });
+
   await query(`DROP VIEW IF EXISTS v_inv_stock_summary`).catch(() => {});
   await query(`
     CREATE VIEW v_inv_stock_summary AS
@@ -3082,7 +3182,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const nextNo = await nextAdjustmentNo(companyId);
       res.json({ next_no: nextNo });
     } catch (e) {
@@ -3099,7 +3199,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
@@ -3144,7 +3244,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -3189,7 +3289,7 @@ router.post(
       const workflowIdOverride = toNumber(req.body?.workflow_id);
       const docRouteBase = "/inventory/stock-adjustments";
 
-      const { activeWorkflow: activeWf, inactiveWorkflow } =
+      const { activeWorkflow: activeWf } =
         await resolveWorkflowSelection({
           companyId,
           workflowIdOverride,
@@ -3199,10 +3299,6 @@ router.post(
         });
 
       if (!activeWf) {
-        const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
-        if (behavior && behavior.toUpperCase() !== "AUTO_APPROVE") {
-          return res.json({ status: "SUBMITTED" });
-        }
         await query(
           `UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id`,
           { id },
@@ -3343,7 +3439,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const {
         adjustment_no,
         adjustment_date,
@@ -3368,7 +3464,7 @@ router.post(
           branchId,
           warehouseId: toNumber(warehouse_id) || null,
           adjNo,
-          adjDate: toDateOnly(adjustment_date || new Date()),
+          adjDate: toDateOnly(adjustment_date || new Date().toISOString().split("T")[0]),
           adjustmentType: adjustment_type ? String(adjustment_type) : null,
           referenceDoc: reference_doc ? String(reference_doc) : null,
           reason: reason ? String(reason) : null,
@@ -3408,6 +3504,56 @@ router.post(
         }
       }
       await conn.commit();
+
+      // auto-approve when no active workflow (same pattern as stock updation)
+      if ((status || "DRAFT") === "DRAFT") {
+        try {
+          const [wfRows] = await query(
+            `SELECT COUNT(*) AS cnt FROM adm_workflows
+             WHERE company_id = :companyId
+               AND (document_route = '/inventory/stock-adjustments'
+                    OR document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
+               AND is_active = 1`,
+            { companyId },
+          );
+          if (!wfRows?.cnt) {
+            // approve
+            await query(
+              `UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id`,
+              { id: adjId },
+            );
+
+            // move stock for each detail line
+            if (Array.isArray(details) && details.length) {
+              const adjConn = await pool.getConnection();
+              try {
+                await adjConn.beginTransaction();
+                for (const r of details) {
+                  const itemId = toNumber(r.item_id);
+                  const qty = Number(r.qty || 0);
+                  if (!itemId || !qty) continue;
+                  await recordMovementTx(adjConn, {
+                    companyId,
+                    branchId,
+                    warehouseId: toNumber(warehouse_id) || null,
+                    itemId,
+                    transactionType: "STOCK_ADJUSTMENT",
+                    qtyChange: qty,
+                    sourceRef: adjId,
+                    createdBy: req.user?.sub || null,
+                  });
+                }
+                await adjConn.commit();
+              } catch (movErr) {
+                await adjConn.rollback().catch(() => {});
+              } finally {
+                adjConn.release();
+              }
+            }
+          }
+        } catch {}
+      }
+
       res.json({ id: adjId, adjustment_no: adjNo });
     } catch (e) {
       try {
@@ -3430,13 +3576,14 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT a.id, a.updation_no, a.updation_date, a.status,
                w.warehouse_name,
                COUNT(d.id) AS item_count,
                fu.username AS forwarded_to_username,
+               (SELECT COUNT(*) FROM adm_workflows WHERE company_id = :companyId2 AND (document_route = '/inventory/stock-updation' OR document_type = 'STOCK_UPDATION') AND is_active = 1) AS has_workflow,
           a.created_at,
           cu.username AS created_by_name
          FROM inv_stock_updations a
@@ -3459,7 +3606,7 @@ router.get(
          GROUP BY a.id
          ORDER BY a.updation_date DESC, a.id DESC
         `,
-        { companyId, branchId },
+        { companyId, branchId, companyId2: companyId },
       );
       res.json({ items: rows || [] });
     } catch (e) {
@@ -3475,7 +3622,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const nextNo = await nextUpdationNo(companyId, branchId);
       res.json({ next_no: nextNo });
     } catch (e) {
@@ -3492,7 +3639,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
@@ -3538,7 +3685,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const {
         updation_no,
         updation_date,
@@ -3562,7 +3709,7 @@ router.post(
           branchId,
           warehouseId: toNumber(warehouse_id) || null,
           upNo,
-          upDate: toDateOnly(updation_date || new Date()),
+          upDate: toDateOnly(updation_date || new Date().toISOString().split("T")[0]),
           reason: reason ? String(reason) : null,
           status: status || "DRAFT",
           remarks: remarks || reason ? String(remarks || reason) : null,
@@ -3574,9 +3721,9 @@ router.post(
           await conn.execute(
             `
             INSERT INTO inv_stock_updation_details
-              (updation_id, item_id, qty, uom, batch_no, unit_cost, remarks)
+              (updation_id, item_id, qty, uom, batch_no, unit_cost, current_stock, remarks)
             VALUES
-              (:upId, :itemId, :qty, :uom, :batchNo, :unitCost, :remarks)
+              (:upId, :itemId, :qty, :uom, :batchNo, :unitCost, :currentStock, :remarks)
             `,
             {
               upId,
@@ -3585,6 +3732,7 @@ router.post(
               uom: String(r.uom || "PCS"),
               batchNo: r.batch_no || null,
               unitCost: Number(r.unit_cost || 0),
+              currentStock: Number(r.current_stock || 0),
               remarks: r.remarks ? String(r.remarks) : null,
             },
           );
@@ -3612,7 +3760,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -3633,8 +3781,8 @@ router.put(
           id,
           companyId,
           branchId,
-          upDate: toDateOnly(updation_date || new Date()),
-          warehouse_id: toNumber(warehouse_id) || null,
+          upDate: toDateOnly(updation_date || new Date().toISOString().split("T")[0]),
+          warehouseId: toNumber(warehouse_id) || null,
           reason: reason ? String(reason) : null,
           remarks: remarks || null,
         },
@@ -3649,9 +3797,9 @@ router.put(
           await conn.execute(
             `
             INSERT INTO inv_stock_updation_details
-              (updation_id, item_id, qty, uom, batch_no, unit_cost, remarks)
+              (updation_id, item_id, qty, uom, batch_no, unit_cost, current_stock, remarks)
             VALUES
-              (:upId, :itemId, :qty, :uom, :batchNo, :unitCost, :remarks)
+              (:upId, :itemId, :qty, :uom, :batchNo, :unitCost, :currentStock, :remarks)
             `,
             {
               upId: id,
@@ -3660,6 +3808,7 @@ router.put(
               uom: String(r.uom || "PCS"),
               batchNo: r.batch_no || null,
               unitCost: Number(r.unit_cost || 0),
+              currentStock: Number(r.current_stock || 0),
               remarks: r.remarks ? String(r.remarks) : null,
             },
           );
@@ -3678,6 +3827,56 @@ router.put(
   },
 );
 
+async function autoApproveUpdation(id, companyId, createdBy) {
+  const [upHdr] = await query(
+    `SELECT id, warehouse_id, branch_id FROM inv_stock_updations WHERE id = :id AND company_id = :companyId LIMIT 1`,
+    { id, companyId },
+  );
+  if (!upHdr) return;
+  if (!upHdr.warehouse_id) {
+    await query(
+      `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id, companyId },
+    );
+    return;
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+      { id, companyId },
+    );
+    const [details] = await conn.execute(
+      `SELECT item_id, qty, batch_no FROM inv_stock_updation_details WHERE updation_id = :id`,
+      { id },
+    );
+    for (const d of details) {
+      const itemId = Number(d.item_id);
+      const qtyChange = Number(d.qty || 0);
+      if (itemId && Number.isFinite(qtyChange) && qtyChange !== 0) {
+        await recordMovementTx(conn, {
+          companyId,
+          branchId: upHdr.branch_id,
+          warehouseId: upHdr.warehouse_id,
+          itemId,
+          transactionType: "STOCK_UPDATION",
+          qtyChange,
+          batchNo: d.batch_no || null,
+          sourceRef: id,
+          createdBy: createdBy || null,
+        });
+      }
+    }
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 router.post(
   "/stock-updation/:id/submit",
   requireAuth,
@@ -3686,7 +3885,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureStockUpdationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -3701,30 +3900,38 @@ router.post(
       );
       if (!upd) throw httpError(404, "NOT_FOUND", "Updation not found");
 
-      // Workflow trigger logic... (simplified for now to match project style)
-      // In this project, 'submit' usually finds an active workflow or just updates status.
-      // We will follow the exact same logic as stock adjustments.
-
-      const docType = "STOCK_UPDATION";
-      const docRouteBase = "/inventory/stock-updation";
-
-      const wfByRoute = await query(
-        `SELECT *,
+      const existing = await query(
+        `SELECT id,
           created_at,
           u.username AS created_by_name
-         FROM adm_workflows
+         FROM adm_document_workflows
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId AND (document_route = :docRouteBase OR document_type = :docType) AND is_active = 1 ORDER BY id ASC`,
-        { companyId, docRouteBase, docType },
+         WHERE company_id = :companyId
+          AND document_id = :id
+          AND document_type = 'STOCK_UPDATION'
+          AND status = 'PENDING'
+        ORDER BY id DESC
+        LIMIT 1`,
+        { companyId, id },
       ).catch(() => []);
+      if (existing.length) {
+        return res.json({
+          instanceId: existing[0].id,
+          status: "PENDING_APPROVAL",
+        });
+      }
 
-      let activeWf = wfByRoute[0] || null;
+      const docRouteBase = "/inventory/stock-updation";
+
+      const { activeWorkflow: activeWf } =
+        await resolveWorkflowSelection({
+          companyId,
+          docRouteBase,
+          typeSynonyms: ["STOCK_UPDATION", "Stock Updation"],
+        });
 
       if (!activeWf) {
-        await query(
-          `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id`,
-          { id },
-        );
+        await autoApproveUpdation(id, companyId, req.user?.sub);
         return res.json({ status: "APPROVED" });
       }
 
@@ -3738,25 +3945,49 @@ router.post(
         { wf: activeWf.id },
       );
       if (!steps.length) {
-        await query(
-          `UPDATE inv_stock_updations SET status = 'APPROVED' WHERE id = :id`,
-          { id },
-        );
+        await autoApproveUpdation(id, companyId, req.user?.sub);
         return res.json({ status: "APPROVED" });
       }
 
       const first = steps[0];
-      const assignedToUserId =
-        toNumber(req.body?.target_user_id) || toNumber(first.approver_user_id);
+
+      const allowedUsers = await query(
+        `SELECT approver_user_id,
+          created_at,
+          u.username AS created_by_name
+         FROM adm_workflow_step_approvers
+        LEFT JOIN adm_users u ON u.id = created_by
+         WHERE workflow_id = :wf AND step_order = :ord`,
+        { wf: activeWf.id, ord: first.step_order },
+      ).catch(() => []);
+      const allowedSet = new Set(
+        allowedUsers.map((r) => Number(r.approver_user_id)),
+      );
+
+      const targetUserIdRaw = req.body?.target_user_id;
+      let assignedToUserId = toNumber(first.approver_user_id) || null;
+      if (targetUserIdRaw != null && allowedSet.has(Number(targetUserIdRaw))) {
+        assignedToUserId = Number(targetUserIdRaw);
+      } else if (!assignedToUserId && allowedUsers.length > 0) {
+        assignedToUserId = Number(allowedUsers[0].approver_user_id);
+      }
+      if (!assignedToUserId) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Workflow step 1 has no approver configured",
+        );
+      }
 
       const dwRes = await query(
-        `INSERT INTO adm_document_workflows (company_id, workflow_id, document_id, document_type, current_step_order, status, assigned_to_user_id)
-         VALUES (:companyId, :workflowId, :documentId, :docType, :stepOrder, 'PENDING', :assignedTo)`,
+        `INSERT INTO adm_document_workflows
+          (company_id, workflow_id, document_id, document_type, current_step_order, status, assigned_to_user_id)
+         VALUES
+          (:companyId, :workflowId, :documentId, 'STOCK_UPDATION', :stepOrder, 'PENDING', :assignedTo)`,
         {
           companyId,
           workflowId: activeWf.id,
           documentId: id,
-          docType,
           stepOrder: first.step_order,
           assignedTo: assignedToUserId,
         },
@@ -3764,9 +3995,51 @@ router.post(
       const instanceId = dwRes.insertId;
 
       await query(
-        `UPDATE inv_stock_updations SET status = 'PENDING_APPROVAL' WHERE id = :id`,
-        { id },
+        `INSERT INTO adm_workflow_tasks
+          (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+         VALUES
+          (:companyId, :workflowId, :dwId, :documentId, 'STOCK_UPDATION', :stepOrder, :assignedTo, 'PENDING')`,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          dwId: instanceId,
+          documentId: id,
+          stepOrder: first.step_order,
+          assignedTo: assignedToUserId,
+        },
+      ).catch(() => {});
+
+      await query(
+        `INSERT INTO adm_workflow_logs
+          (document_workflow_id, step_order, action, actor_user_id, comments)
+         VALUES
+          (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)`,
+        {
+          dwId: instanceId,
+          stepOrder: first.step_order,
+          actor: req.user?.sub || null,
+          comments: "",
+        },
+      ).catch(() => {});
+
+      await query(
+        `UPDATE inv_stock_updations SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
       );
+
+      await query(
+        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
+         VALUES (:companyId, :userId, :title, :message, :link, 0)`,
+        {
+          companyId,
+          userId: assignedToUserId,
+          title: "Approval Required",
+          message: upd.updation_no
+            ? `Stock Updation ${upd.updation_no} requires your approval`
+            : `Stock Updation #${id} requires your approval`,
+          link: `/administration/workflows/approvals/${instanceId}`,
+        },
+      ).catch(() => {});
 
       res.status(201).json({ instanceId, status: "PENDING_APPROVAL" });
     } catch (err) {
@@ -3785,7 +4058,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT a.id, a.verification_no, a.verification_date, a.verification_type, a.status,
@@ -3831,7 +4104,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const nextNo = await nextVerificationNo(companyId, branchId);
       res.json({ verification_no: nextNo });
     } catch (e) {
@@ -3848,7 +4121,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
@@ -3894,7 +4167,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const {
         verification_no,
         verification_date,
@@ -3923,7 +4196,7 @@ router.post(
           branchId,
           warehouseId: toNumber(warehouse_id) || null,
           verNo,
-          verDate: toDateOnly(verification_date || new Date()),
+          verDate: toDateOnly(verification_date || new Date().toISOString().split("T")[0]),
           startDate: toDateOnly(start_date) || null,
           endDate: toDateOnly(end_date) || null,
           verificationType: verification_type
@@ -3946,19 +4219,21 @@ router.post(
           await conn.execute(
             `
             INSERT INTO inv_stock_verification_details
-              (verification_id, item_id, system_qty, counted_qty, variance_qty, uom, remarks)
+              (verification_id, item_id, system_qty, reserve_qty, counted_qty, verified_qty, variance_qty, uom, remarks)
             VALUES
-              (:verId, :itemId, :systemQty, :countedQty, :varianceQty, :uom, :remarks)
+              (:verId, :itemId, :systemQty, :reserveQty, :countedQty, :verifiedQty, :varianceQty, :uom, :remarks)
             `,
             {
               verId,
               itemId: toNumber(r.item_id),
               systemQty: Number(r.system_qty || 0),
-              countedQty: Number(r.counted_qty || 0),
+              reserveQty: Number(r.reserve_qty || 0),
+              countedQty: Number(r.verified_qty || r.counted_qty || 0),
+              verifiedQty: Number(r.verified_qty || r.counted_qty || 0),
               varianceQty:
                 r.variance_qty != null
                   ? Number(r.variance_qty || 0)
-                  : Number(r.counted_qty || 0) - Number(r.system_qty || 0),
+                  : Number(r.verified_qty || r.counted_qty || 0) - Number(r.system_qty || 0),
               uom: String(r.uom || "PCS"),
               remarks: r.remarks ? String(r.remarks) : null,
             },
@@ -3966,6 +4241,57 @@ router.post(
         }
       }
       await conn.commit();
+
+      // auto-approve when no active workflow
+      if ((status || "DRAFT") === "DRAFT") {
+        try {
+          const [wfRows] = await query(
+            `SELECT COUNT(*) AS cnt FROM adm_workflows
+             WHERE company_id = :companyId
+               AND (document_route = '/inventory/stock-verification'
+                    OR document_type IN ('STOCK_VERIFICATION','Stock Verification'))
+               AND is_active = 1`,
+            { companyId },
+          );
+          if (!wfRows?.cnt) {
+            await query(
+              `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id`,
+              { id: verId },
+            );
+
+            // move stock based on variance
+            if (Array.isArray(details) && details.length) {
+              const mvConn = await pool.getConnection();
+              try {
+                await mvConn.beginTransaction();
+                for (const r of details) {
+                  const qty = Number(r.variance_qty != null
+                    ? Number(r.variance_qty || 0)
+                    : Number(r.verified_qty || r.counted_qty || 0) - Number(r.system_qty || 0));
+                  const itemId = toNumber(r.item_id);
+                  if (!itemId || !qty) continue;
+                  await recordMovementTx(mvConn, {
+                    companyId,
+                    branchId,
+                    warehouseId: toNumber(warehouse_id) || null,
+                    itemId,
+                    transactionType: "STOCK_VERIFICATION",
+                    qtyChange: qty,
+                    sourceRef: verId,
+                    createdBy: req.user?.sub || null,
+                  });
+                }
+                await mvConn.commit();
+              } catch (mvErr) {
+                await mvConn.rollback().catch(() => {});
+              } finally {
+                mvConn.release();
+              }
+            }
+          }
+        } catch {}
+      }
+
       res.json({ id: verId, verification_no: verNo });
     } catch (e) {
       try {
@@ -3987,7 +4313,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -4023,7 +4349,7 @@ router.put(
           id,
           companyId,
           branchId,
-          verDate: toDateOnly(verification_date || new Date()),
+          verDate: toDateOnly(verification_date || new Date().toISOString().split("T")[0]),
           startDate: toDateOnly(start_date) || null,
           endDate: toDateOnly(end_date) || null,
           warehouseId: toNumber(warehouse_id) || null,
@@ -4051,19 +4377,21 @@ router.put(
           await conn.execute(
             `
             INSERT INTO inv_stock_verification_details
-              (verification_id, item_id, system_qty, verified_qty, variance_qty, uom, remarks)
+              (verification_id, item_id, system_qty, reserve_qty, counted_qty, verified_qty, variance_qty, uom, remarks)
             VALUES
-              (:verId, :itemId, :systemQty, :verifiedQty, :varianceQty, :uom, :remarks)
+              (:verId, :itemId, :systemQty, :reserveQty, :countedQty, :verifiedQty, :varianceQty, :uom, :remarks)
             `,
             {
               verId: id,
               itemId: toNumber(r.item_id),
               systemQty: Number(r.system_qty || 0),
-              verifiedQty: Number(r.verified_qty || 0),
+              reserveQty: Number(r.reserve_qty || 0),
+              countedQty: Number(r.verified_qty || r.counted_qty || 0),
+              verifiedQty: Number(r.verified_qty || r.counted_qty || 0),
               varianceQty:
                 r.variance_qty != null
                   ? Number(r.variance_qty || 0)
-                  : Number(r.verified_qty || 0) - Number(r.system_qty || 0),
+                  : Number(r.verified_qty || r.counted_qty || 0) - Number(r.system_qty || 0),
               uom: String(r.uom || "PCS"),
               remarks: r.remarks ? String(r.remarks) : null,
             },
@@ -4091,7 +4419,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureStockVerificationTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -4126,6 +4454,44 @@ router.post(
           `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id`,
           { id },
         );
+
+        // move stock based on variance (same pattern as stock adjustment)
+        try {
+          const [verHdr] = await query(
+            `SELECT warehouse_id, branch_id FROM inv_stock_verifications WHERE id = :id LIMIT 1`,
+            { id },
+          );
+          const [details] = await query(
+            `SELECT item_id, variance_qty FROM inv_stock_verification_details WHERE verification_id = :id`,
+            { id },
+          );
+          if (details?.length && verHdr) {
+            const mvConn = await pool.getConnection();
+            try {
+              await mvConn.beginTransaction();
+              for (const d of details) {
+                const qty = Number(d.variance_qty || 0);
+                if (!d.item_id || !qty) continue;
+                await recordMovementTx(mvConn, {
+                  companyId,
+                  branchId: verHdr.branch_id || branchId,
+                  warehouseId: verHdr.warehouse_id || null,
+                  itemId: d.item_id,
+                  transactionType: "STOCK_VERIFICATION",
+                  qtyChange: qty,
+                  sourceRef: id,
+                  createdBy: req.user?.sub || null,
+                });
+              }
+              await mvConn.commit();
+            } catch (mvErr) {
+              await mvConn.rollback().catch(() => {});
+            } finally {
+              mvConn.release();
+            }
+          }
+        } catch {}
+
         return res.json({ status: "APPROVED" });
       }
 
@@ -4143,6 +4509,44 @@ router.post(
           `UPDATE inv_stock_verifications SET status = 'APPROVED' WHERE id = :id`,
           { id },
         );
+
+        // move stock based on variance
+        try {
+          const [verHdr2] = await query(
+            `SELECT warehouse_id, branch_id FROM inv_stock_verifications WHERE id = :id LIMIT 1`,
+            { id },
+          );
+          const [details2] = await query(
+            `SELECT item_id, variance_qty FROM inv_stock_verification_details WHERE verification_id = :id`,
+            { id },
+          );
+          if (details2?.length && verHdr2) {
+            const mvConn2 = await pool.getConnection();
+            try {
+              await mvConn2.beginTransaction();
+              for (const d of details2) {
+                const qty = Number(d.variance_qty || 0);
+                if (!d.item_id || !qty) continue;
+                await recordMovementTx(mvConn2, {
+                  companyId,
+                  branchId: verHdr2.branch_id || branchId,
+                  warehouseId: verHdr2.warehouse_id || null,
+                  itemId: d.item_id,
+                  transactionType: "STOCK_VERIFICATION",
+                  qtyChange: qty,
+                  sourceRef: id,
+                  createdBy: req.user?.sub || null,
+                });
+              }
+              await mvConn2.commit();
+            } catch (mvErr2) {
+              await mvConn2.rollback().catch(() => {});
+            } finally {
+              mvConn2.release();
+            }
+          }
+        } catch {}
+
         return res.json({ status: "APPROVED" });
       }
 
@@ -4185,7 +4589,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockBalanceDetailsInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { item_id, batch_no, expiry_from, expiry_to } = req.query || {};
       const whereParts = [
         "b.company_id = :companyId",
@@ -4234,7 +4638,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const itemId = toNumber(req.query.item_id);
       const warehouseId = toNumber(req.query.warehouse_id);
       if (!itemId || !warehouseId) return res.json({ items: [] });
@@ -4291,7 +4695,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureItemBatchTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { item_id, qty, ref_type, ref_id, ref_date, warehouse_id } =
         req.body || {};
       if (!item_id || !qty)
@@ -4309,7 +4713,7 @@ router.post(
         qty: Number(qty) || 0,
         refType: ref_type ? String(ref_type).trim() || null : null,
         refId: toNumber(ref_id) || null,
-        refDate: toDateOnly(ref_date || new Date()) || null,
+        refDate: toDateOnly(ref_date || new Date().toISOString().split("T")[0]) || null,
       });
       await conn.commit();
       res.json({ allocations });
@@ -4331,7 +4735,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT g.id, g.group_code, g.group_name, g.parent_group_id,
@@ -4362,7 +4766,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const groupCode = String(body.group_code || "").trim();
       const groupName = String(body.group_name || "").trim();
@@ -4398,7 +4802,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4451,7 +4855,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4571,7 +4975,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT c.id, c.category_code, c.category_name, c.parent_category_id,
@@ -4602,7 +5006,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const categoryCode = String(body.category_code || "").trim();
       const categoryName = String(body.category_name || "").trim();
@@ -4645,7 +5049,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4698,7 +5102,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureItemGroupTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -4853,6 +5257,8 @@ async function ensureStockUpdationTables() {
       UNIQUE KEY uq_upd_no (company_id, branch_id, updation_no)
     )
   `).catch(() => {});
+  try { await query("ALTER TABLE inv_stock_updations MODIFY COLUMN warehouse_id BIGINT UNSIGNED NULL"); } catch {}
+
   await query(`
     CREATE TABLE IF NOT EXISTS inv_stock_updation_details (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -4862,11 +5268,13 @@ async function ensureStockUpdationTables() {
       uom VARCHAR(20) DEFAULT 'PCS',
       batch_no VARCHAR(100),
       unit_cost DECIMAL(18,4) DEFAULT 0,
+      current_stock DECIMAL(18,3) DEFAULT 0,
       remarks VARCHAR(255) DEFAULT NULL,
       KEY idx_upd (updation_id),
       KEY idx_item (item_id)
     )
   `).catch(() => {});
+  try { await query("ALTER TABLE inv_stock_updation_details ADD COLUMN current_stock DECIMAL(18,3) DEFAULT 0 AFTER unit_cost"); } catch {}
 }
 
 async function nextUpdationNo(companyId, branchId) {
@@ -4924,6 +5332,7 @@ async function ensureStockVerificationTables() {
       verification_id BIGINT UNSIGNED NOT NULL,
       item_id BIGINT UNSIGNED NOT NULL,
       system_qty DECIMAL(18,3) DEFAULT 0,
+      reserve_qty DECIMAL(18,3) DEFAULT 0,
       counted_qty DECIMAL(18,3) DEFAULT 0,
       variance_qty DECIMAL(18,3) DEFAULT 0,
       uom VARCHAR(20) DEFAULT 'PCS',
@@ -4932,6 +5341,8 @@ async function ensureStockVerificationTables() {
       KEY idx_item (item_id)
     )
   `).catch(() => {});
+  try { await query("ALTER TABLE inv_stock_verification_details ADD COLUMN reserve_qty DECIMAL(18,3) DEFAULT 0 AFTER system_qty"); } catch {}
+  try { await query("ALTER TABLE inv_stock_verification_details ADD COLUMN verified_qty DECIMAL(18,3) NULL AFTER counted_qty"); } catch {}
 
   if (!(await hasColumn("inv_stock_verifications", "start_date"))) {
     await query(
@@ -5011,19 +5422,29 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
+      const page = Math.max(1, parseInt(req.query.page || "1", 10));
+      const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+      const offset = (page - 1) * limit;
+
+      const countSql = `SELECT COUNT(*) AS total FROM inv_stock_adjustments a WHERE a.company_id = :companyId AND a.branch_id = :branchId`;
+      const countRes = await query(countSql, { companyId, branchId });
+      const total = Number(countRes[0]?.total || 0);
+
       const rows = await query(
         `
         SELECT a.id, a.adjustment_no, a.adjustment_date, a.status,
                MAX(a.adjustment_type) AS adjustment_type,
                MAX(w.warehouse_name) AS warehouse_name,
                COUNT(d.id) AS item_count,
-               u.username AS forwarded_to_username,
+               (SELECT COUNT(*) FROM adm_workflows WHERE company_id = :companyId2 AND (document_route = '/inventory/stock-adjustments' OR document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment')) AND is_active = 1) AS has_workflow,
+               fu.username AS forwarded_to_username,
           a.created_at,
-          u.username AS created_by_name
+          cu.username AS created_by_name
          FROM inv_stock_adjustments a
           LEFT JOIN inv_stock_adjustment_details d ON d.adjustment_id = a.id
           LEFT JOIN inv_warehouses w ON w.id = a.warehouse_id
@@ -5033,25 +5454,33 @@ router.get(
             JOIN (
               SELECT document_id, MAX(id) AS max_id
               FROM adm_document_workflows
-        LEFT JOIN adm_users u ON u.id = a.created_by
-         WHERE company_id = :companyId
-                AND status = 'PENDING'
-                AND (document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
+               WHERE company_id = :companyId3
+                 AND status = 'PENDING'
+                 AND (document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
               GROUP BY document_id
             ) m ON m.max_id = t.id
           ) x ON x.document_id = a.id
-          LEFT JOIN adm_users u ON u.id = x.assigned_to_user_id
+          LEFT JOIN adm_users fu ON fu.id = x.assigned_to_user_id
+          LEFT JOIN adm_users cu ON cu.id = a.created_by
          WHERE a.company_id = :companyId AND a.branch_id = :branchId
          GROUP BY a.id
-         ORDER BY a.adjustment_date DESC, a.id DESC
+         ORDER BY a.adjustment_date DESC, a.id DESC LIMIT :limit OFFSET :offset
         `,
-        { companyId, branchId },
-      );
-      res.json({ items: rows || [] });
-    } catch (e) {
-      next(e);
-    }
-  },
+         { companyId, branchId, companyId2: companyId, companyId3: companyId, limit, offset },
+       );
+       res.json({ 
+         items: rows || [],
+         pagination: {
+           page,
+           pageSize: limit,
+           total,
+           totalPages: Math.ceil(total / limit)
+         }
+       });
+     } catch (e) {
+       next(e);
+     }
+   },
 );
 
 // Stock transfers list
@@ -5060,10 +5489,19 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
       await ensureStockTransferTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
+      const page = Math.max(1, parseInt(req.query.page || "1", 10));
+      const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+      const offset = (page - 1) * limit;
+
+      const countSql = `SELECT COUNT(*) AS total FROM inv_stock_transfers t WHERE t.company_id = :companyId AND t.branch_id = :branchId`;
+      const countRes = await query(countSql, { companyId, branchId });
+      const total = Number(countRes[0]?.total || 0);
+
       const rows = await query(
         `
         SELECT t.id, t.transfer_no, t.transfer_date, t.status,
@@ -5085,11 +5523,19 @@ router.get(
         LEFT JOIN adm_users u ON u.id = t.created_by
          WHERE t.company_id = :companyId AND t.branch_id = :branchId
          GROUP BY t.id
-         ORDER BY t.transfer_date DESC, t.id DESC
+         ORDER BY t.transfer_date DESC, t.id DESC LIMIT :limit OFFSET :offset
         `,
-        { companyId, branchId },
+        { companyId, branchId, limit, offset },
       );
-      res.json({ items: rows || [] });
+      res.json({ 
+        items: rows || [],
+        pagination: {
+          page,
+          pageSize: limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
     } catch (e) {
       next(e);
     }
@@ -5104,7 +5550,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const itemId = toNumber(req.query.item_id);
       const warehouseId = toNumber(req.query.warehouse_id);
       const batchNo = req.query.batch_no ? String(req.query.batch_no) : null;
@@ -5166,7 +5612,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT pt.po_id, pt.total_ordered, COALESCE(gt.total_accepted,0) AS total_accepted
@@ -5204,9 +5650,10 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
+  cacheListResponse(30),
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const grnType = String(req.query?.grn_type || "").toUpperCase() || null;
       let where = "WHERE g.company_id = :companyId AND g.branch_id = :branchId";
       const params = { companyId, branchId };
@@ -5214,6 +5661,17 @@ router.get(
         where += " AND g.grn_type = :grnType";
         params.grnType = grnType;
       }
+      const page = Math.max(1, parseInt(req.query.page || "1", 10));
+      const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+      const offset = (page - 1) * limit;
+
+      let countSql = `SELECT COUNT(*) AS total FROM inv_goods_receipt_notes g ${where}`;
+      const countRes = await query(countSql, params);
+      const total = Number(countRes[0]?.total || 0);
+
+      params.limit = limit;
+      params.offset = offset;
+
       const rows = await query(
         `
         SELECT g.id, g.grn_no, g.grn_date, g.grn_type, g.status,
@@ -5239,11 +5697,19 @@ router.get(
           LEFT JOIN adm_users u_appr ON u_appr.id = x.assigned_to_user_id
           LEFT JOIN adm_users u_creator ON u_creator.id = g.created_by
          ${where}
-         ORDER BY g.grn_date DESC, g.id DESC
+         ORDER BY g.grn_date DESC, g.id DESC LIMIT :limit OFFSET :offset
         `,
         params,
       );
-      res.json({ items: rows || [] });
+      res.json({ 
+        items: rows || [],
+        pagination: {
+          page,
+          pageSize: limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
     } catch (e) {
       next(e);
     }
@@ -5257,7 +5723,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const [hdr] = await query(
@@ -5303,7 +5769,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub);
 
       const payload = req.body;
@@ -5435,7 +5901,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       const userId = toNumber(req.scope?.userId ?? req.user?.sub);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
@@ -5577,7 +6043,7 @@ router.post(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       const userId = toNumber(req.scope?.userId ?? req.user?.sub);
       const { amount, workflow_id, target_user_id } = req.body;
@@ -5700,7 +6166,7 @@ router.post(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       await query(
@@ -5745,6 +6211,8 @@ async function ensureIssueToRequirementTables() {
       CONSTRAINT fk_issue_created_by FOREIGN KEY (created_by) REFERENCES adm_users (id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `).catch(() => {});
+
+  await query(`ALTER TABLE inv_issue_to_requirement ADD COLUMN IF NOT EXISTS requisition_source VARCHAR(20) DEFAULT 'inventory' AFTER requisition_id`).catch(() => {});
 
   await query(`
     CREATE TABLE IF NOT EXISTS inv_issue_to_requirement_details (
@@ -5797,7 +6265,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT i.id, i.issue_no, i.issue_date, i.warehouse_id, i.issued_to,
@@ -5833,7 +6301,7 @@ router.get(
     try {
       await ensureReportingViews();
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -5897,6 +6365,7 @@ router.post(
         department_id,
         issue_type,
         requisition_id,
+        requisition_source,
         status,
         remarks,
         details = [],
@@ -5916,9 +6385,9 @@ router.post(
         `
         INSERT INTO inv_issue_to_requirement
         (company_id, branch_id, issue_no, issue_date, warehouse_id, issued_to,
-         department_id, issue_type, requisition_id, status, remarks, created_by)
+         department_id, issue_type, requisition_id, requisition_source, status, remarks, created_by)
         VALUES (:companyId, :branchId, :issueNo, :issueDate, :warehouseId, :issuedTo,
-                :departmentId, :issueType, :requisitionId, :status, :remarks, :createdBy)
+                :departmentId, :issueType, :requisitionId, :requisitionSource, :status, :remarks, :createdBy)
         `,
         {
           companyId: companyId || null,
@@ -5931,6 +6400,7 @@ router.post(
           issueType:
             (issue_type ? String(issue_type).trim() : null) || "GENERAL",
           requisitionId: toNumber(requisition_id) || null,
+          requisitionSource: (requisition_source ? String(requisition_source).trim() : null) || "inventory",
           status: (status ? String(status).trim() : null) || "DRAFT",
           remarks: remarks ? String(remarks).trim() || null : null,
           createdBy: userId || null,
@@ -5980,7 +6450,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -5991,6 +6461,7 @@ router.put(
         department_id,
         issue_type,
         requisition_id,
+        requisition_source,
         status,
         remarks,
         details = [],
@@ -6017,7 +6488,7 @@ router.put(
         UPDATE inv_issue_to_requirement
         SET issue_date = :issueDate, warehouse_id = :warehouseId, issued_to = :issuedTo,
             department_id = :departmentId, issue_type = :issueType,
-            requisition_id = :requisitionId, status = :status, remarks = :remarks
+            requisition_id = :requisitionId, requisition_source = :requisitionSource, status = :status, remarks = :remarks
         WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
         `,
         {
@@ -6031,6 +6502,7 @@ router.put(
           issueType:
             (issue_type ? String(issue_type).trim() : null) || "GENERAL",
           requisitionId: toNumber(requisition_id) || null,
+          requisitionSource: (requisition_source ? String(requisition_source).trim() : null) || "inventory",
           status: (status ? String(status).trim() : null) || "DRAFT",
           remarks: remarks ? String(remarks).trim() || null : null,
         },
@@ -6083,7 +6555,7 @@ router.delete(
   async (req, res, next) => {
     try {
       await ensureIssueToRequirementTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6120,6 +6592,145 @@ router.delete(
       res.json({ ok: true });
     } catch (e) {
       next(e);
+    }
+  },
+);
+
+// PUT status-only update for issue-to-requirement (Post / Revert)
+router.put(
+  "/issue-to-requirement/:id/status",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureIssueToRequirementTables();
+      const { companyId, branchId = null } = req.scope || {};
+      const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+      const { status } = req.body;
+      if (!status) throw httpError(400, "VALIDATION_ERROR", "status is required");
+
+      // Fetch existing issue header
+      const [existing] = await query(
+        `SELECT i.*, w.branch_id AS warehouse_branch_id
+           FROM inv_issue_to_requirement i
+           LEFT JOIN inv_warehouses w ON w.id = i.warehouse_id
+          WHERE i.id = :id AND i.company_id = :companyId AND i.branch_id = :branchId
+          LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!existing) throw httpError(404, "NOT_FOUND", "Issue not found");
+
+      const currentStatus = String(existing.status || "").toUpperCase();
+      const newStatus = String(status).trim().toUpperCase();
+
+      // Guard: only allow DRAFT -> POSTED
+      if (newStatus === "POSTED" && currentStatus !== "DRAFT") {
+        throw httpError(400, "VALIDATION_ERROR", `Cannot post an issue that is already ${existing.status}`);
+      }
+
+      await conn.beginTransaction();
+
+      if (newStatus === "POSTED") {
+        // Fetch details to consume stock
+        const details = await query(
+          `SELECT item_id, qty_issued, batch_number
+             FROM inv_issue_to_requirement_details
+            WHERE issue_id = :id`,
+          { id },
+        );
+
+        const warehouseId = toNumber(existing.warehouse_id) || null;
+        const issueType = String(existing.issue_type || "").toUpperCase();
+        const isReserveType = ["PRODUCTION", "MAINTENANCE", "PROJECT"].includes(issueType);
+
+        for (const line of details) {
+          const itemId = toNumber(line.item_id);
+          const qty = Number(line.qty_issued || 0);
+          if (!itemId || qty <= 0 || !warehouseId) continue;
+
+          if (isReserveType) {
+            await conn.execute(
+              `UPDATE inv_stock_balances
+                  SET qty = qty - :qty,
+                      reserved_qty = COALESCE(reserved_qty, 0) + :qty
+                WHERE company_id = :companyId AND branch_id = :branchId
+                  AND warehouse_id = :warehouseId AND item_id = :itemId
+                LIMIT 1`,
+              { companyId, branchId, warehouseId, itemId, qty },
+            );
+          } else {
+            await consumeStockFIFOTx(conn, {
+              companyId,
+              branchId,
+              warehouseId,
+              itemId,
+              transactionType: "ISSUE_TO_REQUIREMENT",
+              qtyToConsume: qty,
+              sourceRef: existing.issue_no,
+              createdBy: userId,
+            });
+          }
+        }
+      }
+
+      // Update the status
+      await conn.execute(
+        `UPDATE inv_issue_to_requirement
+            SET status = :status, updated_at = CURRENT_TIMESTAMP
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { status: newStatus, id, companyId, branchId },
+      );
+
+      await conn.commit();
+      res.json({ ok: true, status: newStatus });
+    } catch (err) {
+      if (conn) await conn.rollback().catch(() => {});
+      next(err);
+    } finally {
+      if (conn) conn.release();
+    }
+  },
+);
+
+// POST cancel issue-to-requirement
+router.post(
+  "/issue-to-requirement/:id/cancel",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureIssueToRequirementTables();
+      const { companyId, branchId = null } = req.scope || {};
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+      const [existing] = await query(
+        `SELECT id, status FROM inv_issue_to_requirement
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
+          LIMIT 1`,
+        { id, companyId, branchId },
+      );
+      if (!existing) throw httpError(404, "NOT_FOUND", "Issue not found");
+      if (String(existing.status).toUpperCase() === "CANCELLED") {
+        throw httpError(400, "VALIDATION_ERROR", "Issue is already cancelled");
+      }
+
+      await query(
+        `UPDATE inv_issue_to_requirement
+            SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP
+          WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
+        { id, companyId, branchId },
+      );
+
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
     }
   },
 );
@@ -6176,11 +6787,11 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const createdBy = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const body = req.body || {};
       const rtsNo = body.rts_no || (await nextReturnNo(companyId, branchId));
-      const rtsDate = toDateOnly(body.rts_date || new Date()) || null;
+      const rtsDate = toDateOnly(body.rts_date || new Date().toISOString().split("T")[0]) || null;
       const warehouseId = toNumber(body.warehouse_id) || null;
       const departmentId = toNumber(body.department_id) || null;
       const issueId = toNumber(body.issue_id) || null;
@@ -6271,7 +6882,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -6371,7 +6982,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -6473,7 +7084,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureReturnToStoresInfrastructure();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       const { status } = req.body;
       if (!id || !status)
@@ -6553,10 +7164,10 @@ router.post(
       await ensureStockBalancesWarehouseInfrastructure();
       await ensureStockBalanceDetailsInfrastructure();
 
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const transferNo = body.transfer_no || (await nextTransferNo(companyId));
-      const transferDate = toDateOnly(body.transfer_date || new Date()) || null;
+      const transferDate = toDateOnly(body.transfer_date || new Date().toISOString().split("T")[0]) || null;
       const fromBranchId = toNumber(body.from_branch_id) || null;
       const toBranchId = toNumber(body.to_branch_id) || null;
       const fromWarehouseId = toNumber(body.from_warehouse_id) || null;
@@ -6667,7 +7278,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockTransferTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -6772,7 +7383,7 @@ router.put(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       const { status } = req.body;
       if (!id || !status)
@@ -6788,18 +7399,24 @@ router.put(
         throw httpError(404, "NOT_FOUND", "Transfer not found");
 
       const transfer = hdr[0];
-      const oldStatus = transfer.status;
+      const oldStatus = String(transfer.status || "").trim().toUpperCase();
+      // Normalize: always store IN_TRANSIT with underscore
+      const normalizedStatus =
+        String(status).trim().toUpperCase() === "IN TRANSIT"
+          ? "IN_TRANSIT"
+          : status;
 
       // Update status
       await conn.execute(
         `UPDATE inv_stock_transfers SET status = :status WHERE id = :id`,
-        { status, id },
+        { status: normalizedStatus, id },
       );
 
-      // If moving from DRAFT to IN_TRANSIT / IN TRANSIT, reserve stock
+      // If dispatching (from DRAFT or APPROVED -> IN_TRANSIT), reserve stock
+      const incomingUpper = String(status).trim().toUpperCase().replace(" ", "_");
       if (
-        oldStatus === "DRAFT" &&
-        ["IN_TRANSIT", "IN TRANSIT"].includes(String(status).toUpperCase())
+        ["DRAFT", "APPROVED"].includes(oldStatus) &&
+        incomingUpper === "IN_TRANSIT"
       ) {
         const [details] = await conn.execute(
           `SELECT item_id, qty FROM inv_stock_transfer_details WHERE transfer_id = :id`,
@@ -6841,12 +7458,12 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const adjustmentNo =
         body.adjustment_no || (await nextAdjustmentNo(companyId));
       const adjustmentDate =
-        toDateOnly(body.adjustment_date || new Date()) || null;
+        toDateOnly(body.adjustment_date || new Date().toISOString().split("T")[0]) || null;
       const status =
         (body.status ? String(body.status).trim() : null) || "DRAFT";
       const remarks = body.remarks ? String(body.remarks).trim() || null : null;
@@ -6893,6 +7510,27 @@ router.post(
       }
 
       await conn.commit();
+
+      // auto-approve when no active workflow (same pattern as stock updation)
+      if (status === "DRAFT") {
+        try {
+          const [wfRows] = await query(
+            `SELECT COUNT(*) AS cnt FROM adm_workflows
+             WHERE company_id = :companyId
+               AND (document_route = '/inventory/stock-adjustments'
+                    OR document_type IN ('STOCK_ADJUSTMENT','Stock Adjustment'))
+               AND is_active = 1`,
+            { companyId },
+          );
+          if (!wfRows?.cnt) {
+            await query(
+              `UPDATE inv_stock_adjustments SET status = 'APPROVED' WHERE id = :id`,
+              { id: adjustmentId },
+            );
+          }
+        } catch {}
+      }
+
       res.status(201).json({ id: adjustmentId, adjustment_no: adjustmentNo });
     } catch (err) {
       try {
@@ -6914,7 +7552,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockAdjustmentTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -7082,7 +7720,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT c.id, c.warehouse_id, c.count_date, c.status,
@@ -7114,7 +7752,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT c.id,
@@ -7248,7 +7886,7 @@ router.post(
       const { companyId, branchId, userId } = req.scope;
       const body = req.body || {};
       const warehouseId = toNumber(body.warehouse_id);
-      const countDate = toDateOnly(body.count_date || new Date()) || null;
+      const countDate = toDateOnly(body.count_date || new Date().toISOString().split("T")[0]) || null;
       const status =
         (body.status ? String(body.status).trim() : null) || "DRAFT";
       const remarks = body.remarks ? String(body.remarks).trim() || null : null;
@@ -7321,11 +7959,11 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const stockTakeNoRaw = body.stock_take_no;
       const stockTakeDate =
-        toDateOnly(body.stock_take_date || new Date()) || null;
+        toDateOnly(body.stock_take_date || new Date().toISOString().split("T")[0]) || null;
       const warehouseId = toNumber(body.warehouse_id) || null;
       const status =
         (body.status ? String(body.status).trim() : null) || "DRAFT";
@@ -7391,7 +8029,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -7470,7 +8108,7 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockCountTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -7563,7 +8201,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureStockReorderTables();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const rows = await query(
         `
         SELECT r.*, i.item_code, i.item_name, w.warehouse_name,
@@ -7710,7 +8348,7 @@ router.post(
     const conn = await pool.getConnection();
     try {
       await ensureItemsTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const items = Array.isArray(req.body?.items)
         ? req.body.items
@@ -7920,7 +8558,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureItemsTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const body = req.body || {};
       let itemCode = body.item_code ? String(body.item_code).trim() : null;
@@ -7974,6 +8612,8 @@ router.post(
       const description = body.description
         ? String(body.description).trim() || null
         : null;
+      const openingQuantity = Number(body.opening_quantity || 0);
+      const openingWarehouseId = body.opening_warehouse_id ? toNumber(body.opening_warehouse_id) : null;
 
       if (!itemCode || !itemName) {
         throw httpError(
@@ -8034,6 +8674,63 @@ router.post(
       );
       const result = Array.isArray(resultRaw) ? resultRaw[0] : resultRaw;
       const itemId = result.insertId;
+
+      if (openingQuantity > 0 && openingWarehouseId) {
+        const updationNo = `UPD-OP-${Date.now()}`;
+        
+        // 1. Create Stock Updation Header
+        const updRaw = await query(
+          `INSERT INTO inv_stock_updations 
+             (company_id, warehouse_id, updation_no, updation_date, reason, status, created_by)
+           VALUES 
+             (:companyId, :warehouseId, :updationNo, NOW(), 'Opening Balance', 'APPROVED', :createdBy)`,
+          {
+            companyId: companyId || null,
+            warehouseId: openingWarehouseId,
+            updationNo,
+            createdBy: userId
+          }
+        );
+        const updationId = (Array.isArray(updRaw) ? updRaw[0] : updRaw).insertId;
+        
+        // 2. Create Stock Updation Detail
+        await query(
+          `INSERT INTO inv_stock_updation_details 
+             (updation_id, item_id, qty, uom, current_stock, created_by)
+           VALUES 
+             (:updationId, :itemId, :qty, :uom, 0, :createdBy)`,
+          {
+            updationId,
+            itemId,
+            qty: openingQuantity,
+            uom: uom || "PCS",
+            createdBy: userId
+          }
+        );
+
+        // 3. Update physical stock balance
+        const sbRows = await query(
+          `SELECT qty FROM inv_stock_balances 
+            WHERE company_id = :companyId AND warehouse_id = :warehouseId AND item_id = :itemId
+            LIMIT 1`,
+          { companyId: companyId || null, warehouseId: openingWarehouseId, itemId }
+        );
+        
+        if (Array.isArray(sbRows) && sbRows.length > 0) {
+          await query(
+            `UPDATE inv_stock_balances SET qty = qty + :delta, updated_at = NOW()
+              WHERE company_id = :companyId AND warehouse_id = :warehouseId AND item_id = :itemId`,
+            { delta: openingQuantity, companyId: companyId || null, warehouseId: openingWarehouseId, itemId }
+          );
+        } else {
+          await query(
+            `INSERT INTO inv_stock_balances (company_id, branch_id, warehouse_id, item_id, qty)
+             VALUES (:companyId, NULL, :warehouseId, :itemId, :qty)`,
+            { companyId: companyId || null, warehouseId: openingWarehouseId, itemId, qty: openingQuantity }
+          );
+        }
+      }
+
       res.status(201).json({ id: itemId, item_code: itemCode });
     } catch (e) {
       // Handle duplicate key errors
@@ -8073,7 +8770,7 @@ router.put(
   async (req, res, next) => {
     try {
       await ensureItemsTable();
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
       const body = req.body || {};
@@ -8218,7 +8915,7 @@ router.post(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const body = req.body || {};
       const itemId = toNumber(body.item_id);
       const costPrice = Number(body.cost_price);
@@ -8244,7 +8941,7 @@ router.post(
   requireCompanyScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const items = Array.isArray(req.body?.items) ? req.body.items : [];
       if (!items.length)
         throw httpError(400, "VALIDATION_ERROR", "No items provided");
@@ -8340,7 +9037,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureReorderPointsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { warehouseId, search, status } = req.query;
 
       let where =
@@ -8408,7 +9105,7 @@ router.post(
     try {
       await ensureReorderPointsTable();
       await ensureSupplierItemsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
 
       const warehouseId = toNumber(body.warehouse_id);
@@ -8517,7 +9214,7 @@ router.delete(
   async (req, res, next) => {
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
 
       if (!id) {
@@ -8564,7 +9261,7 @@ router.get(
         req.scope?.branchId,
       );
       await ensureReorderPointsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       console.log("🔍 Fetching items and warehouses for company:", companyId);
 
       // Fetch all items and warehouses for this company/branch
@@ -8682,7 +9379,7 @@ router.post(
     try {
       await ensureReorderPointsTable();
       await ensureSupplierItemsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const body = req.body || {};
       const data = Array.isArray(body.data) ? body.data : [];
 
@@ -8799,7 +9496,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { itemId, warehouseId, batchNo, search } = req.query || {};
 
       const clauses = [
@@ -8855,7 +9552,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId } = req.scope;
+      const { companyId = null } = req.scope || {};
       const { itemId } = req.query;
       let sql = `
         SELECT c.id, c.company_id, c.item_id,
@@ -8892,7 +9589,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       // Fetch transfers where status is IN TRANSIT / IN_TRANSIT and to_branch_id = current branch
       const rows = await query(
         `
@@ -8931,7 +9628,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -8989,78 +9686,86 @@ router.put(
   requireCompanyScope,
   requireBranchScope,
   async (req, res, next) => {
-    // Basic implementation for acceptance
     const conn = await pool.getConnection();
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
       const id = toNumber(req.params.id);
       const details = Array.isArray(req.body?.details) ? req.body.details : [];
 
       await conn.beginTransaction();
 
+      // Fetch the transfer header scoped to the receiving branch
       const [hdrRows] = await conn.execute(
         `SELECT t.*
          FROM inv_stock_transfers t
          LEFT JOIN inv_warehouses tw ON tw.id = t.to_warehouse_id
-         WHERE (t.id = :id OR t.transfer_no = :id) 
-           AND t.company_id = :companyId 
+         WHERE t.id = :id
+           AND t.company_id = :companyId
            AND (
              COALESCE(tw.branch_id, 0) = :branchId
              OR COALESCE(t.to_branch_id, 0) = :branchId
              OR COALESCE(t.branch_id, 0) = :branchId
            )
          LIMIT 1`,
-        { id: req.params.id, companyId, branchId },
+        { id, companyId, branchId },
       );
       const hdr = hdrRows?.[0];
       if (!hdr) throw httpError(404, "NOT_FOUND", "Transfer not found");
-      const transferId = hdr.id;
+      const transferId = Number(hdr.id);
 
-      for (const d of details) {
-        const lineId = toNumber(d.id);
-        const accQty = Number(d.accepted_qty || 0);
-        const rejQty = Number(d.rejected_qty || 0);
-        const recvQty = Number(d.accepted_qty ?? d.received_qty ?? d.qty ?? 0);
-
-        if (accQty > 0 || rejQty > 0) {
-          await conn.execute(
-            `UPDATE inv_stock_transfer_details 
-             SET accepted_qty = :accQty,
-                 rejected_qty = :rejQty,
-                 received_qty = :recvQty,
-                 acceptance_remarks = :remarks
-             WHERE id = :lineId`,
-            {
-              accQty,
-              rejQty,
-              recvQty,
-              remarks: d.acceptance_remarks || null,
-              lineId,
-            },
-          );
-        }
+      // Guard against double-confirmation
+      const currentStatus = String(hdr.status || "").toUpperCase();
+      if (["RECEIVED", "TRANSFERRED", "CANCELLED"].includes(currentStatus)) {
+        throw httpError(400, "VALIDATION_ERROR", `Transfer is already ${hdr.status}`);
       }
 
+      // If caller supplied per-line quantities, update them first
+      for (const d of details) {
+        const lineId = toNumber(d.id);
+        if (!lineId) continue;
+        const accQty  = Number(d.accepted_qty  ?? d.qty ?? 0);
+        const rejQty  = Number(d.rejected_qty  ?? 0);
+        const recvQty = Number(d.received_qty  ?? d.accepted_qty ?? d.qty ?? 0);
+        await conn.execute(
+          `UPDATE inv_stock_transfer_details
+             SET accepted_qty       = :accQty,
+                 rejected_qty       = :rejQty,
+                 received_qty       = :recvQty,
+                 acceptance_remarks = :remarks
+           WHERE id = :lineId`,
+          {
+            accQty,
+            rejQty,
+            recvQty,
+            remarks: d.acceptance_remarks || null,
+            lineId,
+          },
+        );
+      }
+
+      // Mark the transfer as RECEIVED
       await conn.execute(
-        `UPDATE inv_stock_transfers 
-            SET status = 'RECEIVED', 
-                received_date = CURRENT_TIMESTAMP, 
-                received_by = :userId
-          WHERE id = :id`,
-        { id: transferId, userId },
+        `UPDATE inv_stock_transfers
+            SET status        = 'RECEIVED',
+                received_date = CURRENT_TIMESTAMP,
+                received_by   = :userId
+          WHERE id = :transferId`,
+        { transferId, userId },
       );
 
+      // Move reserved stock from source warehouse to destination warehouse
       await applyTransferReceiptMovementsTx(conn, {
         companyId,
+        branchId,
         transferId,
         createdBy: userId,
       });
 
       await conn.commit();
-      res.json({ ok: true });
+      res.json({ ok: true, message: "Transfer confirmed and stock updated" });
     } catch (err) {
-      if (conn) await conn.rollback();
+      if (conn) await conn.rollback().catch(() => {});
       next(err);
     } finally {
       if (conn) conn.release();
@@ -9075,7 +9780,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const items = await query(
         `
         SELECT 
@@ -9119,7 +9824,7 @@ router.post(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const items = await query(
         `
         SELECT 
@@ -9260,7 +9965,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const { from, to } = req.query;
       let where = "WHERE v.company_id = :companyId AND v.branch_id = :branchId";
       const params = { companyId, branchId };
@@ -9285,7 +9990,7 @@ router.get(
           i.item_code,
           i.item_name,
           d.system_qty,
-          d.physical_qty,
+          d.counted_qty,
           d.variance_qty,
           v.created_at,
           u.username AS created_by_name
@@ -9315,7 +10020,7 @@ router.get(
   requireBranchScope,
   async (req, res, next) => {
     try {
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null } = req.scope || {};
       const [items] = await query(
         "SELECT COUNT(*) as count FROM inv_items WHERE company_id = :companyId AND is_active = 1",
         { companyId },

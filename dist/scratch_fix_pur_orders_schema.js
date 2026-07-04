@@ -1,5 +1,17 @@
+/**
+ * @fileoverview Script to fix the schema of the pur_orders table by ensuring required columns exist.
+ * @module scratch_fix_pur_orders_schema
+ */
+
 import { query, pool } from "./db/pool.js";
 
+/**
+ * Checks if a specific column exists in a given table.
+ *
+ * @param {string} tableName - The name of the table to check.
+ * @param {string} columnName - The name of the column to look for.
+ * @returns {Promise<boolean>} Resolves to true if the column exists, otherwise false.
+ */
 async function hasColumn(tableName, columnName) {
   const rows = await query(
     `
@@ -14,6 +26,12 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+/**
+ * Ensures that currency-related columns exist in the pur_orders table.
+ * Adds 'currency' and 'exchange_rate' columns if they are missing.
+ *
+ * @returns {Promise<void>} Resolves when the check and possible alterations are complete.
+ */
 async function ensurePurchaseOrderCurrencyColumns() {
   if (!(await hasColumn("pur_orders", "currency"))) {
     console.log("Adding currency column...");
@@ -33,6 +51,13 @@ async function ensurePurchaseOrderCurrencyColumns() {
   }
 }
 
+/**
+ * Ensures that various extended business columns exist in the pur_orders table.
+ * Checks for columns like 'warehouse_id', 'payment_terms', 'delivery_date', etc.,
+ * and adds any missing columns based on predefined configurations.
+ *
+ * @returns {Promise<void>} Resolves when all checks and necessary additions are complete.
+ */
 async function ensurePurchaseOrderExtendedColumns() {
   const cols = [
     { name: "warehouse_id", def: "BIGINT UNSIGNED NULL" },
@@ -60,6 +85,13 @@ async function ensurePurchaseOrderExtendedColumns() {
   }
 }
 
+/**
+ * Main entry point for the schema migration script.
+ * Runs the column addition functions and outputs the resulting table schema.
+ * Exits the process when complete.
+ *
+ * @returns {Promise<void>} Resolves when the entire process completes.
+ */
 async function run() {
   try {
     await ensurePurchaseOrderCurrencyColumns();

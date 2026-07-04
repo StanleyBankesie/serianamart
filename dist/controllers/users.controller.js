@@ -1,6 +1,11 @@
+/**
+ * @file users.controller.js
+ * @description Manages user accounts, their branch assignments, and their granular or role-based permissions.
+ */
 import bcrypt from "bcryptjs";
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import { permissionCache } from "../utils/permissionCache.js";
 import {
   toNumber,
   ensureUserColumns,
@@ -14,10 +19,18 @@ import {
 } from "../utils/dbUtils.js";
 import { getAllFeatures } from "../data/featuresRegistry.js";
 
+/**
+ * Fetches a paginated and filtered list of users based on company, branch, active status, and search query.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getUsers = async (req, res, next) => {
   try {
     await ensureUserColumns();
     const { q, company_id, branch_id, active, limit } = req.query || {};
+    const { companyId: scopeCompanyId, branchIdsStr } = req.scope || {};
     const clauses = [];
     const params = {};
     if (company_id) {
@@ -45,6 +58,14 @@ export const getUsers = async (req, res, next) => {
       clauses.push(
         "(u.username LIKE :q OR u.full_name LIKE :q OR u.email LIKE :q)",
       );
+    }
+    if (scopeCompanyId) {
+      clauses.push("u.company_id = :scopeCompanyId");
+      params.scopeCompanyId = scopeCompanyId;
+    }
+    if (branchIdsStr) {
+      clauses.push("(:branchIdsStr = '' OR FIND_IN_SET(u.branch_id, :branchIdsStr))");
+      params.branchIdsStr = branchIdsStr;
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const lim = Math.min(100, Math.max(1, parseInt(limit || "50", 10)));
@@ -178,6 +199,14 @@ export const updateUserBranches = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new user in the system with the specified profile details, company, and branch mapping.
+ * Encrypts the password before saving.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createUser = async (req, res, next) => {
   try {
     await ensureUserColumns();
@@ -258,6 +287,14 @@ export const createUser = async (req, res, next) => {
   }
 };
 
+/**
+ * Updates an existing user's full profile and overwrites their assigned branches.
+ * Re-hashes password if a new one is provided.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const updateUser = async (req, res, next) => {
   try {
     await ensureUserColumns();
@@ -333,6 +370,11 @@ export const updateUser = async (req, res, next) => {
 
     const result = await query(queryStr, params);
 
+    // Invalidate permission cache when user role changes
+    if (role_id !== undefined) {
+      await permissionCache.invalidateUser(id);
+    }
+
     if (Array.isArray(branch_ids)) {
       await ensureUserBranchMapping();
       const cleanIds = branch_ids
@@ -358,6 +400,13 @@ export const updateUser = async (req, res, next) => {
   }
 };
 
+/**
+ * Applies partial updates to specific fields of an existing user.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const patchUser = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
@@ -406,6 +455,13 @@ export const patchUser = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves the comprehensive permission context for a user, including role-based and custom granular permissions.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getUserPermissionsContext = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
@@ -515,6 +571,14 @@ export const saveUserPermissions = async (req, res, next) => {
   }
 };
 
+/**
+ * Saves granular feature permissions for a specific user, normalizing canonical feature keys
+ * and storing them in the user permissions table.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const saveUserFeaturePermissions = async (req, res, next) => {
   try {
     const userId = toNumber(req.params.id);
@@ -622,6 +686,14 @@ export const saveUserFeaturePermissions = async (req, res, next) => {
   }
 };
 
+/**
+ * Fetches the computed feature permissions context for a user by merging role defaults
+ * with user-specific permission overrides.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getUserFeaturePermissionsContext = async (req, res, next) => {
   try {
     const userId = toNumber(req.params.id);

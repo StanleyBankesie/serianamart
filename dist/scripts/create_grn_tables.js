@@ -1,5 +1,17 @@
+/**
+ * @fileoverview Database migration script to create tables for Goods Receipt Notes (GRN).
+ * @module scripts/create_grn_tables
+ */
+
 import { pool } from "../db/pool.js";
 
+/**
+ * Creates 'inv_goods_receipt_notes' and 'inv_goods_receipt_note_details' tables.
+ * Uses a database transaction to ensure atomicity.
+ * Exits the process when complete.
+ *
+ * @returns {Promise<void>} Resolves when the tables are successfully created.
+ */
 async function createGrnTables() {
   const connection = await pool.getConnection();
   try {

@@ -1,6 +1,21 @@
+/**
+ * @file pos.controller.js
+ * @description Handles Point of Sale (POS) operations, specifically managing payment modes.
+ * Includes utilities for schema validation and dynamic table creation.
+ */
+
+// Database Dependencies
 import { query } from "../db/pool.js";
 
+/**
+ * Checks if a specific column exists in a given table within the current database schema.
+ * 
+ * @param {string} tableName - The name of the table to check.
+ * @param {string} columnName - The name of the column to look for.
+ * @returns {Promise<boolean>} True if the column exists, false otherwise.
+ */
 async function hasColumn(tableName, columnName) {
+  // Query information schema to check if the specified column exists in the table
   const rows = await query(
     `
     SELECT COUNT(*) AS c
@@ -11,38 +26,35 @@ async function hasColumn(tableName, columnName) {
     `,
     { tableName, columnName },
   );
+  // Return true if count is greater than 0
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
-async function ensurePosTables() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS pos_payment_modes (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      company_id BIGINT UNSIGNED NOT NULL,
-      branch_id BIGINT UNSIGNED NOT NULL,
-      name VARCHAR(100) NOT NULL,
-      type ENUM('cash','card','mobile','bank','other') NOT NULL,
-      account VARCHAR(100) NULL,
-      require_reference TINYINT(1) NOT NULL DEFAULT 0,
-      is_active TINYINT(1) NOT NULL DEFAULT 1,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      KEY idx_pos_payment_modes_company (company_id),
-      KEY idx_pos_payment_modes_branch (branch_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-  if (!(await hasColumn("pos_payment_modes", "is_active"))) {
-    await query(
-      "ALTER TABLE pos_payment_modes ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1",
-    );
-  }
-}
+/**
+ * Ensures that the required tables for POS payment modes exist in the database.
+ * If the tables do not exist, it creates them. It also performs schema updates
+ * such as modifying column types and adding missing columns to maintain schema integrity.
+ * 
+ * @returns {Promise<void>}
+ */
 
+/**
+ * Retrieves a list of POS payment modes associated with the current company and branch context.
+ * Automatically ensures the required database tables exist before querying.
+ *
+ * @param {import('express').Request} req - Express request object, containing scope.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ * @returns {Promise<void>} Sends a JSON response with the list of payment modes.
+ */
 export const listPaymentModes = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId, branchIdsStr = '' } = req.scope || {};
+    
+    // Ensure the table schema is up to date before querying to prevent missing table/column errors
     await ensurePosTables();
+    
+    // Fetch payment modes for the current company and allowed branches
     const items = await query(`
       SELECT
         id,
@@ -51,19 +63,18 @@ export const listPaymentModes = async (req, res, next) => {
         account,
         require_reference,
         is_active,
-          created_at,
-          u.username AS created_by_name
-         FROM pos_payment_modes
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-        AND branch_id = :branchId
+        created_at
+      FROM pos_payment_modes
+      WHERE company_id = :companyId
+        AND (:branchIdsStr = '' OR FIND_IN_SET(pos_payment_modes.branch_id, :branchIdsStr))
       ORDER BY name
       `,
-      { companyId, branchId },
+      { companyId, branchId, branchIdsStr },
     );
+    // Return payment modes to the client
     res.json({ items });
   } catch (err) {
+    // Pass errors to the error handler middleware
     next(err);
   }
 };
-

@@ -1,9 +1,15 @@
+/**
+ * @file finance.controller.js
+ * @description Central controller for financial operations.
+ * Handles vouchers, accounts, taxes, currencies, fiscal years, and reports.
+ */
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import {
   getInactiveWorkflowBehavior,
   resolveWorkflowSelection,
 } from "../utils/workflowResolution.js";
+import { cacheGet, cacheSet, cacheDel, cacheDelPattern } from "../utils/redis.js";
 import * as XLSX from "xlsx";
 
 // Page ID mapping for tax code applicable pages
@@ -75,6 +81,45 @@ async function ensureBankAccountsColumns() {
 // Run on startup
 ensureBankAccountsColumns();
 
+// ============================================================================
+// Database Initialization & Schema Updates
+// ============================================================================
+
+/**
+ * Ensures that the fin_voucher_lines table has the necessary currency columns.
+ * Specifically adds currency_id and exchange_rate to support multi-currency vouchers.
+ */
+async function ensureVoucherLineCurrencyColumns() {
+  try {
+    const [cols] = await pool.execute(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS 
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fin_voucher_lines'`,
+    );
+    const colNames = (cols || []).map((c) => c.COLUMN_NAME);
+    if (!colNames.includes("currency_id")) {
+      await pool.execute(
+        `ALTER TABLE fin_voucher_lines ADD COLUMN currency_id BIGINT UNSIGNED NULL AFTER payment_method`,
+      );
+      await pool.execute(
+        `ALTER TABLE fin_voucher_lines ADD INDEX idx_vl_currency (currency_id)`,
+      );
+    }
+    if (!colNames.includes("exchange_rate")) {
+      await pool.execute(
+        `ALTER TABLE fin_voucher_lines ADD COLUMN exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000 AFTER currency_id`,
+      );
+    }
+  } catch (e) {
+    // Silently fail - table might not exist yet
+  }
+}
+ensureVoucherLineCurrencyColumns();
+
+/**
+ * Ensures that the account balances table and related schema objects exist.
+ * Adds balance_type to fin_accounts and creates the fin_account_balances table.
+ * Backfills account default balance types based on their group nature (ASSET/EXPENSE -> DEBIT, etc).
+ */
 async function ensureAccountBalanceObjects() {
   let conn;
   try {
@@ -130,6 +175,11 @@ async function ensureAccountBalanceObjects() {
 // Run on startup
 ensureAccountBalanceObjects();
 
+/**
+ * Ensures that purchase bills have payment tracking columns and status triggers.
+ * Adds amount_paid and payment_status to pur_bills, and sets up triggers to auto-update
+ * the payment status on INSERT and UPDATE.
+ */
 async function ensurePurBillsPaymentStatusObjects() {
   let conn;
   try {
@@ -197,6 +247,15 @@ async function ensurePurBillsPaymentStatusObjects() {
   }
 }
 
+// ============================================================================
+// Utility Functions & Middleware
+// ============================================================================
+
+/**
+ * Express middleware to ensure a required ID parameter is present and valid.
+ * Converts the parameter to a string if valid, otherwise returns a 400 error.
+ * @param {string} name - The name of the parameter to check.
+ */
 export function requireIdParam(name) {
   return (req, _res, next) => {
     const id = Number(req.params[name]);
@@ -206,6 +265,14 @@ export function requireIdParam(name) {
   };
 }
 
+/**
+ * Retrieves and increments the next available voucher number for a given company and voucher type.
+ * Calculates the appropriate prefix and sequencing format.
+ * @param {Object} params - Parameters object.
+ * @param {number} params.companyId - The ID of the company.
+ * @param {number} params.voucherTypeId - The ID of the voucher type.
+ * @returns {Promise<string>} The generated voucher number.
+ */
 async function nextVoucherNo({ companyId, voucherTypeId }) {
   const conn = await pool.getConnection();
   try {
@@ -246,6 +313,12 @@ async function nextVoucherNo({ companyId, voucherTypeId }) {
   }
 }
 
+/**
+ * Resolves the ID of an active voucher type given its code and company ID.
+ * @param {Object} conn - The database connection.
+ * @param {Object} params - The companyId and code.
+ * @returns {Promise<number>} The voucher type ID, or 0 if not found.
+ */
 async function resolveVoucherTypeIdByCode(conn, { companyId, code }) {
   const [rows] = await conn.execute(
     "SELECT id FROM fin_voucher_types WHERE company_id = :companyId AND code = :code AND is_active = 1 LIMIT 1",
@@ -255,6 +328,12 @@ async function resolveVoucherTypeIdByCode(conn, { companyId, code }) {
   return id || 0;
 }
 
+/**
+ * Finds a voucher type based on a requested code or alias (e.g. PV, PUV, PAYV).
+ * Handles logic to find related purchase or payment voucher types if an exact match isn't found.
+ * @param {Object} params - The companyId and requestedCode.
+ * @returns {Promise<Object|null>} The voucher type object, or null.
+ */
 async function findVoucherTypeByRequest({ companyId, requestedCode }) {
   const normalizedCode = String(requestedCode || "").toUpperCase();
   if (!normalizedCode) return null;
@@ -303,6 +382,12 @@ async function findVoucherTypeByRequest({ companyId, requestedCode }) {
   return rows?.[0] || null;
 }
 
+/**
+ * Ensures that a voucher type exists for a given request code.
+ * If it doesn't exist, it creates a new voucher type with default settings.
+ * @param {Object} params - The companyId and requestedCode.
+ * @returns {Promise<Object|null>} The existing or newly created voucher type object.
+ */
 async function ensureVoucherTypeForRequest({ companyId, requestedCode }) {
   const existing = await findVoucherTypeByRequest({ companyId, requestedCode });
   if (existing?.id) return existing;
@@ -360,15 +445,32 @@ async function ensureVoucherTypeForRequest({ companyId, requestedCode }) {
   return findVoucherTypeByRequest({ companyId, requestedCode });
 }
 
+/**
+ * Pads a number with leading zeros to ensure it is at least 2 characters long.
+ * @param {number|string} n - The number to pad.
+ * @returns {string} The zero-padded string.
+ */
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
+/**
+ * Converts a Date object to a YYYY-MM-DD string format.
+ * @param {Date} d - The Date object.
+ * @returns {string} The formatted date string, or empty string if invalid.
+ */
 function toYmd(d) {
   if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+/**
+ * Checks if a specific column exists in a given table.
+ * @param {Object} conn - The database connection.
+ * @param {string} tableName - The name of the table.
+ * @param {string} columnName - The name of the column to check.
+ * @returns {Promise<boolean>} True if the column exists, false otherwise.
+ */
 async function hasColumn(conn, tableName, columnName) {
   const [rows] = await conn.execute(
     `
@@ -383,6 +485,18 @@ async function hasColumn(conn, tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+// ============================================================================
+// Fiscal & Tax Utilities
+// ============================================================================
+
+/**
+ * Resolves the fiscal year ID for a given date.
+ * If a matching fiscal year does not exist, it generates one based on the company's
+ * start month setting and creates the record.
+ * @param {Object} conn - The database connection.
+ * @param {Object} params - companyId and dateYmd string.
+ * @returns {Promise<number>} The ID of the resolved fiscal year.
+ */
 async function resolveFiscalYearIdForDate(conn, { companyId, dateYmd }) {
   let target = String(dateYmd || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(target)) {
@@ -463,6 +577,12 @@ async function resolveFiscalYearIdForDate(conn, { companyId, dateYmd }) {
   return newId;
 }
 
+/**
+ * Loads the active tax components and their details for a specific tax code.
+ * @param {Object} conn - The database connection.
+ * @param {Object} params - companyId and taxCodeId.
+ * @returns {Promise<Array>} Array of tax components sorted by compound level and order.
+ */
 async function loadTaxComponentsByCodeTx(conn, { companyId, taxCodeId }) {
   const [rows] = await conn.execute(
     `SELECT c.tax_detail_id,
@@ -482,6 +602,14 @@ async function loadTaxComponentsByCodeTx(conn, { companyId, taxCodeId }) {
   return Array.isArray(rows) ? rows : [];
 }
 
+/**
+ * Allocates a total tax amount among multiple tax components based on their compound levels
+ * and rates. Handles rounding differences to ensure the sum matches the expected tax amount.
+ * @param {number} baseAmount - The base amount before tax.
+ * @param {number} taxAmount - The total expected tax amount.
+ * @param {Array} components - Array of tax components.
+ * @returns {Array} List of components with their allocated amounts.
+ */
 function allocateTaxComponents(baseAmount, taxAmount, components) {
   const base = Math.max(0, Number(baseAmount || 0));
   const expectedTax = Math.max(0, Number(taxAmount || 0));
@@ -521,10 +649,30 @@ function allocateTaxComponents(baseAmount, taxAmount, components) {
   return rounded.filter((r) => Number(r.amount || 0) > 0);
 }
 
+/**
+ * Ensures a financial account exists for a specific tax component.
+ * Retrieves an existing account or creates a new one under 'Tax Receivables' (ASSET) 
+ * for purchases, or 'Tax Payables' (LIABILITY) for sales/others.
+ * @param {Object} conn - Database connection.
+ * @param {Object} params - Configuration details (companyId, taxDetailId, componentName, isPurchase).
+ * @returns {Promise<number>} The ID of the tax account.
+ */
 async function ensureTaxComponentAccountTx(
   conn,
   { companyId, taxDetailId, componentName, isPurchase },
 ) {
+  if (taxDetailId) {
+    try {
+      const [tdRows] = await conn.execute(
+        "SELECT account_id FROM fin_tax_details WHERE id = :taxDetailId LIMIT 1",
+        { taxDetailId }
+      );
+      if (tdRows && tdRows[0] && tdRows[0].account_id) {
+        return Number(tdRows[0].account_id);
+      }
+    } catch (err) {}
+  }
+
   const safeName = String(componentName || "").trim();
   if (!safeName) return 0;
 
@@ -597,9 +745,16 @@ async function ensureTaxComponentAccountTx(
   return finalAccountId;
 }
 
+/**
+ * Processes and splits voucher line amounts into their respective tax components.
+ * Creates new voucher lines for each tax component and adjusts the original base line amounts.
+ * @param {Object} conn - Transaction connection.
+ * @param {Object} params - Parameters including voucherId, lines, voucherType, etc.
+ * @returns {Promise<Object>} Contains totalDebitAdj and totalCreditAdj values.
+ */
 async function processVoucherTaxSplitTx(
   conn,
-  { voucherId, companyId, branchId, lines, voucherType, exchangeRate },
+  { voucherId, companyId, branchId, branchIdsStr, lines, voucherType, exchangeRate },
 ) {
   const isPurchase = voucherType === "PV";
   const rate = Number(exchangeRate || 1) || 1;
@@ -689,6 +844,17 @@ async function processVoucherTaxSplitTx(
   return { totalDebitAdj, totalCreditAdj };
 }
 
+// ============================================================================
+// Group and Financial Account Utilities
+// ============================================================================
+
+/**
+ * Ensures an account group exists by code or name. If neither is found, inserts a new group.
+ * Handles duplicate entry conflicts gracefully by re-querying.
+ * @param {Object} conn - The database connection.
+ * @param {Object} params - Properties of the group (companyId, code, name, nature, parentId).
+ * @returns {Promise<number>} The ID of the account group.
+ */
 async function ensureGroupIdTx(
   conn,
   { companyId, code, name, nature, parentId },
@@ -871,6 +1037,13 @@ export async function getNextNumericCode(conn, { companyId, table, nature }) {
   return `${prefix}${String(nextNum).padStart(4, "0")}`;
 }
 
+/**
+ * Generates and returns the next voucher number based on the requested voucher type.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getNextVoucherNo = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -911,9 +1084,16 @@ export const getNextVoucherNo = async (req, res, next) => {
   }
 };
 
+/**
+ * Transitions a draft or returned voucher into a submitted state, routing it through workflow approvals.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const submitVoucher = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const voucherId = Number(req.params.voucherId);
     const amount = req.body?.amount ?? null;
     const workflowIdOverride = Number(req.body?.workflow_id || 0) || null;
@@ -922,9 +1102,9 @@ export const submitVoucher = async (req, res, next) => {
       `SELECT voucher_type_id, voucher_no, vt.code AS voucher_type_code
          FROM fin_vouchers v
          JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id
-        WHERE v.company_id = :companyId AND v.branch_id = :branchId AND v.id = :id
+        WHERE v.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) AND v.id = :id
         LIMIT 1`,
-      { companyId, branchId, id: voucherId },
+      { companyId, branchId, branchIdsStr, id: voucherId },
     );
     const vInfo = vRows?.[0];
     if (!vInfo) throw httpError(404, "NOT_FOUND", "Voucher not found");
@@ -1073,8 +1253,8 @@ export const submitVoucher = async (req, res, next) => {
         },
       );
       await query(
-        `UPDATE fin_vouchers SET status = 'SUBMITTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id: voucherId, companyId, branchId },
+        `UPDATE fin_vouchers SET status = 'SUBMITTED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id: voucherId, companyId, branchId, branchIdsStr },
       );
       const ref = vInfo?.voucher_no || null;
       await query(
@@ -1096,8 +1276,8 @@ export const submitVoucher = async (req, res, next) => {
     const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
     if (behavior && behavior.toUpperCase() === "AUTO_APPROVE") {
       await query(
-        `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-        { id: voucherId, companyId, branchId },
+        `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+        { id: voucherId, companyId, branchId, branchIdsStr },
       );
       await query(
         `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
@@ -1107,8 +1287,8 @@ export const submitVoucher = async (req, res, next) => {
       return;
     }
     await query(
-      `UPDATE fin_vouchers SET status = 'SUBMITTED' WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`,
-      { id: voucherId, companyId, branchId },
+      `UPDATE fin_vouchers SET status = 'SUBMITTED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { id: voucherId, companyId, branchId, branchIdsStr },
     );
     res.json({ status: "SUBMITTED" });
   } catch (err) {
@@ -1116,6 +1296,14 @@ export const submitVoucher = async (req, res, next) => {
   }
 };
 
+/**
+ * Synchronizes and initializes a default chart of accounts for the company if they don't exist.
+ * Sets up basic groups and required control accounts.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const syncAccounts = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
@@ -1243,6 +1431,13 @@ export const syncAccounts = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves a list of account groups, optionally tracking whether they have associated accounts.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const listAccountGroups = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -1323,6 +1518,13 @@ export const listAccountGroups = async (req, res, next) => {
   }
 };
 
+/**
+ * Fetches the chart of accounts for the company, optionally filtering by active status or specific groups.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const listChartOfAccounts = async (req, res, next) => {
   try {
     await ensureAccountBalanceObjects();
@@ -1373,6 +1575,13 @@ export const listExpenseAccounts = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new financial account under a specific group, assigning currency and balance types.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createAccount = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -1517,6 +1726,13 @@ export const updateAccountActiveStatus = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves the current balance for a specific account.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getAccountBalance = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
@@ -1573,6 +1789,12 @@ export const listTaxCodes = async (req, res, next) => {
       resolvedPageId = PAGE_ID_MAP[form] || null;
     }
 
+    const cacheKey = `taxes:company:${companyId}:page:${resolvedPageId}:active:${active}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ items: cached });
+    }
+
     const items = await query(
       `SELECT id, code, name, rate_percent, type, is_active,
               valid_pages, is_sales_tax, is_purchase_tax, is_service_tax
@@ -1586,6 +1808,8 @@ export const listTaxCodes = async (req, res, next) => {
         ORDER BY code ASC`,
       { companyId, resolvedPageId, active },
     );
+    
+    await cacheSet(cacheKey, items, 86400).catch(() => {});
     res.json({ items });
   } catch (e) {
     next(e);
@@ -1601,6 +1825,12 @@ export const getTaxCodesByPageId = async (req, res, next) => {
       return res.json({ items: [] });
     }
 
+    const cacheKey = `taxes:company:${companyId}:page:${pageId}:active:1`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ items: cached });
+    }
+
     const items = await query(
       `SELECT id, code, name, rate_percent, type, is_active,
               valid_pages, is_sales_tax, is_purchase_tax, is_service_tax
@@ -1611,6 +1841,8 @@ export const getTaxCodesByPageId = async (req, res, next) => {
         ORDER BY code ASC`,
       { companyId, pageId },
     );
+    
+    await cacheSet(cacheKey, items, 86400).catch(() => {});
     res.json({ items });
   } catch (e) {
     next(e);
@@ -1692,6 +1924,7 @@ export const listVouchers = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const voucherTypeCode = req.query.voucherTypeCode
       ? String(req.query.voucherTypeCode).toUpperCase()
       : null;
@@ -1709,8 +1942,38 @@ export const listVouchers = async (req, res, next) => {
         : normalizedVoucherTypeCode === "PUV"
           ? "PV"
           : null;
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+    const offset = (page - 1) * limit;
+
+    const whereClause = `WHERE v.company_id = :companyId
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+          AND (
+            :normalizedVoucherTypeCode IS NULL OR
+            vt.code = :normalizedVoucherTypeCode OR
+            (:voucherTypeCodeAlt IS NOT NULL AND vt.code = :voucherTypeCodeAlt)
+          )
+          AND (:status IS NULL OR v.status = :status)
+          AND (:from IS NULL OR v.voucher_date >= :from)
+          AND (:to IS NULL OR v.voucher_date <= :to)`;
+
+    const countSql = `SELECT COUNT(*) AS total FROM fin_vouchers v JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id AND vt.company_id = v.company_id ${whereClause}`;
+    const params = {
+      companyId,
+      branchId,
+      branchIdsStr,
+      normalizedVoucherTypeCode,
+      voucherTypeCodeAlt,
+      status,
+      from,
+      to,
+    };
+    
+    const countRes = await query(countSql, params);
+    const total = Number(countRes[0]?.total || 0);
+
     const items = await query(
-      `SELECT v.id, v.voucher_no, v.voucher_date, v.status,
+      `SELECT v.id, v.voucher_no, v.voucher_date, v.status, v.project_id,
               COALESCE(
                 (
                   SELECT l.description
@@ -1734,28 +1997,19 @@ export const listVouchers = async (req, res, next) => {
          LEFT JOIN fin_currencies c
            ON c.id = v.currency_id
           AND c.company_id = v.company_id
-        WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
-          AND (
-            :normalizedVoucherTypeCode IS NULL OR
-            vt.code = :normalizedVoucherTypeCode OR
-            (:voucherTypeCodeAlt IS NOT NULL AND vt.code = :voucherTypeCodeAlt)
-          )
-          AND (:status IS NULL OR v.status = :status)
-          AND (:from IS NULL OR v.voucher_date >= :from)
-          AND (:to IS NULL OR v.voucher_date <= :to)
-        ORDER BY v.voucher_date DESC, v.id DESC`,
-      {
-        companyId,
-        branchId,
-        normalizedVoucherTypeCode,
-        voucherTypeCodeAlt,
-        status,
-        from,
-        to,
-      },
+        ${whereClause}
+        ORDER BY v.voucher_date DESC, v.id DESC LIMIT :limit OFFSET :offset`,
+      { ...params, limit, offset },
     );
-    res.json({ items });
+    res.json({ 
+      items,
+      pagination: {
+        page,
+        pageSize: limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
   } catch (e) {
     next(e);
   }
@@ -1765,11 +2019,12 @@ export const getVoucherById = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const id = Number(req.params.id || 0);
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
     const headerRows = await query(
-      `SELECT v.id, v.voucher_no, v.voucher_date, v.status,
-              v.narration AS remarks, v.total_debit, v.total_credit, v.balanced_amount,
+      `SELECT v.id, v.voucher_no, v.voucher_date, v.status, v.project_id,
+              v.narration AS remarks, v.narration, v.total_debit, v.total_credit, v.balanced_amount,
               v.total_debit AS total_amount,
               v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
               v.currency_id, c.code AS currency_code, v.exchange_rate
@@ -1781,15 +2036,16 @@ export const getVoucherById = async (req, res, next) => {
            ON c.id = v.currency_id
           AND c.company_id = v.company_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND v.id = :id
         LIMIT 1`,
-      { companyId, branchId, id },
+      { companyId, branchId, branchIdsStr, id },
     );
     const voucher = headerRows?.[0];
     if (!voucher) return next(httpError(404, "NOT_FOUND", "Voucher not found"));
     const lines = await query(
       `SELECT l.id, l.line_no, l.account_id, l.debit, l.credit, l.description,
+              l.currency_id, l.exchange_rate,
               a.code AS account_code, a.name AS account_name
          FROM fin_voucher_lines l
          LEFT JOIN fin_accounts a ON a.id = l.account_id AND a.company_id = :companyId
@@ -1804,6 +2060,14 @@ export const getVoucherById = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new voucher (Journal, Payment, Receipt, Purchase, etc.) with its associated lines.
+ * Handles transaction boundaries, resolving voucher types, ensuring balanced entries for drafts vs submitted,
+ * calculating tax splits, and updating related bills/invoices when applied.
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createVoucher = async (req, res, next) => {
   let conn;
   try {
@@ -1811,31 +2075,44 @@ export const createVoucher = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // Helper to execute queries within transaction
+    // Helper to execute queries within transaction (sanitize undefined → null)
     const txQuery = async (sql, params) => {
-      const [rows] = await conn.execute(sql, params);
+      let sanitized = params;
+      if (params) {
+        if (Array.isArray(params)) {
+          sanitized = params.map(v => v === undefined ? null : v);
+        } else if (typeof params === 'object') {
+          sanitized = {};
+          for (const key in params) {
+            sanitized[key] = params[key] === undefined ? null : params[key];
+          }
+        }
+      }
+      const [rows] = await conn.execute(sql, sanitized);
       return rows;
     };
 
-    const companyId = req.scope.companyId;
-    const branchId = req.scope.branchId || null;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const {
       voucherTypeCode,
       voucherTypeId,
       voucherDate,
       voucherNo,
       remarks,
+      narration: bodyNarration,
       currencyId,
       exchangeRate,
       status,
       lines,
       isDirectPayment,
+      projectId,
       apply_to_purchase_bills: applyToPurchaseBills,
       apply_to_service_bills: applyToServiceBills,
       apply_to_maintenance_bills: applyToMaintenanceBills,
       apply_to_sales_invoices: applyToSalesInvoices,
       paymentDetails,
     } = req.body || {};
+    const effectiveRemarks = remarks || bodyNarration || null;
     let finalVoucherTypeId = Number(voucherTypeId || 0) || 0;
     if (!finalVoucherTypeId && voucherTypeCode) {
       const vt = await ensureVoucherTypeForRequest({
@@ -1907,12 +2184,16 @@ export const createVoucher = async (req, res, next) => {
               description: payvDirectDescription,
               debit: payvDirectBaseAmount,
               credit: 0,
+              currencyId: paymentDetails.currencyId || currencyId || null,
+              exchangeRate: Number(paymentDetails.exchangeRate || paymentDetails.exchange_rate || finalExchangeRate || 1),
             },
             {
               accountId: Number(paymentDetails.paymentAccountId),
               description: payvDirectDescription,
               debit: 0,
               credit: payvDirectBaseAmount,
+              currencyId: paymentDetails.currencyId || currencyId || null,
+              exchangeRate: Number(paymentDetails.exchangeRate || paymentDetails.exchange_rate || finalExchangeRate || 1),
             },
           ]
         : [];
@@ -1994,9 +2275,9 @@ export const createVoucher = async (req, res, next) => {
           const line = purchaseVoucherPostingLines[i];
           await txQuery(
             `INSERT INTO fin_voucher_lines
-               (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
+                (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method, currency_id, exchange_rate)
              VALUES
-               (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+                (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod, :currencyId, :exchangeRate)`,
             {
               companyId,
               voucherId: purchaseVoucherId,
@@ -2005,6 +2286,9 @@ export const createVoucher = async (req, res, next) => {
               description: line.description || null,
               debit: Number(line.debit || 0),
               credit: Number(line.credit || 0),
+              taxCodeId: Number(line.taxCodeId || line.tax_code_id || 0) || null,
+              currencyId: line.currencyId || line.currency_id || currencyId || null,
+              exchangeRate: Number(line.exchangeRate || line.exchange_rate || finalExchangeRate || 1),
               referenceNo: line.referenceNo || null,
               chequeNumber: line.chequeNumber || null,
               chequeDate: line.chequeDate || null,
@@ -2062,9 +2346,9 @@ export const createVoucher = async (req, res, next) => {
           const line = postingLines[i];
           await txQuery(
             `INSERT INTO fin_voucher_lines
-               (company_id, voucher_id, line_no, account_id, description, debit, credit, reference_no, cheque_number, cheque_date, payment_method)
+                (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method, currency_id, exchange_rate)
              VALUES
-               (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+                (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod, :currencyId, :exchangeRate)`,
             {
               companyId,
               voucherId: salesVoucherId,
@@ -2073,7 +2357,10 @@ export const createVoucher = async (req, res, next) => {
               description: line.description || null,
               debit: Number(line.debit || 0),
               credit: Number(line.credit || 0),
+              taxCodeId: Number(line.taxCodeId || line.tax_code_id || 0) || null,
               referenceNo: line.referenceNo || null,
+              currencyId: line.currencyId || line.currency_id || currencyId || null,
+              exchangeRate: Number(line.exchangeRate || line.exchange_rate || finalExchangeRate || 1),
               chequeNumber: line.chequeNumber || null,
               chequeDate: line.chequeDate || null,
               paymentMethod: line.paymentMethod || null,
@@ -2102,27 +2389,23 @@ export const createVoucher = async (req, res, next) => {
       });
     }
 
-    let mainNarration = remarks || null;
-    // RV description should come from payment details description (mapped to line description)
-    if (isRv && firstLineDescription) {
-      mainNarration = firstLineDescription;
-    }
+    let mainNarration = effectiveRemarks;
     // Keep linked hints for non-RV vouchers only
     if (!isRv) {
       if (purchaseVoucherId) {
         mainNarration =
-          `${remarks || ""} (Linked to PV#${purchaseVoucherId})`.trim();
+          `${effectiveRemarks || ""} (Linked to PV#${purchaseVoucherId})`.trim();
       } else if (salesVoucherId) {
         mainNarration =
-          `${remarks || ""} (Linked to SV#${salesVoucherId})`.trim();
+          `${effectiveRemarks || ""} (Linked to SV#${salesVoucherId})`.trim();
       }
     }
 
     const result = await txQuery(
       `INSERT INTO fin_vouchers
-         (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by)
+         (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by, project_id)
        VALUES
-         (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :totalDebit, :totalCredit, :balancedAmount, :status, :createdBy)`,
+         (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :totalDebit, :totalCredit, :balancedAmount, :status, :createdBy, :projectId)`,
       {
         companyId,
         branchId,
@@ -2138,6 +2421,7 @@ export const createVoucher = async (req, res, next) => {
         balancedAmount: totalAmount,
         status: status || (isPurchaseVoucherMain ? "POSTED" : "DRAFT"),
         createdBy: Number(req.user?.sub || req.user?.id || 0) || null,
+        projectId: projectId ? Number(projectId) : null,
       },
     );
 
@@ -2155,9 +2439,9 @@ export const createVoucher = async (req, res, next) => {
         const line = linesToSave[i];
         await txQuery(
           `INSERT INTO fin_voucher_lines
-             (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method)
+              (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method, currency_id, exchange_rate)
            VALUES
-             (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod)`,
+              (:companyId, :voucherId, :lineNo, :accountId, :description, :debit, :credit, :taxCodeId, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod, :currencyId, :exchangeRate)`,
           {
             companyId,
             voucherId: result.insertId,
@@ -2171,6 +2455,8 @@ export const createVoucher = async (req, res, next) => {
             chequeNumber: line.chequeNumber || null,
             chequeDate: line.chequeDate || null,
             paymentMethod: line.paymentMethod || null,
+            currencyId: line.currencyId || line.currency_id || currencyId || null,
+            exchangeRate: Number(line.exchangeRate || line.exchange_rate || finalExchangeRate || 1) || 1,
           },
         );
       }
@@ -2187,7 +2473,7 @@ export const createVoucher = async (req, res, next) => {
         {
           voucherId: result.insertId,
           companyId,
-          branchId,
+          branchId, branchIdsStr,
           lines: linesToSave,
           voucherType: isPurchaseVoucherMain ? "PV" : "SV",
           exchangeRate: finalExchangeRate,
@@ -2251,11 +2537,12 @@ export const createVoucher = async (req, res, next) => {
                     ELSE 'UNPAID'
                   END
             WHERE company_id = :companyId
-              AND (:branchId IS NULL OR branch_id = :branchId)
+              AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
               AND id = :billId`,
           {
             companyId,
             branchId,
+            branchIdsStr,
             billId,
             alloc,
           },
@@ -2276,11 +2563,12 @@ export const createVoucher = async (req, res, next) => {
                     ELSE COALESCE(payment, 'UNPAID')
                   END
             WHERE company_id = :companyId
-              AND (:branchId IS NULL OR branch_id = :branchId)
+              AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
               AND id = :billId`,
           {
             companyId,
             branchId,
+            branchIdsStr,
             billId,
             alloc,
           },
@@ -2304,11 +2592,12 @@ export const createVoucher = async (req, res, next) => {
                     ELSE COALESCE(payment_status, 'UNPAID')
                   END
             WHERE company_id = :companyId
-              AND (:branchId IS NULL OR branch_id = :branchId)
+              AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
               AND id = :billId`,
           {
             companyId,
             branchId,
+            branchIdsStr,
             billId,
             alloc,
           },
@@ -2333,11 +2622,12 @@ export const createVoucher = async (req, res, next) => {
                     ELSE 'UNPAID'
                   END
             WHERE company_id = :companyId
-              AND (:branchId IS NULL OR branch_id = :branchId)
+              AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
               AND id = :invoiceId`,
           {
             companyId,
             branchId,
+            branchIdsStr,
             invoiceId,
             alloc,
           },
@@ -2368,13 +2658,22 @@ export const createVoucher = async (req, res, next) => {
   }
 };
 
+/**
+ * Updates an existing voucher's basic properties (date, narration, exchange rate, status).
+ * Does not modify voucher lines.
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const updateVoucher = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const id = Number(req.params.id || 0);
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
-    const { voucherDate, remarks, status, exchangeRate } = req.body || {};
+    const { voucherDate, remarks, narration: bodyNarration, status, exchangeRate } = req.body || {};
+    const effectiveRemarks = remarks || bodyNarration || null;
     await query(
       `UPDATE fin_vouchers
           SET voucher_date = COALESCE(:voucherDate, voucher_date),
@@ -2382,14 +2681,14 @@ export const updateVoucher = async (req, res, next) => {
               exchange_rate = COALESCE(:exchangeRate, exchange_rate),
               status = COALESCE(:status, status)
         WHERE company_id = :companyId
-          AND (:branchId IS NULL OR branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND id = :id`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         id,
         voucherDate: voucherDate || null,
-        remarks: remarks || null,
+        remarks: effectiveRemarks,
         exchangeRate: Number(exchangeRate || 0) || null,
         status: status || null,
       },
@@ -2400,19 +2699,188 @@ export const updateVoucher = async (req, res, next) => {
   }
 };
 
+/**
+ * Handles bulk import of vouchers from an uploaded XLSX file.
+ * Validates, parses, and creates vouchers and their lines transactionally.
+ * @param {import('express').Request} req - Express request object (expects req.file).
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
+export const bulkImportVouchers = async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    await ensurePurBillsPaymentStatusObjects();
+    const { companyId = null } = req.scope || {};
+    const { vouchers, defaultBranchId } = req.body || {};
+    const branchId = defaultBranchId || req.scope.branchId;
+    if (!Array.isArray(vouchers) || !vouchers.length) {
+      return next(httpError(400, "VALIDATION_ERROR", "vouchers array is required"));
+    }
+
+    const results = { created: 0, failed: 0, errors: [] };
+    await conn.beginTransaction();
+
+    const txQuery = async (sql, params) => {
+      let sanitized = params;
+      if (params) {
+        if (Array.isArray(params)) {
+          sanitized = params.map(v => v === undefined ? null : v);
+        } else if (typeof params === 'object') {
+          sanitized = {};
+          for (const key in params) {
+            sanitized[key] = params[key] === undefined ? null : params[key];
+          }
+        }
+      }
+      const [rows] = await conn.execute(sql, sanitized);
+      return rows;
+    };
+
+    for (let vi = 0; vi < vouchers.length; vi++) {
+      const v = vouchers[vi];
+      try {
+        const voucherTypeCode = String(v.voucher_type_code || v.voucherTypeCode || "Journal Entry").trim();
+
+        // Resolve voucher type by name or code
+        const [vtRows] = await txQuery(
+          `SELECT id, code FROM fin_voucher_types WHERE company_id = :companyId AND (name = :name OR code = :name) LIMIT 1`,
+          { companyId, name: voucherTypeCode },
+        );
+        if (!vtRows) throw new Error(`Voucher type "${voucherTypeCode}" not found`);
+        const voucherTypeId = vtRows.id;
+        const resolvedVoucherTypeCode = vtRows.code || "JV";
+
+        // Resolve fiscal year
+        const voucherDate = v.voucher_date || new Date().toISOString().slice(0, 10);
+        const [fyRows] = await txQuery(
+          `SELECT id FROM fin_fiscal_years WHERE company_id = :companyId AND :vd BETWEEN start_date AND end_date LIMIT 1`,
+          { companyId, vd: voucherDate },
+        );
+        const fiscalYearId = fyRows?.id || 1;
+
+        // Resolve currency
+        let currencyId = null;
+        let exchangeRate = 1;
+        if (v.currency_name || v.currencyName) {
+          const [curRows] = await txQuery(
+            `SELECT id FROM fin_currencies WHERE company_id = :companyId AND (name = :name OR code = :name) LIMIT 1`,
+            { companyId, name: String(v.currency_name || v.currencyName).trim() },
+          );
+          if (curRows) {
+            currencyId = curRows.id;
+            exchangeRate = Number(v.exchange_rate || 1) || 1;
+          }
+        }
+
+        // Generate voucher number
+        const [lastRows] = await txQuery(
+          `SELECT voucher_no FROM fin_vouchers
+           WHERE company_id = :companyId AND voucher_type_id = :vtId
+           ORDER BY id DESC LIMIT 1`,
+          { companyId, vtId: voucherTypeId },
+        );
+        let nextNum = 1;
+        if (lastRows?.voucher_no) {
+          const match = String(lastRows.voucher_no).match(/(\d+)$/);
+          if (match) nextNum = Number(match[1]) + 1;
+        }
+        const voucherNo = v.voucher_id || `${resolvedVoucherTypeCode}-${String(nextNum).padStart(6, "0")}`;
+
+        const lines = Array.isArray(v.lines) ? v.lines : [];
+        const totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);
+        const totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);
+
+        // Use template branch_id if provided, otherwise fall back to scope
+        const voucherBranchId = v.branch_id ? Number(v.branch_id) : branchId;
+
+        // Insert header
+        const [hdr] = await txQuery(
+          `INSERT INTO fin_vouchers
+            (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no,
+             voucher_date, currency_id, exchange_rate,
+             total_debit, total_credit, balanced_amount, status, created_by)
+           VALUES
+            (:companyId, :branchId, :fyId, :vtId, :voucherNo,
+             :voucherDate, :currencyId, :exchangeRate,
+             :totalDebit, :totalCredit, :balancedAmount, 'APPROVED', :createdBy)`,
+          {
+            companyId,
+            branchId: voucherBranchId,
+            fyId: fiscalYearId,
+            vtId: voucherTypeId,
+            voucherNo,
+            voucherDate,
+            currencyId,
+            exchangeRate,
+            totalDebit,
+            totalCredit,
+            balancedAmount: Math.abs(totalDebit - totalCredit),
+            createdBy: req.user?.sub || null,
+          },
+        );
+
+        // Insert lines
+        for (let li = 0; li < lines.length; li++) {
+          const ln = lines[li];
+          const accName = String(ln.account_name || ln.accountName || "").trim();
+          const [accRows] = await txQuery(
+            `SELECT id FROM fin_accounts WHERE company_id = :companyId AND (name = :name OR code = :name) LIMIT 1`,
+            { companyId, name: accName },
+          );
+          if (!accRows) throw new Error(`Account "${accName}" not found on line ${li + 1}`);
+
+          await txQuery(
+            `INSERT INTO fin_voucher_lines
+              (company_id, voucher_id, line_no, account_id, description,
+               debit, credit, cheque_number, cheque_date)
+             VALUES
+              (:companyId, :voucherId, :lineNo, :accountId, :description,
+               :debit, :credit, :chequeNumber, :chequeDate)`,
+            {
+              companyId,
+              voucherId: hdr.insertId,
+              lineNo: li + 1,
+              accountId: accRows.id,
+              description: ln.description || null,
+              debit: Number(ln.debit || 0),
+              credit: Number(ln.credit || 0),
+              chequeNumber: ln.cheque_number || null,
+              chequeDate: ln.cheque_date || null,
+            },
+          );
+        }
+
+        results.created++;
+      } catch (lineErr) {
+        results.failed++;
+        results.errors.push({ row: vi + 1, message: lineErr.message || String(lineErr) });
+      }
+    }
+
+    await conn.commit();
+    res.json(results);
+  } catch (e) {
+    try { await conn.rollback(); } catch {}
+    next(e);
+  } finally {
+    conn.release();
+  }
+};
+
 export const reverseVoucher = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const id = Number(req.params.id || 0);
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
     await query(
       `UPDATE fin_vouchers
           SET status = 'REVERSED'
         WHERE company_id = :companyId
-          AND (:branchId IS NULL OR branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND id = :id`,
-      { companyId, branchId, id },
+      { companyId, branchId, branchIdsStr, id },
     );
     res.json({ ok: true });
   } catch (e) {
@@ -2433,6 +2901,7 @@ export const voucherRegisterReport = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const items = await query(
@@ -2443,11 +2912,11 @@ export const voucherRegisterReport = async (req, res, next) => {
            ON vt.id = v.voucher_type_id
           AND vt.company_id = v.company_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
         ORDER BY v.voucher_date DESC, v.id DESC`,
-      { companyId, branchId, from, to },
+      { companyId, branchId, branchIdsStr, from, to },
     );
     res.json({ items });
   } catch (e) {
@@ -2458,7 +2927,7 @@ export const voucherRegisterReport = async (req, res, next) => {
 export const paymentDueReport = async (req, res, next) => {
   try {
     await ensurePurBillsPaymentStatusObjects();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     let conn = null;
@@ -2487,13 +2956,13 @@ export const paymentDueReport = async (req, res, next) => {
          FROM pur_bills pb
          LEFT JOIN pur_suppliers s ON s.id = pb.supplier_id
         WHERE pb.company_id = :companyId
-          AND (:branchId IS NULL OR pb.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR pb.due_date >= :from)
           AND (:to IS NULL OR pb.due_date <= :to)
           AND (pb.total_amount - COALESCE(pb.amount_paid, 0)) > 0
           AND COALESCE(pb.payment_status, 'UNPAID') <> 'FULLY PAID'
         ORDER BY pb.due_date ASC`,
-      { companyId, branchId, from, to },
+      { companyId, branchId, branchIdsStr, from, to },
     );
 
     // Query maint_bills (maintenance bills) - exclude if due_date < today AND payment_status = PAID
@@ -2504,29 +2973,29 @@ export const paymentDueReport = async (req, res, next) => {
          FROM maint_bills mb
          LEFT JOIN pur_suppliers s ON s.id = mb.supplier_id
         WHERE mb.company_id = :companyId
-          AND (:branchId IS NULL OR mb.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR mb.due_date >= :from)
           AND (:to IS NULL OR mb.due_date <= :to)
           AND (mb.total_amount - ${maintPaidExpr}) > 0
           AND COALESCE(mb.payment_status, 'UNPAID') <> 'FULLY PAID'
         ORDER BY mb.due_date ASC`,
-      { companyId, branchId, from, to },
+      { companyId, branchId, branchIdsStr, from, to },
     );
 
-    // Query pur_service_bills (service bills) - exclude if due_date < today AND payment = PAID
+    // Query pur_service_bills (service bills) - exclude if due_date < today AND payment_status = PAID
     const serviceBills = await query(
       `SELECT sb.id, sb.bill_no AS ref_no, sb.bill_date, sb.due_date, sb.client_name AS party_name,
               sb.total_amount AS amount, (sb.total_amount - COALESCE(sb.amount_paid, 0)) AS outstanding,
-              COALESCE(sb.payment, 'UNPAID') AS status
+              COALESCE(sb.payment_status, 'UNPAID') AS status
          FROM pur_service_bills sb
         WHERE sb.company_id = :companyId
-          AND (:branchId IS NULL OR sb.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR sb.due_date >= :from)
           AND (:to IS NULL OR sb.due_date <= :to)
           AND (sb.total_amount - COALESCE(sb.amount_paid, 0)) > 0
-          AND NOT (sb.due_date < CURRENT_DATE AND COALESCE(sb.payment, 'UNPAID') = 'PAID')
+          AND NOT (sb.due_date < CURRENT_DATE AND COALESCE(sb.payment_status, 'UNPAID') = 'PAID')
         ORDER BY sb.due_date ASC`,
-      { companyId, branchId, from, to },
+      { companyId, branchId, branchIdsStr, from, to },
     );
 
     // Combine all results
@@ -2543,7 +3012,7 @@ export const paymentDueReport = async (req, res, next) => {
 
 export const outstandingReceivableReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const items = await query(
@@ -2552,12 +3021,12 @@ export const outstandingReceivableReport = async (req, res, next) => {
          FROM sal_invoices i
          LEFT JOIN sal_customers c ON c.id = i.customer_id
         WHERE i.company_id = :companyId
-          AND (:branchId IS NULL OR i.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(i.branch_id, :branchIdsStr)))
           AND (:from IS NULL OR i.invoice_date >= :from)
           AND (:to IS NULL OR i.invoice_date <= :to)
           AND i.balance_amount > 0
         ORDER BY i.invoice_date ASC`,
-      { companyId, branchId, from, to },
+      { companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '', from, to },
     );
     res.json({ items });
   } catch (e) {
@@ -2567,7 +3036,7 @@ export const outstandingReceivableReport = async (req, res, next) => {
 
 export const trialBalanceReport = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const groupId = req.query.groupId ? Number(req.query.groupId) : null;
@@ -2633,7 +3102,7 @@ export const trialBalanceReport = async (req, res, next) => {
 
 export const auditTrailReport = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const items = await query(
@@ -2656,7 +3125,7 @@ export const auditTrailReport = async (req, res, next) => {
 
 export const journalsReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const order = req.query.order || "new";
@@ -2669,12 +3138,12 @@ export const journalsReport = async (req, res, next) => {
          JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
          JOIN fin_accounts a ON a.id = vl.account_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
           AND v.status = 'POSTED'
         ORDER BY v.voucher_date ${sort}, v.id ${sort}, vl.line_no ASC`,
-      { companyId, branchId, from, to },
+      { companyId, branchId, branchIdsStr, from, to },
     );
     res.json({ items });
   } catch (e) {
@@ -2684,7 +3153,7 @@ export const journalsReport = async (req, res, next) => {
 
 export const customerOutstandingReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const asOf = req.query.asOf ? String(req.query.asOf) : null;
     const items = await query(
       `SELECT i.id, c.customer_name, i.invoice_no, i.invoice_date, i.invoice_date AS due_date,
@@ -2692,11 +3161,11 @@ export const customerOutstandingReport = async (req, res, next) => {
          FROM sal_invoices i
          LEFT JOIN sal_customers c ON c.id = i.customer_id
         WHERE i.company_id = :companyId
-          AND (:branchId IS NULL OR i.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:asOf IS NULL OR i.invoice_date <= :asOf)
           AND i.balance_amount > 0
         ORDER BY c.customer_name ASC, i.invoice_date ASC`,
-      { companyId, branchId, asOf },
+      { companyId, branchId, branchIdsStr, asOf },
     );
     res.json({ items });
   } catch (e) {
@@ -2926,6 +3395,7 @@ export const updateTaxCodeComponent = async (req, res, next) => {
     );
 
     await conn.commit();
+    await cacheDelPattern(`taxes:company:${companyId}:*`).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     try {
@@ -2962,6 +3432,13 @@ export const listCurrencies = async (req, res, next) => {
       active === undefined || active === null || String(active).trim() === ""
         ? null
         : Number(Boolean(active));
+
+    const cacheKey = `currencies:company:${companyId}:active:${activeFilter}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ items: cached });
+    }
+
     const items = await query(
       `SELECT id, code, name, symbol, is_base, is_active, created_at
          FROM fin_currencies
@@ -2970,6 +3447,8 @@ export const listCurrencies = async (req, res, next) => {
         ORDER BY is_base DESC, code ASC`,
       { companyId, activeFilter },
     );
+    
+    await cacheSet(cacheKey, items, 86400).catch(() => {}); // cache for 24h
     res.json({ items });
   } catch (e) {
     next(e);
@@ -3003,6 +3482,12 @@ export const createCurrency = async (req, res, next) => {
       );
     }
     await conn.commit();
+    
+    // Invalidate cache
+    await cacheDel(`currencies:company:${companyId}:active:null`).catch(() => {});
+    await cacheDel(`currencies:company:${companyId}:active:1`).catch(() => {});
+    await cacheDel(`currencies:company:${companyId}:active:0`).catch(() => {});
+    
     res.status(201).json({ id: ins.insertId });
   } catch (e) {
     try {
@@ -3044,6 +3529,12 @@ export const updateCurrency = async (req, res, next) => {
       );
     }
     await conn.commit();
+
+    // Invalidate cache
+    await cacheDel(`currencies:company:${companyId}:active:null`).catch(() => {});
+    await cacheDel(`currencies:company:${companyId}:active:1`).catch(() => {});
+    await cacheDel(`currencies:company:${companyId}:active:0`).catch(() => {});
+
     res.json({ ok: true });
   } catch (e) {
     try {
@@ -3227,8 +3718,7 @@ export const listOpeningBalances = async (req, res, next) => {
 
 export const upsertOpeningBalance = async (req, res, next) => {
   try {
-    const companyId = req.scope.companyId;
-    const branchId = req.scope.branchId || null;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { fiscalYearId, accountId, openingDebit, openingCredit } =
       req.body || {};
     if (!fiscalYearId || !accountId)
@@ -3245,7 +3735,7 @@ export const upsertOpeningBalance = async (req, res, next) => {
         companyId,
         fiscalYearId: Number(fiscalYearId),
         accountId: Number(accountId),
-        branchId,
+        branchId, branchIdsStr,
         openingDebit: Number(openingDebit || 0),
         openingCredit: Number(openingCredit || 0),
       },
@@ -3259,8 +3749,7 @@ export const upsertOpeningBalance = async (req, res, next) => {
 export const bulkUpsertOpeningBalances = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const companyId = req.scope.companyId;
-    const branchId = req.scope.branchId || null;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { fiscalYearId, items } = req.body || {};
     if (!fiscalYearId || !Array.isArray(items))
       throw httpError(
@@ -3287,7 +3776,7 @@ export const bulkUpsertOpeningBalances = async (req, res, next) => {
           companyId,
           fiscalYearId: Number(fiscalYearId),
           accountId,
-          branchId,
+          branchId, branchIdsStr,
           openingDebit,
           openingCredit,
         },
@@ -3295,7 +3784,8 @@ export const bulkUpsertOpeningBalances = async (req, res, next) => {
       affected++;
     }
     await conn.commit();
-    res.status(200).json({ upserted: affected });
+    await cacheDelPattern(`taxes:company:${companyId}:*`).catch(() => {});
+    res.status(201).json({ id: ins.insertId });
   } catch (e) {
     try {
       await conn.rollback();
@@ -3460,7 +3950,7 @@ export const updateAccountGroup = async (req, res, next) => {
 // Financial Reports
 export const cashFlowReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
 
@@ -3481,14 +3971,14 @@ export const cashFlowReport = async (req, res, next) => {
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
        LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id
           AND v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)))
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
           AND v.status = 'POSTED'
        WHERE ba.company_id = :companyId
        GROUP BY ba.id, ba.bank_name, ba.account_number, a.id, a.code, a.name
        ORDER BY ba.bank_name ASC`,
-      { companyId, branchId: branchId || null, from, to },
+      { companyId, branchId: branchId || null, branchIdsStr, from, to },
     );
 
     // Calculate totals
@@ -3510,7 +4000,7 @@ export const cashFlowReport = async (req, res, next) => {
 
 export const balanceSheetReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const asOfDate = req.query.to
       ? String(req.query.to)
       : new Date().toISOString().split("T")[0];
@@ -3552,7 +4042,7 @@ export const balanceSheetReport = async (req, res, next) => {
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
        LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
           AND v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND v.voucher_date <= :asOfDate
           AND v.status = 'POSTED'
        WHERE a.company_id = :companyId
@@ -3560,7 +4050,7 @@ export const balanceSheetReport = async (req, res, next) => {
          AND g.nature IN ('ASSET', 'LIABILITY', 'EQUITY')
        GROUP BY a.id, a.code, a.name, a.group_id, g.nature
        ORDER BY a.code ASC`,
-      { companyId, branchId: branchId || null, asOfDate },
+      { companyId, branchId: branchId || null, branchIdsStr, asOfDate },
     );
 
     // 4. Build the hierarchical tree per section
@@ -3654,7 +4144,7 @@ export const balanceSheetReport = async (req, res, next) => {
 
 export const profitAndLossReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
 
@@ -3676,7 +4166,7 @@ export const profitAndLossReport = async (req, res, next) => {
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
        LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
           AND v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
           AND v.status = 'POSTED'
@@ -3685,7 +4175,7 @@ export const profitAndLossReport = async (req, res, next) => {
          AND g.nature IN ('INCOME', 'EXPENSE')
        GROUP BY a.id, a.code, a.name, a.group_id, g.nature
        ORDER BY a.code ASC`,
-      { companyId, branchId: branchId || null, from, to },
+      { companyId, branchId: branchId || null, branchIdsStr, from, to },
     );
 
     const buildTree = (nature) => {
@@ -3764,7 +4254,7 @@ export const profitAndLossReport = async (req, res, next) => {
 
 export const ratioAnalysisReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const asOf = req.query.to
       ? String(req.query.to)
       : new Date().toISOString().split("T")[0];
@@ -3778,13 +4268,13 @@ export const ratioAnalysisReport = async (req, res, next) => {
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
        LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
           AND v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND v.voucher_date <= :asOf
           AND v.status = 'POSTED'
        WHERE a.company_id = :companyId
          AND a.is_active = 1
        GROUP BY g.nature`,
-      { companyId, branchId: branchId || null, asOf },
+      { companyId, branchId: branchId || null, branchIdsStr, asOf },
     );
 
     // Get P&L data for profitability ratios
@@ -3797,14 +4287,14 @@ export const ratioAnalysisReport = async (req, res, next) => {
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
        LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
           AND v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND v.voucher_date <= :asOf
           AND v.status = 'POSTED'
        WHERE a.company_id = :companyId
          AND a.is_active = 1
          AND g.nature IN ('INCOME', 'EXPENSE')
        GROUP BY g.nature`,
-      { companyId, branchId: branchId || null, asOf },
+      { companyId, branchId: branchId || null, branchIdsStr, asOf },
     );
 
     // Calculate balances by nature
@@ -3900,7 +4390,7 @@ export const ratioAnalysisReport = async (req, res, next) => {
 
 export const chartOfAccountsGraphical = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
 
     // Fetch all groups
     const groups = await query(
@@ -3965,7 +4455,7 @@ export const chartOfAccountsGraphical = async (req, res, next) => {
 
 export const supplierOutstandingReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const asOf = req.query.asOf
       ? String(req.query.asOf)
       : new Date().toISOString().split("T")[0];
@@ -3982,13 +4472,13 @@ export const supplierOutstandingReport = async (req, res, next) => {
        FROM pur_bills b
        LEFT JOIN pur_suppliers s ON s.id = b.supplier_id
        WHERE b.company_id = :companyId
-         AND (:branchId IS NULL OR b.branch_id = :branchId)
+         AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
          AND b.bill_date <= :asOf
          AND b.status IN ('POSTED', 'APPROVED', 'PARTIAL')
          AND (b.net_amount - COALESCE(b.amount_paid, 0)) > 0.005
          AND (:supplierId IS NULL OR b.supplier_id = :supplierId)
        ORDER BY s.supplier_name ASC, b.bill_date ASC`,
-      { companyId, branchId: branchId || null, asOf, supplierId },
+      { companyId, branchId: branchId || null, branchIdsStr, asOf, supplierId },
     );
 
     // Compute aging
@@ -4055,7 +4545,7 @@ export const supplierOutstandingReport = async (req, res, next) => {
 
 export const creditorsLedgerReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
@@ -4067,14 +4557,14 @@ export const creditorsLedgerReport = async (req, res, next) => {
          JOIN fin_accounts a ON a.id = vl.account_id
          JOIN fin_account_groups ag ON ag.id = a.group_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
           AND (:accountId IS NULL OR vl.account_id = :accountId)
           AND v.status = 'POSTED'
           AND ag.nature = 'LIABILITY'
         ORDER BY v.voucher_date ASC, v.id ASC, vl.line_no ASC`,
-      { companyId, branchId, from, to, accountId },
+      { companyId, branchId, branchIdsStr, from, to, accountId },
     );
     res.json({ items });
   } catch (e) {
@@ -4084,7 +4574,7 @@ export const creditorsLedgerReport = async (req, res, next) => {
 
 export const debtorsLedgerReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
@@ -4096,14 +4586,14 @@ export const debtorsLedgerReport = async (req, res, next) => {
          JOIN fin_accounts a ON a.id = vl.account_id
          JOIN fin_account_groups ag ON ag.id = a.group_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
           AND (:accountId IS NULL OR vl.account_id = :accountId)
           AND v.status = 'POSTED'
           AND ag.nature = 'ASSET'
         ORDER BY v.voucher_date ASC, v.id ASC, vl.line_no ASC`,
-      { companyId, branchId, from, to, accountId },
+      { companyId, branchId, branchIdsStr, from, to, accountId },
     );
     res.json({ items });
   } catch (e) {
@@ -4114,106 +4604,127 @@ export const debtorsLedgerReport = async (req, res, next) => {
 export const generalLedgerReport = async (req, res, next) => {
   try {
     await ensureAccountBalanceObjects();
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
-    if (!accountId) {
-      return res.json({ opening_balance: 0, items: [], account: null });
-    }
 
-    const accountRows = await query(
-      `SELECT a.id, a.code, a.name,
-              COALESCE(a.balance_type, CASE WHEN g.nature IN ('ASSET','EXPENSE') THEN 'DEBIT' ELSE 'CREDIT' END) AS balance_type
-         FROM fin_accounts a
-         JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = a.company_id
-        WHERE a.company_id = :companyId
-          AND a.id = :accountId
-        LIMIT 1`,
-      { companyId, accountId },
-    );
-    const account = accountRows?.[0] || null;
-    if (!account) {
-      return res.json({ opening_balance: 0, items: [], account: null });
-    }
+    const accountFilter = accountId ? "AND vl.account_id = :accountId" : "";
+    const orderBy = accountId
+      ? "v.voucher_date ASC, v.id ASC, vl.line_no ASC"
+      : "a.code ASC, v.voucher_date ASC, v.id ASC, vl.line_no ASC";
+    const params = { companyId, branchId: branchId || null, branchIdsStr, from, to, accountId };
 
-    const openingRows = await query(
-      `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS opening_balance
-         FROM fin_vouchers v
-         JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
-        WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
-          AND (:from IS NULL OR v.voucher_date < :from)
-          AND vl.account_id = :accountId
-          AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
-      { companyId, branchId, from, accountId },
-    );
-    const openingBalance = Number(openingRows?.[0]?.opening_balance || 0);
+    let account = null;
+    let openingBalance = 0;
+    let currentNet = 0;
+
+    if (accountId) {
+      const accountRows = await query(
+        `SELECT a.id, a.code, a.name,
+                COALESCE(a.balance_type, CASE WHEN g.nature IN ('ASSET','EXPENSE') THEN 'DEBIT' ELSE 'CREDIT' END) AS balance_type
+           FROM fin_accounts a
+           JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = a.company_id
+          WHERE a.company_id = :companyId
+            AND a.id = :accountId
+          LIMIT 1`,
+        { companyId, accountId },
+      );
+      account = accountRows?.[0] || null;
+
+      const openingRows = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS opening_balance
+           FROM fin_vouchers v
+           JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
+          WHERE v.company_id = :companyId
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+            AND (:from IS NULL OR v.voucher_date < :from)
+            AND vl.account_id = :accountId
+            AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
+        { companyId, branchId, branchIdsStr, from, accountId },
+      );
+      openingBalance = Number(openingRows?.[0]?.opening_balance || 0);
+
+      const netRows = await query(
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS current_net
+           FROM fin_vouchers v
+           JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
+          WHERE v.company_id = :companyId
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+            AND vl.account_id = :accountId
+            AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
+        { companyId, branchId, branchIdsStr, accountId },
+      );
+      currentNet = Number(netRows?.[0]?.current_net || 0);
+
+      await query(
+        `INSERT INTO fin_account_balances
+           (company_id, account_id, balance_amount, balance_type, as_of_date)
+         VALUES
+           (:companyId, :accountId, :balanceAmount, :balanceType, :asOfDate)
+         ON DUPLICATE KEY UPDATE
+           balance_amount = VALUES(balance_amount),
+           balance_type = VALUES(balance_type),
+           as_of_date = VALUES(as_of_date)`,
+        {
+          companyId,
+          accountId,
+          balanceAmount: Math.abs(currentNet),
+          balanceType: currentNet >= 0 ? "DEBIT" : "CREDIT",
+          asOfDate: to || new Date().toISOString().slice(0, 10),
+        },
+      );
+    }
 
     const itemsRaw = await query(
-      `SELECT v.id AS voucher_id, vt.code AS voucher_type_code, v.voucher_date, v.voucher_no, vl.line_no, a.code AS account_code, a.name AS account_name,
-              vl.description, vl.debit, vl.credit, vl.id
+      `SELECT v.id AS voucher_id, vt.code AS voucher_type_code, v.voucher_date, v.voucher_no,
+              vl.line_no, a.code AS account_code, a.name AS account_name,
+              vl.description, vl.debit, vl.credit, vl.id,
+              COALESCE(vl.currency_id, v.currency_id) AS currency_id,
+              COALESCE(lc.code, c.code) AS currency_code,
+              COALESCE(vl.exchange_rate, v.exchange_rate) AS exchange_rate,
+              a.currency_id AS account_currency_id
          FROM fin_vouchers v
          JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
          JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id AND vt.company_id = v.company_id
          JOIN fin_accounts a ON a.id = vl.account_id
+         LEFT JOIN fin_currencies c ON c.id = v.currency_id AND c.company_id = v.company_id
+         LEFT JOIN fin_currencies lc ON lc.id = vl.currency_id AND lc.company_id = v.company_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
-          AND vl.account_id = :accountId
+          ${accountFilter}
           AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')
-        ORDER BY v.voucher_date ASC, v.id ASC, vl.line_no ASC`,
-      { companyId, branchId, from, to, accountId },
+      ORDER BY ${orderBy}`,
+      params,
     );
 
     let running = openingBalance;
+    let lastAccount = null;
     const items = (itemsRaw || []).map((row) => {
+      if (accountId) {
+        running += Number(row.debit || 0) - Number(row.credit || 0);
+        return { ...row, balance: running };
+      }
+      if (row.account_code !== lastAccount) {
+        running = 0;
+        lastAccount = row.account_code;
+      }
       running += Number(row.debit || 0) - Number(row.credit || 0);
-      return {
-        ...row,
-        balance: running,
-      };
+      return { ...row, balance: running };
     });
-
-    // Refresh cached account balance snapshot.
-    const currentRows = await query(
-      `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS current_net
-         FROM fin_vouchers v
-         JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
-        WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId OR v.branch_id IS NULL)
-          AND vl.account_id = :accountId
-          AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
-      { companyId, branchId, accountId },
-    );
-    const currentNet = Number(currentRows?.[0]?.current_net || 0);
-    await query(
-      `INSERT INTO fin_account_balances
-         (company_id, account_id, balance_amount, balance_type, as_of_date)
-       VALUES
-         (:companyId, :accountId, :balanceAmount, :balanceType, :asOfDate)
-       ON DUPLICATE KEY UPDATE
-         balance_amount = VALUES(balance_amount),
-         balance_type = VALUES(balance_type),
-         as_of_date = VALUES(as_of_date)`,
-      {
-        companyId,
-        accountId,
-        balanceAmount: Math.abs(currentNet),
-        balanceType: currentNet >= 0 ? "DEBIT" : "CREDIT",
-        asOfDate: to || new Date().toISOString().slice(0, 10),
-      },
-    );
 
     res.json({
       opening_balance: openingBalance,
       items,
-      account: {
-        ...account,
-        current_balance: Math.abs(currentNet),
-        current_balance_type: currentNet >= 0 ? "DEBIT" : "CREDIT",
-      },
+      account: account
+        ? {
+            ...account,
+            current_balance: Math.abs(currentNet),
+            current_balance_type: currentNet >= 0 ? "DEBIT" : "CREDIT",
+          }
+        : null,
     });
   } catch (e) {
     next(e);
@@ -4222,7 +4733,7 @@ export const generalLedgerReport = async (req, res, next) => {
 
 export const chartOfAccountsReport = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { search } = req.query || {};
     const items = await query(
       `SELECT a.id, a.code, a.name, a.is_postable, a.is_active,
@@ -4243,7 +4754,7 @@ export const chartOfAccountsReport = async (req, res, next) => {
 
 export const bankReconciliationReport = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { bankAccountId, from, to, reconciled } = req.query || {};
     if (!bankAccountId)
       throw httpError(400, "VALIDATION_ERROR", "bankAccountId is required");
@@ -4267,13 +4778,13 @@ export const bankReconciliationReport = async (req, res, next) => {
          JOIN fin_bank_accounts ba ON ba.gl_account_id = vl.account_id
         WHERE v.company_id = :companyId
           AND ba.id = :bankAccountId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)))
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
           AND v.status = 'POSTED'
           ${reconciledFilter}
         ORDER BY v.voucher_date ASC, v.id ASC`,
-      { companyId, branchId, bankAccountId, from, to },
+      { companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '', bankAccountId: Number(bankAccountId), from, to },
     );
     res.json({ items });
   } catch (e) {
@@ -4284,14 +4795,14 @@ export const bankReconciliationReport = async (req, res, next) => {
 // Banking & PDC Management
 export const listBankAccounts = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const items = await query(
       `SELECT id, company_id, branch_id, name, bank_name, account_number, gl_account_id, currency_id, is_active
          FROM fin_bank_accounts
         WHERE company_id = :companyId
-          AND (:branchId IS NULL OR branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
         ORDER BY name ASC`,
-      { companyId, branchId: branchId || null },
+      { companyId, branchId: branchId || null, branchIdsStr },
     );
     res.json({ items });
   } catch (e) {
@@ -4316,7 +4827,7 @@ export const createBankAccount = async (req, res, next) => {
        VALUES (:companyId, :branchId, :name, :bankName, :accountNumber, :glAccountId, :currencyId)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         name,
         bankName,
         accountNumber,
@@ -4332,7 +4843,7 @@ export const createBankAccount = async (req, res, next) => {
 
 export const listPdcPostings = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { status, bankAccountId, from, to } = req.query || {};
     const items = await query(
       `SELECT p.id, p.company_id, p.branch_id, p.bank_account_id, p.instrument_no,
@@ -4342,7 +4853,7 @@ export const listPdcPostings = async (req, res, next) => {
          LEFT JOIN fin_vouchers v ON v.id = p.voucher_id
          LEFT JOIN fin_bank_accounts ba ON ba.id = p.bank_account_id
         WHERE p.company_id = :companyId
-          AND (:branchId IS NULL OR p.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(p.branch_id, :branchIdsStr)))
           AND (:status IS NULL OR p.status = :status)
           AND (:bankAccountId IS NULL OR p.bank_account_id = :bankAccountId)
           AND (:from IS NULL OR p.instrument_date >= :from)
@@ -4350,7 +4861,7 @@ export const listPdcPostings = async (req, res, next) => {
         ORDER BY p.instrument_date DESC`,
       {
         companyId,
-        branchId: branchId || null,
+        branchId: branchId || null, branchIdsStr,
         status: status || null,
         bankAccountId: bankAccountId ? Number(bankAccountId) : null,
         from: from || null,
@@ -4367,6 +4878,7 @@ export const createPdcPosting = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const { bankAccountId, instrumentNo, instrumentDate, amount, voucherDate } =
       req.body || {};
     if (!bankAccountId || !instrumentNo || !amount)
@@ -4380,7 +4892,7 @@ export const createPdcPosting = async (req, res, next) => {
        VALUES (:companyId, :branchId, :bankAccountId, :instrumentNo, :instrumentDate, :amount, 'PENDING', :voucherDate)`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         bankAccountId,
         instrumentNo,
         instrumentDate,
@@ -4398,23 +4910,23 @@ export const listBankReconciliations = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
+    const status = req.query.status ? String(req.query.status).toUpperCase() : null;
     const items = await query(
       `SELECT r.id, r.company_id, r.branch_id, r.bank_account_id,
-              r.reconciliation_date,
-              r.reconciliation_date AS statement_from,
-              r.reconciliation_date AS statement_to,
-              r.bank_statement_balance,
-              r.bank_statement_balance AS statement_ending_balance,
-              COALESCE(r.calculated_balance, 0) AS calculated_balance,
+              r.statement_from,
+              r.statement_to,
+              r.statement_ending_balance,
               r.status,
               ba.name AS bank_account_name,
               ba.account_number
          FROM fin_bank_reconciliations r
          LEFT JOIN fin_bank_accounts ba ON ba.id = r.bank_account_id
         WHERE r.company_id = :companyId
-          AND (:branchId IS NULL OR r.branch_id = :branchId)
-        ORDER BY r.reconciliation_date DESC`,
-      { companyId, branchId: branchId || null },
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)))
+          AND (:status IS NULL OR r.status = :status)
+        ORDER BY r.statement_from DESC`,
+      { companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '', status },
     );
     res.json({ items });
   } catch (e) {
@@ -4426,6 +4938,7 @@ export const createBankReconciliation = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const payload = req.body || {};
     const bankAccountId = Number(payload.bankAccountId || 0);
     const reconciliationDate = String(
@@ -4444,14 +4957,15 @@ export const createBankReconciliation = async (req, res, next) => {
         "bankAccountId and reconciliationDate (or statementTo) are required",
       );
     const result = await query(
-      `INSERT INTO fin_bank_reconciliations (company_id, branch_id, bank_account_id, reconciliation_date, bank_statement_balance, status)
-       VALUES (:companyId, :branchId, :bankAccountId, :reconciliationDate, :bankStatementBalance, 'PENDING')`,
+      `INSERT INTO fin_bank_reconciliations (company_id, branch_id, bank_account_id, statement_from, statement_to, statement_ending_balance, status)
+       VALUES (:companyId, :branchId, :bankAccountId, :statementFrom, :statementTo, :statementEndingBalance, 'DRAFT')`,
       {
         companyId,
-        branchId,
+        branchId, branchIdsStr,
         bankAccountId,
-        reconciliationDate,
-        bankStatementBalance,
+        statementFrom: payload.statementFrom || reconciliationDate,
+        statementTo: payload.statementTo || reconciliationDate,
+        statementEndingBalance: bankStatementBalance,
       },
     );
     res.status(201).json({ id: result.insertId });
@@ -4464,26 +4978,24 @@ export const getBankReconciliation = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const id = Number(req.params.id || 0);
     if (!id)
       throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
     const rows = await query(
       `SELECT r.id, r.company_id, r.branch_id, r.bank_account_id,
-              r.reconciliation_date,
-              r.reconciliation_date AS statement_from,
-              r.reconciliation_date AS statement_to,
-              r.bank_statement_balance,
-              r.bank_statement_balance AS statement_ending_balance,
-              COALESCE(r.calculated_balance, 0) AS calculated_balance,
-              r.status, r.notes,
+              r.statement_from,
+              r.statement_to,
+              r.statement_ending_balance,
+              r.status,
               ba.name AS bank_account_name, ba.account_number
          FROM fin_bank_reconciliations r
          LEFT JOIN fin_bank_accounts ba ON ba.id = r.bank_account_id
         WHERE r.company_id = :companyId
-          AND (:branchId IS NULL OR r.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)))
           AND r.id = :id
         LIMIT 1`,
-      { companyId, branchId: branchId || null, id },
+      { companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '', id },
     );
     const header = rows?.[0];
     if (!header) throw httpError(404, "NOT_FOUND", "Reconciliation not found");
@@ -4505,10 +5017,12 @@ export const updateBankReconciliation = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const id = Number(req.params.id || 0);
     if (!id)
       throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
     const body = req.body || {};
+    const statementFrom = body.statementFrom ? String(body.statementFrom) : null;
     const statementTo = body.statementTo ? String(body.statementTo) : null;
     const statementEndingBalance =
       body.statementEndingBalance === undefined ||
@@ -4518,16 +5032,18 @@ export const updateBankReconciliation = async (req, res, next) => {
     const status = body.status ? String(body.status).toUpperCase() : null;
     await query(
       `UPDATE fin_bank_reconciliations
-          SET reconciliation_date = COALESCE(:statementTo, reconciliation_date),
-              bank_statement_balance = COALESCE(:statementEndingBalance, bank_statement_balance),
+          SET statement_from = COALESCE(:statementFrom, statement_from),
+              statement_to = COALESCE(:statementTo, statement_to),
+              statement_ending_balance = COALESCE(:statementEndingBalance, statement_ending_balance),
               status = COALESCE(:status, status)
         WHERE id = :id
           AND company_id = :companyId
-          AND (:branchId IS NULL OR branch_id = :branchId)`,
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))`,
       {
         id,
         companyId,
-        branchId: branchId || null,
+        branchId: branchId || null, branchIdsStr,
+        statementFrom,
         statementTo,
         statementEndingBalance,
         status,
@@ -4543,19 +5059,20 @@ export const getBankReconciliationSummary = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const id = Number(req.params.id || 0);
     if (!id)
       throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
     const rows = await query(
-      `SELECT r.id, r.bank_account_id, r.reconciliation_date, r.bank_statement_balance,
+      `SELECT r.id, r.bank_account_id, r.statement_to, r.statement_ending_balance,
               ba.gl_account_id
          FROM fin_bank_reconciliations r
          JOIN fin_bank_accounts ba ON ba.id = r.bank_account_id
         WHERE r.id = :id
           AND r.company_id = :companyId
-          AND (:branchId IS NULL OR r.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)))
         LIMIT 1`,
-      { id, companyId, branchId: branchId || null },
+      { id, companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '' },
     );
     const rec = rows?.[0];
     if (!rec) throw httpError(404, "NOT_FOUND", "Reconciliation not found");
@@ -4564,15 +5081,15 @@ export const getBankReconciliationSummary = async (req, res, next) => {
          FROM fin_voucher_lines vl
          JOIN fin_vouchers v ON v.id = vl.voucher_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)))
           AND vl.account_id = :accountId
           AND v.voucher_date < :asOfDate
           AND COALESCE(v.status, 'DRAFT') NOT IN ('CANCELLED','REVERSED')`,
       {
         companyId,
-        branchId: branchId || null,
+        branchId: branchId || null, branchIdsStr: branchIdsStr || '',
         accountId: Number(rec.gl_account_id),
-        asOfDate: String(rec.reconciliation_date),
+        asOfDate: String(rec.statement_to),
       },
     );
     const endingRows = await query(
@@ -4580,20 +5097,20 @@ export const getBankReconciliationSummary = async (req, res, next) => {
          FROM fin_voucher_lines vl
          JOIN fin_vouchers v ON v.id = vl.voucher_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)))
           AND vl.account_id = :accountId
           AND v.voucher_date <= :asOfDate
           AND COALESCE(v.status, 'DRAFT') NOT IN ('CANCELLED','REVERSED')`,
       {
         companyId,
-        branchId: branchId || null,
+        branchId: branchId || null, branchIdsStr: branchIdsStr || '',
         accountId: Number(rec.gl_account_id),
-        asOfDate: String(rec.reconciliation_date),
+        asOfDate: String(rec.statement_to),
       },
     );
     const openingBookBalance = Number(openingRows?.[0]?.opening_book || 0);
     const endingBookBalance = Number(endingRows?.[0]?.ending_book || 0);
-    const bankBalance = Number(rec.bank_statement_balance || 0);
+    const bankBalance = Number(rec.statement_ending_balance || 0);
     const diffBankVsBook = bankBalance - endingBookBalance;
     res.json({ openingBookBalance, endingBookBalance, diffBankVsBook });
   } catch (e) {
@@ -4605,19 +5122,20 @@ export const getBankReconciliationTransactions = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const id = Number(req.params.id || 0);
     const status = String(req.query.status || "BOTH").toUpperCase();
     if (!id)
       throw httpError(400, "VALIDATION_ERROR", "Invalid reconciliation id");
     const rows = await query(
-      `SELECT r.id, r.bank_account_id, r.reconciliation_date, ba.gl_account_id
+      `SELECT r.id, r.bank_account_id, r.statement_to, ba.gl_account_id
          FROM fin_bank_reconciliations r
          JOIN fin_bank_accounts ba ON ba.id = r.bank_account_id
         WHERE r.id = :id
           AND r.company_id = :companyId
-          AND (:branchId IS NULL OR r.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)))
         LIMIT 1`,
-      { id, companyId, branchId: branchId || null },
+      { id, companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '' },
     );
     const rec = rows?.[0];
     if (!rec) throw httpError(404, "NOT_FOUND", "Reconciliation not found");
@@ -4645,7 +5163,7 @@ export const getBankReconciliationTransactions = async (req, res, next) => {
             LIMIT 1
          )
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR v.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)))
           AND vl.account_id = :accountId
           AND v.voucher_date <= :asOfDate
           ${statusFilter}
@@ -4653,9 +5171,9 @@ export const getBankReconciliationTransactions = async (req, res, next) => {
       {
         id,
         companyId,
-        branchId: branchId || null,
+        branchId: branchId || null, branchIdsStr: branchIdsStr || '',
         accountId: Number(rec.gl_account_id),
-        asOfDate: String(rec.reconciliation_date),
+        asOfDate: String(rec.statement_to),
       },
     );
     res.json({ items: items || [] });
@@ -4668,6 +5186,7 @@ export const addBankReconciliationLine = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const id = Number(req.params.id || 0);
     const voucherId = Number(req.body?.voucherId || 0);
     if (!id || !voucherId) {
@@ -4683,9 +5202,9 @@ export const addBankReconciliationLine = async (req, res, next) => {
          JOIN fin_bank_accounts ba ON ba.id = r.bank_account_id
         WHERE r.id = :id
           AND r.company_id = :companyId
-          AND (:branchId IS NULL OR r.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr)))
         LIMIT 1`,
-      { id, companyId, branchId: branchId || null },
+      { id, companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '' },
     );
     const rec = recRows?.[0];
     if (!rec) throw httpError(404, "NOT_FOUND", "Reconciliation not found");
@@ -4696,13 +5215,13 @@ export const addBankReconciliationLine = async (req, res, next) => {
        WHERE vl.voucher_id = :voucherId
          AND vl.account_id = :accountId
          AND v.company_id = :companyId
-         AND (:branchId IS NULL OR v.branch_id = :branchId)`,
+         AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)))`,
       {
         id,
         voucherId,
         accountId: Number(rec.gl_account_id),
         companyId,
-        branchId: branchId || null,
+        branchId: branchId || null, branchIdsStr: branchIdsStr || '',
       },
     );
     if (!Number(result?.affectedRows || 0)) {
@@ -4718,6 +5237,7 @@ export const deleteBankReconciliationLine = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const lineId = Number(req.params.lineId || 0);
     if (!lineId) throw httpError(400, "VALIDATION_ERROR", "Invalid line id");
     await query(
@@ -4726,8 +5246,8 @@ export const deleteBankReconciliationLine = async (req, res, next) => {
           SET vl.reconciliation_id = NULL
        WHERE vl.id = :lineId
          AND v.company_id = :companyId
-         AND (:branchId IS NULL OR v.branch_id = :branchId)`,
-      { lineId, companyId, branchId: branchId || null },
+         AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)))`,
+      { lineId, companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '' },
     );
     res.json({ ok: true });
   } catch (e) {
@@ -4739,6 +5259,7 @@ export const getSupplierBillsByAccount = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
     const accountId = req.query.accountId ? Number(req.query.accountId) : null;
 
     if (!accountId) {
@@ -4749,12 +5270,12 @@ export const getSupplierBillsByAccount = async (req, res, next) => {
       `SELECT id, code
          FROM fin_accounts
         WHERE company_id = :companyId
-          AND (:branchId IS NULL OR branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND id = :accountId
         LIMIT 1`,
       {
         companyId,
-        branchId: branchId || null,
+        branchId: branchId || null, branchIdsStr,
         accountId,
       },
     );
@@ -4840,7 +5361,7 @@ export const getSupplierBillsByAccount = async (req, res, next) => {
          ) pbd
            ON pbd.bill_id = pb.id
         WHERE pb.company_id = :companyId
-          AND (:branchId IS NULL OR pb.branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND pb.supplier_id IN (${supplierIdListSql})
           AND COALESCE(pb.payment_status, 'UNPAID') IN ('UNPAID', 'PARTIAL PAYMENT')
           AND GREATEST(
@@ -4854,7 +5375,7 @@ export const getSupplierBillsByAccount = async (req, res, next) => {
         ORDER BY pb.bill_date DESC, pb.id DESC`,
       {
         companyId,
-        branchId: branchId || null,
+        branchId: branchId || null, branchIdsStr,
       },
     );
     res.json({ items });
@@ -4896,6 +5417,7 @@ export const listCostCenters = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
+  const branchIdsStr = req.scope.branchIdsStr;
 
     // Schema maintenance
     await query(
@@ -4909,9 +5431,9 @@ export const listCostCenters = async (req, res, next) => {
       `SELECT id, company_id, branch_id, code, name, is_active, created_at, updated_at
          FROM fin_cost_centers
         WHERE company_id = :companyId
-          AND (:branchId IS NULL OR branch_id = :branchId)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
         ORDER BY code ASC`,
-      { companyId, branchId: branchId || null },
+      { companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '' },
     );
     res.json({ items });
   } catch (e) {
@@ -4922,7 +5444,7 @@ export const listCostCenters = async (req, res, next) => {
 export const createCostCenter = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
-    const branchId = req.scope.branchId;
+    const branchId = req.scope.branchId === "all" ? null : req.scope.branchId;
     const { code, name, isActive } = req.body || {};
     if (!code || !name)
       throw httpError(400, "VALIDATION_ERROR", "code and name are required");
@@ -4995,7 +5517,7 @@ export const createVoucherType = async (req, res, next) => {
 
 export const getFinanceDashboardStats = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     let cashBalance = 0;
@@ -5077,7 +5599,7 @@ export const getFinanceDashboardStats = async (req, res, next) => {
 
 export const getDashboardMetrics = async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from || null;
     const to = req.query.to || null;
 
@@ -5146,12 +5668,12 @@ export const getDashboardMetrics = async (req, res, next) => {
         `SELECT COALESCE(SUM(vl.debit),0) AS dr, COALESCE(SUM(vl.credit),0) AS cr
          FROM fin_voucher_lines vl
          JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
-           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
            AND v.status = 'POSTED'
            AND v.voucher_date BETWEEN :from AND :to
          JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
          WHERE a.group_id IN (:groupIds)`,
-        { companyId, branchId: branchId || null, from: periodFrom, to: periodTo, groupIds },
+        { companyId, branchId: branchId || null, branchIdsStr, from: periodFrom, to: periodTo, groupIds },
       );
       return { debit: Number(rows[0]?.dr || 0), credit: Number(rows[0]?.cr || 0) };
     };
@@ -5177,13 +5699,13 @@ export const getDashboardMetrics = async (req, res, next) => {
               vl.account_id, a.group_id, SUM(vl.debit) AS dr, SUM(vl.credit) AS cr
        FROM fin_voucher_lines vl
        JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
-         AND (:branchId IS NULL OR v.branch_id = :branchId)
+         AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
          AND v.status = 'POSTED'
          AND v.voucher_date BETWEEN :from AND :to
        JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
        GROUP BY ym, vl.account_id, a.group_id
        ORDER BY ym ASC`,
-      { companyId, branchId: branchId || null, from: fromStr, to: toStr },
+      { companyId, branchId: branchId || null, branchIdsStr, from: fromStr, to: toStr },
     );
 
     const gidSet = (key) => new Set(gMap[key] || []);
@@ -5235,7 +5757,7 @@ export const getDashboardMetrics = async (req, res, next) => {
         `SELECT a.name, SUM(vl.debit - vl.credit) AS value
          FROM fin_voucher_lines vl
          JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
-           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
            AND v.status = 'POSTED'
            AND v.voucher_date BETWEEN :from AND :to
          JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId
@@ -5255,7 +5777,7 @@ export const getDashboardMetrics = async (req, res, next) => {
         `SELECT a.name, SUM(vl.credit - vl.debit) AS value
          FROM fin_voucher_lines vl
          JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId
-           AND (:branchId IS NULL OR v.branch_id = :branchId)
+           AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
            AND v.status = 'POSTED'
            AND v.voucher_date BETWEEN :from AND :to
          JOIN fin_accounts a ON a.id = vl.account_id AND a.company_id = :companyId

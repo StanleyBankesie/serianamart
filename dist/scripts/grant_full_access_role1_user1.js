@@ -1,5 +1,19 @@
+/**
+ * @file grant_full_access_role1_user1.js
+ * @description Script to grant full system access to the user with ID 1
+ * by assigning them the Super Admin role and ensuring they have maximum 
+ * permissions across all modules and features.
+ */
+
 import { query } from "../db/pool.js";
 
+/**
+ * Main execution function.
+ * Ensures the "Super Admin" role exists, assigns it to user 1,
+ * and sets up broad permissions and overrides for full system access.
+ * 
+ * @returns {Promise<void>} Resolves when access granting is complete.
+ */
 async function run() {
   try {
     console.log(

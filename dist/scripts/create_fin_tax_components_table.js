@@ -1,5 +1,17 @@
+/**
+ * @fileoverview Database migration script to create and populate the fin_tax_components table.
+ * @module scripts/create_fin_tax_components_table
+ */
+
 import { query } from "../db/pool.js";
 
+/**
+ * Creates the 'fin_tax_components' table if it doesn't exist and populates it
+ * with default mappings based on existing 'fin_tax_details' for company_id 1.
+ * Exits the process when complete.
+ *
+ * @returns {Promise<void>} Resolves when the schema is created and data is upserted.
+ */
 async function run() {
   try {
     const sql = `

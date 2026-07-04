@@ -1,5 +1,12 @@
+/**
+ * @file admin.route.js
+ * @description Routes for administrative functions, roles, permissions, branches, companies, and users.
+ */
+// Module Dependencies
 import express from "express";
 import multer from "multer";
+
+// Controller Imports
 import {
   logErrorController,
   updateExceptionalPermissionController,
@@ -14,12 +21,15 @@ import {
   bulkUpsertExceptionalPermissionsForUser,
 } from "../controllers/admin.controller.js";
 
+// Authentication and Authorization Middlewares
 import {
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
 } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
+
+// Database Utilities and Error Handling
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import {
@@ -82,11 +92,25 @@ import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 
 const router = express.Router();
 
+/**
+ * Utility function to safely convert a value to a number.
+ * Fallbacks to the provided default if the result is not finite.
+ * @param {any} v - Value to convert.
+ * @param {any} fallback - Default value if conversion fails.
+ * @returns {number | any}
+ */
 function toNumber(v, fallback = null) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * Checks if a specific column exists within a given database table.
+ * Used for dynamic schema migrations.
+ * @param {string} tableName - Name of the table to check.
+ * @param {string} columnName - Name of the column to search for.
+ * @returns {Promise<boolean>} True if column exists, else false.
+ */
 async function hasColumn(tableName, columnName) {
   const rows = await query(
     `
@@ -101,9 +125,17 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+/**
+ * Normalizes an application module string by mapping common aliases
+ * to a standardized module key (e.g., "admin" -> "administration").
+ * @param {string} moduleKey - The raw module key string.
+ * @returns {string} Normalized module key.
+ */
 function normalizeModuleKey(moduleKey) {
   const raw = String(moduleKey || "").trim().toLowerCase();
   if (!raw) return "";
+  
+  // Mapping of potential abbreviations to their standard names
   const aliases = {
     admin: "administration",
     administration: "administration",
@@ -137,10 +169,19 @@ function normalizeModuleKey(moduleKey) {
   return aliases[raw] || raw;
 }
 
+/**
+ * Normalizes a feature key, ensuring it includes the appropriate module prefix.
+ * e.g. "roles" with module "admin" -> "administration:roles".
+ * @param {string} featureKey - The raw feature key string.
+ * @param {string} moduleKey - The optional module prefix.
+ * @returns {string} Normalized feature key.
+ */
 function normalizeFeatureKey(featureKey, moduleKey = "") {
   const rawFeatureKey = String(featureKey || "").trim();
   const normalizedModuleKey = normalizeModuleKey(moduleKey);
   if (!rawFeatureKey) return "";
+  
+  // If no prefix is provided in the feature key, append the normalized module key
   if (!rawFeatureKey.includes(":")) {
     return normalizedModuleKey
       ? `${normalizedModuleKey}:${rawFeatureKey.toLowerCase()}`
@@ -221,8 +262,21 @@ async function ensureSystemLogsTable() {
         "UPDATE adm_system_logs SET created_at = event_time WHERE created_at IS NULL",
       );
     }
+    try {
+      await query("SET GLOBAL event_scheduler = ON");
+      await query(`
+        CREATE EVENT IF NOT EXISTS cleanup_adm_system_logs
+        ON SCHEDULE EVERY 1 DAY
+        STARTS CURRENT_DATE + INTERVAL 1 DAY
+        DO
+          DELETE FROM adm_system_logs WHERE created_at < NOW() - INTERVAL 7 DAY
+      `);
+    } catch {}
   } catch {}
 }
+/**
+ * Ensures the adm_login_logs table exists for tracking user login activity.
+ */
 async function ensureLoginLogsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_login_logs (
@@ -240,6 +294,9 @@ async function ensureLoginLogsTable() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 }
+/**
+ * Ensures the adm_push_subscriptions table exists for storing WebPush subscriptions.
+ */
 async function ensurePushSubscriptionsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_push_subscriptions (
@@ -258,6 +315,9 @@ async function ensurePushSubscriptionsTable() {
   `);
 }
 
+/**
+ * Ensures required address and contact columns exist in the adm_branches table.
+ */
 async function ensureBranchColumns() {
   const table = "adm_branches";
   if (!(await hasColumn(table, "address"))) {
@@ -289,6 +349,9 @@ async function ensureBranchColumns() {
   }
 }
 
+/**
+ * Ensures required user profile and valid date columns exist in the adm_users table.
+ */
 async function ensureUserColumns() {
   const table = "adm_users";
   if (!(await hasColumn(table, "profile_picture"))) {
@@ -322,6 +385,9 @@ async function ensureUserColumns() {
   }
 }
 
+/**
+ * Ensures the adm_pages table exists to define application modules and features.
+ */
 async function ensurePagesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_pages (
@@ -346,6 +412,10 @@ async function ensurePagesTable() {
   }
 }
 
+/**
+ * Seeds the adm_pages table with the default set of application pages and their routes.
+ * Automatically adds derived 'Delete' actions for pages that have an 'Edit' page.
+ */
 async function ensurePagesSeed() {
   const pages = [
     { module: "Administration", name: "Roles", path: "/administration/roles" },
@@ -1352,6 +1422,9 @@ async function ensurePagesSeed() {
   }
 }
 
+/**
+ * Ensures the adm_role_pages table exists for mapping roles to accessible pages.
+ */
 async function ensureRolePagesTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_role_pages (
@@ -1365,6 +1438,9 @@ async function ensureRolePagesTable() {
   `);
 }
 
+/**
+ * Ensures the adm_user_permissions table exists for fine-grained user access control to pages.
+ */
 async function ensureUserPermissionsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_user_permissions (
@@ -1808,9 +1884,9 @@ router.get(
 
 router.get("/departments/:id", requireAuth, getDepartmentById);
 
-router.post("/departments", requireAuth, createDepartment);
+router.post("/departments", requireAuth, requireCompanyScope, createDepartment);
 
-router.put("/departments/:id", requireAuth, updateDepartment);
+router.put("/departments/:id", requireAuth, requireCompanyScope, updateDepartment);
 
 // ===== PAGES =====
 
@@ -2155,7 +2231,7 @@ router.get("/system-status", requireAuth, async (req, res, next) => {
 // ===== Activity Logging & Reports =====
 router.post("/activity/log", requireAuth, async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope || {};
+    const { companyId, branchId, branchIdsStr } = req.scope || {};
     const userId = Number(req.user?.id) || Number(req.user?.sub) || null;
     const { module_name, action, ref_no, message, url_path, event_time } =
       req.body || {};
@@ -2171,7 +2247,7 @@ router.post("/activity/log", requireAuth, async (req, res, next) => {
       `,
       {
         company_id: Number(companyId) || null,
-        branch_id: Number(branchId) || null,
+        branch_id: Number(branchId, branchIdsStr) || null,
         user_id: userId || null,
         module_name: module_name || null,
         action: action || "VIEW",
@@ -2561,7 +2637,7 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureSystemSettingsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const rows = await query(
         `
         SELECT setting_key, setting_value,
@@ -2570,11 +2646,11 @@ router.get(
          FROM adm_system_settings
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE (company_id = :companyId OR company_id IS NULL)
-          AND (branch_id = :branchId OR branch_id IS NULL)
+          AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
           AND setting_key IN ('CLOUDINARY_CLOUD_NAME','CLOUDINARY_API_KEY','CLOUDINARY_API_SECRET','CLOUDINARY_UPLOAD_FOLDER')
         ORDER BY company_id DESC, branch_id DESC
         `,
-        { companyId: companyId ?? null, branchId: branchId ?? null },
+        { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr },
       );
       const map = {};
       for (const r of rows) map[r.setting_key] = r.setting_value;
@@ -2599,7 +2675,7 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureSystemSettingsTable();
-      const { companyId, branchId } = req.scope;
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const body = req.body || {};
       const cloud_name = String(body.cloud_name || "").trim();
       const api_key = String(body.api_key || "").trim();
@@ -2621,7 +2697,7 @@ router.post(
         `,
         {
           companyId: companyId ?? null,
-          branchId: branchId ?? null,
+          branchId: branchId ?? null, branchIdsStr,
           cloud_name,
           api_key,
           api_secret,
@@ -2633,7 +2709,7 @@ router.post(
         VALUES (:companyId, :branchId, 'CLOUDINARY_UPLOAD_FOLDER', :folder)
         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
         `,
-        { companyId: companyId ?? null, branchId: branchId ?? null, folder },
+        { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr, folder },
       );
       res.json({ success: true });
     } catch (err) {
@@ -2671,6 +2747,112 @@ router.get(
   requireCompanyScope,
   requireBranchScope,
   getCurrentCompany,
+);
+
+// ===== System Settings (Backups) =====
+router.get(
+  "/settings/backups",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSystemSettingsTable();
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const rows = await query(
+        `
+        SELECT setting_key, setting_value
+         FROM adm_system_settings
+         WHERE (company_id = :companyId OR company_id IS NULL)
+          AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
+          AND setting_key IN (
+            'BACKUP_S3_BUCKET', 'BACKUP_S3_REGION', 'BACKUP_S3_ENDPOINT', 'BACKUP_S3_ACCESS_KEY', 'BACKUP_S3_SECRET_KEY',
+            'BACKUP_GDRIVE_CLIENT_EMAIL', 'BACKUP_GDRIVE_PRIVATE_KEY', 'BACKUP_GDRIVE_FOLDER_ID',
+            'BACKUP_B2_BUCKET', 'BACKUP_B2_ENDPOINT', 'BACKUP_B2_ACCESS_KEY', 'BACKUP_B2_SECRET_KEY'
+          )
+        ORDER BY company_id DESC, branch_id DESC
+        `,
+        { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr },
+      );
+      const map = {};
+      for (const r of rows) map[r.setting_key] = r.setting_value;
+      
+      res.json({
+        data: {
+          s3: {
+            bucket: map.BACKUP_S3_BUCKET || "",
+            region: map.BACKUP_S3_REGION || "",
+            endpoint: map.BACKUP_S3_ENDPOINT || "",
+            access_key: map.BACKUP_S3_ACCESS_KEY || "",
+            has_secret: !!map.BACKUP_S3_SECRET_KEY,
+          },
+          gdrive: {
+            client_email: map.BACKUP_GDRIVE_CLIENT_EMAIL || "",
+            folder_id: map.BACKUP_GDRIVE_FOLDER_ID || "",
+            has_private_key: !!map.BACKUP_GDRIVE_PRIVATE_KEY,
+          },
+          b2: {
+            bucket: map.BACKUP_B2_BUCKET || "",
+            endpoint: map.BACKUP_B2_ENDPOINT || "",
+            access_key: map.BACKUP_B2_ACCESS_KEY || "",
+            has_secret: !!map.BACKUP_B2_SECRET_KEY,
+          }
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/settings/backups",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureSystemSettingsTable();
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const { s3 = {}, gdrive = {}, b2 = {} } = req.body || {};
+      
+      const updates = [];
+      const addUpdate = (key, val) => {
+        if (val !== undefined) updates.push([key, String(val).trim()]);
+      };
+
+      // S3
+      addUpdate('BACKUP_S3_BUCKET', s3.bucket);
+      addUpdate('BACKUP_S3_REGION', s3.region);
+      addUpdate('BACKUP_S3_ENDPOINT', s3.endpoint);
+      addUpdate('BACKUP_S3_ACCESS_KEY', s3.access_key);
+      if (s3.secret_key) addUpdate('BACKUP_S3_SECRET_KEY', s3.secret_key);
+
+      // GDrive
+      addUpdate('BACKUP_GDRIVE_CLIENT_EMAIL', gdrive.client_email);
+      addUpdate('BACKUP_GDRIVE_FOLDER_ID', gdrive.folder_id);
+      if (gdrive.private_key) addUpdate('BACKUP_GDRIVE_PRIVATE_KEY', gdrive.private_key);
+
+      // B2
+      addUpdate('BACKUP_B2_BUCKET', b2.bucket);
+      addUpdate('BACKUP_B2_ENDPOINT', b2.endpoint);
+      addUpdate('BACKUP_B2_ACCESS_KEY', b2.access_key);
+      if (b2.secret_key) addUpdate('BACKUP_B2_SECRET_KEY', b2.secret_key);
+
+      for (const [key, value] of updates) {
+        await query(
+          `
+          INSERT INTO adm_system_settings (company_id, branch_id, setting_key, setting_value)
+          VALUES (:companyId, :branchId, :key, :value)
+          ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+          `,
+          { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr, key, value }
+        );
+      }
+      
+      res.json({ message: "Backup settings saved successfully" });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 export default router;

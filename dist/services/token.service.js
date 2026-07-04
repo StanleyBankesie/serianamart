@@ -1,21 +1,27 @@
 import crypto from "crypto";
+/**
+ * @file token.service.js
+ * @description Manages authentication tokens, JWT signing/verifying, and cookie operations.
+ * Uses Redis for token grace period to prevent 401 cascade during refresh.
+ */
 import jwt from "jsonwebtoken";
 
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import "../utils/loadServerEnv.js";
 
+// Configuration Constants
 const REFRESH_COOKIE_NAME =
   String(process.env.REFRESH_TOKEN_COOKIE_NAME || "").trim() ||
   "omnisuite_refresh_token";
 const ACCESS_TOKEN_EXPIRES_IN =
   String(process.env.ACCESS_TOKEN_EXPIRES_IN || "").trim() || "15m";
-const SESSION_REFRESH_DAYS = Math.max(
+const SESSION_REFRESH_HOURS = Math.max(
   1,
-  Number(process.env.REFRESH_TOKEN_SESSION_DAYS || 1),
+  Number(process.env.SESSION_REFRESH_HOURS || 24 * 7),
 );
-const REMEMBER_REFRESH_DAYS = Math.max(
-  SESSION_REFRESH_DAYS,
+const REMEMBER_REFRESH_HOURS = Math.max(
+  SESSION_REFRESH_HOURS,
   Number(process.env.REFRESH_TOKEN_REMEMBER_DAYS || 30),
 );
 const LOGIN_FAILURE_LIMIT = Math.max(
@@ -27,6 +33,7 @@ const LOGIN_FAILURE_COOLDOWN_MINUTES = Math.max(
   Number(process.env.FAILED_LOGIN_COOLDOWN_MINUTES || 15),
 );
 
+// Utility Function: Checks if a specific column exists in a given table
 async function hasColumn(tableName, columnName) {
   const rows = await query(
     `
@@ -41,6 +48,7 @@ async function hasColumn(tableName, columnName) {
   return Number(rows?.[0]?.c || 0) > 0;
 }
 
+// Utility Function: Retrieves the JWT secret, throwing an error if missing
 function getJwtSecret() {
   const secret = String(process.env.JWT_SECRET || "").trim();
   if (!secret) {
@@ -49,6 +57,7 @@ function getJwtSecret() {
   return secret;
 }
 
+// Utility Function: Converts binary profile picture data into a base64 Data URL
 function profilePictureToDataUrl(blob) {
   if (!blob) return null;
   try {
@@ -85,14 +94,20 @@ function profilePictureToDataUrl(blob) {
   }
 }
 
+// Utility Function: Checks if environment is production
 function isProduction() {
   return String(process.env.NODE_ENV || "").toLowerCase() === "production";
 }
 
+/**
+ * Gets the refresh token cookie name.
+ * @returns {string} The configured refresh token cookie name.
+ */
 export function getRefreshTokenCookieName() {
   return REFRESH_COOKIE_NAME;
 }
 
+// Utility Function: Parses raw cookie header string into an object
 export function parseCookieHeader(cookieHeader = "") {
   const cookies = {};
   const parts = String(cookieHeader || "").split(";");
@@ -104,23 +119,37 @@ export function parseCookieHeader(cookieHeader = "") {
     const key = trimmed.slice(0, idx).trim();
     const value = trimmed.slice(idx + 1).trim();
     if (!key) continue;
-    cookies[key] = decodeURIComponent(value);
+    if (cookies[key] === undefined) {
+      cookies[key] = decodeURIComponent(value);
+    }
   }
   return cookies;
 }
 
+// Utility Function: Extracts refresh token from request cookies
 export function readRefreshTokenFromRequest(req) {
   const cookies = parseCookieHeader(req?.headers?.cookie || "");
   return cookies[REFRESH_COOKIE_NAME] || null;
 }
 
-function buildRefreshCookieOptions({ rememberMe = false, expiresAt = null } = {}) {
+// Utility Function: Builds cookie settings based on environment and rememberMe status
+function buildRefreshCookieOptions(
+  req,
+  { rememberMe = false, expiresAt = null } = {},
+) {
+  // SameSite=None requires Secure=true (HTTPS). On HTTP (dev), use lax.
   const options = {
     httpOnly: true,
     secure: isProduction(),
-    sameSite: "strict",
+    sameSite: isProduction() ? "none" : "lax",
     path: "/api",
   };
+  if (isProduction() && req) {
+    const origin = req.headers?.origin || "";
+    if (origin.includes("omnisuite-erp.com")) {
+      options.domain = ".omnisuite-erp.com";
+    }
+  }
   if (rememberMe && expiresAt instanceof Date) {
     options.expires = expiresAt;
     options.maxAge = Math.max(0, expiresAt.getTime() - Date.now());
@@ -128,37 +157,96 @@ function buildRefreshCookieOptions({ rememberMe = false, expiresAt = null } = {}
   return options;
 }
 
-export function setRefreshTokenCookie(res, refreshToken, options = {}) {
+// Utility Function: Assigns the refresh token to the response cookie
+export function setRefreshTokenCookie(req, res, refreshToken, options = {}) {
   res.cookie(
     REFRESH_COOKIE_NAME,
     refreshToken,
-    buildRefreshCookieOptions(options),
+    buildRefreshCookieOptions(req, options),
   );
 }
 
-export function clearRefreshTokenCookie(res) {
+// Utility Function: Clears the refresh token cookie upon logout
+export function clearRefreshTokenCookie(req, res) {
   res.clearCookie(
     REFRESH_COOKIE_NAME,
-    buildRefreshCookieOptions({ rememberMe: false }),
+    buildRefreshCookieOptions(req, { rememberMe: false }),
   );
 }
 
+// Utility Function: Hashes refresh token for secure database storage
 export function hashRefreshToken(token) {
-  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(String(token || ""))
+    .digest("hex");
 }
 
+// Utility Function: Generates a cryptographically strong random token
 export function generateRefreshToken() {
   return crypto.randomBytes(48).toString("hex");
 }
 
+// Utility Function: Hashes access token for Redis grace period key
+function hashAccessToken(token) {
+  return crypto
+    .createHash("sha256")
+    .update(String(token || ""))
+    .digest("hex")
+    .slice(0, 32);
+}
+
+const GRACE_PERIOD_SECONDS = 120; // 2 minutes grace period
+
+/**
+ * Store the old access token in Redis during refresh to prevent 401 cascade.
+ * The old token is valid for 15 minutes; we keep it for 2 minutes after refresh
+ * so in-flight requests can still be authenticated.
+ * @param {string} oldAccessToken - The expired/expiring access token.
+ * @param {Object} newPayload - The decoded payload of the NEW access token.
+ */
+export async function storeGraceToken(oldAccessToken, newPayload) {
+  try {
+    const { cacheSet } = await import("../utils/redis.js");
+    const key = `auth:grace:${hashAccessToken(oldAccessToken)}`;
+    await cacheSet(key, { newPayload }, GRACE_PERIOD_SECONDS);
+  } catch {}
+}
+
+/**
+ * Look up a recently-refreshed token from Redis grace period.
+ * @param {string} oldAccessToken - The expired access token.
+ * @returns {Object|null} The new payload if found, null otherwise.
+ */
+export async function lookupGraceToken(oldAccessToken) {
+  try {
+    const { cacheGet } = await import("../utils/redis.js");
+    const key = `auth:grace:${hashAccessToken(oldAccessToken)}`;
+    const data = await cacheGet(key);
+    return data?.newPayload || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verifies the signature of an access token.
+ * @param {string} token - The JWT string to verify.
+ * @returns {Object|null} The decoded token payload if valid, otherwise null.
+ */
 export function verifyAccessToken(token) {
   const payload = jwt.verify(String(token || ""), getJwtSecret());
-  if (!payload || typeof payload !== "object" || payload.token_type !== "access") {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    payload.token_type !== "access"
+  ) {
     throw httpError(401, "INVALID_TOKEN", "Invalid access token");
   }
   return payload;
 }
 
+// Utility Function: Creates and signs a new JWT access token without bloated picture data
 export function signAccessToken(payload) {
   const tokenPayload = { ...payload };
   delete tokenPayload.profile_picture_url;
@@ -177,6 +265,10 @@ function addDays(days) {
 }
 
 let _authTablesEnsured = false;
+/**
+ * Ensures necessary authentication tables exist in the database (schema migration).
+ * @returns {Promise<void>}
+ */
 export async function ensureAuthTables() {
   if (_authTablesEnsured) return;
   _authTablesEnsured = true;
@@ -207,8 +299,52 @@ export async function ensureAuthTables() {
         ADD COLUMN last_failed_attempt DATETIME NULL`,
     );
   }
+  if (!(await hasColumn("adm_users", "status"))) {
+    await query(
+      `ALTER TABLE adm_users
+        ADD COLUMN status CHAR(1) NOT NULL DEFAULT 'N'`,
+    );
+  }
+  if (!(await hasColumn("adm_users", "valid_to"))) {
+    await query(
+      `ALTER TABLE adm_users
+        ADD COLUMN valid_to DATE NULL`,
+    );
+  }
+
+  const [trigRows] = await query(
+    `SELECT TRIGGER_NAME FROM information_schema.triggers
+      WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME = 'trg_adm_users_pw_status'`,
+  );
+  if (!trigRows?.length) {
+    try {
+      await query(
+        `CREATE TRIGGER trg_adm_users_pw_status
+         BEFORE UPDATE ON adm_users
+         FOR EACH ROW
+         BEGIN
+           IF OLD.password_hash <> NEW.password_hash THEN
+             SET NEW.status = 'Y';
+           END IF;
+         END`,
+      );
+    } catch (e) {
+      if (e?.code !== "ER_TRG_ALREADY_EXISTS") throw e;
+    }
+  }
+
+  await query(
+    `CREATE EVENT IF NOT EXISTS evt_adm_users_expire
+     ON SCHEDULE EVERY 1 DAY
+     STARTS CURRENT_DATE + INTERVAL 1 DAY
+     DO
+       UPDATE adm_users
+       SET status = 'N', is_active = 0
+       WHERE DATE(valid_to) = CURDATE() AND is_active = 1 AND id != 1`,
+  );
 }
 
+// Major Logic: Fetches all granted permissions across assigned roles and legacy settings
 export async function getUserPermissions(userId) {
   const userRows = await query(
     "SELECT role_id FROM adm_users WHERE id = :userId LIMIT 1",
@@ -254,12 +390,13 @@ export async function getUserPermissions(userId) {
 
   const allPerms = [
     ...permRows.map((row) => row.code),
-    ...legacyRows.map((row) => row.code)
+    ...legacyRows.map((row) => row.code),
   ];
 
   return Array.from(new Set(allPerms.filter(Boolean)));
 }
 
+// Major Logic: Retrieves user data needed to build the authentication payload
 export async function getUserForAuth(userId) {
   const rows = await query(
     `
@@ -272,6 +409,7 @@ export async function getUserForAuth(userId) {
       u.full_name,
       u.profile_picture,
       u.is_active,
+      u.status,
       u.failed_attempts,
       u.last_failed_attempt,
       c.name AS company_name,
@@ -287,7 +425,36 @@ export async function getUserForAuth(userId) {
   return rows[0] || null;
 }
 
-export function buildAuthUserPayload(user, permissions = []) {
+// Major Logic: Constructs the JWT payload incorporating branch assignments and permissions
+export async function buildAuthUserPayload(user, permissions = []) {
+  // Fetch ALL branches this user is assigned to from adm_user_branches
+  let allBranchIds = [];
+  let allCompanyIds = [];
+  try {
+    const branchRows = await query(
+      `SELECT branch_id, company_id FROM adm_user_branches WHERE user_id = :userId`,
+      { userId: Number(user.id) },
+    );
+    if (branchRows && branchRows.length > 0) {
+      allBranchIds = [
+        ...new Set(branchRows.map((r) => Number(r.branch_id)).filter(Boolean)),
+      ];
+      allCompanyIds = [
+        ...new Set(branchRows.map((r) => Number(r.company_id)).filter(Boolean)),
+      ];
+    }
+  } catch {
+    // fallback to default branch_id if query fails
+  }
+
+  // Fallback to user's default branch_id / company_id if no rows found in adm_user_branches
+  if (allBranchIds.length === 0 && user.branch_id) {
+    allBranchIds = [Number(user.branch_id)];
+  }
+  if (allCompanyIds.length === 0 && user.company_id) {
+    allCompanyIds = [Number(user.company_id)];
+  }
+
   const payload = {
     sub: Number(user.id),
     id: Number(user.id),
@@ -295,11 +462,12 @@ export function buildAuthUserPayload(user, permissions = []) {
     email: user.email,
     full_name: user.full_name || "",
     permissions: Array.isArray(permissions) ? permissions : [],
-    companyIds: user.company_id ? [Number(user.company_id)] : [],
-    branchIds: user.branch_id ? [Number(user.branch_id)] : [],
+    companyIds: allCompanyIds,
+    branchIds: allBranchIds,
     companyName: user.company_name || "",
     branchName: user.branch_name || "",
     profile_picture_url: profilePictureToDataUrl(user.profile_picture),
+    status: user.status || "N",
   };
 
   if (Number(user.id) === 1) {
@@ -309,13 +477,28 @@ export function buildAuthUserPayload(user, permissions = []) {
   return payload;
 }
 
-export async function createSessionTokens({ user, rememberMe = false, permissions = [] }) {
+/**
+ * Generates and saves a new session with access and refresh tokens for a user.
+ * @param {Object} params - Session parameters.
+ * @param {Object} params.user - The user object.
+ * @param {boolean} [params.rememberMe=false] - Whether the session is long-lived.
+ * @param {Array} [params.permissions=[]] - List of permissions.
+ * @returns {Promise<{accessToken: string, refreshToken: string, userPayload: Object}>}
+ */
+export async function createSessionTokens({
+  user,
+  rememberMe = false,
+  permissions = [],
+}) {
   await ensureAuthTables();
-  const authUser = buildAuthUserPayload(user, permissions);
+  const authUser = await buildAuthUserPayload(user, permissions);
   const accessToken = signAccessToken(authUser);
   const refreshToken = generateRefreshToken();
   const refreshTokenHash = hashRefreshToken(refreshToken);
-  const expiresAt = addDays(rememberMe ? REMEMBER_REFRESH_DAYS : SESSION_REFRESH_DAYS);
+  const addHours = (h) => new Date(Date.now() + h * 60 * 60 * 1000);
+  const expiresAt = addHours(
+    rememberMe ? REMEMBER_REFRESH_HOURS : SESSION_REFRESH_HOURS,
+  );
 
   await query(
     `
@@ -339,6 +522,7 @@ export async function createSessionTokens({ user, rememberMe = false, permission
   };
 }
 
+// Major Logic: Invalidates a specific refresh token in the database
 export async function revokeRefreshToken(rawToken) {
   const tokenHash = hashRefreshToken(rawToken);
   await query(`DELETE FROM refresh_tokens WHERE refresh_token = :tokenHash`, {
@@ -346,12 +530,14 @@ export async function revokeRefreshToken(rawToken) {
   });
 }
 
+// Major Logic: Logs user out everywhere by revoking all their refresh tokens
 export async function revokeUserRefreshTokens(userId) {
   await query(`DELETE FROM refresh_tokens WHERE user_id = :userId`, {
     userId: Number(userId),
   });
 }
 
+// Major Logic: Validates a raw refresh token and checks expiration before use
 export async function consumeRefreshToken(rawToken) {
   await ensureAuthTables();
   const tokenHash = hashRefreshToken(rawToken);
@@ -379,24 +565,70 @@ export async function consumeRefreshToken(rawToken) {
   };
 }
 
-export async function rotateRefreshSession(rawToken) {
-  const refreshRecord = await consumeRefreshToken(rawToken);
-  const user = await getUserForAuth(refreshRecord.user_id);
-  if (!user || !Number(user.is_active)) {
-    await revokeRefreshToken(rawToken);
-    throw httpError(401, "USER_INACTIVE", "User is inactive");
+const recentlyRotatedTokens = new Map();
+
+// Endpoint / Major Logic: Refreshes access tokens and rotates refresh tokens, supporting slight concurrency delay
+export async function rotateRefreshSession(rawToken, oldAccessToken = null) {
+  const tokenHash = hashRefreshToken(rawToken);
+
+  if (recentlyRotatedTokens.has(tokenHash)) {
+    const cached = recentlyRotatedTokens.get(tokenHash);
+    if (Date.now() < cached.expiresAt) {
+      if (cached.promise) return await cached.promise;
+      return cached.newTokens;
+    }
   }
 
-  const permissions = await getUserPermissions(user.id);
-  await revokeRefreshToken(rawToken);
+  const promise = (async () => {
+    const refreshRecord = await consumeRefreshToken(rawToken);
+    const user = await getUserForAuth(refreshRecord.user_id);
+    if (!user || !Number(user.is_active)) {
+      await revokeRefreshToken(rawToken);
+      throw httpError(401, "USER_INACTIVE", "User is inactive");
+    }
 
-  return createSessionTokens({
-    user,
-    rememberMe: refreshRecord.remember_me,
-    permissions,
+    const permissions = await getUserPermissions(user.id);
+    await revokeRefreshToken(rawToken);
+
+    const newTokens = await createSessionTokens({
+      user,
+      rememberMe: refreshRecord.remember_me,
+      permissions,
+    });
+
+    return newTokens;
+  })();
+
+  recentlyRotatedTokens.set(tokenHash, {
+    promise,
+    expiresAt: Date.now() + 30000,
   });
+
+  try {
+    const newTokens = await promise;
+    recentlyRotatedTokens.set(tokenHash, {
+      newTokens,
+      expiresAt: Date.now() + 30000,
+    });
+
+    // Store old access token in Redis grace period to prevent 401 cascade
+    if (oldAccessToken && newTokens.user) {
+      await storeGraceToken(oldAccessToken, newTokens.user);
+    }
+
+    // Clean up expired cache entries
+    for (const [k, v] of recentlyRotatedTokens.entries()) {
+      if (Date.now() >= v.expiresAt) recentlyRotatedTokens.delete(k);
+    }
+
+    return newTokens;
+  } catch (error) {
+    recentlyRotatedTokens.delete(tokenHash);
+    throw error;
+  }
 }
 
+// Major Logic: Clears failed attempt counters on successful authentication
 export async function resetFailedLoginAttempts(userId) {
   await ensureAuthTables();
   await query(
@@ -410,6 +642,7 @@ export async function resetFailedLoginAttempts(userId) {
   );
 }
 
+// Major Logic: Increments failed attempt counter upon invalid login
 export async function registerFailedLoginAttempt(userId) {
   await ensureAuthTables();
   await query(
@@ -426,6 +659,7 @@ export async function registerFailedLoginAttempt(userId) {
   return Number(user?.failed_attempts || 0);
 }
 
+// Major Logic: Determines if the user account is locked out from too many failures
 export function requiresPasswordReset(user) {
   const attempts = Number(user?.failed_attempts || 0);
   if (attempts < LOGIN_FAILURE_LIMIT) return false;

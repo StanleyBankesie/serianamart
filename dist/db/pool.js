@@ -1,16 +1,27 @@
+/**
+ * @file pool.js
+ * @description Database connection pool management and query utilities.
+ */
 import mysql from "mysql2/promise";
+import fs from "fs";
 import "../utils/loadServerEnv.js";
 
+// Environment Variable Utility
+// Safely retrieves an environment variable or returns a fallback if undefined.
 function optionalEnv(name, fallback) {
   const value = process.env[name];
   return value === undefined ? fallback : value;
 }
 
+// Number Parsing Utility
+// Parses a number from a value and falls back to a default if invalid or <= 0.
 function parseNumber(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+// Database Configuration
+// Collects and parses configuration settings from environment variables.
 const dbConfig = {
   host: String(optionalEnv("DB_HOST", "")).trim(),
   user: String(optionalEnv("DB_USER", "")).trim(),
@@ -30,8 +41,11 @@ const dbConfig = {
   ),
 };
 
+// Pool Tracking State
+// Stores the timestamp when the module was loaded for uptime calculations.
 const startupTime = Date.now();
 
+// Tracks the health, errors, and connection attempts of the database.
 const dbState = {
   status: "down",
   lastError: null,
@@ -41,9 +55,47 @@ const dbState = {
   lastConnectLogKey: null,
 };
 
+function previewSql(sql) {
+  return String(sql || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
+function postDebugEvent(hypothesisId, location, msg, data = {}) {
+  try {
+    let debugServerUrl = "http://127.0.0.1:7777/event";
+    let sessionId = "login-db-timeout";
+    try {
+      const envText = fs.readFileSync(".dbg/login-db-timeout.env", "utf8");
+      debugServerUrl =
+        envText.match(/DEBUG_SERVER_URL=(.+)/)?.[1]?.trim() || debugServerUrl;
+      sessionId =
+        envText.match(/DEBUG_SESSION_ID=(.+)/)?.[1]?.trim() || sessionId;
+    } catch {}
+    fetch(debugServerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        runId: "pre-fix",
+        hypothesisId,
+        location,
+        msg,
+        data,
+        ts: Date.now(),
+      }),
+    }).catch(() => {});
+  } catch {}
+}
+
+// Singleton Pool Instances
+// activePool holds the current pool, activePoolPromise tracks pending connections.
 let activePool = null;
 let activePoolPromise = null;
 
+// Query Sanitizer Utility
+// Removes audit-related joins or selections (created_by/username) that may cause errors.
 function sanitizeCreatedByAuditJoin(sql) {
   if (!sql) return sql;
   let next = String(sql);
@@ -77,6 +129,8 @@ function sanitizeCreatedByAuditJoin(sql) {
   return next;
 }
 
+// Database Error Formatter
+// Standardizes database error objects to ensure consistent structure for logs and responses.
 export function formatDbError(err) {
   if (!err) {
     return {
@@ -97,6 +151,8 @@ export function formatDbError(err) {
   };
 }
 
+// Database Error Logger
+// Outputs formatted error details and stack trace to stderr for debugging.
 export function logDbError(context, err) {
   const details = formatDbError(err);
   console.error(`[DB] ${context}`);
@@ -109,27 +165,33 @@ export function logDbError(context, err) {
   }
 }
 
+// State Updaters
+// Marks the database state as down and records the error details.
 function setDbFailure(err) {
   dbState.status = "down";
   dbState.lastError = formatDbError(err);
   dbState.lastErrorAt = Date.now();
 }
 
+// Marks the database state as up and clears any previous errors.
 function setDbSuccess() {
   dbState.status = "up";
   dbState.lastSuccessAt = Date.now();
   dbState.lastError = null;
 }
 
+// Configuration Validators
+// Checks if all required database configuration fields are present.
 function isConfigured() {
   return Boolean(
     dbConfig.host &&
-      dbConfig.user &&
-      dbConfig.database &&
-      dbConfig.password !== undefined,
+    dbConfig.user &&
+    dbConfig.database &&
+    dbConfig.password !== undefined,
   );
 }
 
+// Returns a list of required environment variables that are missing.
 function getMissingConfigFields() {
   const missing = [];
   if (!dbConfig.host) missing.push("DB_HOST");
@@ -139,6 +201,8 @@ function getMissingConfigFields() {
   return missing;
 }
 
+// Error Factory
+// Generates a standardized "Database unavailable" error using the last recorded error.
 function createDbUnavailableError(baseError = null) {
   const details = formatDbError(baseError || dbState.lastError);
   const error = new Error(details.message || "Database unavailable");
@@ -149,6 +213,8 @@ function createDbUnavailableError(baseError = null) {
   return error;
 }
 
+// Connection Logging Utility
+// Logs the database connection attempt, avoiding duplicate logs for the same target.
 function logDbConnectionTarget() {
   const logKey = `${dbConfig.host}:${dbConfig.port}:${dbConfig.user}:${dbConfig.database}`;
   if (dbState.lastConnectLogKey === logKey) return;
@@ -158,6 +224,8 @@ function logDbConnectionTarget() {
   );
 }
 
+// Pool Factory
+// Initializes and returns a new mysql2 pool with the configured settings.
 function createPoolInstance() {
   return mysql.createPool({
     host: dbConfig.host,
@@ -176,6 +244,8 @@ function createPoolInstance() {
   });
 }
 
+// Pool Destructor
+// Safely closes a given database connection pool, ignoring any errors during termination.
 async function closePool(poolToClose) {
   if (!poolToClose) return;
   try {
@@ -183,6 +253,8 @@ async function closePool(poolToClose) {
   } catch {}
 }
 
+// Error Classification
+// Determines if an error represents a temporary network or connection failure.
 function isReconnectableError(err) {
   const code = String(err?.code || "").toUpperCase();
   return [
@@ -198,24 +270,43 @@ function isReconnectableError(err) {
   ].includes(code);
 }
 
+// Determines if an error is related to connection establishment or authentication.
 function isDbConnectionFailure(err) {
   const code = String(err?.code || "").toUpperCase();
-  return isReconnectableError(err) || [
-    "ER_ACCESS_DENIED_ERROR",
-    "ER_BAD_DB_ERROR",
-    "ER_CON_COUNT_ERROR",
-    "ER_NOT_SUPPORTED_AUTH_MODE",
-  ].includes(code);
+  return (
+    isReconnectableError(err) ||
+    [
+      "ER_ACCESS_DENIED_ERROR",
+      "ER_BAD_DB_ERROR",
+      "ER_CON_COUNT_ERROR",
+      "ER_NOT_SUPPORTED_AUTH_MODE",
+    ].includes(code)
+  );
 }
 
+// Query Timeout Wrapper
+// Executes a promise-based operation with an enforced timeout.
 function withQueryTimeout(executor, sqlText) {
   if (!dbConfig.queryTimeout) {
-    return executor();
+    return executor(); // Skip timeout if not configured
   }
 
+  const startedAt = Date.now();
   let timeoutHandle = null;
   const timeoutPromise = new Promise((_, reject) => {
     timeoutHandle = setTimeout(() => {
+      // #region debug-point E:db-timeout
+      postDebugEvent(
+        "E",
+        "server/db/pool.js:withQueryTimeout",
+        "[DEBUG] DB query timeout fired",
+        {
+          timeoutMs: dbConfig.queryTimeout,
+          elapsedMs: Date.now() - startedAt,
+          sqlPreview: previewSql(sqlText),
+        },
+      );
+      // #endregion
       const timeoutError = new Error(
         `Database query timeout after ${dbConfig.queryTimeout}ms`,
       );
@@ -223,11 +314,14 @@ function withQueryTimeout(executor, sqlText) {
       timeoutError.sqlMessage = typeof sqlText === "string" ? sqlText : null;
       reject(timeoutError);
     }, dbConfig.queryTimeout);
+
+    // Prevent the timeout from keeping the Node.js event loop alive
     if (typeof timeoutHandle?.unref === "function") {
       timeoutHandle.unref();
     }
   });
 
+  // Race the actual execution against the timeout promise
   return Promise.race([executor(), timeoutPromise]).finally(() => {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
@@ -235,8 +329,11 @@ function withQueryTimeout(executor, sqlText) {
   });
 }
 
+// Connection Manager
+// Ensures an active database connection pool exists, reconnecting if necessary or forced.
 async function ensurePool(forceReconnect = false) {
   if (!isConfigured()) {
+    // Fail early if database config is incomplete
     const missing = getMissingConfigFields();
     const configError = new Error(
       `Database not configured: missing ${missing.join(", ")}`,
@@ -248,14 +345,11 @@ async function ensurePool(forceReconnect = false) {
   }
 
   if (!forceReconnect && activePool) {
-    return activePool;
+    return activePool; // Return existing valid pool
   }
 
-  if (
-    !forceReconnect &&
-    activePoolPromise
-  ) {
-    return activePoolPromise;
+  if (!forceReconnect && activePoolPromise) {
+    return activePoolPromise; // Return pending connection promise
   }
 
   const now = Date.now();
@@ -265,7 +359,7 @@ async function ensurePool(forceReconnect = false) {
     dbState.lastConnectAttemptAt &&
     now - dbState.lastConnectAttemptAt < dbConfig.reconnectCooldownMs
   ) {
-    return null;
+    return null; // Enforce cooldown before next reconnect attempt
   }
 
   dbState.lastConnectAttemptAt = now;
@@ -307,10 +401,45 @@ async function ensurePool(forceReconnect = false) {
   return activePoolPromise;
 }
 
+// Pool Operation Wrapper
+// Safely executes operations using the pool and handles reconnection retries.
 async function withPoolOperation(operationName, executor, options = {}) {
   const { sqlText = null, retryOnReconnect = true } = options;
+  const startedAt = Date.now();
+  // #region debug-point C:db-operation-start
+  postDebugEvent(
+    "C",
+    "server/db/pool.js:withPoolOperation",
+    "[DEBUG] DB operation start",
+    {
+      operationName,
+      sqlPreview: previewSql(sqlText || operationName),
+      poolStatus: activePool
+        ? "active"
+        : activePoolPromise
+          ? "connecting"
+          : "empty",
+      dbStateStatus: dbState.status,
+    },
+  );
+  // #endregion
   const currentPool = await ensurePool();
   if (!currentPool) {
+    // #region debug-point D:pool-unavailable
+    postDebugEvent(
+      "D",
+      "server/db/pool.js:withPoolOperation",
+      "[DEBUG] DB pool unavailable",
+      {
+        operationName,
+        sqlPreview: previewSql(sqlText || operationName),
+        elapsedMs: Date.now() - startedAt,
+        dbStateStatus: dbState.status,
+        dbErrorCode: dbState.lastError?.code || null,
+        dbErrorMessage: dbState.lastError?.message || null,
+      },
+    );
+    // #endregion
     throw createDbUnavailableError();
   }
 
@@ -322,8 +451,34 @@ async function withPoolOperation(operationName, executor, options = {}) {
     if (operationName === "db-health-check") {
       setDbSuccess();
     }
+    // #region debug-point C:db-operation-success
+    postDebugEvent(
+      "C",
+      "server/db/pool.js:withPoolOperation",
+      "[DEBUG] DB operation success",
+      {
+        operationName,
+        sqlPreview: previewSql(sqlText || operationName),
+        elapsedMs: Date.now() - startedAt,
+      },
+    );
+    // #endregion
     return result;
   } catch (err) {
+    // #region debug-point D:db-operation-error
+    postDebugEvent(
+      "D",
+      "server/db/pool.js:withPoolOperation",
+      "[DEBUG] DB operation error",
+      {
+        operationName,
+        sqlPreview: previewSql(sqlText || operationName),
+        elapsedMs: Date.now() - startedAt,
+        errorCode: err?.code || null,
+        errorMessage: err?.message || String(err),
+      },
+    );
+    // #endregion
     if (isDbConnectionFailure(err)) {
       setDbFailure(err);
       logDbError(`${operationName} failed`, err);
@@ -344,21 +499,62 @@ async function withPoolOperation(operationName, executor, options = {}) {
   }
 }
 
+// Connection Proxy
+// Wraps a raw pool connection to intercept queries and sanitize parameters (e.g., removing undefined).
 function wrapConnection(connection) {
   return new Proxy(connection, {
     get(target, prop, receiver) {
       if (prop === "query") {
-        return (sql, params) =>
-          withQueryTimeout(() => target.query(sql, params), sql);
+        return (sql, params) => {
+          let cleanParams = params;
+          if (params) {
+            if (Array.isArray(params)) {
+              cleanParams = params.map((v) => (v === undefined ? null : v));
+            } else if (typeof params === "object") {
+              cleanParams = new Proxy(params, {
+                get(target, prop) {
+                  if (prop === "branchIdsStr" && target[prop] === undefined)
+                    return "";
+                  const val = target[prop];
+                  return val === undefined ? null : val;
+                },
+                has(target, prop) {
+                  return true;
+                },
+              });
+            }
+          }
+          return withQueryTimeout(() => target.query(sql, cleanParams), sql);
+        };
       }
 
       if (prop === "execute") {
-        return (sql, params) =>
-          withQueryTimeout(() => target.execute(sql, params), sql);
+        return (sql, params) => {
+          let cleanParams = params;
+          if (params) {
+            if (Array.isArray(params)) {
+              cleanParams = params.map((v) => (v === undefined ? null : v));
+            } else if (typeof params === "object") {
+              cleanParams = new Proxy(params, {
+                get(target, prop) {
+                  if (prop === "branchIdsStr" && target[prop] === undefined)
+                    return "";
+                  const val = target[prop];
+                  return val === undefined ? null : val;
+                },
+                has(target, prop) {
+                  return true;
+                },
+              });
+            }
+          }
+          return withQueryTimeout(() => target.execute(sql, cleanParams), sql);
+        };
       }
 
       if (prop === "release" || prop === "destroy") {
-        return (...args) => Reflect.get(target, prop, receiver).apply(target, args);
+        return (...args) =>
+          Reflect.get(target, prop, receiver).apply(target, args);
       }
 
       const value = Reflect.get(target, prop, receiver);
@@ -367,6 +563,8 @@ function wrapConnection(connection) {
   });
 }
 
+// Singleton Pool Proxy
+// Exposes a resilient pool interface that safely manages reconnections behind the scenes.
 export const pool = new Proxy(
   {},
   {
@@ -420,18 +618,40 @@ export const pool = new Proxy(
   },
 );
 
+// Main Query Utility
+// A robust query execution function that supports prepared statements, auto-retries, and parameter sanitization.
 export async function query(sql, params = {}) {
+  if (params) {
+    if (Array.isArray(params)) {
+      params = params.map((v) => (v === undefined ? null : v));
+    } else if (typeof params === "object") {
+      params = new Proxy(params, {
+        get(target, prop) {
+          if (prop === "branchIdsStr" && target[prop] === undefined) return "";
+          const val = target[prop];
+          return val === undefined ? null : val;
+        },
+        has(target, prop) {
+          return true;
+        },
+      });
+    }
+  }
+
   const isMetadata = /^\s*(SHOW|ALTER|CREATE|DROP|DESCRIBE)\s/i.test(sql);
 
   try {
+    // Metadata queries generally do not support prepared statements properly in execute()
     if (isMetadata) {
       const [rows] = await pool.query(sql, params);
       return rows;
     }
 
+    // Default to using prepared statements for security and performance
     const [rows] = await pool.execute(sql, params);
     return rows;
   } catch (err) {
+    // Fallback for queries that cannot be prepared
     if (
       err.code === "ER_UNSUPPORTED_PS" ||
       (err.message &&
@@ -442,6 +662,7 @@ export async function query(sql, params = {}) {
       return rows;
     }
 
+    // Check if error is related to problematic audit joins (e.g. created_by fields)
     const message = String(err?.message || "").toLowerCase();
     const sqlText = String(sql || "").toLowerCase();
     const canRetryAuditJoin =
@@ -467,6 +688,9 @@ export async function query(sql, params = {}) {
   }
 }
 
+// Diagnostics & Health Endpoints
+
+// Tests the database connection and updates the internal state.
 export async function testDbConnection({ silent = false } = {}) {
   try {
     const rows = await withPoolOperation(
@@ -487,6 +711,7 @@ export async function testDbConnection({ silent = false } = {}) {
   }
 }
 
+// Returns the current health statistics and database connection status.
 export async function getDbHealth({ probe = false } = {}) {
   if (probe) {
     await testDbConnection({ silent: true });
@@ -504,6 +729,7 @@ export async function getDbHealth({ probe = false } = {}) {
   };
 }
 
+// Exposes the active database configuration (with password masked).
 export function getDbConfig() {
   return {
     host: dbConfig.host || null,
@@ -518,8 +744,10 @@ export function getDbConfig() {
   };
 }
 
+// Attach the proxy pool to the query function for convenience
 query.pool = pool;
 
+// Initiate an immediate connection test on startup
 void testDbConnection({ silent: false });
 
 export default pool;

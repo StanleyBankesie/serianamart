@@ -1,5 +1,17 @@
+/**
+ * @fileoverview Database migration script to create the inventory reorder points table.
+ * @module scripts/create_reorder_points_table
+ */
+
 import { pool } from "../db/pool.js";
 
+/**
+ * Creates the 'inv_reorder_points' table if it does not already exist.
+ * This table is used to track min, max, and reorder levels for items in warehouses.
+ * Exits the process when complete.
+ *
+ * @returns {Promise<void>} Resolves when the table creation is complete.
+ */
 async function createReorderPointsTable() {
   const conn = await pool.getConnection();
   try {

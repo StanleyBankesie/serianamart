@@ -15,6 +15,7 @@ import fs from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Environment File Resolution
 // Try to load from .env.production first, then .env (both in server directory)
 let envPath = path.resolve(__dirname, "../.env.production");
 let envFile = ".env.production";
@@ -34,6 +35,7 @@ console.log(`Loading configuration from: server/${envFile}\n`);
 console.log("1. CHECKING ENVIRONMENT VARIABLES");
 console.log("   " + "=".repeat(40));
 
+// Required SMTP Configuration Keys
 const required = [
   "SMTP_HOST",
   "SMTP_PORT",
@@ -41,9 +43,12 @@ const required = [
   "SMTP_PASS",
   "SMTP_FROM",
 ];
+
+// State to hold valid SMTP configuration
 const smtpConfig = {};
 let configValid = true;
 
+// Validate each required environment variable
 required.forEach((key) => {
   const value = process.env[key];
   if (!value) {
@@ -125,6 +130,7 @@ transporter.verify((err, success) => {
   console.log("\n5. SENDING TEST EMAIL");
   console.log("   " + "=".repeat(40));
 
+  // Define Test Email Parameters
   const testEmail = smtpConfig.SMTP_USER; // Send to self
 
   const mailOptions = {

@@ -1,6 +1,20 @@
+/**
+ * @fileoverview Database initialization script for Chat V2 tables.
+ * Provides up and down functions to create and drop chat-related tables.
+ * @module scripts/chat_v2_init
+ */
+
 import { query } from "../db/pool.js";
 
+/**
+ * Creates the necessary database tables for the chat system.
+ * Includes tables for conversations, participants, messages, status, attachments, presence, and deletions.
+ *
+ * @returns {Promise<void>} Resolves when all tables are created.
+ */
+// Schema creation function for Chat V2
 export async function up() {
+  // Create chat_conversations table for chat threads
   await query(`
     CREATE TABLE IF NOT EXISTS chat_conversations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -76,7 +90,15 @@ export async function up() {
   `);
 }
 
+/**
+ * Drops all database tables associated with the chat system.
+ * Useful for reversing the migration or cleaning up during testing.
+ *
+ * @returns {Promise<void>} Resolves when all chat tables are dropped.
+ */
+// Schema rollback function for Chat V2
 export async function down() {
+  // Drop all chat tables in reverse order of dependency
   await query(`DROP TABLE IF EXISTS chat_deleted_messages`);
   await query(`DROP TABLE IF EXISTS chat_presence`);
   await query(`DROP TABLE IF EXISTS chat_attachments`);

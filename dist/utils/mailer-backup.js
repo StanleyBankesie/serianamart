@@ -1,12 +1,19 @@
 import nodemailer from "nodemailer";
 
+/**
+ * Helper to convert various inputs to a boolean.
+ * @param {*} v - The value to check.
+ * @returns {boolean} True if the value is truthy/yes/1/true.
+ */
 function bool(v) {
+  // Helper function to safely convert environment variable strings into booleans
   if (typeof v === "boolean") return v;
   if (typeof v !== "string") return false;
   const s = v.toLowerCase();
   return s === "1" || s === "true" || s === "yes";
 }
 
+// Load SMTP configuration from system environment variables
 const host = process.env.SMTP_HOST || "";
 const port = Number(process.env.SMTP_PORT || 587);
 const user = process.env.SMTP_USER || "";
@@ -25,11 +32,13 @@ console.log(
     from,
 );
 
+// Initialize state variables for the Nodemailer transporter connection
 let transporter = null;
 let configured = false;
 let verified = false;
 
 if (host && from) {
+  // Attempt to instantiate the mail transporter if basic config is present
   try {
     transporter = nodemailer.createTransport({
       host,
@@ -55,11 +64,21 @@ if (host && from) {
   );
 }
 
+/**
+ * Check if the mailer has been configured successfully.
+ * @returns {boolean} True if configured.
+ */
 export function isMailerConfigured() {
+  // Retrieve current mailer configuration status
   return configured;
 }
 
+/**
+ * Verify the SMTP connection.
+ * @returns {Promise<boolean>} True if connection verified.
+ */
 export async function verifyMailer() {
+  // Ping SMTP server to verify connection is active and valid
   if (!transporter) {
     verified = false;
     console.warn("[MAILER_VERIFY] No transporter available");
@@ -77,7 +96,18 @@ export async function verifyMailer() {
   }
 }
 
+/**
+ * Send an email using the configured transporter.
+ * @param {Object} param0 - Mail options.
+ * @param {string} param0.to - Recipient email.
+ * @param {string} param0.subject - Email subject.
+ * @param {string} [param0.text] - Plain text content.
+ * @param {string} [param0.html] - HTML content.
+ * @param {string} [param0.cc] - CC email addresses.
+ * @returns {Promise<boolean>} True if email sent successfully.
+ */
 export async function sendMail({ to, subject, text, html, cc }) {
+  // Execute mail sending using configured transporter settings
   if (!configured || !transporter) {
     console.warn(
       "[SENDMAIL] ✗ Mailer not configured. Cannot send to " +

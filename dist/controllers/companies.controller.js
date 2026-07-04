@@ -1,7 +1,19 @@
+/**
+ * @file companies.controller.js
+ * @description Manages organizational structures including companies, branches, and departments.
+ * Handles related configuration, logos, and dynamic schema migrations for companies.
+ */
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { hasColumn, toNumber, ensureBranchColumns } from "../utils/dbUtils.js";
+import { cacheGet, cacheSet, cacheDelPattern } from "../utils/redis.js";
 
+/**
+ * Ensures the 'adm_companies' table and its required columns exist.
+ * Performs dynamic schema updates if columns are missing.
+ *
+ * @returns {Promise<void>}
+ */
 export const ensureCompanyColumns = async () => {
   const table = "adm_companies";
   await query(`
@@ -62,6 +74,14 @@ export const ensureCompanyColumns = async () => {
   }
 };
 
+/**
+ * Creates a new company in the database.
+ * (Note: Function name kept as mangeCompanies for backward compatibility).
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const mangeCompanies = async (req, res, next) => {
   try {
     const { name, code, is_active } = req.body || {};
@@ -83,6 +103,14 @@ export const mangeCompanies = async (req, res, next) => {
   }
 };
 
+/**
+ * Updates an existing company's profile and synchronizes the base currency configuration.
+ * Uses a database transaction for consistency.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const updateCompanies = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
@@ -228,6 +256,12 @@ export const getCompanyById = async (req, res, next) => {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
+    const cacheKey = `companies:id:${id}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ item: cached });
+    }
+
     try {
       await ensureCompanyColumns();
     } catch {}
@@ -270,6 +304,14 @@ export const getCompanyById = async (req, res, next) => {
   }
 };
 
+/**
+ * Uploads and saves the company logo as a binary blob in the database.
+ * Returns a versioned URL to bypass browser caching.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const uploadCompanyLogo = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
@@ -366,6 +408,13 @@ export const getCompanyLogo = async (req, res, next) => {
   }
 };
 
+/**
+ * Fetches a list of branches, filtered by the authenticated user's allowed company and branch context.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getBranches = async (req, res, next) => {
   try {
     await ensureBranchColumns();
@@ -385,6 +434,11 @@ export const getBranches = async (req, res, next) => {
     if (typeof active !== "undefined" && active !== "") {
       filters.push("b.is_active = :is_active");
       params.is_active = Number(Boolean(active));
+    }
+    const { branchIdsStr } = req.scope || {};
+    if (branchIdsStr) {
+      filters.push("(:branchIdsStr = '' OR FIND_IN_SET(b.id, :branchIdsStr))");
+      params.branchIdsStr = branchIdsStr;
     }
     const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
@@ -430,16 +484,25 @@ export const getBranchById = async (req, res, next) => {
   }
 };
 
+/**
+ * Creates a new branch under a specified company, storing its contact and hierarchical details.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const createBranch = async (req, res, next) => {
   try {
     await ensureBranchColumns();
-    // const { companyId } = req.scope;
+    // const { companyId = null } = req.scope || {};
     // We expect company_id in body now for global setup
     const {
       company_id,
       name,
       code,
       is_active,
+      is_superbranch,
+      parent_branch_id,
       address,
       city,
       state,
@@ -457,11 +520,11 @@ export const createBranch = async (req, res, next) => {
       throw httpError(400, "VALIDATION_ERROR", "name and code are required");
 
     const result = await query(`INSERT INTO adm_branches (
-          company_id, name, code, is_active,
+          company_id, name, code, is_active, is_superbranch, parent_branch_id,
           address, city, state, postal_code, country,
           location, telephone, email, remarks
         ) VALUES (
-          :company_id, :name, :code, :is_active,
+          :company_id, :name, :code, :is_active, :is_superbranch, :parent_branch_id,
           :address, :city, :state, :postal_code, :country,
           :location, :telephone, :email, :remarks
         )`,
@@ -470,6 +533,8 @@ export const createBranch = async (req, res, next) => {
         name,
         code,
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
+        is_superbranch: is_superbranch ? 1 : 0,
+        parent_branch_id: parent_branch_id ? Number(parent_branch_id) : null,
         address: address || null,
         city: city || null,
         state: state || null,
@@ -490,7 +555,7 @@ export const createBranch = async (req, res, next) => {
 export const updateBranch = async (req, res, next) => {
   try {
     await ensureBranchColumns();
-    // const { companyId } = req.scope;
+    // const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
 
@@ -499,6 +564,8 @@ export const updateBranch = async (req, res, next) => {
       name,
       code,
       is_active,
+      is_superbranch,
+      parent_branch_id,
       address,
       city,
       state,
@@ -520,6 +587,8 @@ export const updateBranch = async (req, res, next) => {
              name = :name,
              code = :code,
              is_active = :is_active,
+             is_superbranch = :is_superbranch,
+             parent_branch_id = :parent_branch_id,
              address = :address,
              city = :city,
              state = :state,
@@ -536,6 +605,8 @@ export const updateBranch = async (req, res, next) => {
         name,
         code,
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
+        is_superbranch: is_superbranch ? 1 : 0,
+        parent_branch_id: parent_branch_id ? Number(parent_branch_id) : null,
         address: address || null,
         city: city || null,
         state: state || null,
@@ -553,6 +624,13 @@ export const updateBranch = async (req, res, next) => {
   }
 };
 
+/**
+ * Retrieves departments associated with a company or branch, subject to user access restrictions.
+ *
+ * @param {import('express').Request} req - Express request object.
+ * @param {import('express').Response} res - Express response object.
+ * @param {import('express').NextFunction} next - Express next middleware function.
+ */
 export const getDepartments = async (req, res, next) => {
   try {
     const { company_id, branch_id } = req.query;
@@ -583,7 +661,7 @@ export const getDepartments = async (req, res, next) => {
       if (userBranchIds.length && !userBranchIds.includes(effectiveBranchId)) {
         throw httpError(403, "FORBIDDEN", "Branch access denied");
       }
-      queryStr += " AND (d.branch_id = :branchId OR d.branch_id IS NULL)";
+      queryStr += " AND ((:branchId = '' OR FIND_IN_SET(d.branch_id, :branchId)) OR d.branch_id IS NULL)";
       params.branchId = effectiveBranchId;
     } else if (userBranchIds.length) {
       const keys = userBranchIds.map((_, i) => `:bid${i}`);
@@ -686,7 +764,7 @@ export const createDepartment = async (req, res, next) => {
 
 export const getCurrentCompany = async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     if (!companyId) throw httpError(401, "UNAUTHORIZED", "Company scope not found");
 
     const items = await query(
@@ -703,3 +781,4 @@ export const getCurrentCompany = async (req, res, next) => {
     next(err);
   }
 };
+

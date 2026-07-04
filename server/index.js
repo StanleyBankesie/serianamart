@@ -133,76 +133,113 @@ const boolEnv = (v) => {
 };
 
 /* ---------------- CORS ---------------- */
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:5174",
+  "https://serianamart.omnisuite-erp.com",
+  "https://www.serianamart.omnisuite-erp.com",
+];
+
+const normalizeOrigin = (value) => {
+  if (!value) return "";
+  const cleaned = String(value)
+    .trim()
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .replace(/\/$/, "");
+  if (!cleaned) return "";
+  try {
+    return new URL(cleaned).origin;
+  } catch {
+    return cleaned;
+  }
+};
+
 const allowedOrigins = (() => {
   const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
   if (raw) {
     return raw
       .split(",")
-      .map((s) =>
-        s
-          .trim()
-          .replace(/^['"`]+|['"`]+$/g, "")
-          .replace(/\/$/, ""),
-      )
+      .map((s) => normalizeOrigin(s))
       .filter(Boolean);
   }
-  return [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5174",
-    "https://serianamart.omnisuite-erp.com",
-    "https://www.serianamart.omnisuite-erp.com",
-  ];
+  return DEFAULT_ALLOWED_ORIGINS.map((origin) => normalizeOrigin(origin));
 })();
+
+console.log("[CORS] Allowed origins:", allowedOrigins.join(", ") || "(none)");
 
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
-  const normalizedOrigin = String(origin)
-    .trim()
-    .replace(/^['"`]+|['"`]+$/g, "")
-    .replace(/\/$/, "");
+  const normalizedOrigin = normalizeOrigin(origin);
   return allowedOrigins.includes(normalizedOrigin);
+};
+
+const DEFAULT_ALLOWED_HEADERS = [
+  "Origin",
+  "X-Requested-With",
+  "Content-Type",
+  "Accept",
+  "Authorization",
+  "x-user-id",
+  "x-company-id",
+  "x-branch-id",
+];
+
+const resolveAllowedHeaders = (req) => {
+  const requested = String(req.headers["access-control-request-headers"] || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return Array.from(new Set([...DEFAULT_ALLOWED_HEADERS, ...requested])).join(
+    ", ",
+  );
 };
 
 const corsOptions = {
   origin: (origin, cb) => {
-    if (isAllowedOrigin(origin)) return cb(null, true);
-    console.log("[CORS] Rejected Origin:", origin);
-    return cb(new Error(`CORS origin not allowed: ${origin}`));
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (isAllowedOrigin(normalizedOrigin)) return cb(null, true);
+    console.log("[CORS] Rejected Origin:", normalizedOrigin || origin);
+    return cb(
+      new Error(`CORS origin not allowed: ${normalizedOrigin || origin}`),
+    );
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Origin",
-    "X-Requested-With",
-    "Content-Type",
-    "Accept",
-    "Authorization",
-    "x-user-id",
-    "x-company-id",
-    "x-branch-id",
-  ],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+  allowedHeaders: DEFAULT_ALLOWED_HEADERS,
   exposedHeaders: ["Content-Length", "Content-Type"],
+  maxAge: 86400,
   optionsSuccessStatus: 204,
 };
 
 app.use((req, res, next) => {
-  const origin = String(req.headers.origin || "");
+  const origin = normalizeOrigin(req.headers.origin || "");
+  const allowOrigin = Boolean(origin) && isAllowedOrigin(origin);
   if (isAllowedOrigin(origin) && origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader(
       "Access-Control-Allow-Methods",
-      "GET,POST,PUT,DELETE,OPTIONS",
+      "GET,POST,PUT,PATCH,DELETE,HEAD,OPTIONS",
     );
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization, x-user-id, x-company-id, x-branch-id",
+      resolveAllowedHeaders(req),
     );
+    res.setHeader("Access-Control-Max-Age", "86400");
   }
   if (req.method === "OPTIONS") {
+    if (origin && !allowOrigin) {
+      console.warn(`[CORS] Rejected preflight for origin: ${origin}`);
+      return res
+        .status(403)
+        .json({ error: "CORS_ORIGIN_NOT_ALLOWED", origin });
+    }
+    if (origin) {
+      console.log(`[CORS] Accepted preflight for origin: ${origin}`);
+    }
     return res.status(204).end();
   }
   next();

@@ -1,5 +1,7 @@
+// Database Pool Dependency
 import { query } from "../db/pool.js";
 
+// Script to grant all system features and modules to Role 1 (Super Admin)
 async function run() {
   try {
     const roleId = 1;
@@ -44,7 +46,7 @@ async function run() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    // Server module keys
+    // List of core Server module keys
     const MODULES = [
       "administration",
       "finance",

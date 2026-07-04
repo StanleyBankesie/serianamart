@@ -19,6 +19,7 @@ import { sendPushToUser } from "../routes/push.routes.js";
  * @returns {Promise<void>}
  */
 export async function sendDocumentForwardNotification(options) {
+  // Destructure notification options
   const {
     userId,
     companyId,
@@ -33,16 +34,19 @@ export async function sendDocumentForwardNotification(options) {
     req,
   } = options;
 
+  // Validate required user and company IDs before proceeding
   if (!userId || !companyId) {
     console.warn("Missing userId or companyId for document notification");
     return;
   }
 
   try {
+    // Determine target link based on whether this is a workflow approval or generic notification
     const link = workflowInstanceId
       ? `/administration/workflows/approvals/${workflowInstanceId}`
       : `/notifications`;
     try {
+      // Create in-app database notification record for the user
       await query(
         `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
          VALUES (:companyId, :userId, :title, :message, :link, 0)`,
@@ -58,7 +62,7 @@ export async function sendDocumentForwardNotification(options) {
       );
     } catch {}
 
-    // Get user details
+    // Retrieve user details from the database to ensure they exist and are active
     console.log(
       `[DocumentNotification] Fetching user ${userId} for company ${companyId}`,
     );
@@ -86,6 +90,7 @@ export async function sendDocumentForwardNotification(options) {
       return;
     }
 
+    // Extract user email and username for notification delivery
     const user = userRows[0];
     const userEmail = user.email;
     const userName = user.username;
@@ -94,7 +99,7 @@ export async function sendDocumentForwardNotification(options) {
       `[DocumentNotification] User found: ${userName}, Email: ${userEmail || "NOT SET"}`,
     );
 
-    // Get notification preferences
+    // Retrieve specific notification preferences (email/push) for the targeted user
     let userEmailEnabled = 1;
     let userPushEnabled = 1;
     try {
@@ -126,6 +131,7 @@ export async function sendDocumentForwardNotification(options) {
       );
     }
 
+    // Determine system overrides for forcing email or push notifications
     const forceEmail = envTrue(process.env.WORKFLOW_FORCE_EMAIL);
     const forcePush = envTrue(process.env.WORKFLOW_FORCE_PUSH);
 
@@ -133,7 +139,7 @@ export async function sendDocumentForwardNotification(options) {
       `[DocumentNotification] Decision: userEmailEnabled=${userEmailEnabled}, forceEmail=${forceEmail}, hasEmail=${!!userEmail}`,
     );
 
-    // Send EMAIL notification
+    // Process and send EMAIL notification if enabled by preference or forced globally
     if ((userEmailEnabled || forceEmail) && userEmail) {
       console.log(`[DocumentNotification] ✓ Sending email to ${userEmail}`);
       await sendDocumentForwardEmail({
@@ -152,6 +158,7 @@ export async function sendDocumentForwardNotification(options) {
         userId,
       });
     } else {
+      // Handle skipped email notification scenarios and log them appropriately
       let skipMsg = null;
       if (!userEmail) {
         skipMsg = "User has no email address";
@@ -176,7 +183,7 @@ export async function sendDocumentForwardNotification(options) {
       }
     }
 
-    // Send PUSH notification
+    // Process and send PUSH notification if enabled by preference or forced globally
     if ((userPushEnabled || forcePush) && userId) {
       console.log(`[DocumentNotification] ✓ Sending push notification`);
       await sendDocumentForwardPush({
@@ -226,6 +233,7 @@ async function sendDocumentForwardEmail(options) {
   try {
     console.log(`[sendDocumentForwardEmail] Starting email send to ${to}`);
 
+    // Mock email sending if mailer is not configured on the server
     if (!isMailerConfigured()) {
       console.log(
         `[MOCK EMAIL] To: ${to} | Subject: ${title} | Message: ${message}`,
@@ -247,7 +255,7 @@ async function sendDocumentForwardEmail(options) {
 
     console.log(`[sendDocumentForwardEmail] Mailer is configured, proceeding`);
 
-    // Check for duplicate emails in last 10 seconds
+    // Check for duplicate emails sent within the last 10 seconds to prevent spam
     const dupRows = await query(
       `SELECT id 
        FROM adm_system_logs 
@@ -267,7 +275,7 @@ async function sendDocumentForwardEmail(options) {
       return;
     }
 
-    // Build absolute link safely
+    // Safely construct the absolute URL link for the document to include in the email body
     let linkAbs = `/administration/workflows/approvals/${workflowInstanceId}`;
     if (req && req.protocol && req.headers?.host) {
       linkAbs = `${req.protocol}://${req.headers.host}${linkAbs}`;
@@ -277,9 +285,11 @@ async function sendDocumentForwardEmail(options) {
       linkAbs = `http://localhost:3000${linkAbs}`;
     }
 
+    // Prepare email subject and capture current timestamp for the message
     const subject = title || "Document Forwarded for Your Action";
     const nowStr = new Date().toISOString();
 
+    // Construct plaintext and HTML versions of the email body
     const textContent = [
       `Hello ${userName},`,
       ``,
@@ -315,6 +325,7 @@ async function sendDocumentForwardEmail(options) {
       `[sendDocumentForwardEmail] Calling sendMail with to=${to}, subject=${subject}`,
     );
 
+    // Execute the actual email sending process via the mailer utility
     await sendMail({
       to,
       cc: process.env.WORKFLOW_EMAIL_CC || undefined,
@@ -328,7 +339,7 @@ async function sendDocumentForwardEmail(options) {
       `[sendDocumentForwardEmail] ✓ Email sent successfully to ${to}`,
     );
 
-    // Log successful email send
+    // Record successful email transmission in the internal system logs
     try {
       await query(
         `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
@@ -343,7 +354,7 @@ async function sendDocumentForwardEmail(options) {
     } catch {}
   } catch (err) {
     console.error("Error sending document forward email:", err);
-    // Log email error
+    // Record email transmission failure in the internal system logs
     try {
       await query(
         `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
@@ -377,6 +388,7 @@ async function sendDocumentForwardPush(options) {
   } = options;
 
   try {
+    // Construct push notification payload with standard formatting and action routing
     const pushPayload = {
       title: title || "Document Forwarded",
       message: message || `A ${documentType} has been forwarded to you.`,
@@ -394,6 +406,7 @@ async function sendDocumentForwardPush(options) {
       timestamp: new Date().toISOString(),
     };
 
+    // Send the constructed push notification to the targeted user
     await sendPushToUser(userId, pushPayload);
   } catch (err) {
     console.error("Error sending document forward push notification:", err);
@@ -405,6 +418,7 @@ async function sendDocumentForwardPush(options) {
  * @private
  */
 function envTrue(v) {
+  // Convert truthy string values from environment variables to a boolean
   if (v == null) return false;
   const s = String(v).toLowerCase().trim();
   return s === "1" || s === "true" || s === "yes" || s === "on";
@@ -420,11 +434,12 @@ function envTrue(v) {
 export async function broadcastDocumentForwardNotification(options) {
   const { userIds, notificationData, req } = options;
 
+  // Validate that userIds array is present and contains targets
   if (!Array.isArray(userIds) || userIds.length === 0) {
     return;
   }
 
-  // Send notifications in parallel
+  // Create an array of parallel notification promises for all targeted users
   const promises = userIds.map((userId) =>
     sendDocumentForwardNotification({
       ...notificationData,

@@ -1,6 +1,10 @@
 import puppeteer from 'puppeteer';
 import fs from 'fs';
 
+/**
+ * Test function to run puppeteer and generate a PDF.
+ * @returns {Promise<void>}
+ */
 async function test() {
   let browser;
   try {

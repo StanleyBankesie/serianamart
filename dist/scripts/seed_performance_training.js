@@ -1,6 +1,21 @@
+/**
+ * @file seed_performance_training.js
+ * @description Script to seed sample data for the HR Performance and Training modules.
+ * Populates KPI categories, KPIs, training programs, performance appraisals,
+ * training assignments, and employee certifications.
+ */
+
 import { query } from "../db/pool.js";
 import { ensureHRTables } from "../utils/dbUtils.js";
 
+/**
+ * Main execution function to seed HR performance and training data.
+ * Ensures the necessary HR tables exist, inserts various HR entities,
+ * simulates sample appraisal workflows (draft, pending, approved),
+ * and assigns sample training and certifications to employees.
+ * 
+ * @returns {Promise<void>} Resolves when all sample HR data is seeded.
+ */
 async function seed() {
   console.log("Ensuring HR performance & training tables...");
   await ensureHRTables();

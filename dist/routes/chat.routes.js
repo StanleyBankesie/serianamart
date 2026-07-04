@@ -137,7 +137,8 @@ function inRoom(io, room) {
 
 router.use(requireAuth, requireCompanyScope, requireBranchScope);
 
-// Users for recipient selection
+// ===== USERS FOR RECIPIENT SELECTION =====
+// GET /users - Fetch available users to start a chat with, includes online presence
 router.get("/users", async (req, res, next) => {
   try {
     await ensurePresenceTable();
@@ -201,7 +202,8 @@ router.get("/users", async (req, res, next) => {
   }
 });
 
-// List conversations for current user
+// ===== CONVERSATION MANAGEMENT =====
+// GET /conversations - Fetch a list of active conversations for the current user
 router.get("/conversations", async (req, res, next) => {
   try {
     await ensureChatTables();
@@ -233,7 +235,7 @@ router.get("/conversations", async (req, res, next) => {
   }
 });
 
-// Create a direct conversation (me + other)
+// POST /conversations/direct - Create or retrieve an existing direct conversation with another user
 router.post("/conversations/direct", async (req, res, next) => {
   try {
     await ensureChatTables();
@@ -276,7 +278,8 @@ router.post("/conversations/direct", async (req, res, next) => {
   }
 });
 
-// List messages in a conversation
+// ===== MESSAGE MANAGEMENT =====
+// GET /conversations/:id/messages - Fetch all messages within a specific conversation
 router.get("/conversations/:id/messages", async (req, res, next) => {
   try {
     await ensureChatTables();
@@ -313,7 +316,7 @@ router.get("/conversations/:id/messages", async (req, res, next) => {
   }
 });
 
-// Send a text message
+// POST /messages - Send a text or media message to a conversation
 router.post("/messages", async (req, res, next) => {
   try {
     await ensureChatTables();
@@ -400,7 +403,7 @@ router.post("/messages", async (req, res, next) => {
       .filter((n) => Number.isFinite(n));
     // If receiver not in room, set delivered later when they connect and send push
     let delivered = false;
-    if (receiverId && isUserOnline && isUserOnline(receiverId)) {
+    if (receiverId && isUserOnline && await isUserOnline(receiverId)) {
       await query(
         `UPDATE chat_messages SET status = 'delivered', delivered_at = NOW() WHERE id = :id`,
         { id: mid },
@@ -457,7 +460,8 @@ router.post("/messages", async (req, res, next) => {
   }
 });
 
-// Mark delivered (server can call when receiver socket acknowledges)
+// ===== MESSAGE STATUS UPDATES =====
+// POST /messages/:id/delivered - Mark a specific message as delivered
 router.post("/messages/:id/delivered", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
@@ -472,7 +476,7 @@ router.post("/messages/:id/delivered", async (req, res, next) => {
   }
 });
 
-// Mark read for a conversation
+// POST /conversations/:id/read - Mark all unread messages in a conversation as read
 router.post("/conversations/:id/read", async (req, res, next) => {
   try {
     const me = Number(req.user?.sub || req.user?.id);
@@ -517,7 +521,8 @@ router.post("/conversations/:id/read", async (req, res, next) => {
   }
 });
 
-// Unread count
+// ===== UNREAD COUNTS =====
+// GET /unread-count - Get total aggregate unread message count for current user
 router.get("/unread-count", async (req, res, next) => {
   try {
     const me = Number(req.user?.sub || req.user?.id);
@@ -540,6 +545,7 @@ router.get("/unread-count", async (req, res, next) => {
   }
 });
 
+// GET /unread-by-user - Get unread message breakdown grouped by sender user id
 router.get("/unread-by-user", async (req, res, next) => {
   try {
     const me = Number(req.user?.sub || req.user?.id);
@@ -571,7 +577,8 @@ router.get("/unread-by-user", async (req, res, next) => {
   }
 });
 
-// Media upload for chat
+// ===== MEDIA UPLOAD =====
+// Setup media upload directory and storage for chat attachments
 const chatUploadDir = path.join(process.cwd(), "uploads");
 try {
   if (!fs.existsSync(chatUploadDir))
@@ -625,6 +632,7 @@ const chatUpload = multer({
   fileFilter: chatFileFilter,
   limits: { fileSize: 50 * 1024 * 1024 },
 });
+// POST /upload - Upload a media file for chat attachment
 router.post("/upload", chatUpload.single("file"), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });

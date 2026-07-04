@@ -1,3 +1,7 @@
+/**
+ * @file hr.routes.js
+ * @description Express routes for HR management including employees, attendance, and leave.
+ */
 import express from "express";
 import {
   requireAuth,
@@ -13,6 +17,10 @@ import * as trainController from "../controllers/training.controller.js";
 const router = express.Router();
 
 // Employees
+/**
+ * Retrieves all employees with optional filters.
+ * @route GET /employees
+ */
 router.get(
   "/employees",
   requireAuth,
@@ -709,7 +717,7 @@ router.get(
 // ===== DASHBOARD METRICS (detailed dashboard page) =====
 router.get("/dashboard/metrics", requireAuth, requireCompanyScope, async (req, res, next) => {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const year = Number(req.query.year) || new Date().getFullYear();
     const whereCompany = { companyId };
 
@@ -774,10 +782,10 @@ router.get("/dashboard/metrics", requireAuth, requireCompanyScope, async (req, r
 // ===== DASHBOARD STATS =====
 router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.scope;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const [employees] = await query(
-      "SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND branch_id = :branchId AND status IN ('ACTIVE','PROBATION') AND deleted_at IS NULL",
-      { companyId, branchId },
+      "SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND status IN ('ACTIVE','PROBATION') AND deleted_at IS NULL",
+      { companyId, branchId, branchIdsStr },
     ).catch(() => [{ count: 0 }]);
     const [onLeave] = await query(
       "SELECT COUNT(*) as count FROM hr_attendance WHERE company_id = :companyId AND attendance_date = CURDATE() AND status = 'ON_LEAVE'",

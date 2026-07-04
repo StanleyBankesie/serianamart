@@ -1,3 +1,4 @@
+// Database Connection Utility
 import { query } from "../db/pool.js";
 
 /**

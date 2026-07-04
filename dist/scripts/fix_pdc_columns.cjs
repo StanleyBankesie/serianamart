@@ -1,5 +1,7 @@
+// Database Pool Dependency
 const pool = require("c:/Users/stanl/OneDrive/Documents/serianamart/server/db.js");
 
+// Migration script to ensure `created_by` column exists in fin_pdc_postings
 async function fixPdcColumns() {
   let conn;
   try {

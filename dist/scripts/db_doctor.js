@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Utility script to diagnose database connectivity and credentials.
+ * @module scripts/db_doctor
+ */
+
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import fs from "fs";
@@ -26,16 +31,41 @@ const cfg = {
   database: process.env.DB_NAME,
 };
 
+/**
+ * Formats a string with ANSI red color.
+ *
+ * @param {string} s - The string to format.
+ * @returns {string} The formatted string.
+ */
 function red(s) {
   return `\x1b[31m${s}\x1b[0m`;
 }
+/**
+ * Formats a string with ANSI green color.
+ *
+ * @param {string} s - The string to format.
+ * @returns {string} The formatted string.
+ */
 function green(s) {
   return `\x1b[32m${s}\x1b[0m`;
 }
+/**
+ * Formats a string with ANSI yellow color.
+ *
+ * @param {string} s - The string to format.
+ * @returns {string} The formatted string.
+ */
 function yellow(s) {
   return `\x1b[33m${s}\x1b[0m`;
 }
 
+/**
+ * Main execution function for the database diagnostic check.
+ * Connects to the database and runs a simple query to verify access and functionality.
+ * Prints diagnostic information or error instructions on failure.
+ *
+ * @returns {Promise<void>} Resolves when the check is complete.
+ */
 async function main() {
   console.log("Checking DB connectivity with:");
   console.log(` - HOST: ${cfg.host}`);

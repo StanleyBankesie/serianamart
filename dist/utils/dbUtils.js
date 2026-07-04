@@ -1,13 +1,39 @@
+// Database Dependencies
 import { query } from "../db/pool.js";
 import { getAllFeatures } from "../data/featuresRegistry.js";
 
+// Utility function to safely convert variables to numbers
+/**
+ * Convert a value to a number.
+ * @param {*} v - The value to convert.
+ * @param {*} fallback - The fallback value if conversion fails.
+ * @returns {number|*} The numeric value or the fallback.
+ */
 export function toNumber(v, fallback = null) {
   const n = Number(v);
+  // Return the number if valid, otherwise fallback
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Memory Caches for Database Metadata
 const columnCache = new Map();
 
+/**
+ * Check if a table exists in the database.
+ * @param {string} tableName - The name of the table.
+ * @returns {Promise<boolean>} True if table exists.
+ */
+export async function hasTable(tableName) {
+  const rows = await query("SHOW TABLES LIKE :tableName", { tableName });
+  return rows.length > 0;
+}
+
+/**
+ * Check if a column exists in a table.
+ * @param {string} tableName - The name of the table.
+ * @param {string} columnName - The name of the column.
+ * @returns {Promise<boolean>} True if column exists.
+ */
 export async function hasColumn(tableName, columnName) {
   const key = `${tableName}.${columnName}`;
   const cached = columnCache.get(key);
@@ -27,10 +53,19 @@ export async function hasColumn(tableName, columnName) {
   return result;
 }
 
+/**
+ * Ensure a column exists in a table. If it doesn't, add it using the DDL provided.
+ * @param {string} tableName - The name of the table.
+ * @param {string} columnName - The name of the column.
+ * @param {string} ddlRef - The SQL DDL to add the column.
+ * @returns {Promise<boolean>} True if successful or column already exists.
+ */
 export async function ensureCol(tableName, columnName, ddlRef) {
+  // Check if column already exists
   const has = await hasColumn(tableName, columnName);
   if (!has) {
     try {
+      // Execute the ALTER TABLE query to add the column
       await query(
         `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${ddlRef}`,
         {},
@@ -43,6 +78,10 @@ export async function ensureCol(tableName, columnName, ddlRef) {
   return true;
 }
 
+/**
+ * Ensure the adm_system_logs table and its expected columns exist.
+ * @returns {Promise<void>}
+ */
 export async function ensureSystemLogsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_system_logs (
@@ -104,11 +143,29 @@ export async function ensureSystemLogsTable() {
         "UPDATE adm_system_logs SET created_at = event_time WHERE created_at IS NULL",
       );
     }
+    // Setup scheduled event to automatically prune old logs
+    // Create event to auto-delete logs older than 7 days
+    try {
+      // Enable event scheduler globally
+      await query("SET GLOBAL event_scheduler = ON");
+      await query(`
+        CREATE EVENT IF NOT EXISTS cleanup_adm_system_logs
+        ON SCHEDULE EVERY 1 DAY
+        STARTS CURRENT_DATE + INTERVAL 1 DAY
+        DO
+          DELETE FROM adm_system_logs WHERE created_at < NOW() - INTERVAL 7 DAY
+      `);
+    } catch {}
   } catch {}
 }
 
+// Track tables that have already been verified to avoid redundant checks
 const verifiedTables = new Set();
 
+/**
+ * Ensure the adm_branches table has all expected columns.
+ * @returns {Promise<void>}
+ */
 export async function ensureBranchColumns() {
   const table = "adm_branches";
   if (verifiedTables.has(table)) return;
@@ -139,9 +196,19 @@ export async function ensureBranchColumns() {
   if (!(await hasColumn(table, "remarks"))) {
     await query(`ALTER TABLE ${table} ADD COLUMN remarks TEXT NULL`);
   }
+  if (!(await hasColumn(table, "is_superbranch"))) {
+    await query(`ALTER TABLE ${table} ADD COLUMN is_superbranch TINYINT(1) DEFAULT 0`);
+  }
+  if (!(await hasColumn(table, "parent_branch_id"))) {
+    await query(`ALTER TABLE ${table} ADD COLUMN parent_branch_id BIGINT UNSIGNED NULL`);
+  }
   verifiedTables.add(table);
 }
 
+/**
+ * Ensure the adm_users table has all expected columns.
+ * @returns {Promise<void>}
+ */
 export async function ensureUserColumns() {
   const table = "adm_users";
   if (verifiedTables.has(table)) return;
@@ -190,6 +257,10 @@ export async function ensureUserColumns() {
   verifiedTables.add(table);
 }
 
+/**
+ * Ensure the adm_pages table exists and is properly structured with feature keys.
+ * @returns {Promise<void>}
+ */
 export async function ensurePagesTable() {
   if (verifiedTables.has("adm_pages")) return;
   await query(`
@@ -264,6 +335,10 @@ export async function ensurePagesTable() {
   verifiedTables.add("adm_pages");
 }
 
+/**
+ * Seed the adm_pages table with the default system pages.
+ * @returns {Promise<void>}
+ */
 export async function ensurePagesSeed() {
   const pages = [
     { module: "Administration", name: "Roles", path: "/administration/roles" },
@@ -857,6 +932,16 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Service Management",
+      name: "Customer Service Requests",
+      path: "/service-management/customer-service-requests",
+    },
+    {
+      module: "Service Management",
+      name: "Supplier Service Requests",
+      path: "/service-management/supplier-service-requests",
+    },
+    {
+      module: "Service Management",
       name: "Service Requests",
       path: "/service-management/service-requests",
     },
@@ -877,8 +962,28 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Service Management",
+      name: "Service Order Form",
+      path: "/service-management/service-orders/new",
+    },
+    {
+      module: "Service Management",
+      name: "Service Order Edit",
+      path: "/service-management/service-orders/:id",
+    },
+    {
+      module: "Service Management",
       name: "Service Executions",
       path: "/service-management/service-executions",
+    },
+    {
+      module: "Service Management",
+      name: "Service Execution Form",
+      path: "/service-management/service-execution",
+    },
+    {
+      module: "Service Management",
+      name: "Service Execution Edit",
+      path: "/service-management/service-execution/:id",
     },
     {
       module: "Service Management",
@@ -887,8 +992,28 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Service Management",
+      name: "Service Confirmation Form",
+      path: "/service-management/service-confirmation/new",
+    },
+    {
+      module: "Service Management",
+      name: "Service Confirmation Edit",
+      path: "/service-management/service-confirmation/:id",
+    },
+    {
+      module: "Service Management",
       name: "Service Bills",
       path: "/service-management/service-bills",
+    },
+    {
+      module: "Service Management",
+      name: "Service Bill Form",
+      path: "/service-management/service-bills/new",
+    },
+    {
+      module: "Service Management",
+      name: "Service Bill Edit",
+      path: "/service-management/service-bills/:id",
     },
     {
       module: "Service Management",
@@ -3066,5 +3191,155 @@ export async function ensureTemplateTables() {
     await query(
       "ALTER TABLE document_templates ADD COLUMN branch_id BIGINT UNSIGNED NOT NULL DEFAULT 1",
     );
+  }
+  await ensureCol("document_templates", "feature_names", "TEXT NULL");
+}
+
+export async function ensurePMOrderTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS pm_orders (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      company_id BIGINT UNSIGNED NOT NULL,
+      branch_id BIGINT UNSIGNED NOT NULL,
+      order_no VARCHAR(50) NOT NULL,
+      order_date DATE NOT NULL,
+      project_id BIGINT UNSIGNED NULL,
+      project_name VARCHAR(255) NULL,
+      priority VARCHAR(16) NOT NULL DEFAULT 'MEDIUM',
+      status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+      sub_total DECIMAL(18,2) DEFAULT 0,
+      tax_amount DECIMAL(18,2) DEFAULT 0,
+      total_amount DECIMAL(18,2) DEFAULT 0,
+      currency_id BIGINT UNSIGNED DEFAULT 4,
+      exchange_rate DECIMAL(18,6) DEFAULT 1,
+      price_type ENUM('WHOLESALE','RETAIL') DEFAULT 'RETAIL',
+      payment_type ENUM('CASH','CHEQUE','CREDIT') DEFAULT 'CASH',
+      warehouse_id BIGINT UNSIGNED NULL,
+      remarks TEXT NULL,
+      is_active ENUM('Y','N') NOT NULL DEFAULT 'Y',
+      deleted_at DATETIME NULL,
+      created_by BIGINT UNSIGNED NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uq_pm_order_scope_no (company_id, branch_id, order_no),
+      KEY idx_pm_order_scope (company_id, branch_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS pm_order_items (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      order_id BIGINT UNSIGNED NOT NULL,
+      item_id BIGINT UNSIGNED NOT NULL,
+      qty DECIMAL(18,4) NOT NULL DEFAULT 0,
+      unit_price DECIMAL(18,4) NOT NULL DEFAULT 0,
+      discount_percent DECIMAL(5,2) DEFAULT 0,
+      total_amount DECIMAL(18,2) DEFAULT 0,
+      net_amount DECIMAL(18,2) DEFAULT 0,
+      tax_amount DECIMAL(18,2) DEFAULT 0,
+      uom VARCHAR(50) DEFAULT 'PCS',
+      tax_code_id BIGINT UNSIGNED NULL,
+      PRIMARY KEY (id),
+      KEY idx_pm_order_items_order (order_id),
+      KEY idx_pm_order_items_item (item_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `).catch(() => null);
+
+  const orders = "pm_orders";
+  const ensureCol = async (col, ddl) => {
+    if (!(await hasColumn(orders, col))) {
+      await query(`ALTER TABLE ${orders} ADD COLUMN ${ddl}`).catch(() => null);
+    }
+  };
+  await ensureCol("priority", "VARCHAR(16) NOT NULL DEFAULT 'MEDIUM'");
+  await ensureCol("sub_total", "DECIMAL(18,2) DEFAULT 0");
+  await ensureCol("tax_amount", "DECIMAL(18,2) DEFAULT 0");
+  await ensureCol("currency_id", "BIGINT UNSIGNED DEFAULT 4");
+  await ensureCol("exchange_rate", "DECIMAL(18,6) DEFAULT 1");
+  await ensureCol("price_type", "ENUM('WHOLESALE','RETAIL') DEFAULT 'RETAIL'");
+  await ensureCol("payment_type", "ENUM('CASH','CHEQUE','CREDIT') DEFAULT 'CASH'");
+  await ensureCol("warehouse_id", "BIGINT UNSIGNED NULL");
+  await ensureCol("remarks", "TEXT NULL");
+  await ensureCol("is_active", "ENUM('Y','N') NOT NULL DEFAULT 'Y'");
+  await ensureCol("deleted_at", "DATETIME NULL");
+  await ensureCol("created_by", "BIGINT UNSIGNED NULL");
+
+  const orderItems = "pm_order_items";
+  const ensureItemCol = async (col, ddl) => {
+    if (!(await hasColumn(orderItems, col))) {
+      await query(`ALTER TABLE ${orderItems} ADD COLUMN ${ddl}`).catch(() => null);
+    }
+  };
+  await ensureItemCol("qty", "DECIMAL(18,4) NOT NULL DEFAULT 0");
+  await ensureItemCol("unit_price", "DECIMAL(18,4) NOT NULL DEFAULT 0");
+  await ensureItemCol("discount_percent", "DECIMAL(5,2) DEFAULT 0");
+  await ensureItemCol("total_amount", "DECIMAL(18,2) DEFAULT 0");
+  await ensureItemCol("net_amount", "DECIMAL(18,2) DEFAULT 0");
+  await ensureItemCol("tax_amount", "DECIMAL(18,2) DEFAULT 0");
+  await ensureItemCol("uom", "VARCHAR(50) DEFAULT 'PCS'");
+  await ensureItemCol("tax_code_id", "BIGINT UNSIGNED NULL");
+}
+
+export async function ensurePMPurchaseRequisitionTables() {
+  const t = "pm_purchase_requisitions";
+  if (!(await hasTable(t))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS ${t} (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NOT NULL,
+        requisition_no VARCHAR(50) NOT NULL,
+        requisition_date DATE NOT NULL,
+        project_id BIGINT UNSIGNED NULL,
+        project_name VARCHAR(255) NULL,
+        department VARCHAR(100) NULL,
+        requested_by VARCHAR(150) NULL,
+        purpose TEXT NULL,
+        priority ENUM('LOW','MEDIUM','HIGH','URGENT') NOT NULL DEFAULT 'MEDIUM',
+        required_date DATE NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
+        remarks TEXT NULL,
+        is_active ENUM('Y','N') NOT NULL DEFAULT 'Y',
+        deleted_at DATETIME NULL,
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_pm_pr_scope_no (company_id, branch_id, requisition_no),
+        KEY idx_pm_pr_scope (company_id, branch_id),
+        KEY idx_pm_pr_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+  const ensureCol2 = async (col, ddl) => {
+    if (!(await hasColumn(t, col))) {
+      await query(`ALTER TABLE ${t} ADD COLUMN ${ddl}`).catch(() => null);
+    }
+  };
+  await ensureCol2("is_active", "ENUM('Y','N') NOT NULL DEFAULT 'Y'");
+  await ensureCol2("deleted_at", "DATETIME NULL");
+  await ensureCol2("project_id", "BIGINT UNSIGNED NULL");
+  await ensureCol2("project_name", "VARCHAR(255) NULL");
+  await ensureCol2("timeline", "VARCHAR(255) NULL");
+
+  const ti = "pm_purchase_requisition_items";
+  if (!(await hasTable(ti))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS ${ti} (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        requisition_id BIGINT UNSIGNED NOT NULL,
+        item_id BIGINT UNSIGNED NULL,
+        description VARCHAR(255) NOT NULL,
+        qty DECIMAL(18,3) NOT NULL DEFAULT 0,
+        uom VARCHAR(20) NULL,
+        estimated_unit_cost DECIMAL(18,2) NOT NULL DEFAULT 0,
+        estimated_total DECIMAL(18,2) NOT NULL DEFAULT 0,
+        remarks VARCHAR(255) NULL,
+        PRIMARY KEY (id),
+        KEY idx_pm_pri_req (requisition_id),
+        CONSTRAINT fk_pm_pri_req FOREIGN KEY (requisition_id) REFERENCES ${t}(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
   }
 }

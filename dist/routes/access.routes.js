@@ -1,3 +1,7 @@
+/**
+ * @file access.routes.js
+ * @description Routes for role-based access control, user permissions, and dashboards.
+ */
 import express from "express";
 import { query } from "../db/pool.js";
 import { requireAuth, requireCompanyScope } from "../middleware/auth.js";

@@ -1,9 +1,18 @@
+/**
+ * @file upload.controller.js
+ * @description Controller for file uploads, primarily handling Cloudinary integration and local fallback.
+ */
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { query } from "../db/pool.js";
 
+/**
+ * Ensures the local uploads directory exists, creating it if necessary.
+ * 
+ * @returns {string} The absolute path to the uploads directory.
+ */
 export const ensureUploadDir = () => {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -14,6 +23,14 @@ export const ensureUploadDir = () => {
   return uploadDir;
 };
 
+/**
+ * Retrieves a system setting value from the database, falling back through branch/company hierarchy.
+ *
+ * @param {string} key - The setting key to look up.
+ * @param {number|null} companyId - Optional company ID.
+ * @param {number|null} branchId - Optional branch ID.
+ * @returns {Promise<string|null>} The setting value or null.
+ */
 async function getSystemSetting(key, companyId = null, branchId = null) {
   try {
     await query(`
@@ -38,19 +55,25 @@ async function getSystemSetting(key, companyId = null, branchId = null) {
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE setting_key = :key 
       AND (company_id = :companyId OR company_id IS NULL)
-      AND (branch_id = :branchId OR branch_id IS NULL)
+      AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
     ORDER BY company_id DESC, branch_id DESC
     LIMIT 1
     `,
     {
       key,
       companyId: companyId ?? null,
-      branchId: branchId ?? null,
+      branchId: branchId ?? null, branchIdsStr,
     },
   ).catch(() => []);
   return rows?.[0]?.setting_value || null;
 }
 
+/**
+ * Fetches Cloudinary configuration settings from the system database.
+ *
+ * @param {object} scope - The request scope containing companyId and branchId.
+ * @returns {Promise<object|null>} Cloudinary config object or null if incomplete.
+ */
 async function getCloudinaryConfig(scope) {
   const companyId = scope?.companyId ?? null;
   const branchId = scope?.branchId ?? null;
@@ -70,7 +93,7 @@ async function getCloudinaryConfig(scope) {
     branchId,
   );
   const folder =
-    (await getSystemSetting("CLOUDINARY_UPLOAD_FOLDER", companyId, branchId)) ||
+    (await getSystemSetting("CLOUDINARY_UPLOAD_FOLDER", companyId, branchId, branchIdsStr)) ||
     null;
   if (cloud_name && api_key && api_secret) {
     return { cloud_name, api_key, api_secret, folder };
@@ -78,6 +101,13 @@ async function getCloudinaryConfig(scope) {
   return null;
 }
 
+/**
+ * Handles file uploads, preferring Cloudinary if configured, otherwise falls back or fails.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export const uploadFile = async (req, res, next) => {
   try {
     if (!req.file) {
@@ -139,19 +169,11 @@ export const uploadFile = async (req, res, next) => {
         } catch {}
         return;
       } catch (e) {
-        // Fall through to local storage if Cloudinary upload fails
+        next(e);
+        return;
       }
     }
-    // Local storage fallback
-    const filePath = `/uploads/${req.file.filename}`;
-    const origin = `${req.protocol}://${req.get("host")}`;
-    const fileUrl = `${origin}${filePath}`;
-    res.json({
-      message: "File uploaded successfully",
-      url: fileUrl,
-      path: filePath,
-      filename: req.file.filename,
-    });
+    return next(new Error("Cloudinary is not configured"));
   } catch (e) {
     next(e);
   }

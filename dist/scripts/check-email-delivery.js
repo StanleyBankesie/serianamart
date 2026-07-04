@@ -21,6 +21,7 @@ dotenv.config({ path: envPath });
 
 console.log("\n========== DOCUMENT FORWARDING EMAIL DEBUG ==========\n");
 
+// Database connection configuration
 const config = {
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -28,6 +29,7 @@ const config = {
   database: process.env.DB_NAME,
 };
 
+// Main asynchronous execution block
 (async () => {
   let conn;
   try {
@@ -38,6 +40,7 @@ const config = {
     console.log("1. CHECKING ADMIN USER");
     console.log("   " + "=".repeat(50));
 
+    // Fetch admin user details to ensure email is configured
     const [adminUser] = await conn.query(
       `SELECT id, username, email, is_active FROM adm_users WHERE id = 1`,
     );
@@ -56,6 +59,7 @@ const config = {
     console.log("\n2. RECENT WORKFLOW ACTIVITY (Last 20 records)");
     console.log("   " + "=".repeat(50));
 
+    // Query recent document workflows to see if forwarding was triggered
     const [workflows] = await conn.query(
       `SELECT id, document_id, document_type, assigned_to_user_id, status, created_at
        FROM adm_document_workflows 
@@ -77,6 +81,7 @@ const config = {
     console.log("\n3. EMAIL LOGS - ALL ATTEMPTS (Last 30 records)");
     console.log("   " + "=".repeat(50));
 
+    // Query system logs specifically for email sending activities
     const [emailLogs] = await conn.query(
       `SELECT id, user_id, module_name, action, message, event_time
        FROM adm_system_logs 
@@ -102,6 +107,7 @@ const config = {
     console.log("\n4. ALL LOGS FOR USER ID 1 (Last 50)");
     console.log("   " + "=".repeat(50));
 
+    // Query all actions performed by or for the admin user
     const [userLogs] = await conn.query(
       `SELECT id, module_name, action, message, event_time
        FROM adm_system_logs 
@@ -123,6 +129,7 @@ const config = {
     console.log("\n5. NOTIFICATION PREFERENCES FOR ADMIN USER");
     console.log("   " + "=".repeat(50));
 
+    // Query notification preferences to confirm email notifications are enabled
     const [prefs] = await conn.query(
       `SELECT pref_key, email_enabled, push_enabled 
        FROM adm_notification_prefs 
@@ -144,6 +151,7 @@ const config = {
     // 6. SMTP Configuration
     console.log("\n6. SMTP CONFIGURATION STATUS");
     console.log("   " + "=".repeat(50));
+    // Output SMTP environment variables for debugging
     console.log(`   SMTP_HOST: ${process.env.SMTP_HOST || "✗ NOT SET"}`);
     console.log(`   SMTP_PORT: ${process.env.SMTP_PORT || "✗ NOT SET"}`);
     console.log(
@@ -155,8 +163,10 @@ const config = {
     console.log(`   SMTP_FROM: ${process.env.SMTP_FROM || "✗ NOT SET"}`);
     console.log(`   SMTP_SECURE: ${process.env.SMTP_SECURE || "false"}`);
 
+    // Close database connection
     await conn.end();
   } catch (err) {
+    // Catch and report any execution errors
     console.error("\n✗ Error:", err.message);
     process.exit(1);
   }

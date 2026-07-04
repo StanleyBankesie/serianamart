@@ -9,6 +9,7 @@ import { query } from "../db/pool.js";
 const router = express.Router();
 
 // Get outstanding bills for a supplier (for payment voucher linking)
+// Returns all posted, unpaid or partially paid bills for a given supplier.
 router.get(
   "/outstanding",
   requireAuth,
@@ -128,6 +129,7 @@ router.get(
 // 1) Uses account_code directly (or resolves from account_id for backwards compat),
 // 2) Finds supplier where supplier_code = account_code,
 // 3) Returns their outstanding UNPAID / PARTIAL PAYMENT bills
+// Useful for ledger reconciliation and account-based payment flows.
 router.get(
   "/outstanding-by-account",
   requireAuth,
@@ -140,31 +142,57 @@ router.get(
       const { account_code, account_id } = req.query;
 
       let accountCode = String(account_code || "").trim();
+      let accountName = "";
 
-      if (!accountCode && account_id) {
-        // Backwards compat: resolve account_id → code from fin_accounts
+      if (account_id) {
+        // Resolve account_id → code AND name from fin_accounts
         const accountRows = await query(
-          `SELECT code FROM fin_accounts 
+          `SELECT code, name FROM fin_accounts 
            WHERE id = ? AND company_id = ?`,
           [account_id, companyId],
         );
-        accountCode = accountRows?.[0]?.code
-          ? String(accountRows[0].code).trim()
-          : "";
+        if (accountRows?.[0]) {
+          if (!accountCode) accountCode = String(accountRows[0].code || "").trim();
+          accountName = String(accountRows[0].name || "").trim();
+        }
       }
 
-      if (!accountCode) {
+      // Also resolve name from code if only code was provided
+      if (accountCode && !accountName) {
+        const nameRows = await query(
+          `SELECT name FROM fin_accounts WHERE code = ? AND company_id = ?`,
+          [accountCode, companyId],
+        );
+        if (nameRows?.[0]) {
+          accountName = String(nameRows[0].name || "").trim();
+        }
+      }
+
+      if (!accountCode && !accountName) {
         return res.status(400).json({ error: "account_code is required" });
       }
 
-      // Step 2: Find supplier where supplier_code = account_code
-      const supplierRows = await query(
-        `SELECT id, supplier_code, supplier_name 
-         FROM pur_suppliers 
-         WHERE company_id = ? AND supplier_code = ?
-         LIMIT 1`,
-        [companyId, accountCode],
-      );
+      // Step 2: Find supplier — first by supplier_code = account_code, then by name match
+      let supplierRows = [];
+      if (accountCode) {
+        supplierRows = await query(
+          `SELECT id, supplier_code, supplier_name 
+           FROM pur_suppliers 
+           WHERE company_id = ? AND supplier_code = ?
+           LIMIT 1`,
+          [companyId, accountCode],
+        );
+      }
+      // Fallback: match by supplier name = account name
+      if ((!supplierRows || supplierRows.length === 0) && accountName) {
+        supplierRows = await query(
+          `SELECT id, supplier_code, supplier_name 
+           FROM pur_suppliers 
+           WHERE company_id = ? AND supplier_name = ?
+           LIMIT 1`,
+          [companyId, accountName],
+        );
+      }
 
       if (!supplierRows || supplierRows.length === 0) {
         return res.json({ items: [] });
@@ -173,28 +201,66 @@ router.get(
       const supplierId = supplierRows[0].id;
 
       // Step 3: Get outstanding UNPAID / PARTIAL PAYMENT bills for this supplier
-      const sql = `SELECT b.id, b.bill_no, b.bill_date, b.net_amount, b.amount_paid, 
-                (b.net_amount - COALESCE(b.amount_paid, 0)) as balance_amount,
-                b.payment_status, b.due_date, s.supplier_name,
-                bd.item_id, i.item_name, bd.qty, bd.unit_price, bd.line_total
-         FROM pur_bills b
-         LEFT JOIN pur_suppliers s ON b.supplier_id = s.id
-         LEFT JOIN pur_bill_details bd ON b.id = bd.bill_id
-         LEFT JOIN inv_items i ON bd.item_id = i.id
-         WHERE b.supplier_id = ? 
-           AND b.company_id = ? 
-           AND (b.branch_id = ? OR b.branch_id IS NULL)
-           AND (b.payment_status = 'UNPAID' OR b.payment_status = 'PARTIAL PAYMENT')
-           AND b.status = 'POSTED'
-         ORDER BY b.bill_date DESC`;
-      const billParams = [supplierId, companyId, branchId];
+      // from pur_bills (purchase bills), pur_service_bills, and maint_bills
+      const sql = `
+        SELECT id, bill_no, bill_date, net_amount, amount_paid, balance_amount,
+               payment_status, due_date, supplier_name, source, items
+        FROM (
+          SELECT b.id, b.bill_no, b.bill_date, b.net_amount, b.amount_paid,
+                 (b.net_amount - COALESCE(b.amount_paid, 0)) as balance_amount,
+                 b.payment_status, b.due_date, s.supplier_name,
+                 'Purchase' as source,
+                 NULL as items
+          FROM pur_bills b
+          LEFT JOIN pur_suppliers s ON b.supplier_id = s.id
+          WHERE b.supplier_id = ?
+            AND b.company_id = ?
+            AND (b.branch_id = ? OR b.branch_id IS NULL)
+            AND (b.payment_status = 'UNPAID' OR b.payment_status = 'PARTIAL PAYMENT')
+            AND b.status = 'POSTED'
+
+          UNION ALL
+
+          SELECT sb.id, sb.bill_no, sb.bill_date,
+                 sb.total_amount as net_amount,
+                 COALESCE(sb.amount_paid, 0) as amount_paid,
+                 (sb.total_amount - COALESCE(sb.amount_paid, 0)) as balance_amount,
+                 sb.payment_status, sb.due_date, s.supplier_name,
+                 'Service' as source,
+                 NULL as items
+          FROM pur_service_bills sb
+          LEFT JOIN pur_suppliers s ON sb.supplier_id = s.id
+          WHERE sb.supplier_id = ?
+            AND sb.company_id = ?
+            AND (sb.branch_id = ? OR sb.branch_id IS NULL)
+            AND (sb.payment_status = 'UNPAID' OR sb.payment_status = 'PARTIAL' OR sb.payment_status = 'PARTIAL PAYMENT')
+            AND (sb.status IN ('PENDING', 'COMPLETED', 'POSTED') OR sb.status IS NULL OR sb.status = '')
+
+          UNION ALL
+
+          SELECT mb.id, mb.bill_no, mb.bill_date,
+                 mb.total_amount as net_amount,
+                 COALESCE(mb.amount_paid, 0) as amount_paid,
+                 (mb.total_amount - COALESCE(mb.amount_paid, 0)) as balance_amount,
+                 mb.payment_status, mb.due_date, mb.supplier_name,
+                 'Maintenance' as source,
+                 NULL as items
+          FROM maint_bills mb
+          WHERE mb.supplier_id = ?
+            AND mb.company_id = ?
+            AND (mb.branch_id = ? OR mb.branch_id IS NULL)
+            AND (mb.payment_status = 'UNPAID' OR mb.payment_status = 'PARTIAL' OR mb.payment_status = 'PARTIAL PAYMENT')
+            AND mb.status NOT IN ('CANCELLED', 'DRAFT')
+        ) combined
+        ORDER BY bill_date DESC`;
+      const billParams = [supplierId, companyId, branchId, supplierId, companyId, branchId, supplierId, companyId, branchId];
       const billRows = await query(sql, billParams);
 
       // Group bill details by bill
       const billsMap = new Map();
       (billRows || []).forEach((row) => {
-        if (!billsMap.has(row.id)) {
-          billsMap.set(row.id, {
+        if (!billsMap.has(`${row.source}_${row.id}`)) {
+          billsMap.set(`${row.source}_${row.id}`, {
             id: row.id,
             bill_no: row.bill_no,
             bill_date: row.bill_date,
@@ -204,16 +270,8 @@ router.get(
             payment_status: row.payment_status,
             due_date: row.due_date,
             supplier_name: row.supplier_name,
+            source: row.source,
             items: [],
-          });
-        }
-        if (row.item_id) {
-          billsMap.get(row.id).items.push({
-            item_id: row.item_id,
-            item_name: row.item_name,
-            qty: row.qty,
-            unit_price: row.unit_price,
-            line_total: row.line_total,
           });
         }
       });
@@ -234,6 +292,7 @@ router.get(
 );
 
 // Update bill payment status when payment is made
+// Recalculates total paid vs net amount to determine if bill is FULLY PAID, PARTIAL, or UNPAID.
 router.post(
   "/update-payment-status",
   requireAuth,

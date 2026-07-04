@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Production module routes.
+ * Provides endpoints for managing production data, including Bill of Materials (BOM),
+ * work orders, routings, setup processes, and execution tracking.
+ */
 import express from "express";
 
 import {

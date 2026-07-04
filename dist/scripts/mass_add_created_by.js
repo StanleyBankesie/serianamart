@@ -1,7 +1,21 @@
+/**
+ * @file mass_add_created_by.js
+ * @description Migration script that scans all base tables in the database
+ * and adds a `created_by` column with an associated index to any table
+ * that doesn't already have it.
+ */
+
 import * as dotenv from 'dotenv';
 dotenv.config({ path: './server/.env' });
 import { query } from "../db/pool.js";
 
+/**
+ * Main execution function.
+ * Retrieves a list of all tables in the current database, checks for
+ * the `created_by` column, and alters the table to add it if missing.
+ * 
+ * @returns {Promise<void>} Resolves when all tables have been processed.
+ */
 async function run() {
   try {
     const tables = await query(`

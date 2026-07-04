@@ -1,10 +1,21 @@
+/**
+ * @file training.controller.js
+ * @description Controller for HR training programs, assignments, attendance, and certifications.
+ */
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { toNumber } from "../utils/dbUtils.js";
 
+/**
+ * Retrieves a paginated list of training programs filtered by company, category, type, and active status.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listTrainingPrograms(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { category, training_type, is_active, q } = req.query;
     const clauses = ["t.company_id = :companyId"];
     const params = { companyId };
@@ -18,9 +29,16 @@ export async function listTrainingPrograms(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Fetches the details of a single training program by its ID.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getTrainingProgram(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     const rows = await query(`SELECT t.*, d.dept_name FROM hr_training_programs t LEFT JOIN hr_departments d ON d.id = t.dept_id WHERE t.id = :id AND t.company_id = :companyId`, { id, companyId });
     if (!rows.length) throw httpError(404, "NOT_FOUND", "Training program not found");
@@ -28,9 +46,16 @@ export async function getTrainingProgram(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Creates or updates a training program depending on whether an ID is provided.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveTrainingProgram(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { id, code, name, category, description, training_type, trainer, vendor, venue, training_mode, start_date, end_date, cost, capacity, dept_id, required_skills, attachment_url, is_active } = req.body;
     if (id) {
@@ -43,18 +68,32 @@ export async function saveTrainingProgram(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Deactivates a training program (soft delete).
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function deleteTrainingProgram(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     await query(`UPDATE hr_training_programs SET is_active = 0 WHERE id = :id AND company_id = :companyId`, { id, companyId });
     res.json({ message: "Program deactivated" });
   } catch (err) { next(err); }
 }
 
+/**
+ * Lists assignments of employees to training programs with filtering.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listTrainingAssignments(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { program_id, employee_id, status } = req.query;
     const clauses = ["a.company_id = :companyId"];
     const params = { companyId };
@@ -67,9 +106,16 @@ export async function listTrainingAssignments(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Creates or updates an employee's training assignment, handling status progression.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveTrainingAssignment(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const userId = req.user?.id || req.user?.sub;
     const { id, program_id, employee_id, status, score, feedback } = req.body;
     if (!program_id || !employee_id) throw httpError(400, "VALIDATION_ERROR", "Program and employee are required");
@@ -85,15 +131,29 @@ export async function saveTrainingAssignment(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Hard deletes a training assignment.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function deleteTrainingAssignment(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     await query(`DELETE FROM hr_training_assignments WHERE id = :id AND company_id = :companyId`, { id, companyId });
     res.json({ message: "Assignment removed" });
   } catch (err) { next(err); }
 }
 
+/**
+ * Retrieves attendance records for a specific training assignment.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listTrainingAttendance(req, res, next) {
   try {
     const { assignment_id } = req.query;
@@ -106,6 +166,13 @@ export async function listTrainingAttendance(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Creates or updates attendance records for a training session.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveTrainingAttendance(req, res, next) {
   try {
     const { id, assignment_id, session_date, present, hours_attended, remarks } = req.body;
@@ -119,9 +186,16 @@ export async function saveTrainingAttendance(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Lists history of completed or confirmed training assignments.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listTrainingHistory(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { employee_id, program_id } = req.query;
     const clauses = ["ta.company_id = :companyId", "ta.status IN ('COMPLETED','CONFIRMED')"];
     const params = { companyId };
@@ -133,9 +207,16 @@ export async function listTrainingHistory(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Lists certifications awarded to employees.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function listCertifications(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { employee_id } = req.query;
     const clauses = ["c.company_id = :companyId"];
     const params = { companyId };
@@ -146,9 +227,16 @@ export async function listCertifications(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Creates or updates an employee certification record.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveCertification(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id, employee_id, training_program_id, cert_name, issued_by, issue_date, expiry_date, cert_url, cert_number } = req.body;
     if (id) {
       await query(`UPDATE hr_certifications SET cert_name = :cert_name, issued_by = :issued_by, issue_date = :issue_date, expiry_date = :expiry_date, cert_url = :cert_url, cert_number = :cert_number WHERE id = :id AND company_id = :companyId`, { id, cert_name, issued_by, issue_date, expiry_date, cert_url, cert_number, companyId });
@@ -160,18 +248,32 @@ export async function saveCertification(req, res, next) {
   } catch (err) { next(err); }
 }
 
+/**
+ * Deletes a certification record.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function deleteCertification(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const { id } = req.params;
     await query(`DELETE FROM hr_certifications WHERE id = :id AND company_id = :companyId`, { id, companyId });
     res.json({ message: "Certification deleted" });
   } catch (err) { next(err); }
 }
 
+/**
+ * Retrieves aggregate statistics for the training dashboard.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getTrainingDashboard(req, res, next) {
   try {
-    const { companyId } = req.scope;
+    const { companyId = null } = req.scope || {};
     const total = await query(`SELECT COUNT(*) AS c FROM hr_training_programs WHERE company_id = :companyId`, { companyId });
     const active = await query(`SELECT COUNT(*) AS c FROM hr_training_programs WHERE company_id = :companyId AND is_active = 1 AND start_date <= CURDATE() AND (end_date >= CURDATE() OR end_date IS NULL)`, { companyId });
     const enrolled = await query(`SELECT COUNT(*) AS c FROM hr_training_assignments WHERE company_id = :companyId AND status IN ('ASSIGNED','CONFIRMED')`, { companyId });

@@ -1,10 +1,16 @@
+// Database Pool Import
 import { pool } from "../db/pool.js";
 
+/**
+ * Main execution function to create purchase reward campaign tables.
+ * Handles table creation and schema updates for existing tables.
+ */
 async function run() {
   const conn = await pool.getConnection();
   try {
     console.log("Creating purchase reward campaign tables...");
 
+    // 1. Create Purchase Reward Campaigns Table
     await conn.query(`
       CREATE TABLE IF NOT EXISTS sal_purchase_reward_campaigns (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -26,26 +32,24 @@ async function run() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // 2. Create Purchase Reward Campaign Items Table
     await conn.query(`
       CREATE TABLE IF NOT EXISTS sal_purchase_reward_campaign_items (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         campaign_id BIGINT UNSIGNED NOT NULL,
-        item_id BIGINT UNSIGNED NOT NULL,
+        item_ids VARCHAR(500) NOT NULL DEFAULT '',
         item_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
-        free_item_id BIGINT UNSIGNED NOT NULL,
+        free_item_ids VARCHAR(500) NOT NULL DEFAULT '',
         free_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000',
         PRIMARY KEY (id),
         KEY idx_pr_items_campaign (campaign_id),
-        KEY idx_pr_items_item (item_id),
-        KEY idx_pr_items_free (free_item_id),
-        CONSTRAINT fk_pr_items_campaign FOREIGN KEY (campaign_id) REFERENCES sal_purchase_reward_campaigns (id) ON DELETE CASCADE,
-        CONSTRAINT fk_pr_items_item FOREIGN KEY (item_id) REFERENCES inv_items (id) ON DELETE CASCADE,
-        CONSTRAINT fk_pr_items_free FOREIGN KEY (free_item_id) REFERENCES inv_items (id) ON DELETE CASCADE
+        CONSTRAINT fk_pr_items_campaign FOREIGN KEY (campaign_id) REFERENCES sal_purchase_reward_campaigns (id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
     // Add used_qty column if it doesn't exist (for existing tables)
     try {
+      // Attempt to add used_qty column for backward compatibility
       await conn.query(`
         ALTER TABLE sal_purchase_reward_campaigns
         ADD COLUMN used_qty DECIMAL(18,3) NOT NULL DEFAULT '0.000'

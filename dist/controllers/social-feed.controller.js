@@ -11,6 +11,13 @@ import { sendPushToUser } from "../routes/push.routes.js";
 // 📌 GET POSTS WITH VISIBILITY FILTERING
 // ============================================
 
+/**
+ * Retrieves a paginated list of social feed posts visible to the current user.
+ * Filters posts based on company or warehouse visibility.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const getPosts = async (req, res) => {
   try {
     const userId =
@@ -179,6 +186,13 @@ export const getPosts = async (req, res) => {
 // ============================================
 // 📌 GET SINGLE POST WITH ALL COMMENTS
 // ============================================
+
+/**
+ * Retrieves a single post by its ID, including all associated comments.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const getPostById = async (req, res) => {
   try {
     const userId =
@@ -327,6 +341,13 @@ export const getPostById = async (req, res) => {
 // 📝 CREATE POST
 // ============================================
 
+/**
+ * Creates a new social feed post with visibility constraints.
+ * Broadcasts the new post and triggers notifications.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const createPost = async (req, res) => {
   try {
     const userId =
@@ -472,6 +493,12 @@ export const createPost = async (req, res) => {
   }
 };
 
+/**
+ * Retrieves a paginated list of comments for a specific post.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const getPostComments = async (req, res) => {
   try {
     const { postId } = req.params;
@@ -554,6 +581,13 @@ export const getPostComments = async (req, res) => {
 // ============================================
 // 🖼️ UPDATE POST IMAGE
 // ============================================
+
+/**
+ * Updates the image URL for an existing post. Only the post owner can perform this.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const updatePostImage = async (req, res) => {
   try {
     const userId =
@@ -603,6 +637,12 @@ export const updatePostImage = async (req, res) => {
   }
 };
 
+/**
+ * Retrieves a paginated list of users who liked a specific post.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const getPostLikes = async (req, res) => {
   try {
     const { postId } = req.params;
@@ -683,6 +723,13 @@ export const getPostLikes = async (req, res) => {
 // ❤️ LIKE POST
 // ============================================
 
+/**
+ * Adds a like to a post for the current user.
+ * Broadcasts the like event and triggers a notification to the post owner.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const likePost = async (req, res) => {
   try {
     const userId =
@@ -778,6 +825,12 @@ export const likePost = async (req, res) => {
 // 💔 UNLIKE POST
 // ============================================
 
+/**
+ * Removes a like from a post for the current user.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const unlikePost = async (req, res) => {
   try {
     const userId =
@@ -847,6 +900,13 @@ export const unlikePost = async (req, res) => {
 // 💬 ADD COMMENT
 // ============================================
 
+/**
+ * Adds a comment to a post.
+ * Broadcasts the comment event and triggers a notification to the post owner.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
 export const addComment = async (req, res) => {
   try {
     const userId =
@@ -1025,6 +1085,13 @@ export const addComment = async (req, res) => {
 // 🔔 SOCKET.IO BROADCAST FUNCTIONS
 // ============================================
 
+/**
+ * Broadcasts a new post event to connected clients in the appropriate room (company or warehouse).
+ *
+ * @param {object} post - The newly created post object.
+ * @param {string} visibility_type - The visibility scope ('company' or 'warehouse').
+ * @param {number|null} warehouseId - The warehouse ID if visibility is 'warehouse'.
+ */
 const broadcastNewPost = (post, visibility_type, warehouseId) => {
   try {
     const io = getIO();
@@ -1039,6 +1106,13 @@ const broadcastNewPost = (post, visibility_type, warehouseId) => {
   }
 };
 
+/**
+ * Broadcasts a like event to the post owner.
+ *
+ * @param {number|string} postId - The ID of the liked post.
+ * @param {number} userId - The ID of the user who liked the post.
+ * @param {number} postOwnerId - The ID of the post owner.
+ */
 const broadcastLike = (postId, userId, postOwnerId) => {
   try {
     const io = getIO();
@@ -1051,6 +1125,12 @@ const broadcastLike = (postId, userId, postOwnerId) => {
   }
 };
 
+/**
+ * Broadcasts a comment event to the post's room.
+ *
+ * @param {number|string} postId - The ID of the commented post.
+ * @param {object} comment - The new comment object.
+ */
 const broadcastComment = (postId, comment) => {
   try {
     const io = getIO();
@@ -1067,6 +1147,16 @@ const broadcastComment = (postId, comment) => {
 // 📧 NOTIFICATION FUNCTIONS
 // ============================================
 
+/**
+ * Triggers in-app and push notifications for a new post, targeting the appropriate audience.
+ *
+ * @param {number|string} postId - The ID of the new post.
+ * @param {number} userId - The ID of the user who created the post.
+ * @param {string} type - The type of notification (e.g., 'post_created').
+ * @param {string} visibility_type - The visibility scope ('company' or 'warehouse').
+ * @param {number|null} warehouseId - The warehouse ID if visibility is 'warehouse'.
+ * @param {number} companyId - The company ID.
+ */
 const triggerPostNotifications = async (
   postId,
   userId,
@@ -1163,6 +1253,14 @@ const triggerPostNotifications = async (
   }
 };
 
+/**
+ * Triggers an in-app and push notification to the post owner when their post is liked.
+ *
+ * @param {number|string} postId - The ID of the liked post.
+ * @param {number} userId - The ID of the user who liked the post.
+ * @param {number} postOwnerId - The ID of the post owner.
+ * @param {number} companyId - The company ID.
+ */
 const triggerLikeNotification = async (
   postId,
   userId,
@@ -1226,6 +1324,14 @@ const triggerLikeNotification = async (
   }
 };
 
+/**
+ * Triggers an in-app and push notification to the post owner when their post is commented on.
+ *
+ * @param {number|string} postId - The ID of the commented post.
+ * @param {number} userId - The ID of the user who commented on the post.
+ * @param {number} postOwnerId - The ID of the post owner.
+ * @param {number} companyId - The company ID.
+ */
 const triggerCommentNotification = async (
   postId,
   userId,

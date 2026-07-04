@@ -1,5 +1,6 @@
 import { query } from "../db/pool.js";
 
+// Default HTML template for generating sales invoices
 const DEFAULT_INVOICE_TEMPLATE = `<html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -501,6 +502,7 @@ const DEFAULT_INVOICE_TEMPLATE = `<html lang="en">
 </body>
 </html>`;
 
+// Default HTML template for generating sales orders
 const DEFAULT_SALES_ORDER_TEMPLATE = `<html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1007,9 +1009,11 @@ const DEFAULT_SALES_ORDER_TEMPLATE = `<html lang="en">
 </html>`;
 
 /**
- * Seed default document templates to database
- * Called during server startup to ensure templates exist
- * Handles: invoice, sales-order, and other document types
+ * Seed default document templates to database.
+ * Called during server startup to ensure templates exist.
+ * Handles: invoice, sales-order, and other document types.
+ *
+ * @returns {Promise<void>}
  */
 export async function seedDefaultTemplates() {
   try {
@@ -1047,7 +1051,7 @@ export async function seedDefaultTemplates() {
       },
     ];
 
-    // Seed each template
+    // Loop through each template type and insert/update it in the database
     for (const { type, name, template } of templates) {
       try {
         // Check if system template exists (company_id = 0)

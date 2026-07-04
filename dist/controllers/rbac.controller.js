@@ -1,10 +1,24 @@
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { ensureRoleFeaturesTable } from "../utils/dbUtils.js";
+import { permissionCache } from "../utils/permissionCache.js";
+import { cacheGet, cacheSet, cacheDelPattern } from "../utils/redis.js";
 
 // ROLES CONTROLLER
+/**
+ * Retrieves all roles from the system, including creation details and the username of the creator.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getRoles(req, res, next) {
   try {
+    const cacheKey = "roles:all";
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const roles = await query(`SELECT id, name, code, is_active, created_at, updated_at,
           created_at,
           u.username AS created_by_name
@@ -12,16 +26,26 @@ export async function getRoles(req, res, next) {
         LEFT JOIN adm_users u ON u.id = created_by
          ORDER BY name`
     );
+    await cacheSet(cacheKey, roles, 86400).catch(() => {});
     res.json(roles);
   } catch (err) {
     next(err);
   }
 }
 
+/**
+ * Creates a new role in the system. Ensures that the role code is unique before insertion.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function createRole(req, res, next) {
   try {
+    // Extract role data from request body
     const { name, code, is_active = true } = req.body;
     
+    // Validate required fields
     if (!name || !code) {
       return next(httpError(400, "Name and code are required"));
     }
@@ -54,17 +78,28 @@ export async function createRole(req, res, next) {
       { id: result.insertId }
     );
     
+    await cacheDelPattern("roles:*").catch(() => {});
     res.status(201).json(newRole[0]);
   } catch (err) {
     next(err);
   }
 }
 
+/**
+ * Updates an existing role's details. Verifies that the role exists and that the updated code 
+ * doesn't conflict with another existing role.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function updateRole(req, res, next) {
   try {
+    // Extract route parameters and request body
     const { id } = req.params;
     const { name, code, is_active } = req.body;
     
+    // Validate required fields
     if (!name || !code) {
       return next(httpError(400, "Name and code are required"));
     }
@@ -112,6 +147,7 @@ export async function updateRole(req, res, next) {
       { id }
     );
     
+    await cacheDelPattern("roles:*").catch(() => {});
     res.json(updatedRole[0]);
   } catch (err) {
     next(err);
@@ -119,6 +155,13 @@ export async function updateRole(req, res, next) {
 }
 
 // ROLE MODULES CONTROLLER
+/**
+ * Retrieves all modules associated with a specific role ID.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getRoleModules(req, res, next) {
   try {
     const { roleId } = req.params;
@@ -138,10 +181,20 @@ export async function getRoleModules(req, res, next) {
   }
 }
 
+/**
+ * Saves or updates the modules accessible to a specific role.
+ * Replaces the existing role modules and updates related permissions in a database transaction.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveRoleModules(req, res, next) {
   try {
+    // Extract role ID and module list
     const { role_id, modules } = req.body;
     
+    // Validate request data
     if (!role_id || !Array.isArray(modules)) {
       return next(httpError(400, "Role ID and modules array are required"));
     }
@@ -151,6 +204,7 @@ export async function saveRoleModules(req, res, next) {
       return next(httpError(400, "Valid role_id is required"));
     }
 
+    // Deduplicate and sanitize module keys
     const moduleKeys = Array.from(
       new Set(
         (modules || [])
@@ -159,6 +213,7 @@ export async function saveRoleModules(req, res, next) {
       ),
     );
 
+    // Initialize database connection for transaction
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
@@ -191,6 +246,8 @@ export async function saveRoleModules(req, res, next) {
       }
 
       await conn.commit();
+      // Invalidate permission cache for all users with this role
+      // Best-effort: rely on TTL for users we can't identify here
       res.json({ message: "Role modules saved successfully" });
     } catch (err) {
       try {
@@ -206,6 +263,13 @@ export async function saveRoleModules(req, res, next) {
 }
 
 // ROLE PERMISSIONS CONTROLLER
+/**
+ * Retrieves granular permissions for a specific role across modules and features.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getRolePermissions(req, res, next) {
   try {
     const { roleId } = req.params;
@@ -226,55 +290,115 @@ export async function getRolePermissions(req, res, next) {
   }
 }
 
+/**
+ * Saves detailed permissions (view, create, edit, delete) for a role's modules and features.
+ * Overwrites all existing permissions for the role.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveRolePermissions(req, res, next) {
   try {
-    const { permissions } = req.body;
-    
-    if (!Array.isArray(permissions)) {
-      return next(httpError(400, "Permissions array is required"));
+    const body = req.body || {};
+    let permissions = Array.isArray(body.permissions) ? body.permissions : null;
+    let roleId = null;
+
+    if (!permissions) {
+      const featureKeys = Array.isArray(body.feature_keys)
+        ? body.feature_keys
+        : Array.isArray(body.featureKeys)
+          ? body.featureKeys
+          : null;
+      roleId = Number(body.role_id || body.roleId || 0);
+      if (!Number.isFinite(roleId) || roleId <= 0) {
+        return next(httpError(400, "Valid role_id is required"));
+      }
+      if (!Array.isArray(featureKeys)) {
+        return next(httpError(400, "feature_keys array is required"));
+      }
+      const deduped = Array.from(
+        new Set(featureKeys.map((fk) => String(fk || "").trim()).filter(Boolean)),
+      );
+      permissions = deduped.map((feature_key) => {
+        const module_key = feature_key.includes(":")
+          ? feature_key.split(":")[0]
+          : "";
+        return {
+          role_id: roleId,
+          module_key,
+          feature_key,
+          can_view: 1,
+          can_create: 0,
+          can_edit: 0,
+          can_delete: 0,
+        };
+      });
+    } else {
+      if (permissions.length === 0) {
+        return next(httpError(400, "At least one permission is required"));
+      }
+      roleId = Number(permissions[0]?.role_id || 0);
+      if (!Number.isFinite(roleId) || roleId <= 0) {
+        return next(httpError(400, "Valid role_id is required"));
+      }
     }
-    
-    if (permissions.length === 0) {
-      return next(httpError(400, "At least one permission is required"));
+
+    const rowsToInsert = permissions
+      .map((p) => {
+        const featureKey = String(p?.feature_key || "").trim();
+        if (!featureKey) return null;
+        const moduleKeyRaw = String(p?.module_key || "").trim();
+        const moduleKey = moduleKeyRaw || featureKey.split(":")[0] || "";
+        return [
+          roleId,
+          moduleKey,
+          featureKey,
+          Number(Boolean(p?.can_view)),
+          Number(Boolean(p?.can_create)),
+          Number(Boolean(p?.can_edit)),
+          Number(Boolean(p?.can_delete)),
+        ];
+      })
+      .filter(Boolean);
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query("DELETE FROM adm_role_permissions WHERE role_id = ?", [
+        roleId,
+      ]);
+      if (rowsToInsert.length > 0) {
+        await conn.query(
+          "INSERT INTO adm_role_permissions (role_id, module_key, feature_key, can_view, can_create, can_edit, can_delete) VALUES ?",
+          [rowsToInsert],
+        );
+      }
+      await conn.commit();
+      res.json({ message: "Role permissions saved successfully" });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      throw err;
+    } finally {
+      conn.release();
     }
-    
-    const roleId = permissions[0].role_id;
-    
-    // Delete existing permissions for this role
-    await query(`DELETE FROM adm_role_permissions WHERE role_id = :roleId`,
-      { roleId }
-    );
-    
-    // Insert new permissions
-    const values = permissions.map((_, index) => 
-      `(:roleId, :module_${index}, :feature_${index}, :view_${index}, :create_${index}, :edit_${index}, :delete_${index})`
-    ).join(',');
-    
-    const params = { roleId };
-    
-    permissions.forEach((perm, index) => {
-      params[`module_${index}`] = perm.module_key;
-      params[`feature_${index}`] = perm.feature_key;
-      params[`view_${index}`] = perm.can_view ? 1 : 0;
-      params[`create_${index}`] = perm.can_create ? 1 : 0;
-      params[`edit_${index}`] = perm.can_edit ? 1 : 0;
-      params[`delete_${index}`] = perm.can_delete ? 1 : 0;
-    });
-    
-    await query(`INSERT INTO adm_role_permissions 
-       (role_id, module_key, feature_key, can_view, can_create, can_edit, can_delete) 
-       VALUES ${values}`,
-      params
-    );
-    
-    res.json({ message: "Role permissions saved successfully" });
   } catch (err) {
     next(err);
   }
 }
 
+/**
+ * Fetches all enabled features for a given role.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function getRoleFeatures(req, res, next) {
   try {
+    // Ensure the required table exists before querying
     await ensureRoleFeaturesTable();
     const roleId = Number(req.params.roleId);
     if (!Number.isFinite(roleId) || !roleId) {
@@ -294,8 +418,17 @@ export async function getRoleFeatures(req, res, next) {
   }
 }
 
+/**
+ * Saves a flat list of feature keys for a role.
+ * Updates the database in a transaction to replace old feature mappings.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
 export async function saveRoleFeatures(req, res, next) {
   try {
+    // Ensure required table is available
     await ensureRoleFeaturesTable();
     const { role_id, features } = req.body || {};
     const roleId = Number(role_id);
