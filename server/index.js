@@ -770,7 +770,7 @@ if (process.env.NODE_ENV !== "test" && !socketsDisabled) {
 export { ioInstance as io };
 
 if (process.env.NODE_ENV !== "test") {
-  server.listen(PORT, () => {
+  server.listen(PORT, "127.0.0.1", () => {
     console.log(`Server running on port ${PORT}`);
     initCronJobs();
     console.log(`Mailer configured: ${isMailerConfigured() ? "yes" : "no"}`);
