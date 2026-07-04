@@ -59,6 +59,7 @@ export default function ServiceOrdersList() {
         it.service_type,
         it.status,
         it.work_location,
+        it.project_name,
       ],
     });
   }, [items, search]);
@@ -104,6 +105,7 @@ export default function ServiceOrdersList() {
                   <th>Order No</th>
                   <th>Date</th>
                   <th>Order Type</th>
+                  <th>Project</th>
                     <th>Customer/Contractor</th>
                   <th>Service</th>
                   <th>Status</th>
@@ -116,7 +118,7 @@ export default function ServiceOrdersList() {
               <tbody>
                 {!loading && filtered.length === 0 ? (
                   <tr>
-                    <td colSpan="10" className="text-center text-slate-500">
+                    <td colSpan="11" className="text-center text-slate-500">
                       No service orders
                     </td>
                   </tr>
@@ -126,6 +128,7 @@ export default function ServiceOrdersList() {
                     <td>{it.order_no}</td>
                     <td>{it.order_date}</td>
                     <td>{it.order_type}</td>
+                    <td>{it.project_name || "-"}</td>
                       <td>{it.customer_name}</td>
                     <td>{it.service_type}</td>
                     <td>{it.status}</td>

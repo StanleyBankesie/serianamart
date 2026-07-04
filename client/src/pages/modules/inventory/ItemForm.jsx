@@ -33,6 +33,7 @@ export default function ItemForm() {
   const [uoms, setUoms] = useState([]);
   const [categories, setCategories] = useState([]);
   const [itemTypes, setItemTypes] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
   const [lookupLoading, setLookupLoading] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -61,12 +62,19 @@ export default function ItemForm() {
     is_stockable: true,
     is_sellable: true,
     is_purchasable: true,
+    opening_quantity: 0,
+    opening_warehouse_id: "",
   });
 
   useEffect(() => {
     let cancelled = false;
     async function loadLookups() {
       setLookupLoading(true);
+      if (isNew) {
+        api.get("/inventory/warehouses").then(r => {
+          if (Array.isArray(r.data?.items)) setWarehouses(r.data.items);
+        }).catch(() => {});
+      }
       try {
         const res = await api.get("/inventory/item-setup-lookups");
         console.log("Consolidated lookup response:", res.data);
@@ -353,6 +361,8 @@ export default function ItemForm() {
         is_stockable: formData.is_stockable ? "Y" : "N",
         is_sellable: formData.is_sellable ? "Y" : "N",
         is_purchasable: formData.is_purchasable ? "Y" : "N",
+        opening_quantity: Number(formData.opening_quantity) || 0,
+        opening_warehouse_id: formData.opening_warehouse_id || null,
       };
 
       if (isNew) {
@@ -775,6 +785,44 @@ export default function ItemForm() {
                 </select>
               </div>
             </div>
+
+            {isNew && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
+                <h3 className="col-span-full font-semibold text-gray-700">
+                  Quantity (Optional)
+                </h3>
+                <div>
+                  <label className="label">Quantity</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={formData.opening_quantity}
+                    onChange={(e) =>
+                      setFormData({ ...formData, opening_quantity: e.target.value })
+                    }
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="label">Warehouse</label>
+                  <select
+                    className="input"
+                    value={formData.opening_warehouse_id}
+                    onChange={(e) =>
+                      setFormData({ ...formData, opening_warehouse_id: e.target.value })
+                    }
+                    required={Number(formData.opening_quantity) > 0}
+                  >
+                    <option value="">-- Select Warehouse --</option>
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.warehouse_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="label">Description</label>

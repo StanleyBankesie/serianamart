@@ -21,6 +21,23 @@ function nextDocNo(prefix) {
     .replace(/-/g, "")}-${Math.floor(Math.random() * 10000)}`;
 }
 
+async function nextScNo(companyId, branchId) {
+  const rows = await query(
+    `SELECT sc_no FROM inv_service_confirmations
+      WHERE company_id = :companyId AND (:branchId IS NULL OR branch_id = :branchId)
+        AND sc_no REGEXP '^SC-[0-9]{6}$'
+      ORDER BY CAST(SUBSTRING(sc_no, 4) AS UNSIGNED) DESC LIMIT 1`,
+    { companyId, branchId },
+  );
+  let nextNum = 1;
+  if (rows.length > 0) {
+    const numPart = String(rows[0].sc_no || "").slice(3);
+    const n = parseInt(numPart, 10);
+    if (Number.isFinite(n)) nextNum = n + 1;
+  }
+  return `SC-${String(nextNum).padStart(6, "0")}`;
+}
+
 // Utility Function: Check if a specific column exists in a database table
 async function hasColumn(tableName, columnName) {
   const rows = await query(
@@ -63,6 +80,27 @@ async function ensureJournalVoucherTypeIdTx(conn, { companyId }) {
     if (String(e?.code || "") !== "ER_DUP_ENTRY") throw e;
   }
   const id = await resolveVoucherTypeIdByCode(conn, { companyId, code: "JV" });
+  return id || 0;
+}
+// Voucher Management: Ensure Purchase Voucher type exists and return its ID
+async function ensurePurchaseVoucherTypeIdTx(conn, { companyId }) {
+  const existingId = await resolveVoucherTypeIdByCode(conn, {
+    companyId,
+    code: "PV",
+  });
+  if (existingId) return existingId;
+  try {
+    await conn.execute(
+      `INSERT INTO fin_voucher_types
+        (company_id, code, name, category, prefix, next_number, requires_approval, is_active)
+       VALUES
+        (:companyId, 'PV', 'Purchase Voucher', 'PURCHASE', 'PV', 1, 0, 1)`,
+      { companyId },
+    );
+  } catch (e) {
+    if (String(e?.code || "") !== "ER_DUP_ENTRY") throw e;
+  }
+  const id = await resolveVoucherTypeIdByCode(conn, { companyId, code: "PV" });
   return id || 0;
 }
 // Voucher Management: Generate the next voucher number and increment the sequence
@@ -298,9 +336,69 @@ async function ensureServiceConfirmationTables() {
       "ALTER TABLE inv_service_confirmations ADD COLUMN order_id BIGINT UNSIGNED NULL AFTER sc_date",
     );
   }
+  if (!(await hasColumn("inv_service_confirmations", "order_no"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN order_no VARCHAR(50) NULL AFTER order_id",
+    );
+  }
   if (!(await hasColumn("inv_service_confirmations", "execution_id"))) {
     await pool.query(
       "ALTER TABLE inv_service_confirmations ADD COLUMN execution_id BIGINT UNSIGNED NULL AFTER order_id",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "service_time"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN service_time TIME NULL AFTER supplier_id",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "acceptance_1"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN acceptance_1 TINYINT(1) NOT NULL DEFAULT 0 AFTER service_time",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "acceptance_2"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN acceptance_2 TINYINT(1) NOT NULL DEFAULT 0 AFTER acceptance_1",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "acceptance_3"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN acceptance_3 TINYINT(1) NOT NULL DEFAULT 0 AFTER acceptance_2",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "acceptance_4"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN acceptance_4 TINYINT(1) NOT NULL DEFAULT 0 AFTER acceptance_3",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "acceptance_5"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN acceptance_5 TINYINT(1) NOT NULL DEFAULT 0 AFTER acceptance_4",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "satisfaction"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN satisfaction TINYINT UNSIGNED NULL AFTER acceptance_5",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "customer_feedback"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN customer_feedback TEXT NULL AFTER satisfaction",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "warranty_provided"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN warranty_provided TINYINT(1) NOT NULL DEFAULT 0 AFTER customer_feedback",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "follow_up_required"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN follow_up_required TINYINT(1) NOT NULL DEFAULT 0 AFTER warranty_provided",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmations", "follow_up_notes"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmations ADD COLUMN follow_up_notes TEXT NULL AFTER follow_up_required",
     );
   }
   await pool.query(`
@@ -316,6 +414,16 @@ async function ensureServiceConfirmationTables() {
       CONSTRAINT fk_scd_confirmation FOREIGN KEY (confirmation_id) REFERENCES inv_service_confirmations(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await hasColumn("inv_service_confirmation_details", "is_confirmed"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmation_details ADD COLUMN is_confirmed TINYINT(1) NOT NULL DEFAULT 0 AFTER line_total",
+    );
+  }
+  if (!(await hasColumn("inv_service_confirmation_details", "item_id"))) {
+    await pool.query(
+      "ALTER TABLE inv_service_confirmation_details ADD COLUMN item_id BIGINT UNSIGNED NULL AFTER confirmation_id",
+    );
+  }
 }
 
 // Utility Function: Generate the next sequential document number for a specific table
@@ -355,18 +463,19 @@ export const listServiceConfirmations = async (req, res, next) => {
       `
       SELECT c.id,
              c.sc_no,
+             COALESCE(c.order_no, so.order_no) AS order_no,
              c.sc_date,
              c.status,
              c.total_amount,
-             c.order_id,
              s.supplier_name,
-          c.created_at,
-          u.username AS created_by_name
+             c.created_at,
+             u.username AS created_by_name
          FROM inv_service_confirmations c
-      JOIN pur_suppliers s ON s.id = c.supplier_id
-        LEFT JOIN adm_users u ON u.id = c.created_by
+      LEFT JOIN pur_suppliers s ON s.id = c.supplier_id
+      LEFT JOIN adm_users u ON u.id = c.created_by
+      LEFT JOIN pur_service_orders so ON so.id = c.order_id
          WHERE c.company_id = :companyId
-        AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
+        AND (:branchIdsStr = '' OR FIND_IN_SET(c.branch_id, :branchIdsStr))
       ORDER BY c.sc_date DESC, c.id DESC
       `,
       { companyId, branchId, branchIdsStr },
@@ -406,7 +515,7 @@ export const getServiceConfirmationById = async (req, res, next) => {
       throw httpError(404, "NOT_FOUND", "Service confirmation not found");
     const details = await query(
       `
-      SELECT d.id, d.description, d.qty, d.unit_price, d.line_total,
+      SELECT d.id, d.item_id, d.description, d.qty, d.unit_price, d.line_total, d.is_confirmed,
           d.created_at,
           u.username AS created_by_name
          FROM inv_service_confirmation_details d
@@ -435,15 +544,37 @@ export const createServiceConfirmation = async (req, res, next) => {
     await ensureServiceConfirmationTables();
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const body = req.body || {};
-    const scNo = body.sc_no || nextDocNo("SC");
+    const scNo = body.sc_no || (await nextScNo(companyId, branchId));
     const scDate = body.sc_date;
     const supplierId = toNumber(body.supplier_id);
     const orderId = body.order_id ? Number(body.order_id) : null;
     const executionId = body.execution_id ? Number(body.execution_id) : null;
+    const serviceTime = body.service_time || null;
     const status = body.status || "DRAFT";
     const remarks = body.remarks || null;
+    const acceptance1 = body.acceptance_1 ? 1 : 0;
+    const acceptance2 = body.acceptance_2 ? 1 : 0;
+    const acceptance3 = body.acceptance_3 ? 1 : 0;
+    const acceptance4 = body.acceptance_4 ? 1 : 0;
+    const acceptance5 = body.acceptance_5 ? 1 : 0;
+    const satisfaction =
+      body.satisfaction == null || body.satisfaction === ""
+        ? null
+        : Number(body.satisfaction);
+    const customerFeedback = body.customer_feedback || null;
+    const warrantyProvided = body.warranty_provided ? 1 : 0;
+    const followUpRequired = body.follow_up_required ? 1 : 0;
+    const followUpNotes = body.follow_up_notes || null;
     const createdBy = req.user?.sub ? Number(req.user.sub) : null;
     const details = Array.isArray(body.details) ? body.details : [];
+    let orderNo = body.order_no || null;
+    if (orderId && !orderNo) {
+      const [orderRows] = await pool.execute(
+        `SELECT order_no FROM pur_service_orders WHERE id = :orderId`,
+        { orderId }
+      );
+      if (orderRows.length) orderNo = orderRows[0].order_no;
+    }
     if (!scDate || !supplierId) {
       throw httpError(
         400,
@@ -462,16 +593,36 @@ export const createServiceConfirmation = async (req, res, next) => {
       const lineTotal = Number.isFinite(Number(d.line_total))
         ? Number(d.line_total)
         : qty * unitPrice;
+      const isConfirmed = d.is_confirmed ? 1 : 0;
       totalAmount += lineTotal;
-      normalizedDetails.push({ description, qty, unitPrice, lineTotal });
+      normalizedDetails.push({
+        itemId: d.item_id ? Number(d.item_id) : null,
+        description,
+        qty,
+        unitPrice,
+        lineTotal,
+        isConfirmed,
+      });
     }
     await conn.beginTransaction();
     const [hdr] = await conn.execute(
       `
       INSERT INTO inv_service_confirmations
-        (company_id, branch_id, sc_no, sc_date, order_id, execution_id, supplier_id, total_amount, status, remarks, created_by)
+        (
+          company_id, branch_id, sc_no, sc_date, order_id, order_no, execution_id,
+          supplier_id, service_time, acceptance_1, acceptance_2, acceptance_3,
+          acceptance_4, acceptance_5, satisfaction, customer_feedback,
+          warranty_provided, follow_up_required, follow_up_notes,
+          total_amount, status, remarks, created_by
+        )
       VALUES
-        (:companyId, :branchId, :scNo, :scDate, :orderId, :executionId, :supplierId, :totalAmount, :status, :remarks, :createdBy)
+        (
+          :companyId, :branchId, :scNo, :scDate, :orderId, :orderNo, :executionId,
+          :supplierId, :serviceTime, :acceptance1, :acceptance2, :acceptance3,
+          :acceptance4, :acceptance5, :satisfaction, :customerFeedback,
+          :warrantyProvided, :followUpRequired, :followUpNotes,
+          :totalAmount, :status, :remarks, :createdBy
+        )
       `,
       {
         companyId,
@@ -479,8 +630,20 @@ export const createServiceConfirmation = async (req, res, next) => {
         scNo,
         scDate,
         orderId,
+        orderNo,
         executionId,
         supplierId,
+        serviceTime,
+        acceptance1,
+        acceptance2,
+        acceptance3,
+        acceptance4,
+        acceptance5,
+        satisfaction,
+        customerFeedback,
+        warrantyProvided,
+        followUpRequired,
+        followUpNotes,
         totalAmount,
         status,
         remarks,
@@ -492,16 +655,18 @@ export const createServiceConfirmation = async (req, res, next) => {
       await conn.execute(
         `
         INSERT INTO inv_service_confirmation_details
-          (confirmation_id, description, qty, unit_price, line_total)
+          (confirmation_id, item_id, description, qty, unit_price, line_total, is_confirmed)
         VALUES
-          (:confirmationId, :description, :qty, :unitPrice, :lineTotal)
+          (:confirmationId, :itemId, :description, :qty, :unitPrice, :lineTotal, :isConfirmed)
         `,
         {
           confirmationId,
+          itemId: nd.itemId,
           description: nd.description,
           qty: nd.qty,
           unitPrice: nd.unitPrice,
           lineTotal: nd.lineTotal,
+          isConfirmed: nd.isConfirmed,
         },
       );
     }
@@ -1134,9 +1299,31 @@ export const updateServiceConfirmation = async (req, res, next) => {
     const supplierId = toNumber(body.supplier_id);
     const orderId = body.order_id ? Number(body.order_id) : null;
     const executionId = body.execution_id ? Number(body.execution_id) : null;
+    const serviceTime = body.service_time || null;
     const status = body.status || "DRAFT";
     const remarks = body.remarks || null;
+    const acceptance1 = body.acceptance_1 ? 1 : 0;
+    const acceptance2 = body.acceptance_2 ? 1 : 0;
+    const acceptance3 = body.acceptance_3 ? 1 : 0;
+    const acceptance4 = body.acceptance_4 ? 1 : 0;
+    const acceptance5 = body.acceptance_5 ? 1 : 0;
+    const satisfaction =
+      body.satisfaction == null || body.satisfaction === ""
+        ? null
+        : Number(body.satisfaction);
+    const customerFeedback = body.customer_feedback || null;
+    const warrantyProvided = body.warranty_provided ? 1 : 0;
+    const followUpRequired = body.follow_up_required ? 1 : 0;
+    const followUpNotes = body.follow_up_notes || null;
     const details = Array.isArray(body.details) ? body.details : [];
+    let orderNo = body.order_no || null;
+    if (orderId && !orderNo) {
+      const [orderRows] = await pool.execute(
+        `SELECT order_no FROM pur_service_orders WHERE id = :orderId`,
+        { orderId }
+      );
+      if (orderRows.length) orderNo = orderRows[0].order_no;
+    }
     if (!scDate || !supplierId) {
       throw httpError(
         400,
@@ -1155,8 +1342,16 @@ export const updateServiceConfirmation = async (req, res, next) => {
       const lineTotal = Number.isFinite(Number(d.line_total))
         ? Number(d.line_total)
         : qty * unitPrice;
+      const isConfirmed = d.is_confirmed ? 1 : 0;
       totalAmount += lineTotal;
-      normalizedDetails.push({ description, qty, unitPrice, lineTotal });
+      normalizedDetails.push({
+        itemId: d.item_id ? Number(d.item_id) : null,
+        description,
+        qty,
+        unitPrice,
+        lineTotal,
+        isConfirmed,
+      });
     }
     await conn.beginTransaction();
     const [upd] = await conn.execute(
@@ -1165,7 +1360,19 @@ export const updateServiceConfirmation = async (req, res, next) => {
       SET sc_date = :scDate,
           supplier_id = :supplierId,
           order_id = :orderId,
+          order_no = :orderNo,
           execution_id = :executionId,
+          service_time = :serviceTime,
+          acceptance_1 = :acceptance1,
+          acceptance_2 = :acceptance2,
+          acceptance_3 = :acceptance3,
+          acceptance_4 = :acceptance4,
+          acceptance_5 = :acceptance5,
+          satisfaction = :satisfaction,
+          customer_feedback = :customerFeedback,
+          warranty_provided = :warrantyProvided,
+          follow_up_required = :followUpRequired,
+          follow_up_notes = :followUpNotes,
           total_amount = :totalAmount,
           status = :status,
           remarks = :remarks
@@ -1178,7 +1385,19 @@ export const updateServiceConfirmation = async (req, res, next) => {
         scDate,
         supplierId,
         orderId,
+        orderNo,
         executionId,
+        serviceTime,
+        acceptance1,
+        acceptance2,
+        acceptance3,
+        acceptance4,
+        acceptance5,
+        satisfaction,
+        customerFeedback,
+        warrantyProvided,
+        followUpRequired,
+        followUpNotes,
         totalAmount,
         status,
         remarks,
@@ -1194,16 +1413,18 @@ export const updateServiceConfirmation = async (req, res, next) => {
       await conn.execute(
         `
         INSERT INTO inv_service_confirmation_details
-          (confirmation_id, description, qty, unit_price, line_total)
+          (confirmation_id, item_id, description, qty, unit_price, line_total, is_confirmed)
         VALUES
-          (:id, :description, :qty, :unitPrice, :lineTotal)
+          (:id, :itemId, :description, :qty, :unitPrice, :lineTotal, :isConfirmed)
         `,
         {
           id,
+          itemId: nd.itemId,
           description: nd.description,
           qty: nd.qty,
           unitPrice: nd.unitPrice,
           lineTotal: nd.lineTotal,
+          isConfirmed: nd.isConfirmed,
         },
       );
     }
@@ -1294,6 +1515,18 @@ async function ensureServiceBillTables() {
       "ALTER TABLE pur_service_bills ADD COLUMN payment VARCHAR(30) NOT NULL DEFAULT 'UNPAID' AFTER status",
     );
   }
+  // Rename payment -> payment_status
+  try {
+    const [colChk] = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pur_service_bills' AND column_name='payment'",
+    );
+    const [colChk2] = await pool.query(
+      "SELECT COUNT(*) AS cnt FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pur_service_bills' AND column_name='payment_status'",
+    );
+    if (colChk?.[0]?.cnt && !colChk2?.[0]?.cnt) {
+      await pool.query("ALTER TABLE pur_service_bills CHANGE COLUMN payment payment_status VARCHAR(30) NOT NULL DEFAULT 'UNPAID'");
+    }
+  } catch {}
   if (!(await hasColumn("pur_service_bills", "amount_paid"))) {
     await pool.query(
       "ALTER TABLE pur_service_bills ADD COLUMN amount_paid DECIMAL(18,2) DEFAULT 0 AFTER total_amount",
@@ -1324,6 +1557,11 @@ async function ensureServiceBillTables() {
       "ALTER TABLE pur_service_bills ADD COLUMN other_charges DECIMAL(18,2) NOT NULL DEFAULT 0 AFTER freight_charges",
     );
   }
+  if (!(await hasColumn("pur_service_bills", "order_id"))) {
+    await pool.query(
+      "ALTER TABLE pur_service_bills ADD COLUMN order_id BIGINT UNSIGNED NULL AFTER supplier_id",
+    );
+  }
   try {
     await pool.query(`
       UPDATE pur_service_bills sb
@@ -1341,10 +1579,10 @@ async function ensureServiceBillTables() {
        AND table_name = 'pur_service_bills'
        AND column_name = 'status'`);
   const colType = String(rows?.[0]?.column_type || "").toUpperCase();
-  const hasCompleted = colType.includes("'COMPLETED'");
-  if (!hasCompleted) {
+  const hasPosted = colType.includes("'POSTED'");
+  if (!hasPosted) {
     await pool.query(
-      "ALTER TABLE pur_service_bills MODIFY COLUMN status ENUM('PENDING','COMPLETED','OVERDUE','PAID') NOT NULL DEFAULT 'PENDING'",
+      "ALTER TABLE pur_service_bills MODIFY COLUMN status ENUM('PENDING','COMPLETED','OVERDUE','PAID','POSTED') NOT NULL DEFAULT 'PENDING'",
     );
   }
   await pool.query(`
@@ -1813,33 +2051,36 @@ export const listServiceBills = async (req, res, next) => {
       .toUpperCase();
     const supplierId = toNumber(req.query.supplierId);
     let sql = `
-      SELECT id, bill_no, bill_date, status, payment, total_amount, amount_paid, client_name
-      FROM pur_service_bills
-      WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
+      SELECT b.id, b.bill_no, b.bill_date, b.status, b.payment_status, b.total_amount, b.amount_paid,
+             b.client_name, b.supplier_id, s.supplier_name,
+             b.created_by, (SELECT username FROM adm_users WHERE id = b.created_by) AS created_by_username, b.created_at
+      FROM pur_service_bills b
+      LEFT JOIN pur_suppliers s ON s.id = b.supplier_id AND s.company_id = b.company_id
+      WHERE b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
     `;
     const params = { companyId, branchId, branchIdsStr };
     if (status) {
-      sql += " AND status = :status";
+      sql += " AND b.status = :status";
       params.status = status;
     }
     if (clientName) {
-      sql += " AND client_name = :clientName";
-      params.clientName = clientName;
+      sql += " AND (b.client_name LIKE :clientName OR s.supplier_name LIKE :clientName)";
+      params.clientName = `%${clientName}%`;
     }
     if (payment) {
-      sql += " AND payment = :payment";
+      sql += " AND b.payment_status = :payment";
       params.payment = payment;
     }
     if (supplierId) {
-      sql += " AND supplier_id = :supplierId";
+      sql += " AND b.supplier_id = :supplierId";
       params.supplierId = supplierId;
     }
-    sql += " ORDER BY bill_date DESC, id DESC";
+    sql += " ORDER BY b.bill_date DESC, b.id DESC";
     const rows = await query(sql, params);
     const idsToComplete = rows
       .filter(
         (r) =>
-          String(r.payment || "").toUpperCase() === "PAID" &&
+          String(r.payment_status || "").toUpperCase() === "PAID" &&
           String(r.status || "").toUpperCase() === "PENDING",
       )
       .map((r) => Number(r.id));
@@ -1851,7 +2092,7 @@ export const listServiceBills = async (req, res, next) => {
       );
       for (const r of rows) {
         if (
-          String(r.payment || "").toUpperCase() === "PAID" &&
+          String(r.payment_status || "").toUpperCase() === "PAID" &&
           String(r.status || "").toUpperCase() === "PENDING"
         ) {
           r.status = "COMPLETED";
@@ -1874,9 +2115,8 @@ export const getServiceBillById = async (req, res, next) => {
       `
       SELECT *,
           created_at,
-          u.username AS created_by_name
+          (SELECT username FROM adm_users WHERE id = created_by) AS created_by_name
          FROM pur_service_bills
-        LEFT JOIN adm_users u ON u.id = created_by
          WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       LIMIT 1
       `,
@@ -1885,7 +2125,7 @@ export const getServiceBillById = async (req, res, next) => {
     if (!rows.length)
       throw httpError(404, "NOT_FOUND", "Service bill not found");
     const row = rows[0];
-    const isPaid = String(row.payment || "").toUpperCase() === "PAID";
+    const isPaid = String(row.payment_status || "").toUpperCase() === "PAID";
     const isPending = String(row.status || "").toUpperCase() === "PENDING";
     if (isPaid && isPending) {
       await pool.query(
@@ -1933,10 +2173,8 @@ export const createServiceBill = async (req, res, next) => {
     const billDate = body.bill_date || new Date().toISOString().slice(0, 10);
     const dueDate = body.due_date || null;
     const serviceDate = body.service_date || null;
-    const status = String(body.status || "PENDING").toUpperCase();
-    const sStatus = ["PENDING", "PAID", "OVERDUE", "COMPLETED"].includes(status)
-      ? status
-      : "PENDING";
+    const status = "POSTED";
+    const sStatus = "POSTED";
     const clientName = body.client_name || body.clientName || null;
     const clientCompany = body.client_company || body.clientCompany || null;
     const clientAddress = body.client_address || body.clientAddress || null;
@@ -1984,10 +2222,10 @@ export const createServiceBill = async (req, res, next) => {
     const totalAmount = Number(body.total_amount) || (subtotalFromBody - discountAmount + taxAmount + freightCharges + otherCharges);
 
     const createdBy = req.user?.sub ? Number(req.user.sub) : null;
-    const paymentInput = String(body.payment || "")
+    const paymentInput = String(body.payment_status || body.payment || "")
       .trim()
       .toUpperCase();
-    const payment =
+    const paymentStatus =
       paymentInput === "PAID"
         ? "PAID"
         : paymentInput === "UNPAID"
@@ -2000,14 +2238,14 @@ export const createServiceBill = async (req, res, next) => {
     const [hdr] = await conn.execute(
       `
       INSERT INTO pur_service_bills (
-        company_id, branch_id, supplier_id, bill_no, bill_date, due_date, service_date, status, payment,
+        company_id, branch_id, supplier_id, order_id, bill_no, bill_date, due_date, service_date, status, payment_status,
         client_name, client_company, client_address, client_phone, client_email,
         payment_method, payment_reference, payment_terms, notes,
         discount_percent, tax_percent, subtotal, discount_amount, tax_amount, total_amount,
         currency_id, exchange_rate, freight_charges, other_charges,
         created_by
       ) VALUES (
-        :companyId, :branchId, :supplierId, :billNo, :billDate, :dueDate, :serviceDate, :status, :payment,
+        :companyId, :branchId, :supplierId, :orderId, :billNo, :billDate, :dueDate, :serviceDate, :status, :paymentStatus,
         :clientName, :clientCompany, :clientAddress, :clientPhone, :clientEmail,
         :paymentMethod, :paymentReference, :paymentTerms, :notes,
         :discountPercent, :taxPercent, :subtotal, :discountAmount, :taxAmount, :totalAmount,
@@ -2019,12 +2257,13 @@ export const createServiceBill = async (req, res, next) => {
         companyId,
         branchId, branchIdsStr,
         supplierId,
+        orderId: body.order_id ? Number(body.order_id) : null,
         billNo,
         billDate,
         dueDate,
         serviceDate,
         status: sStatus,
-        payment,
+        paymentStatus,
         clientName,
         clientCompany,
         clientAddress,
@@ -2074,7 +2313,7 @@ export const createServiceBill = async (req, res, next) => {
       );
     }
     const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
-    const voucherTypeId = await ensureJournalVoucherTypeIdTx(conn, {
+    const voucherTypeId = await ensurePurchaseVoucherTypeIdTx(conn, {
       companyId,
     });
     const voucherNo = await nextVoucherNoTx(conn, {
@@ -2118,7 +2357,7 @@ export const createServiceBill = async (req, res, next) => {
         voucherTypeId,
         voucherNo,
         voucherDate,
-        narration: `Service Bill ${billNo} posting`,
+        narration: `Purchase Voucher for Service Bill ${billNo}`,
         currencyId,
         exchangeRate,
         totalDebit,
@@ -2258,10 +2497,10 @@ export const updateServiceBill = async (req, res, next) => {
     const discountAmount = Number(body.discount_amount) || 0;
     const taxAmount = Number(body.tax_amount) || 0;
     const totalAmount = Number(body.total_amount) || (subtotalFromBody - discountAmount + taxAmount + freightCharges + otherCharges);
-    const paymentInput = String(body.payment || "")
+    const paymentInput = String(body.payment_status || body.payment || "")
       .trim()
       .toUpperCase();
-    const payment =
+    const paymentStatus =
       paymentInput === "PAID"
         ? "PAID"
         : paymentInput === "UNPAID"
@@ -2290,8 +2529,9 @@ export const updateServiceBill = async (req, res, next) => {
              due_date = :dueDate,
              service_date = :serviceDate,
              supplier_id = :supplierId,
+             order_id = :orderId,
              status = :status,
-             payment = :payment,
+             payment_status = :paymentStatus,
              client_name = :clientName,
              client_company = :clientCompany,
              client_address = :clientAddress,
@@ -2322,8 +2562,9 @@ export const updateServiceBill = async (req, res, next) => {
         dueDate,
         serviceDate,
         supplierId,
+        orderId: body.order_id ? Number(body.order_id) : null,
         status: sStatus,
-        payment,
+        paymentStatus,
         clientName,
         clientCompany,
         clientAddress,

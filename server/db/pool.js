@@ -3,6 +3,7 @@
  * @description Database connection pool management and query utilities.
  */
 import mysql from "mysql2/promise";
+import fs from "fs";
 import "../utils/loadServerEnv.js";
 
 // Environment Variable Utility
@@ -53,6 +54,40 @@ const dbState = {
   lastConnectAttemptAt: 0,
   lastConnectLogKey: null,
 };
+
+function previewSql(sql) {
+  return String(sql || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
+function postDebugEvent(hypothesisId, location, msg, data = {}) {
+  try {
+    let debugServerUrl = "http://127.0.0.1:7777/event";
+    let sessionId = "login-db-timeout";
+    try {
+      const envText = fs.readFileSync(".dbg/login-db-timeout.env", "utf8");
+      debugServerUrl =
+        envText.match(/DEBUG_SERVER_URL=(.+)/)?.[1]?.trim() || debugServerUrl;
+      sessionId =
+        envText.match(/DEBUG_SESSION_ID=(.+)/)?.[1]?.trim() || sessionId;
+    } catch {}
+    fetch(debugServerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        runId: "pre-fix",
+        hypothesisId,
+        location,
+        msg,
+        data,
+        ts: Date.now(),
+      }),
+    }).catch(() => {});
+  } catch {}
+}
 
 // Singleton Pool Instances
 // activePool holds the current pool, activePoolPromise tracks pending connections.
@@ -150,9 +185,9 @@ function setDbSuccess() {
 function isConfigured() {
   return Boolean(
     dbConfig.host &&
-      dbConfig.user &&
-      dbConfig.database &&
-      dbConfig.password !== undefined,
+    dbConfig.user &&
+    dbConfig.database &&
+    dbConfig.password !== undefined,
   );
 }
 
@@ -238,12 +273,15 @@ function isReconnectableError(err) {
 // Determines if an error is related to connection establishment or authentication.
 function isDbConnectionFailure(err) {
   const code = String(err?.code || "").toUpperCase();
-  return isReconnectableError(err) || [
-    "ER_ACCESS_DENIED_ERROR",
-    "ER_BAD_DB_ERROR",
-    "ER_CON_COUNT_ERROR",
-    "ER_NOT_SUPPORTED_AUTH_MODE",
-  ].includes(code);
+  return (
+    isReconnectableError(err) ||
+    [
+      "ER_ACCESS_DENIED_ERROR",
+      "ER_BAD_DB_ERROR",
+      "ER_CON_COUNT_ERROR",
+      "ER_NOT_SUPPORTED_AUTH_MODE",
+    ].includes(code)
+  );
 }
 
 // Query Timeout Wrapper
@@ -253,9 +291,22 @@ function withQueryTimeout(executor, sqlText) {
     return executor(); // Skip timeout if not configured
   }
 
+  const startedAt = Date.now();
   let timeoutHandle = null;
   const timeoutPromise = new Promise((_, reject) => {
     timeoutHandle = setTimeout(() => {
+      // #region debug-point E:db-timeout
+      postDebugEvent(
+        "E",
+        "server/db/pool.js:withQueryTimeout",
+        "[DEBUG] DB query timeout fired",
+        {
+          timeoutMs: dbConfig.queryTimeout,
+          elapsedMs: Date.now() - startedAt,
+          sqlPreview: previewSql(sqlText),
+        },
+      );
+      // #endregion
       const timeoutError = new Error(
         `Database query timeout after ${dbConfig.queryTimeout}ms`,
       );
@@ -263,7 +314,7 @@ function withQueryTimeout(executor, sqlText) {
       timeoutError.sqlMessage = typeof sqlText === "string" ? sqlText : null;
       reject(timeoutError);
     }, dbConfig.queryTimeout);
-    
+
     // Prevent the timeout from keeping the Node.js event loop alive
     if (typeof timeoutHandle?.unref === "function") {
       timeoutHandle.unref();
@@ -297,10 +348,7 @@ async function ensurePool(forceReconnect = false) {
     return activePool; // Return existing valid pool
   }
 
-  if (
-    !forceReconnect &&
-    activePoolPromise
-  ) {
+  if (!forceReconnect && activePoolPromise) {
     return activePoolPromise; // Return pending connection promise
   }
 
@@ -357,8 +405,41 @@ async function ensurePool(forceReconnect = false) {
 // Safely executes operations using the pool and handles reconnection retries.
 async function withPoolOperation(operationName, executor, options = {}) {
   const { sqlText = null, retryOnReconnect = true } = options;
+  const startedAt = Date.now();
+  // #region debug-point C:db-operation-start
+  postDebugEvent(
+    "C",
+    "server/db/pool.js:withPoolOperation",
+    "[DEBUG] DB operation start",
+    {
+      operationName,
+      sqlPreview: previewSql(sqlText || operationName),
+      poolStatus: activePool
+        ? "active"
+        : activePoolPromise
+          ? "connecting"
+          : "empty",
+      dbStateStatus: dbState.status,
+    },
+  );
+  // #endregion
   const currentPool = await ensurePool();
   if (!currentPool) {
+    // #region debug-point D:pool-unavailable
+    postDebugEvent(
+      "D",
+      "server/db/pool.js:withPoolOperation",
+      "[DEBUG] DB pool unavailable",
+      {
+        operationName,
+        sqlPreview: previewSql(sqlText || operationName),
+        elapsedMs: Date.now() - startedAt,
+        dbStateStatus: dbState.status,
+        dbErrorCode: dbState.lastError?.code || null,
+        dbErrorMessage: dbState.lastError?.message || null,
+      },
+    );
+    // #endregion
     throw createDbUnavailableError();
   }
 
@@ -370,8 +451,34 @@ async function withPoolOperation(operationName, executor, options = {}) {
     if (operationName === "db-health-check") {
       setDbSuccess();
     }
+    // #region debug-point C:db-operation-success
+    postDebugEvent(
+      "C",
+      "server/db/pool.js:withPoolOperation",
+      "[DEBUG] DB operation success",
+      {
+        operationName,
+        sqlPreview: previewSql(sqlText || operationName),
+        elapsedMs: Date.now() - startedAt,
+      },
+    );
+    // #endregion
     return result;
   } catch (err) {
+    // #region debug-point D:db-operation-error
+    postDebugEvent(
+      "D",
+      "server/db/pool.js:withPoolOperation",
+      "[DEBUG] DB operation error",
+      {
+        operationName,
+        sqlPreview: previewSql(sqlText || operationName),
+        elapsedMs: Date.now() - startedAt,
+        errorCode: err?.code || null,
+        errorMessage: err?.message || String(err),
+      },
+    );
+    // #endregion
     if (isDbConnectionFailure(err)) {
       setDbFailure(err);
       logDbError(`${operationName} failed`, err);
@@ -406,7 +513,8 @@ function wrapConnection(connection) {
             } else if (typeof params === "object") {
               cleanParams = new Proxy(params, {
                 get(target, prop) {
-                  if (prop === 'branchIdsStr' && target[prop] === undefined) return '';
+                  if (prop === "branchIdsStr" && target[prop] === undefined)
+                    return "";
                   const val = target[prop];
                   return val === undefined ? null : val;
                 },
@@ -429,7 +537,8 @@ function wrapConnection(connection) {
             } else if (typeof params === "object") {
               cleanParams = new Proxy(params, {
                 get(target, prop) {
-                  if (prop === 'branchIdsStr' && target[prop] === undefined) return '';
+                  if (prop === "branchIdsStr" && target[prop] === undefined)
+                    return "";
                   const val = target[prop];
                   return val === undefined ? null : val;
                 },
@@ -444,7 +553,8 @@ function wrapConnection(connection) {
       }
 
       if (prop === "release" || prop === "destroy") {
-        return (...args) => Reflect.get(target, prop, receiver).apply(target, args);
+        return (...args) =>
+          Reflect.get(target, prop, receiver).apply(target, args);
       }
 
       const value = Reflect.get(target, prop, receiver);
@@ -517,7 +627,7 @@ export async function query(sql, params = {}) {
     } else if (typeof params === "object") {
       params = new Proxy(params, {
         get(target, prop) {
-          if (prop === 'branchIdsStr' && target[prop] === undefined) return '';
+          if (prop === "branchIdsStr" && target[prop] === undefined) return "";
           const val = target[prop];
           return val === undefined ? null : val;
         },

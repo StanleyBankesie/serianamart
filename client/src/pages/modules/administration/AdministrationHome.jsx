@@ -28,6 +28,7 @@ import RoleManagement from "./access-control/RoleManagementNew.jsx";
 import UserOverrides from "./access-control/UserOverrides.jsx";
 import ExceptionalPermissionsList from "./access-control/ExceptionalPermissionsList.jsx";
 import UserPermissions from "./access-control/UserPermissionsNew.jsx";
+import BackupManagement from "../../admin/BackupManagement.jsx";
 
 function AdministrationLanding() {
   const [stats, setStats] = React.useState([
@@ -322,6 +323,7 @@ export default function AdministrationHome() {
         path="/exceptional-permissions"
         element={<ExceptionalPermissionsList />}
       />
+      <Route path="/backups" element={<BackupManagement />} />
     </Routes>
   );
 }
@@ -361,6 +363,12 @@ export const administrationFeatures = [
     module_key: "administration",
     label: "Diagnostics",
     path: "/administration/diagnostics",
+    type: "feature",
+  },
+  {
+    module_key: "administration",
+    label: "System Backups",
+    path: "/administration/backups",
     type: "feature",
   },
   {

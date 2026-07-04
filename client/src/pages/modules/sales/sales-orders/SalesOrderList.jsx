@@ -3,7 +3,7 @@
  * Provides functionality for SalesOrderList.
  */
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
@@ -42,6 +42,7 @@ export default function SalesOrderList() {
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [pagination, setPagination] = useState({ page: 1, pageSize: 50, total: 0, totalPages: 0 });
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
@@ -642,14 +643,17 @@ export default function SalesOrderList() {
     return () => clearInterval(t);
   }, []);
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (page = 1) => {
     try {
       setLoading(true);
       setError("");
-      const response = await api.get("/sales/orders");
+      const response = await api.get(`/sales/orders?page=${page}&limit=50`);
       const items = Array.isArray(response.data?.items)
         ? response.data.items
         : [];
+      if (response.data?.pagination) {
+        setPagination(response.data.pagination);
+      }
       const fwd = {};
       for (const it of items) {
         const st = String(it.status || "").toUpperCase();
@@ -670,19 +674,20 @@ export default function SalesOrderList() {
     }
   };
 
+  const hydratedIds = useRef(new Set());
+
   useEffect(() => {
     async function hydrateMissing() {
       try {
         const targets = orders
           .filter(
             (o) =>
-              !o.customer_name ||
-              o.customer_name === "" ||
-              !o.priority ||
-              o.priority === "",
+              (!o.customer_name || o.customer_name === "" || !o.priority || o.priority === "") &&
+              !hydratedIds.current.has(o.id)
           )
           .slice(0, 20);
         if (!targets.length) return;
+        targets.forEach(t => hydratedIds.current.add(t.id));
         const updates = await Promise.all(
           targets.map(async (o) => {
             try {
@@ -1127,8 +1132,9 @@ export default function SalesOrderList() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table">
+            <>
+              <div className="overflow-x-auto">
+                <table className="table">
                 <thead>
                   <tr>
                     <SortableHeader
@@ -1359,8 +1365,32 @@ export default function SalesOrderList() {
                     );
                   })}
                 </tbody>
-              </table>
-            </div>
+                </table>
+              </div>
+
+              {/* Pagination Controls */}
+              <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-slate-200">
+                <div className="text-sm text-slate-500">
+                  Showing <span className="font-medium">{(pagination.page - 1) * pagination.pageSize + 1}</span> to <span className="font-medium">{Math.min(pagination.page * pagination.pageSize, pagination.total)}</span> of <span className="font-medium">{pagination.total}</span> results
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => fetchOrders(pagination.page - 1)}
+                    disabled={pagination.page <= 1}
+                    className="px-3 py-1 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={() => fetchOrders(pagination.page + 1)}
+                    disabled={pagination.page >= pagination.totalPages}
+                    className="px-3 py-1 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>

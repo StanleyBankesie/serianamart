@@ -133,7 +133,7 @@ export default function PaymentVoucherForm() {
   const [submittingForward, setSubmittingForward] = useState(false);
   const [voucherStatus, setVoucherStatus] = useState("DRAFT");
   const [outstandingBills, setOutstandingBills] = useState([]);
-  const [selectedBillId, setSelectedBillId] = useState("");
+  const [selectedBillKey, setSelectedBillKey] = useState("");
   const [selectedBillDetails, setSelectedBillDetails] = useState(null);
   const [suppliers, setSuppliers] = useState([]);
   const [loadingBills, setLoadingBills] = useState(false);
@@ -321,7 +321,7 @@ export default function PaymentVoucherForm() {
     const code = String(accountCode || "").trim();
     if (!code) {
       setOutstandingBills([]);
-      setSelectedBillId("");
+      setSelectedBillKey("");
       setSelectedBillDetails(null);
       return;
     }
@@ -332,14 +332,14 @@ export default function PaymentVoucherForm() {
       });
       const bills = Array.isArray(res.data?.items) ? res.data.items : [];
       setOutstandingBills(bills);
-      if (!bills.some((b) => String(b.id) === String(selectedBillId))) {
-        setSelectedBillId("");
+      if (!bills.some((b) => `${b.source}_${b.id}` === selectedBillKey)) {
+        setSelectedBillKey("");
         setSelectedBillDetails(null);
       }
     } catch (e) {
       console.error("[outstanding-bills] Error:", e?.response?.status, e?.response?.data || e?.message || e);
       setOutstandingBills([]);
-      setSelectedBillId("");
+      setSelectedBillKey("");
       setSelectedBillDetails(null);
     } finally {
       setLoadingBills(false);
@@ -1003,7 +1003,7 @@ export default function PaymentVoucherForm() {
       loadOutstandingBillsForSupplier(pvForm.payToCode);
     } else {
       setOutstandingBills([]);
-      setSelectedBillId("");
+      setSelectedBillKey("");
       setSelectedBillDetails(null);
     }
   }, [isPAYV, pvForm.payToCode, paymentType]);
@@ -1768,12 +1768,13 @@ export default function PaymentVoucherForm() {
           : {}),
         ...(isPAYV &&
         paymentType === "AGAINST_BILL" &&
-        selectedBillId &&
+        selectedBillKey &&
         Number(totals.grand || 0) > 0
           ? {
               apply_to_purchase_bills: [
                 {
-                  bill_id: Number(selectedBillId),
+                  bill_id: Number(selectedBillKey.split("_")[1] || 0),
+                  bill_source: selectedBillKey.split("_")[0] || "Purchase",
                   amount: Number(totals.grand || 0),
                 },
               ],
@@ -3646,7 +3647,7 @@ export default function PaymentVoucherForm() {
                     onClick={() => {
                       setPaymentType("DIRECT");
                       setOutstandingBills([]);
-                      setSelectedBillId("");
+                      setSelectedBillKey("");
                       setSelectedBillDetails(null);
                     }}
                     disabled={readOnly}
@@ -3987,12 +3988,12 @@ export default function PaymentVoucherForm() {
                       <label className="label">Outstanding Bills</label>
                       <select
                         className={`input md:w-96 ${disabledClass}`}
-                        value={selectedBillId}
+                        value={selectedBillKey}
                         onChange={(e) => {
-                          const billId = e.target.value;
-                          setSelectedBillId(billId);
+                          const billKey = e.target.value;
+                          setSelectedBillKey(billKey);
                           const bill = outstandingBills.find(
-                            (b) => String(b.id) === String(billId),
+                            (b) => `${b.source}_${b.id}` === billKey,
                           );
                           setSelectedBillDetails(bill || null);
                           // Auto-populate amount if bill is selected
@@ -4000,7 +4001,7 @@ export default function PaymentVoucherForm() {
                             updatePv({
                               items: [
                                 {
-                                  description: `Payment for Bill ${bill.bill_no}`,
+                                  description: `Payment for ${bill.source || "Purchase"} Bill ${bill.bill_no}`,
                                   accountId: pvForm.payToAccountId || "",
                                   amount: Number(
                                     bill.balance_amount || bill.net_amount || 0,
@@ -4026,9 +4027,8 @@ export default function PaymentVoucherForm() {
                               : "Select outstanding bill"}
                         </option>
                         {outstandingBills.map((bill) => (
-                          <option key={bill.id} value={bill.id}>
-                            {bill.bill_no} - {bill.net_amount?.toLocaleString()}{" "}
-                            ({bill.payment_status})
+                          <option key={`${bill.source}_${bill.id}`} value={`${bill.source}_${bill.id}`}>
+                            {bill.bill_no} - GH₵ {Number(bill.balance_amount || bill.net_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} ({bill.source || "Purchase"})
                           </option>
                         ))}
                       </select>

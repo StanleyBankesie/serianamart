@@ -6,7 +6,6 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
-import { getStoredToken } from "../../auth/authStorage.js";
 import { usePermission } from "../../auth/PermissionContext.jsx";
 import client from "../../api/client";
 import CompanyFeed from "../../components/CompanyFeed/CompanyFeed";
@@ -695,7 +694,6 @@ export default function HomePage() {
       const uid = Number(user?.sub || user?.id) || "";
       const res = await fetch(`/api/social-feed?offset=0&limit=200`, {
         headers: {
-          Authorization: `Bearer ${getStoredToken() || ""}`,
           "x-user-id": String(uid),
         },
       });

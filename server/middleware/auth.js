@@ -1,6 +1,11 @@
 import { httpError } from "../utils/httpError.js";
-import { verifyAccessToken } from "../services/token.service.js";
+import {
+  verifyAccessToken,
+  lookupGraceToken,
+} from "../services/token.service.js";
 import { query } from "../db/pool.js";
+import { parseCookieHeader } from "../services/token.service.js";
+import { cacheGet, cacheSet } from "../utils/redis.js";
 import "../utils/loadServerEnv.js";
 
 // Utility function to check if authentication bypass is allowed in development environment
@@ -27,28 +32,90 @@ function attachDevUser(req) {
 /**
  * Middleware to require a valid access token.
  * Sets req.user and req.permissions if successful.
+ * Uses Redis grace period to accept recently-refreshed tokens during transition.
  *
  * @param {import('express').Request} req - Express request.
  * @param {import('express').Response} res - Express response.
  * @param {import('express').NextFunction} next - Express next middleware function.
  */
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   try {
-    // Extract Bearer token from authorization headers
-    const authHeader =
-      req.headers.authorization || req.headers.Authorization || "";
-    const m = String(authHeader).match(/^Bearer\s+(.+)$/i);
-    if (m?.[1]) {
-      // Verify token and attach user payload to the request
-      const payload = verifyAccessToken(m[1]);
-      req.user = {
-        ...(req.user || {}),
-        ...payload,
-      };
-      req.scope = req.scope || {};
-      req.scope.userId = Number(payload.sub || payload.id) || null;
-      return next();
+    const cookies = parseCookieHeader(req.headers.cookie || "");
+    const sessionId = cookies.omnisuite_session;
+    const authHeader = String(req.headers.authorization || "");
+    const bearerToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : "";
+
+    console.log(
+      `[AUTH-MIDDLEWARE] Cookie header: ${req.headers.cookie ? req.headers.cookie.substring(0, 50) + "..." : "empty"}, sessionId: ${sessionId ? sessionId.substring(0, 8) + "..." : "none"}`,
+    );
+
+    if (sessionId) {
+      const sessionData = await cacheGet(`omnisuite_session:${sessionId}`);
+      console.log(
+        `[AUTH-MIDDLEWARE] Looking up omnisuite_session:${sessionId.substring(0, 8)}... found: ${sessionData ? "YES" : "NO"}`,
+      );
+
+      if (sessionData && sessionData.user) {
+        // Slide session TTL
+        const ttlSeconds =
+          Number(process.env.SESSION_REFRESH_HOURS || 7 * 24) * 60 * 60;
+        await cacheSet(
+          `omnisuite_session:${sessionId}`,
+          sessionData,
+          ttlSeconds,
+        ).catch(() => {});
+        console.log(
+          `[AUTH-MIDDLEWARE] Session authenticated for user: ${sessionData.user.username}`,
+        );
+
+        req.user = {
+          ...(req.user || {}),
+          ...sessionData.user,
+        };
+        req.scope = req.scope || {};
+        req.scope.userId =
+          Number(sessionData.user.sub || sessionData.user.id) || null;
+        return next();
+      }
     }
+
+    if (bearerToken) {
+      try {
+        const payload = verifyAccessToken(bearerToken);
+        req.user = {
+          ...(req.user || {}),
+          ...payload,
+        };
+        req.scope = req.scope || {};
+        req.scope.userId = Number(payload.sub || payload.id) || null;
+        console.log(
+          `[AUTH-MIDDLEWARE] Bearer token authenticated for user: ${payload.username || payload.sub || payload.id}`,
+        );
+        return next();
+      } catch (tokenErr) {
+        const gracePayload = await lookupGraceToken(bearerToken);
+        if (gracePayload) {
+          req.user = {
+            ...(req.user || {}),
+            ...gracePayload,
+          };
+          req.scope = req.scope || {};
+          req.scope.userId =
+            Number(gracePayload.sub || gracePayload.id) || null;
+          console.log(
+            `[AUTH-MIDDLEWARE] Grace token authenticated for user: ${gracePayload.username || gracePayload.sub || gracePayload.id}`,
+          );
+          return next();
+        }
+        console.warn(
+          `[AUTH-MIDDLEWARE] Bearer token rejected: ${tokenErr?.message || tokenErr}`,
+        );
+      }
+    }
+
+    console.log(`[AUTH-MIDDLEWARE] No valid session found, returning 401`);
 
     // If token is missing but dev bypass is allowed, attach dev user
     if (allowDevBypass()) {
@@ -66,7 +133,7 @@ export function requireAuth(req, res, next) {
       req.scope.userId = 1;
       return next();
     }
-    return next(httpError(401, "INVALID_TOKEN", "Invalid or expired token"));
+    return next(httpError(401, "INVALID_TOKEN", "Invalid or expired session"));
   }
 }
 
@@ -85,7 +152,9 @@ export function requireCompanyScope(req, res, next) {
 
   // Check if user is an admin (ID 1) and bypass company restrictions
   if (Number(req.user.id) === 1) {
-    const companyId = Number(req.headers["x-company-id"] || req.query.companyId || 1);
+    const companyId = Number(
+      req.headers["x-company-id"] || req.query.companyId || 1,
+    );
     req.scope = req.scope || {};
     req.scope.companyId = companyId;
     return next();
@@ -96,7 +165,7 @@ export function requireCompanyScope(req, res, next) {
     req.headers["x-company-id"] ||
       req.query.companyId ||
       req.user?.companyIds?.[0] ||
-      1
+      1,
   );
   req.scope = req.scope || {};
   req.scope.companyId = companyId;
@@ -125,7 +194,7 @@ export async function requireBranchScope(req, res, next) {
 
     const branchId = Number(rawBranchId || req.user?.branchIds?.[0] || 1);
     req.scope.branchId = branchId;
-    
+
     // Admin bypass: allow 'all' branches or fetch superbranch hierarchy dynamically
     if (Number(req.user.id) === 1) {
       if (rawBranchId === "all") {
@@ -134,13 +203,19 @@ export async function requireBranchScope(req, res, next) {
         return next();
       }
       req.scope.branchIdsStr = String(branchId);
-      
+
       // Let's also support superbranch for admin dynamically!
-      const [b] = await query("SELECT is_superbranch FROM adm_branches WHERE id = :branchId", { branchId });
+      const [b] = await query(
+        "SELECT is_superbranch FROM adm_branches WHERE id = :branchId",
+        { branchId },
+      );
       if (b?.is_superbranch) {
-         const childBranches = await query("SELECT id FROM adm_branches WHERE parent_branch_id = :branchId", { branchId });
-         const allRelated = [branchId, ...childBranches.map(x => x.id)];
-         req.scope.branchIdsStr = allRelated.join(",");
+        const childBranches = await query(
+          "SELECT id FROM adm_branches WHERE parent_branch_id = :branchId",
+          { branchId },
+        );
+        const allRelated = [branchId, ...childBranches.map((x) => x.id)];
+        req.scope.branchIdsStr = allRelated.join(",");
       }
       return next();
     }
@@ -157,13 +232,21 @@ export async function requireBranchScope(req, res, next) {
     req.scope.branchIdsStr = String(branchId);
 
     // Superbranch logic: if requested branch is a superbranch, allow access to its children
-    const [b] = await query("SELECT is_superbranch FROM adm_branches WHERE id = :branchId", { branchId });
+    const [b] = await query(
+      "SELECT is_superbranch FROM adm_branches WHERE id = :branchId",
+      { branchId },
+    );
     if (b?.is_superbranch) {
-       const childBranches = await query("SELECT id FROM adm_branches WHERE parent_branch_id = :branchId", { branchId });
-       const childIds = childBranches.map(x => Number(x.id));
-       // Intersection: user's allowed branches that are either the superbranch or its children
-       const validIds = [branchId, ...childIds].filter(id => allowedBranches.includes(id));
-       req.scope.branchIdsStr = validIds.join(",");
+      const childBranches = await query(
+        "SELECT id FROM adm_branches WHERE parent_branch_id = :branchId",
+        { branchId },
+      );
+      const childIds = childBranches.map((x) => Number(x.id));
+      // Intersection: user's allowed branches that are either the superbranch or its children
+      const validIds = [branchId, ...childIds].filter((id) =>
+        allowedBranches.includes(id),
+      );
+      req.scope.branchIdsStr = validIds.join(",");
     }
 
     return next();

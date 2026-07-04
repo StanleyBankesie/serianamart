@@ -1,20 +1,28 @@
 /**
  * @fileoverview JobExecutionForm component.
- * Provides functionality for JobExecutionForm.
+ * Comprehensive, multi-step job execution: links to a job order,
+ * tracks labor, materials/parts, a completion checklist, downtime, costing,
+ * and a sign-off / approval workflow. Mirrors service execution layout.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 
-const COMPLETION = ["IN_PROGRESS","COMPLETED","ON_HOLD","CANCELLED"];
-const STATUSES = ["DRAFT","OPEN","COMPLETED","CLOSED"];
+const COMPLETION = ["IN_PROGRESS", "COMPLETED", "ON_HOLD", "CANCELLED"];
+const UNITS = ["pcs", "set", "box", "ltr", "kg", "m", "roll", "unit"];
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10);
+}
 
 /**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
+ * JobExecutionForm — 3-step wizard matching service execution layout.
+ *
+ * Step 1: Job Order Reference (link job order, set work status, start date/time)
+ * Step 2: Labor & Materials (technicians, parts used, checklist)
+ * Step 3: Execution Details & Closing (end date, work performed, sign-off)
  */
 export default function JobExecutionForm() {
   const navigate = useNavigate();
@@ -23,77 +31,900 @@ export default function JobExecutionForm() {
   const params = new URLSearchParams(location.search);
   const isEdit = !!id;
 
-  const [form, setForm] = useState({
-    execution_no: "", job_order_id: params.get("job_order_id") || "",
-    start_date: new Date().toISOString().slice(0,10), end_date: "",
-    technicians: "", work_done: "", materials_used: "",
-    completion_status: "IN_PROGRESS", sign_off_by: "", status: "DRAFT", notes: ""
-  });
-  const [jobOrders, setJobOrders] = useState([]);
-  const [saving, setSaving] = useState(false);
-  const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const [step, setStep] = useState(1);
+  const [workStatus, setWorkStatus] = useState("IN_PROGRESS");
 
+  const [form, setForm] = useState({
+    execution_no: "",
+    job_order_id: params.get("job_order_id") || "",
+    start_date: new Date().toISOString().slice(0, 10),
+    start_time: "",
+    end_date: "",
+    end_time: "",
+    downtime_hours: "",
+    work_done: "",
+    materials_used: "",
+    completion_status: "IN_PROGRESS",
+    sign_off_by: "",
+    sign_off_date: "",
+    status: "DRAFT",
+    notes: "",
+    approval_status: "PENDING",
+    approved_by: "",
+    approval_date: "",
+    approval_notes: "",
+  });
+
+  const [technicians, setTechnicians] = useState([
+    { id: uid(), name: "", role: "", hours: "", rate: "" },
+  ]);
+  const [materials, setMaterials] = useState([
+    { id: uid(), description: "", qty: "", unit: "pcs", unit_cost: "" },
+  ]);
+  const [checklist, setChecklist] = useState([
+    { id: uid(), task: "", done: false },
+  ]);
+
+  const [jobOrders, setJobOrders] = useState([]);
+  const [selectedJobOrder, setSelectedJobOrder] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(isEdit);
+  const [errors, setErrors] = useState({});
+
+  const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  // -- load job orders + existing execution -------------------------------
   useEffect(() => {
     let mounted = true;
-    api.get("/maintenance/job-orders").then(r => { if (mounted) setJobOrders(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
+    api
+      .get("/maintenance/job-orders")
+      .then((r) => {
+        if (mounted)
+          setJobOrders(Array.isArray(r.data?.items) ? r.data.items : []);
+      })
+      .catch(() => {});
+
     if (isEdit) {
-      api.get(`/maintenance/job-executions/${id}`).then(r => {
-        const item = r.data?.item || {};
-        if (mounted) setForm(p => ({ ...p, ...item, start_date: (item.start_date || "").slice(0,10), end_date: (item.end_date || "").slice(0,10) }));
-      }).catch(() => toast.error("Failed to load execution"));
+      api
+        .get(`/maintenance/job-executions/${id}`)
+        .then((r) => {
+          const item = r.data?.item || {};
+          if (!mounted) return;
+          setForm((p) => ({
+            ...p,
+            ...item,
+            start_date: (item.start_date || "").slice(0, 10),
+            end_date: (item.end_date || "").slice(0, 10),
+            approval_date: (item.approval_date || "").slice(0, 10),
+            sign_off_date: (item.sign_off_date || "").slice(0, 10),
+          }));
+          setWorkStatus((item.completion_status || "IN_PROGRESS").toLowerCase());
+          setStep(Number(item.current_step) || 1);
+          if (Array.isArray(item.technicians) && item.technicians.length) {
+            setTechnicians(item.technicians.map((t) => ({ id: uid(), ...t })));
+          }
+          if (
+            Array.isArray(item.material_lines) &&
+            item.material_lines.length
+          ) {
+            setMaterials(item.material_lines.map((m) => ({ id: uid(), ...m })));
+          }
+          if (Array.isArray(item.checklist) && item.checklist.length) {
+            setChecklist(item.checklist.map((c) => ({ id: uid(), ...c })));
+          }
+        })
+        .catch(() => toast.error("Failed to load execution"))
+        .finally(() => {
+          if (mounted) setLoading(false);
+        });
     }
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [id]);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!form.job_order_id) { toast.error("Please select a job order"); return; }
+  // -- keep selected job order summary in sync -----------------------------
+  useEffect(() => {
+    const jo = jobOrders.find(
+      (o) => String(o.id) === String(form.job_order_id),
+    );
+    setSelectedJobOrder(jo || null);
+  }, [form.job_order_id, jobOrders]);
+
+  // -- derived costing -------------------------------------------------------
+  const laborCost = useMemo(
+    () =>
+      technicians.reduce(
+        (sum, t) => sum + (Number(t.hours) || 0) * (Number(t.rate) || 0),
+        0,
+      ),
+    [technicians],
+  );
+  const totalLaborHours = useMemo(
+    () => technicians.reduce((sum, t) => sum + (Number(t.hours) || 0), 0),
+    [technicians],
+  );
+  const materialsCost = useMemo(
+    () =>
+      materials.reduce(
+        (sum, m) => sum + (Number(m.qty) || 0) * (Number(m.unit_cost) || 0),
+        0,
+      ),
+    [materials],
+  );
+  const grandTotal = laborCost + materialsCost;
+  const checklistProgress = useMemo(() => {
+    const total = checklist.filter((c) => c.task.trim() !== "").length;
+    const done = checklist.filter((c) => c.task.trim() !== "" && c.done).length;
+    return { total, done };
+  }, [checklist]);
+
+  // -- row helpers -------------------------------------------------------
+  const addTechnician = () =>
+    setTechnicians((p) => [
+      ...p,
+      { id: uid(), name: "", role: "", hours: "", rate: "" },
+    ]);
+  const removeTechnician = (rid) =>
+    setTechnicians((p) => (p.length > 1 ? p.filter((t) => t.id !== rid) : p));
+  const updateTechnician = (rid, k, v) =>
+    setTechnicians((p) => p.map((t) => (t.id === rid ? { ...t, [k]: v } : t)));
+
+  const addMaterial = () =>
+    setMaterials((p) => [
+      ...p,
+      { id: uid(), description: "", qty: "", unit: "pcs", unit_cost: "" },
+    ]);
+  const removeMaterial = (rid) =>
+    setMaterials((p) => (p.length > 1 ? p.filter((m) => m.id !== rid) : p));
+  const updateMaterial = (rid, k, v) =>
+    setMaterials((p) => p.map((m) => (m.id === rid ? { ...m, [k]: v } : m)));
+
+  const addChecklistItem = () =>
+    setChecklist((p) => [...p, { id: uid(), task: "", done: false }]);
+  const removeChecklistItem = (rid) =>
+    setChecklist((p) => (p.length > 1 ? p.filter((c) => c.id !== rid) : p));
+  const updateChecklistItem = (rid, k, v) =>
+    setChecklist((p) => p.map((c) => (c.id === rid ? { ...c, [k]: v } : c)));
+
+  // -- validation -------------------------------------------------------
+  function validate() {
+    const e = {};
+    if (!form.job_order_id) e.job_order_id = "Select a job order";
+    if (!form.start_date) e.start_date = "Start date is required";
+    if (form.end_date && form.start_date && form.end_date < form.start_date) {
+      e.end_date = "End date cannot be before start date";
+    }
+    if (workStatus === "completed" && !form.end_date) {
+      e.end_date = "End date is required when marking as Completed";
+    }
+    const cleanTechs = technicians.filter((t) => t.name.trim() !== "");
+    if (cleanTechs.length === 0) e.technicians = "Add at least one technician";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function submit(e, nextStepNum, saveOnly = false) {
+    if (e) e.preventDefault();
+    if (!saveOnly && !nextStepNum) {
+      if (!validate()) {
+        toast.error("Please fix the highlighted fields");
+        return;
+      }
+    }
     setSaving(true);
+
+    const isCompleting = !saveOnly && !nextStepNum;
+    let finalStatus = "DRAFT";
+    if (isCompleting) finalStatus = "POSTED";
+    const completionStatus = isCompleting ? "COMPLETED" : workStatus.toUpperCase();
+
+    const payload = {
+      ...form,
+      completion_status: completionStatus,
+      status: finalStatus,
+      technicians: technicians
+        .filter((t) => t.name.trim() !== "")
+        .map(({ id: _id, ...rest }) => rest),
+      material_lines: materials
+        .filter((m) => m.description.trim() !== "")
+        .map(({ id: _id, ...rest }) => rest),
+      checklist: checklist
+        .filter((c) => c.task.trim() !== "")
+        .map(({ id: _id, ...rest }) => rest),
+      total_labor_hours: totalLaborHours,
+      labor_cost: laborCost,
+      materials_cost: materialsCost,
+      total_cost: grandTotal,
+      current_step: nextStepNum || step,
+    };
+
     try {
-      if (isEdit) { await api.put(`/maintenance/job-executions/${id}`, form); toast.success("Execution updated"); }
-      else { const r = await api.post("/maintenance/job-executions", form); toast.success(`Execution ${r.data?.execution_no} created`); }
-      navigate("/maintenance/job-executions", { state: { refresh: true } });
-    } catch (e) { toast.error(e?.response?.data?.message || "Failed to save"); }
-    finally { setSaving(false); }
+      if (isEdit) {
+        await api.put(`/maintenance/job-executions/${id}`, payload);
+        toast.success("Execution updated");
+      } else {
+        const r = await api.post("/maintenance/job-executions", payload);
+        toast.success(`Execution ${r.data?.execution_no || ""} created`);
+        if (r.data?.id) {
+          window.history.replaceState(null, "", `/maintenance/job-executions/${r.data.id}`);
+        }
+      }
+
+      if (nextStepNum) {
+        setStep(nextStepNum);
+      } else {
+        navigate("/maintenance/job-executions", { state: { refresh: true } });
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24 text-sm text-slate-500 dark:text-slate-400">
+        Loading job execution...
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Link to="/maintenance/job-executions" className="btn-secondary">← Back</Link>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{isEdit ? "Edit" : "New"} Job Execution</h1>
-          <p className="text-sm mt-1">Record work done and completion of a job order</p>
-        </div>
-      </div>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg font-semibold">Execution Details</div>
-          <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div><label className="label">Execution No</label><input className="input" value={form.execution_no} onChange={e => update("execution_no", e.target.value)} placeholder="Auto-generated" /></div>
-            <div>
-              <label className="label">Job Order *</label>
-              <select className="input" value={form.job_order_id} onChange={e => update("job_order_id", e.target.value)} required>
-                <option value="">-- Select Job Order --</option>
-                {jobOrders.map(o => <option key={o.id} value={o.id}>{o.order_no} – {o.asset_name}</option>)}
-              </select>
-            </div>
-            <div><label className="label">Start Date</label><input className="input" type="date" value={form.start_date} onChange={e => update("start_date", e.target.value)} /></div>
-            <div><label className="label">End Date</label><input className="input" type="date" value={form.end_date} onChange={e => update("end_date", e.target.value)} /></div>
-            <div><label className="label">Technicians</label><input className="input" value={form.technicians} onChange={e => update("technicians", e.target.value)} placeholder="Names of technicians" /></div>
-            <div><label className="label">Sign-off By</label><input className="input" value={form.sign_off_by} onChange={e => update("sign_off_by", e.target.value)} placeholder="Supervisor or manager" /></div>
-            <div><label className="label">Completion Status</label><select className="input" value={form.completion_status} onChange={e => update("completion_status", e.target.value)}>{COMPLETION.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-            <div><label className="label">Status</label><select className="input" value={form.status} onChange={e => update("status", e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-            <div className="md:col-span-2"><label className="label">Work Done</label><textarea className="input" rows={4} value={form.work_done} onChange={e => update("work_done", e.target.value)} placeholder="Describe work performed..." /></div>
-            <div className="md:col-span-2"><label className="label">Materials Used</label><textarea className="input" rows={3} value={form.materials_used} onChange={e => update("materials_used", e.target.value)} placeholder="Parts, materials, tools used..." /></div>
-            <div className="md:col-span-2"><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Link to="/maintenance/job-executions" className="btn-secondary">
+            ← Back
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+              {isEdit ? "Edit" : "New"} Job Execution
+            </h1>
+            <p className="text-sm mt-1 text-slate-500 dark:text-slate-400">
+              Track and manage job execution from assignment to completion
+            </p>
           </div>
         </div>
-        <div className="flex justify-end gap-2">
-          <Link to="/maintenance/job-executions" className="btn-secondary">Cancel</Link>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? "Saving..." : "Save Execution"}</button>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center text-white">
+            <div className="font-semibold">Execution Progress</div>
+            <div className="flex gap-2">
+              {[1, 2, 3].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className={step === n ? "btn-primary" : "btn-secondary"}
+                  onClick={() => setStep(n)}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-      </form>
+        <div className="card-body">
+          <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+            {/* STEP 1: Job Order Reference */}
+            {step === 1 && (
+              <div className="card">
+                <div className="card-body space-y-3">
+                  <div className="text-lg font-semibold">
+                    Job Order Reference
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="md:col-span-2">
+                      <label className="label">
+                        Job Order <span className="text-red-600">*</span>
+                      </label>
+                      <select
+                        className={`input ${errors.job_order_id ? "border-red-500" : ""}`}
+                        value={form.job_order_id}
+                        onChange={(e) => update("job_order_id", e.target.value)}
+                      >
+                        <option value="">-- Select Job Order --</option>
+                        {jobOrders.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.order_no} – {o.asset_name || o.description || ""}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.job_order_id && (
+                        <p className="text-xs text-red-500 mt-1">
+                          {errors.job_order_id}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="label">
+                        Work Status <span className="text-red-600">*</span>
+                      </label>
+                      <select
+                        className="input"
+                        value={workStatus}
+                        onChange={(e) => setWorkStatus(e.target.value)}
+                      >
+                        <option value="in_progress">In Progress</option>
+                        <option value="on_hold">On Hold</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">
+                        Start Date <span className="text-red-600">*</span>
+                      </label>
+                      <input
+                        className={`input ${errors.start_date ? "border-red-500" : ""}`}
+                        type="date"
+                        value={form.start_date}
+                        onChange={(e) => update("start_date", e.target.value)}
+                      />
+                      {errors.start_date && (
+                        <p className="text-xs text-red-500 mt-1">
+                          {errors.start_date}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="label">Start Time</label>
+                      <input
+                        className="input"
+                        type="time"
+                        value={form.start_time}
+                        onChange={(e) => update("start_time", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Downtime (hrs)</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        value={form.downtime_hours}
+                        onChange={(e) => update("downtime_hours", e.target.value)}
+                        placeholder="Asset downtime, if any"
+                      />
+                    </div>
+                  </div>
+
+                  {selectedJobOrder && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-800 text-sm">
+                      <div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">Asset</div>
+                        <div className="font-medium">{selectedJobOrder.asset_name || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">Priority</div>
+                        <div className="font-medium">{selectedJobOrder.priority || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">Requested By</div>
+                        <div className="font-medium">{selectedJobOrder.requested_by || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">Order Status</div>
+                        <div className="font-medium">{selectedJobOrder.status || "—"}</div>
+                      </div>
+                      {selectedJobOrder.description && (
+                        <div className="col-span-2 md:col-span-4">
+                          <div className="text-xs text-slate-500 dark:text-slate-400">Description</div>
+                          <div className="font-medium">{selectedJobOrder.description}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex justify-between w-full pt-4">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="btn-secondary opacity-0 pointer-events-none"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={(e) => submit(e, null, true)}
+                      >
+                        Save & Exit
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-success"
+                      onClick={(e) => submit(e, 2)}
+                    >
+                      Next: Labor & Materials &rarr;
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 2: Labor & Materials */}
+            {step === 2 && (
+              <div className="card">
+                <div className="card-body space-y-4">
+                  <div className="text-lg font-semibold">
+                    Labor & Materials
+                  </div>
+
+                  {/* Labor Tracking */}
+                  <div className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-sm">
+                        Labor Tracking
+                        <span className="ml-2 text-xs font-normal text-slate-500">
+                          {totalLaborHours || 0} hrs logged · {technicians.filter((t) => t.name.trim()).length} technician(s)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addTechnician}
+                        className="text-xs font-medium bg-brand/10 text-brand hover:bg-brand/20 rounded px-2 py-1"
+                      >
+                        + Add Technician
+                      </button>
+                    </div>
+                    {errors.technicians && (
+                      <p className="text-xs text-red-500">{errors.technicians}</p>
+                    )}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                            <th className="py-2 pr-2">Technician</th>
+                            <th className="py-2 pr-2">Role</th>
+                            <th className="py-2 pr-2 w-24">Hours</th>
+                            <th className="py-2 pr-2 w-28">Rate/hr</th>
+                            <th className="py-2 pr-2 w-28 text-right">Subtotal</th>
+                            <th className="py-2 w-10"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {technicians.map((t) => (
+                            <tr key={t.id} className="border-b border-slate-100">
+                              <td className="py-1.5 pr-2">
+                                <input
+                                  className="input"
+                                  value={t.name}
+                                  onChange={(e) => updateTechnician(t.id, "name", e.target.value)}
+                                  placeholder="Technician name"
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <input
+                                  className="input"
+                                  value={t.role}
+                                  onChange={(e) => updateTechnician(t.id, "role", e.target.value)}
+                                  placeholder="e.g. Electrician"
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <input
+                                  className="input"
+                                  type="number"
+                                  min="0"
+                                  step="0.25"
+                                  value={t.hours}
+                                  onChange={(e) => updateTechnician(t.id, "hours", e.target.value)}
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <input
+                                  className="input"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={t.rate}
+                                  onChange={(e) => updateTechnician(t.id, "rate", e.target.value)}
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2 text-right font-medium">
+                                {((Number(t.hours) || 0) * (Number(t.rate) || 0)).toFixed(2)}
+                              </td>
+                              <td className="py-1.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => removeTechnician(t.id)}
+                                  className="text-red-500 hover:text-red-700 text-xs"
+                                >
+                                  ✕
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td colSpan={4} className="pt-2 text-right text-xs text-slate-500">
+                              Labor Cost Subtotal
+                            </td>
+                            <td className="pt-2 text-right font-semibold">
+                              {laborCost.toFixed(2)}
+                            </td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Materials / Parts Used */}
+                  <div className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-sm">
+                        Materials & Parts Used
+                        <span className="ml-2 text-xs font-normal text-slate-500">
+                          {materials.filter((m) => m.description.trim()).length} line item(s)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addMaterial}
+                        className="text-xs font-medium bg-brand/10 text-brand hover:bg-brand/20 rounded px-2 py-1"
+                      >
+                        + Add Line
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                            <th className="py-2 pr-2">Description</th>
+                            <th className="py-2 pr-2 w-24">Qty</th>
+                            <th className="py-2 pr-2 w-24">Unit</th>
+                            <th className="py-2 pr-2 w-28">Unit Cost</th>
+                            <th className="py-2 pr-2 w-28 text-right">Line Total</th>
+                            <th className="py-2 w-10"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {materials.map((m) => (
+                            <tr key={m.id} className="border-b border-slate-100">
+                              <td className="py-1.5 pr-2">
+                                <input
+                                  className="input"
+                                  value={m.description}
+                                  onChange={(e) => updateMaterial(m.id, "description", e.target.value)}
+                                  placeholder="Part or material"
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <input
+                                  className="input"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={m.qty}
+                                  onChange={(e) => updateMaterial(m.id, "qty", e.target.value)}
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <select
+                                  className="input"
+                                  value={m.unit}
+                                  onChange={(e) => updateMaterial(m.id, "unit", e.target.value)}
+                                >
+                                  {UNITS.map((u) => (
+                                    <option key={u} value={u}>{u}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <input
+                                  className="input"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={m.unit_cost}
+                                  onChange={(e) => updateMaterial(m.id, "unit_cost", e.target.value)}
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2 text-right font-medium">
+                                {((Number(m.qty) || 0) * (Number(m.unit_cost) || 0)).toFixed(2)}
+                              </td>
+                              <td className="py-1.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => removeMaterial(m.id)}
+                                  className="text-red-500 hover:text-red-700 text-xs"
+                                >
+                                  ✕
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td colSpan={4} className="pt-2 text-right text-xs text-slate-500">
+                              Materials Cost Subtotal
+                            </td>
+                            <td className="pt-2 text-right font-semibold">
+                              {materialsCost.toFixed(2)}
+                            </td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Cost Summary */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800">
+                      <div className="text-xs text-slate-500">Labor Hours</div>
+                      <div className="text-lg font-semibold">{totalLaborHours.toFixed(2)}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800">
+                      <div className="text-xs text-slate-500">Labor Cost</div>
+                      <div className="text-lg font-semibold">{laborCost.toFixed(2)}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800">
+                      <div className="text-xs text-slate-500">Materials Cost</div>
+                      <div className="text-lg font-semibold">{materialsCost.toFixed(2)}</div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-brand/10 border border-brand/30">
+                      <div className="text-xs text-slate-500">Grand Total</div>
+                      <div className="text-lg font-bold text-brand">{grandTotal.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between w-full pt-4">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setStep(1)}
+                      >
+                        &larr; Back
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={(e) => submit(e, null, true)}
+                      >
+                        Save & Exit
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-success"
+                      onClick={(e) => submit(e, 3)}
+                    >
+                      Next: Execution Details &rarr;
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3: Execution Details & Closing */}
+            {step === 3 && (
+              <div className="card">
+                <div className="card-body space-y-4">
+                  <div className="text-lg font-semibold">
+                    Execution Details & Closing
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="label">Job Order</label>
+                      <select
+                        className="input"
+                        value={form.job_order_id}
+                        onChange={(e) => update("job_order_id", e.target.value)}
+                      >
+                        <option value="">-- Select Job Order --</option>
+                        {jobOrders.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.order_no} – {o.asset_name || ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">
+                        Completion Status <span className="text-red-600">*</span>
+                      </label>
+                      <select
+                        className="input"
+                        value={workStatus}
+                        onChange={(e) => setWorkStatus(e.target.value)}
+                      >
+                        <option value="in_progress">In Progress</option>
+                        <option value="on_hold">On Hold</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">End Date</label>
+                      <input
+                        className={`input ${errors.end_date ? "border-red-500" : ""}`}
+                        type="date"
+                        value={form.end_date}
+                        onChange={(e) => update("end_date", e.target.value)}
+                      />
+                      {errors.end_date && (
+                        <p className="text-xs text-red-500 mt-1">{errors.end_date}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="label">End Time</label>
+                      <input
+                        className="input"
+                        type="time"
+                        value={form.end_time}
+                        onChange={(e) => update("end_time", e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label">
+                      Work Performed Description <span className="text-red-600">*</span>
+                    </label>
+                    <textarea
+                      className="input"
+                      rows={4}
+                      value={form.work_done}
+                      onChange={(e) => update("work_done", e.target.value)}
+                      placeholder="Describe work performed..."
+                    />
+                  </div>
+
+                  {/* Completion Checklist */}
+                  <div className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-sm">
+                        Completion Checklist
+                        <span className="ml-2 text-xs font-normal text-slate-500">
+                          {checklistProgress.done}/{checklistProgress.total || 0} tasks completed
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={addChecklistItem}
+                        className="text-xs font-medium bg-brand/10 text-brand hover:bg-brand/20 rounded px-2 py-1"
+                      >
+                        + Add Task
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {checklist.map((c) => (
+                        <div key={c.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={c.done}
+                            onChange={(e) => updateChecklistItem(c.id, "done", e.target.checked)}
+                            className="h-4 w-4"
+                          />
+                          <input
+                            className="input flex-1"
+                            value={c.task}
+                            onChange={(e) => updateChecklistItem(c.id, "task", e.target.value)}
+                            placeholder="Checklist task or safety step"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeChecklistItem(c.id)}
+                            className="text-red-500 hover:text-red-700 text-xs px-1"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Sign-off & Approval */}
+                  <div className="border rounded-lg p-4 space-y-3">
+                    <div className="font-semibold text-sm">Sign-off & Approval</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="label">Sign-off By</label>
+                        <input
+                          className="input"
+                          value={form.sign_off_by}
+                          onChange={(e) => update("sign_off_by", e.target.value)}
+                          placeholder="Supervisor or manager"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Sign-off Date</label>
+                        <input
+                          className="input"
+                          type="date"
+                          value={form.sign_off_date}
+                          onChange={(e) => update("sign_off_date", e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Approval Status</label>
+                        <select
+                          className="input"
+                          value={form.approval_status}
+                          onChange={(e) => update("approval_status", e.target.value)}
+                        >
+                          <option value="PENDING">Pending</option>
+                          <option value="APPROVED">Approved</option>
+                          <option value="REJECTED">Rejected</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">Approved By</label>
+                        <input
+                          className="input"
+                          value={form.approved_by}
+                          onChange={(e) => update("approved_by", e.target.value)}
+                          placeholder="Approver name"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Approval Date</label>
+                        <input
+                          className="input"
+                          type="date"
+                          value={form.approval_date}
+                          onChange={(e) => update("approval_date", e.target.value)}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="label">Approval Notes</label>
+                        <textarea
+                          className="input"
+                          rows={2}
+                          value={form.approval_notes}
+                          onChange={(e) => update("approval_notes", e.target.value)}
+                          placeholder="Reason for rejection, conditions of approval, etc."
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between w-full pt-4">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setStep(2)}
+                      >
+                        &larr; Back
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={(e) => submit(e, null, true)}
+                      >
+                        Save & Exit
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-success"
+                      onClick={(e) => submit(e)}
+                    >
+                      Complete Job Execution
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </form>
+        </div>
+      </div>
     </div>
   );
 }

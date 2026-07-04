@@ -210,7 +210,7 @@ export default function InvoiceForm() {
       const due = calcDueDate(form.invoice_date, form.payment_terms);
       setForm((p) => ({ ...p, due_date: due }));
       api
-        .get("/sales/invoices/next-no")
+        .get("/services/invoices/next-no")
         .then((resp) => {
           const nextNo = resp.data?.nextNo;
           if (nextNo) {
@@ -332,7 +332,7 @@ export default function InvoiceForm() {
     try {
       const [ordersRes, invoicesRes] = await Promise.all([
         api.get("/purchase/service-executions"),
-        api.get("/sales/invoices"),
+        api.get("/services/invoices"),
       ]);
       const baseOrders = Array.isArray(ordersRes.data?.items)
         ? ordersRes.data.items
@@ -634,7 +634,7 @@ export default function InvoiceForm() {
   const fetchInvoice = async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/sales/invoices/${id}`);
+      const response = await api.get(`/services/invoices/${id}`);
       const data = response.data?.item;
       if (data) {
         setForm({
@@ -1264,14 +1264,14 @@ export default function InvoiceForm() {
       };
       let savedId = 0;
       if (isEdit) {
-        const resp = await api.put(`/sales/invoices/${id}`, payload);
+        const resp = await api.put(`/services/invoices/${id}`, payload);
         savedId = Number(resp?.data?.id || id);
       } else {
-        const resp = await api.post("/sales/invoices", payload);
+        const resp = await api.post("/services/invoices", payload);
         savedId = Number(resp?.data?.id || 0);
       }
       try {
-        const subResp = await api.post(`/sales/invoices/${savedId}/submit`);
+        const subResp = await api.post(`/services/invoices/${savedId}/submit`);
         const pstatus = subResp?.data?.payment_status || "UNPAID";
         toast.success(`Invoice ${invoiceNo} saved and submitted (${pstatus})`);
         if (autoDelivery) {
@@ -1642,7 +1642,7 @@ export default function InvoiceForm() {
                 </select>
               </div>
               <div>
-                <label className="label">Order</label>
+                <label className="label">Execution No</label>
                 <select
                   className="input w-56"
                   value={form.service_execution_id}

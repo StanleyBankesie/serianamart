@@ -97,10 +97,10 @@ export function filterByPrefix(items, { query, getKeys, searchFields }) {
   return items.filter((it) => {
     if (searchFields) {
       return searchFields.some((field) =>
-        normalizeString(String(it[field] || "")).startsWith(q)
+        normalizeString(String(it[field] || "")).includes(q)
       );
     }
     const keys = (getKeys && getKeys(it)) || [];
-    return keys.some((k) => normalizeString(String(k || "")).startsWith(q));
+    return keys.some((k) => normalizeString(String(k || "")).includes(q));
   }).slice(0, 20);
 }

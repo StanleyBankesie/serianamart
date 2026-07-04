@@ -20,6 +20,9 @@ import { toast } from "react-toastify";
  */
 export default function StockTransferList() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [transfers, setTransfers] = useState([]);
 
   const [forwardModalOpen, setForwardModalOpen] = useState(false);
@@ -149,13 +152,17 @@ export default function StockTransferList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const refreshData = () => {
+  const refreshData = (currentPage) => {
     setLoading(true);
     setError("");
     api
-      .get("/inventory/stock-transfers")
+      .get("/inventory/stock-transfers", { params: { page: currentPage, limit: 50 } })
       .then((res) => {
         setTransfers(Array.isArray(res.data?.items) ? res.data.items : []);
+        if (res.data?.pagination) {
+          setTotalPages(res.data.pagination.totalPages || 1);
+          setTotalCount(res.data.pagination.total || 0);
+        }
       })
       .catch((e) => {
         setError(e?.response?.data?.message || "Failed to load stock transfers");
@@ -166,8 +173,8 @@ export default function StockTransferList() {
   };
 
   useEffect(() => {
-    refreshData();
-  }, []);
+    refreshData(page);
+  }, [page]);
 
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -417,6 +424,33 @@ export default function StockTransferList() {
               </tbody>
             </table>
           </div>
+          
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex justify-between items-center mt-4 p-4 bg-base-100 rounded-lg shadow-sm border border-base-200">
+              <span className="text-sm text-base-content/70">
+                Showing page {page} of {totalPages}
+                {totalCount > 0 && ` (${totalCount} total transfers)`}
+              </span>
+              <div className="join">
+                <button
+                  className="join-item btn btn-sm"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  «
+                </button>
+                <button className="join-item btn btn-sm">Page {page}</button>
+                <button
+                  className="join-item btn btn-sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

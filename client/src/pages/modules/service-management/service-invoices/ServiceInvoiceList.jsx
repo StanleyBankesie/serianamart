@@ -70,7 +70,7 @@ export default function InvoiceList() {
       setLoading(true);
       setError("");
       const [invRes, curRes, whRes] = await Promise.all([
-        api.get("/sales/invoices"),
+        api.get("/services/invoices"),
         api.get("/finance/currencies"),
         api.get("/inventory/warehouses"),
       ]);
@@ -454,7 +454,7 @@ export default function InvoiceList() {
     if (!selectedDoc) return;
     try {
       const approverName = workflowSteps.find((s) => Number(s.approver_id) === Number(targetApproverId))?.approver_name || "";
-      await api.post(`/sales/invoices/${selectedDoc.id}/submit`, {
+      await api.post(`/services/invoices/${selectedDoc.id}/submit`, {
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_approver_id: targetApproverId || null,
       });
@@ -664,7 +664,7 @@ export default function InvoiceList() {
                               onClick={async () => {
                                 if (!window.confirm("Cancel this invoice?")) return;
                                 try {
-                                  await api.post(`/sales/invoices/${inv.id}/reverse-accounting`);
+                                  await api.post(`/services/invoices/${inv.id}/reverse-accounting`);
                                   toast.success("Invoice cancelled");
                                   setInvoices((prev) => prev.filter((x) => Number(x.id) !== Number(inv.id)));
                                 } catch (e) {

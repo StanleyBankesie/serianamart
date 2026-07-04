@@ -649,23 +649,52 @@ export const getProjectDetail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ===== PM MATERIAL REQUISITION TABLES (shared with inventory) =====
+// ===== PM MATERIAL REQUISITION TABLES =====
 async function ensurePMMaterialRequisitionTables(companyId, branchId) {
-  try { await query(`ALTER TABLE inv_material_requisitions ADD COLUMN IF NOT EXISTS project_id BIGINT UNSIGNED DEFAULT NULL AFTER department_id`); } catch (e) {}
-  try { await query(`ALTER TABLE inv_material_requisition_details ADD COLUMN IF NOT EXISTS qty_received DECIMAL(18,3) NOT NULL DEFAULT 0 AFTER qty_issued`); } catch (e) {}
-  try { await query(`ALTER TABLE inv_material_requisition_details ADD COLUMN IF NOT EXISTS uom VARCHAR(20) DEFAULT 'PCS' AFTER qty_received`); } catch (e) {}
+  await query(`CREATE TABLE IF NOT EXISTS pm_material_requisitions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    company_id BIGINT UNSIGNED NOT NULL,
+    branch_id BIGINT UNSIGNED NOT NULL,
+    requisition_no VARCHAR(50) NOT NULL,
+    requisition_date DATE NOT NULL,
+    project_id BIGINT UNSIGNED DEFAULT NULL,
+    warehouse_id BIGINT UNSIGNED DEFAULT NULL,
+    department_id BIGINT UNSIGNED DEFAULT NULL,
+    priority VARCHAR(20) DEFAULT 'MEDIUM',
+    requested_by VARCHAR(255) DEFAULT NULL,
+    remarks TEXT,
+    status VARCHAR(30) DEFAULT 'DRAFT',
+    created_by BIGINT UNSIGNED DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_pm_mr_scope_no (company_id, branch_id, requisition_no)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  await query(`CREATE TABLE IF NOT EXISTS pm_material_requisition_items (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    requisition_id BIGINT UNSIGNED NOT NULL,
+    item_id BIGINT UNSIGNED NOT NULL,
+    qty_requested DECIMAL(18,3) NOT NULL DEFAULT 0,
+    qty_received DECIMAL(18,3) NOT NULL DEFAULT 0,
+    uom VARCHAR(20) DEFAULT 'PCS',
+    batch_no VARCHAR(100) DEFAULT NULL,
+    PRIMARY KEY (id),
+    KEY idx_pm_mri_req (requisition_id),
+    CONSTRAINT fk_pm_mri_req FOREIGN KEY (requisition_id) REFERENCES pm_material_requisitions (id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 }
 
 async function nextPMMRNo(companyId, branchId) {
-  const rows = await query(`SELECT requisition_no FROM inv_material_requisitions WHERE company_id = :companyId AND branch_id = :branchId AND requisition_no LIKE 'MR-%' ORDER BY CAST(SUBSTRING(requisition_no, 4) AS UNSIGNED) DESC LIMIT 1`, { companyId, branchId });
+  const rows = await query(`SELECT requisition_no FROM pm_material_requisitions WHERE company_id = :companyId AND branch_id = :branchId AND requisition_no LIKE 'MRP-%' ORDER BY CAST(SUBSTRING(requisition_no, 5) AS UNSIGNED) DESC LIMIT 1`, { companyId, branchId });
   let nextNum = 1;
   if (rows.length > 0) {
     const prev = String(rows[0].requisition_no || "");
-    const numPart = prev.slice(3);
+    const numPart = prev.slice(4);
     const n = parseInt(numPart, 10);
     if (Number.isFinite(n)) nextNum = n + 1;
   }
-  return `MR-${String(nextNum).padStart(6, "0")}`;
+  return `MRP-${String(nextNum).padStart(6, "0")}`;
 }
 
 // ===== PM MATERIAL UTILIZATION TABLES =====
@@ -775,12 +804,12 @@ export const listPMMaterialRequisitions = async (req, res, next) => {
     const { companyId, branchId = null } = req.scope || {};
     await ensurePMMaterialRequisitionTables(companyId, branchId);
     const rows = await query(`SELECT r.*, p.project_name, w.warehouse_name, d.name AS department_name, u.username AS created_by_name
-      FROM inv_material_requisitions r
+      FROM pm_material_requisitions r
       LEFT JOIN pm_projects p ON r.project_id = p.id
       LEFT JOIN inv_warehouses w ON r.warehouse_id = w.id
       LEFT JOIN adm_departments d ON r.department_id = d.id
       LEFT JOIN adm_users u ON r.created_by = u.id
-      WHERE r.company_id = :companyId AND r.branch_id = :branchId AND r.requisition_type = 'PROJECT' AND COALESCE(r.is_active,'Y') = 'Y'
+      WHERE r.company_id = :companyId AND r.branch_id = :branchId AND COALESCE(r.is_active,'Y') = 'Y'
       ORDER BY r.created_at DESC`, { companyId, branchId });
     res.json({ items: rows });
   } catch (err) { next(err); }
@@ -793,14 +822,14 @@ export const getPMMaterialRequisitionById = async (req, res, next) => {
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     await ensurePMMaterialRequisitionTables(companyId, branchId);
     const [hdr] = await query(`SELECT r.*, p.project_name, w.warehouse_name, d.name AS department_name, u.username AS created_by_name
-      FROM inv_material_requisitions r
+      FROM pm_material_requisitions r
       LEFT JOIN pm_projects p ON r.project_id = p.id
       LEFT JOIN inv_warehouses w ON r.warehouse_id = w.id
       LEFT JOIN adm_departments d ON r.department_id = d.id
       LEFT JOIN adm_users u ON r.created_by = u.id
       WHERE r.id = :id LIMIT 1`, { id });
     if (!hdr) throw httpError(404, "NOT_FOUND", "Material requisition not found");
-    const details = await query(`SELECT d.*, i.item_code, i.item_name FROM inv_material_requisition_details d LEFT JOIN inv_items i ON d.item_id = i.id WHERE d.requisition_id = :id ORDER BY d.id`, { id });
+    const details = await query(`SELECT d.*, i.item_code, i.item_name FROM pm_material_requisition_items d LEFT JOIN inv_items i ON d.item_id = i.id WHERE d.requisition_id = :id ORDER BY d.id`, { id });
     res.json({ item: hdr, details });
   } catch (err) { next(err); }
 };
@@ -814,8 +843,8 @@ export const createPMMaterialRequisition = async (req, res, next) => {
     const reqNo = await nextPMMRNo(companyId, branchId);
     const details = Array.isArray(b.details) ? b.details : [];
     await conn.beginTransaction();
-    const [hdr] = await conn.execute(`INSERT INTO inv_material_requisitions (company_id, branch_id, requisition_no, requisition_date, project_id, warehouse_id, department_id, requisition_type, priority, requested_by, remarks, status, created_by)
-      VALUES (:companyId, :branchId, :reqNo, :reqDate, :projectId, :warehouseId, :departmentId, 'PROJECT', :priority, :requestedBy, :remarks, :status, :createdBy)`, {
+    const [hdr] = await conn.execute(`INSERT INTO pm_material_requisitions (company_id, branch_id, requisition_no, requisition_date, project_id, warehouse_id, department_id, priority, requested_by, remarks, status, created_by)
+      VALUES (:companyId, :branchId, :reqNo, :reqDate, :projectId, :warehouseId, :departmentId, :priority, :requestedBy, :remarks, :status, :createdBy)`, {
       companyId, branchId, reqNo,
       reqDate: b.requisition_date || new Date().toISOString().split('T')[0],
       projectId: toNumber(b.project_id),
@@ -831,7 +860,7 @@ export const createPMMaterialRequisition = async (req, res, next) => {
     for (const d of details) {
       const itemId = toNumber(d.item_id);
       if (!itemId || !Number(d.qty_requested)) continue;
-      await conn.execute(`INSERT INTO inv_material_requisition_details (requisition_id, item_id, qty_requested, qty_issued, qty_received, uom, batch_no) VALUES (:reqId, :itemId, :qtyReq, 0, :qtyRecv, :uom, :batchNo)`, {
+      await conn.execute(`INSERT INTO pm_material_requisition_items (requisition_id, item_id, qty_requested, qty_received, uom, batch_no) VALUES (:reqId, :itemId, :qtyReq, :qtyRecv, :uom, :batchNo)`, {
         reqId, itemId,
         qtyReq: Number(d.qty_requested) || 0,
         qtyRecv: Number(d.qty_received || 0),
@@ -854,7 +883,7 @@ export const updatePMMaterialRequisition = async (req, res, next) => {
     const b = req.body || {};
     const details = Array.isArray(b.details) ? b.details : [];
     await conn.beginTransaction();
-    await conn.execute(`UPDATE inv_material_requisitions SET requisition_date = :reqDate, project_id = :projectId, warehouse_id = :warehouseId, department_id = :departmentId, priority = :priority, requested_by = :requestedBy, remarks = :remarks, status = :status WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, {
+    await conn.execute(`UPDATE pm_material_requisitions SET requisition_date = :reqDate, project_id = :projectId, warehouse_id = :warehouseId, department_id = :departmentId, priority = :priority, requested_by = :requestedBy, remarks = :remarks, status = :status WHERE id = :id AND company_id = :companyId AND branch_id = :branchId`, {
       id, companyId, branchId,
       reqDate: b.requisition_date || null,
       projectId: toNumber(b.project_id),
@@ -866,13 +895,13 @@ export const updatePMMaterialRequisition = async (req, res, next) => {
       status: b.status || 'DRAFT'
     });
     if (b.status === 'CANCELLED') {
-      await conn.execute(`UPDATE inv_material_requisitions SET is_active = 'N', deleted_at = NOW() WHERE id = :id`, { id });
+      await conn.execute(`UPDATE pm_material_requisitions SET is_active = 'N', deleted_at = NOW() WHERE id = :id`, { id });
     }
-    await conn.execute(`DELETE FROM inv_material_requisition_details WHERE requisition_id = :id`, { id });
+    await conn.execute(`DELETE FROM pm_material_requisition_items WHERE requisition_id = :id`, { id });
     for (const d of details) {
       const itemId = toNumber(d.item_id);
       if (!itemId || !Number(d.qty_requested)) continue;
-      await conn.execute(`INSERT INTO inv_material_requisition_details (requisition_id, item_id, qty_requested, qty_issued, qty_received, uom, batch_no) VALUES (:id, :itemId, :qtyReq, 0, :qtyRecv, :uom, :batchNo)`, {
+      await conn.execute(`INSERT INTO pm_material_requisition_items (requisition_id, item_id, qty_requested, qty_received, uom, batch_no) VALUES (:id, :itemId, :qtyReq, :qtyRecv, :uom, :batchNo)`, {
         id, itemId,
         qtyReq: Number(d.qty_requested) || 0,
         qtyRecv: Number(d.qty_received || 0),
@@ -890,7 +919,7 @@ export const submitPMMaterialRequisition = async (req, res, next) => {
     const { companyId = null } = req.scope || {};
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-    await query(`UPDATE inv_material_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId`, { id, companyId });
+    await query(`UPDATE pm_material_requisitions SET status = 'PENDING_APPROVAL' WHERE id = :id AND company_id = :companyId`, { id, companyId });
     const wfByRoute = await query(`SELECT * FROM adm_workflows WHERE company_id = :companyId AND document_route = '/projects/material-requisitions' ORDER BY id ASC`, { companyId });
     const wfDefs = await query(`SELECT * FROM adm_workflows WHERE company_id = :companyId AND (document_type = 'PM_MATERIAL_REQUISITION' OR document_type = 'PM Material Requisition') ORDER BY id ASC`, { companyId });
     let activeWf = null;
@@ -901,12 +930,12 @@ export const submitPMMaterialRequisition = async (req, res, next) => {
       } if (activeWf) break;
     }
     if (!activeWf) {
-      await query(`UPDATE inv_material_requisitions SET status = 'APPROVED' WHERE id = :id`, { id });
+      await query(`UPDATE pm_material_requisitions SET status = 'APPROVED' WHERE id = :id`, { id });
       return res.json({ status: 'APPROVED' });
     }
     const [firstStep] = await query(`SELECT * FROM adm_workflow_steps WHERE workflow_id = :wf ORDER BY step_order ASC LIMIT 1`, { wf: activeWf.id });
     if (!firstStep || !firstStep.approver_user_id) {
-      await query(`UPDATE inv_material_requisitions SET status = 'APPROVED' WHERE id = :id`, { id });
+      await query(`UPDATE pm_material_requisitions SET status = 'APPROVED' WHERE id = :id`, { id });
       return res.json({ status: 'APPROVED' });
     }
     await query(`INSERT INTO adm_document_workflows (company_id, workflow_id, document_id, document_type, current_step_order, status, assigned_to_user_id)

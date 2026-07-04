@@ -299,6 +299,10 @@ export default function ServiceManagementHome() {
         element={<ServiceConfirmationsList />}
       />
       <Route
+        path="service-confirmation/new"
+        element={<ServiceConfirmationForm />}
+      />
+      <Route
         path="service-confirmation/:id"
         element={<ServiceConfirmationForm />}
       />

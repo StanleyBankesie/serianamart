@@ -28,6 +28,9 @@ export default function SupplierQuotationsList() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [quotations, setQuotations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -48,31 +51,34 @@ export default function SupplierQuotationsList() {
   const [workflowsCache, setWorkflowsCache] = useState(null);
   const [targetApproverId, setTargetApproverId] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const fetchQuotations = useCallback(async (currentPage, currentStatus) => {
     setLoading(true);
     setError("");
-    api
-      .get("/purchase/supplier-quotations")
-      .then((res) => {
-        if (!mounted) return;
-        setQuotations(Array.isArray(res.data?.items) ? res.data.items : []);
-      })
-      .catch((e) => {
-        if (!mounted) return;
-        setError(
-          e?.response?.data?.message || "Failed to load supplier quotations",
-        );
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
+    try {
+      let url = `/purchase/supplier-quotations?page=${currentPage}&limit=50`;
+      if (currentStatus !== "ALL") {
+        url += `&status=${currentStatus}`;
+      }
+      const res = await api.get(url);
+      setQuotations(Array.isArray(res.data?.items) ? res.data.items : []);
+      if (res.data?.pagination) {
+        setTotalPages(res.data.pagination.totalPages || 1);
+        setTotalCount(res.data.pagination.total || 0);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || "Failed to load supplier quotations");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchQuotations(page, statusFilter);
+  }, [page, statusFilter, fetchQuotations]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter]);
 
   useEffect(() => {
     loadWorkflows();
@@ -149,19 +155,16 @@ export default function SupplierQuotationsList() {
     return statusConfig[status] || "badge-info";
   };
 
-  const filteredBase = useMemo(() => {
-    const base =
-      statusFilter === "ALL"
-        ? quotations.slice()
-        : quotations.filter((q) => q.status === statusFilter);
+  const filteredQuotations = useMemo(() => {
+    const base = quotations;
     if (!searchTerm.trim()) return base;
     return filterAndSort(base, {
       query: searchTerm,
       getKeys: (q) => [q.quotation_no, q.supplier_name, q.rfq_no],
     });
-  }, [quotations, searchTerm, statusFilter]);
+  }, [quotations, searchTerm]);
 
-  const { sorted: filteredQuotations, sortKey, sortDir, toggle } = useSort(filteredBase, "created_at", "desc");
+  const { sortKey, sortDir, toggle } = useSort(filteredQuotations, "created_at", "desc");
 
   const workflowDisabled = hasInactiveWorkflow && !candidateWorkflow;
 
@@ -670,22 +673,32 @@ export default function SupplierQuotationsList() {
             </tbody>
           </table>
         </div>
-        <div className="card-body border-t border-slate-200 dark:border-slate-700">
-          <div className="flex items-center justify-between text-sm">
-            <span>
-              Showing {filteredQuotations.length} of {quotations.length}{" "}
-              quotations
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex justify-between items-center mt-4 p-4 bg-base-100 rounded-lg shadow-sm border border-base-200">
+            <span className="text-sm text-base-content/70">
+              Showing page {page} of {totalPages}
+              {totalCount > 0 && ` (${totalCount} total quotations)`}
             </span>
-            <div className="flex gap-2">
-              <button className="btn-success px-3 py-1.5" disabled>
-                Previous
+            <div className="join">
+              <button
+                className="join-item btn btn-sm"
+                disabled={page === 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                «
               </button>
-              <button className="btn-success px-3 py-1.5" disabled>
-                Next
+              <button className="join-item btn btn-sm">Page {page}</button>
+              <button
+                className="join-item btn btn-sm"
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                »
               </button>
             </div>
           </div>
-        </div>
+        )}
       </div>
       <DocumentAttachmentsModal
         open={showAttach}

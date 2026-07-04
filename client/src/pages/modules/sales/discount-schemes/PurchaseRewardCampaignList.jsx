@@ -1,3 +1,8 @@
+/**
+ * @fileoverview PurchaseRewardCampaignList component.
+ * Provides functionality for PurchaseRewardCampaignList.
+ */
+
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
@@ -6,6 +11,11 @@ import "./DiscountSchemeList.css";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PurchaseRewardCampaignList() {
   const navigate = useNavigate();
   const location = useLocation();

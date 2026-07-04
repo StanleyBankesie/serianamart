@@ -157,6 +157,7 @@ export default function RoleManagementNew() {
 
   async function saveRoleSettings() {
     try {
+      setLoading(true);
       setError("");
       if (assignRole) {
         const payload = {
@@ -166,6 +167,7 @@ export default function RoleManagementNew() {
         };
         if (!payload.name || !payload.code) {
           setError("Name and code are required");
+          setLoading(false);
           return;
         }
         await api.put(`/access/roles/${assignRole.id}`, payload);
@@ -178,10 +180,6 @@ export default function RoleManagementNew() {
       });
 
       const allPermissions = Array.from(selectedFeatures);
-
-      await api.put(`/access/roles/${assignRole.id}/features`, {
-        features: allPermissions,
-      });
 
       // Sync adm_role_permissions for permByFeatureKey to work
       const permPayload = [];
@@ -198,9 +196,15 @@ export default function RoleManagementNew() {
           });
         }
       }
-      await api.put(`/access/roles/${assignRole.id}/permissions`, {
-        permissions: permPayload,
-      });
+      
+      await Promise.all([
+        api.put(`/access/roles/${assignRole.id}/features`, {
+          features: allPermissions,
+        }),
+        api.put(`/access/roles/${assignRole.id}/permissions`, {
+          permissions: permPayload,
+        })
+      ]);
 
       setSuccess("Role permissions updated successfully");
       try {
@@ -209,21 +213,23 @@ export default function RoleManagementNew() {
       try {
         await refreshPermissions();
       } catch {}
-      await load();
-      try {
-        const currentRole = assignRole
-          ? {
-              ...assignRole,
-              name: String(editRole.name || "").trim(),
-              code: String(editRole.code || "").trim(),
-              is_active: !!editRole.is_active,
-            }
-          : null;
-        if (currentRole) await openRoleSettings(currentRole);
-      } catch {}
+
+      // Update role in list without full refetch
+      if (assignRole) {
+          setRoles((prev) =>
+            prev.map((r) =>
+              r.id === assignRole.id
+                ? { ...r, name: editRole.name, code: editRole.code, is_active: editRole.is_active }
+                : r
+            )
+          );
+      }
+
       setTimeout(() => setSuccess(""), 2000);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to save role settings");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -325,13 +331,6 @@ export default function RoleManagementNew() {
                     onToggle={toggle}
                   />
                   <SortableHeader
-                    label="Code"
-                    sortKey="code"
-                    currentKey={sortKey}
-                    direction={sortDir}
-                    onToggle={toggle}
-                  />
-                  <SortableHeader
                     label="Status"
                     sortKey="is_active"
                     currentKey={sortKey}
@@ -345,7 +344,6 @@ export default function RoleManagementNew() {
                 {rolesSorted.map((r) => (
                   <tr key={r.id}>
                     <td>{r.name}</td>
-                    <td>{r.code}</td>
                     <td>{r.is_active ? "Active" : "Inactive"}</td>
                     <td className="text-right">
                       <div className="flex gap-2 justify-end">

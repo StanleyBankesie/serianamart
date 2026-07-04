@@ -262,7 +262,6 @@ export default function RoleManagement() {
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Code</th>
                   <th>Status</th>
                   <th className="text-right">Actions</th>
                 </tr>
@@ -271,7 +270,6 @@ export default function RoleManagement() {
                 {roles.map((r) => (
                   <tr key={r.id}>
                     <td>{r.name}</td>
-                    <td>{r.code}</td>
                     <td>{r.is_active ? "Active" : "Inactive"}</td>
                     <td className="text-right">
                       <div className="flex gap-2 justify-end">

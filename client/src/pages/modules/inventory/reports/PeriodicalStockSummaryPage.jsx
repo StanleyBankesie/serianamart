@@ -14,7 +14,7 @@ import jsPDF from "jspdf";
 
 /**
  *  component
- *
+ * 
  * @returns {JSX.Element} The rendered component
  */
 export default function PeriodicalStockSummaryPage() {
@@ -132,12 +132,7 @@ export default function PeriodicalStockSummaryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, warehouseId, itemGroupId, q]);
 
-  const {
-    sorted: sorted_items,
-    sortKey,
-    sortDir,
-    toggle,
-  } = useSort(items, "date", "desc");
+  const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
 
   return (
     <div className="space-y-4">
@@ -207,9 +202,7 @@ export default function PeriodicalStockSummaryPage() {
                     setShowGroupDropdown(true);
                   }}
                   onFocus={() => setShowGroupDropdown(true)}
-                  onBlur={() =>
-                    setTimeout(() => setShowGroupDropdown(false), 200)
-                  }
+                  onBlur={() => setTimeout(() => setShowGroupDropdown(false), 200)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -217,7 +210,7 @@ export default function PeriodicalStockSummaryPage() {
                         setItemGroupId("");
                       } else if (groupSearchResults.length) {
                         setItemGroupId(groupSearchResults[0].value);
-                        setGroupSearchVal("");
+                        setGroupSearchVal(groupSearchResults[0].group_name);
                         setShowGroupDropdown(false);
                       }
                     }
@@ -240,9 +233,7 @@ export default function PeriodicalStockSummaryPage() {
                   </svg>
                 </div>
               </div>
-              {showGroupDropdown &&
-              groupSearchVal &&
-              groupSearchResults.length > 0 ? (
+              {showGroupDropdown && groupSearchVal && groupSearchResults.length > 0 ? (
                 <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto z-50">
                   {groupSearchResults.map((o) => (
                     <button
@@ -251,7 +242,7 @@ export default function PeriodicalStockSummaryPage() {
                       className="w-full text-left px-4 py-3 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-b border-slate-100 dark:border-slate-700/50 last:border-0"
                       onClick={() => {
                         setItemGroupId(o.value);
-                        setGroupSearchVal("");
+                        setGroupSearchVal(o.group_name);
                         setShowGroupDropdown(false);
                       }}
                     >
@@ -284,7 +275,7 @@ export default function PeriodicalStockSummaryPage() {
                         setQ("");
                       } else if (itemSearchResults.length) {
                         setQ(itemSearchResults[0].item_code);
-                        setSearchVal("");
+                        setSearchVal(itemSearchResults[0].item_name);
                         setShowDropdown(false);
                       }
                     }
@@ -316,7 +307,7 @@ export default function PeriodicalStockSummaryPage() {
                       className="w-full text-left px-4 py-3 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-b border-slate-100 dark:border-slate-700/50 last:border-0"
                       onClick={() => {
                         setQ(o.item_code);
-                        setSearchVal("");
+                        setSearchVal(o.item_name);
                         setShowDropdown(false);
                       }}
                     >
@@ -414,45 +405,11 @@ export default function PeriodicalStockSummaryPage() {
             <table className="table table-fixed w-full">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <SortableHeader
-                    label="Item"
-                    sortKey="item"
-                    currentKey={sortKey}
-                    direction={sortDir}
-                    onToggle={toggle}
-                  />
-                  <SortableHeader
-                    label="Opening"
-                    sortKey="opening"
-                    currentKey={sortKey}
-                    direction={sortDir}
-                    onToggle={toggle}
-                    className="text-right"
-                  />
-                  <SortableHeader
-                    label="Receipts"
-                    sortKey="receipts"
-                    currentKey={sortKey}
-                    direction={sortDir}
-                    onToggle={toggle}
-                    className="text-right"
-                  />
-                  <SortableHeader
-                    label="Issues"
-                    sortKey="issues"
-                    currentKey={sortKey}
-                    direction={sortDir}
-                    onToggle={toggle}
-                    className="text-right"
-                  />
-                  <SortableHeader
-                    label="Closing"
-                    sortKey="closing"
-                    currentKey={sortKey}
-                    direction={sortDir}
-                    onToggle={toggle}
-                    className="text-right"
-                  />
+                  <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Opening" sortKey="opening" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Receipts" sortKey="receipts" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Issues" sortKey="issues" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <SortableHeader label="Closing" sortKey="closing" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 </tr>
               </thead>
               <tbody>

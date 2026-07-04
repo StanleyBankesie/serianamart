@@ -5,7 +5,6 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { toast } from "react-toastify";
 import { api } from "../../../../api/client.js";
 
 /**
@@ -20,12 +19,14 @@ export default function VisitorsLogList() {
   const [filters, setFilters] = useState({
     from: "",
     to: "",
+    from_time: "",
+    to_time: "",
     status: "",
     department: "",
     search: "",
   });
   const [departments, setDepartments] = useState([]);
-  const [selectedIds, setSelectedIds] = useState(new Set());
+
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
@@ -40,6 +41,8 @@ export default function VisitorsLogList() {
       const params = {};
       if (filters.from) params.from = filters.from;
       if (filters.to) params.to = filters.to;
+      if (filters.from_time) params.from_time = filters.from_time;
+      if (filters.to_time) params.to_time = filters.to_time;
       if (filters.status) params.status = filters.status;
       if (filters.department) params.department = filters.department;
       if (filters.search) params.search = filters.search;
@@ -82,53 +85,6 @@ export default function VisitorsLogList() {
     loadDepartments();
   }, [loadVisitors, loadStats, loadDepartments]);
 
-  async function handleDelete(id) {
-    if (!window.confirm("Are you sure you want to delete this visitor record?"))
-      return;
-    try {
-      await api.delete(`/visitors/${id}`);
-      toast.success("Visitor record deleted");
-      loadVisitors();
-      loadStats();
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to delete record");
-    }
-  }
-
-  async function handleBulkDelete() {
-    if (!window.confirm(`Delete ${selectedIds.size} selected records?`)) return;
-    try {
-      const promises = Array.from(selectedIds).map((id) =>
-        api.delete(`/visitors/${id}`)
-      );
-      await Promise.all(promises);
-      toast.success("Selected records deleted");
-      setSelectedIds(new Set());
-      loadVisitors();
-      loadStats();
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to delete records");
-    }
-  }
-
-  function handleCheckAll(e) {
-    if (e.target.checked) {
-      setSelectedIds(new Set(items.map((i) => String(i.id))));
-    } else {
-      setSelectedIds(new Set());
-    }
-  }
-
-  function handleCheckOne(id) {
-    const next = new Set(selectedIds);
-    if (next.has(String(id))) {
-      next.delete(String(id));
-    } else {
-      next.add(String(id));
-    }
-    setSelectedIds(next);
-  }
-
   function formatTime(time) {
     if (!time) return "-";
     return time;
@@ -143,28 +99,28 @@ export default function VisitorsLogList() {
     <div className="space-y-4">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="card bg-blue-50">
+        <div className="card">
           <div className="card-body py-3">
-            <div className="text-sm text-slate-500">Total Visitors</div>
-            <div className="text-2xl font-bold text-blue-700">{stats.total}</div>
+            <div className="text-sm text-black">Total Visitors</div>
+            <div className="text-2xl font-bold text-black">{stats.total}</div>
           </div>
         </div>
-        <div className="card bg-green-50">
+        <div className="card">
           <div className="card-body py-3">
-            <div className="text-sm text-slate-500">Active (Checked In)</div>
-            <div className="text-2xl font-bold text-green-700">{stats.active}</div>
+            <div className="text-sm text-black">Active (Checked In)</div>
+            <div className="text-2xl font-bold text-black">{stats.active}</div>
           </div>
         </div>
-        <div className="card bg-purple-50">
+        <div className="card">
           <div className="card-body py-3">
-            <div className="text-sm text-slate-500">Completed Visits</div>
-            <div className="text-2xl font-bold text-purple-700">{stats.completed}</div>
+            <div className="text-sm text-black">Completed Visits</div>
+            <div className="text-2xl font-bold text-black">{stats.completed}</div>
           </div>
         </div>
-        <div className="card bg-amber-50">
+        <div className="card">
           <div className="card-body py-3">
-            <div className="text-sm text-slate-500">Today's Visitors</div>
-            <div className="text-2xl font-bold text-amber-700">{stats.today}</div>
+            <div className="text-sm text-black">Today's Visitors</div>
+            <div className="text-2xl font-bold text-black">{stats.today}</div>
           </div>
         </div>
       </div>
@@ -188,7 +144,7 @@ export default function VisitorsLogList() {
         </div>
         <div className="card-body">
           {/* Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-7 gap-3 mb-4">
             <div>
               <label className="label text-xs">From Date</label>
               <input
@@ -201,6 +157,17 @@ export default function VisitorsLogList() {
               />
             </div>
             <div>
+              <label className="label text-xs">From Time</label>
+              <input
+                type="time"
+                className="input input-sm"
+                value={filters.from_time}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, from_time: e.target.value }))
+                }
+              />
+            </div>
+            <div>
               <label className="label text-xs">To Date</label>
               <input
                 type="date"
@@ -208,6 +175,17 @@ export default function VisitorsLogList() {
                 value={filters.to}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, to: e.target.value }))
+                }
+              />
+            </div>
+            <div>
+              <label className="label text-xs">To Time</label>
+              <input
+                type="time"
+                className="input input-sm"
+                value={filters.to_time}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, to_time: e.target.value }))
                 }
               />
             </div>
@@ -256,21 +234,7 @@ export default function VisitorsLogList() {
             </div>
           </div>
 
-          {/* Bulk Actions */}
-          {selectedIds.size > 0 && (
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-sm text-slate-600">
-                {selectedIds.size} selected
-              </span>
-              <button
-                type="button"
-                className="text-red-600 hover:text-red-700 text-sm font-medium"
-                onClick={handleBulkDelete}
-              >
-                Delete Selected
-              </button>
-            </div>
-          )}
+
 
           {error && <div className="text-red-600 text-sm mb-3">{error}</div>}
 
@@ -278,15 +242,6 @@ export default function VisitorsLogList() {
             <table className="table">
               <thead>
                 <tr>
-                  <th className="w-10">
-                    <input
-                      type="checkbox"
-                      onChange={handleCheckAll}
-                      checked={
-                        items.length > 0 && selectedIds.size === items.length
-                      }
-                    />
-                  </th>
                   <th>Visitor Name</th>
                   <th>Phone</th>
                   <th>Organisation</th>
@@ -302,26 +257,19 @@ export default function VisitorsLogList() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={11} className="text-center py-4">
+                    <td colSpan={10} className="text-center py-4">
                       Loading...
                     </td>
                   </tr>
                 ) : items.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="text-center py-4 text-slate-500">
+                    <td colSpan={10} className="text-center py-4 text-slate-500">
                       No visitor records found
                     </td>
                   </tr>
                 ) : (
                   items.map((item) => (
                     <tr key={item.id}>
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(String(item.id))}
-                          onChange={() => handleCheckOne(item.id)}
-                        />
-                      </td>
                       <td className="font-medium">{item.visitor_name}</td>
                       <td>{item.phone_number || "-"}</td>
                       <td>{item.organisation || "-"}</td>
@@ -344,18 +292,17 @@ export default function VisitorsLogList() {
                       <td>
                         <div className="flex gap-2">
                           <Link
+                            to={`${item.id}/edit?mode=view`}
+                            className="text-brand hover:text-brand-700 text-sm"
+                          >
+                            View
+                          </Link>
+                          <Link
                             to={`${item.id}/edit`}
                             className="text-blue-600 hover:text-blue-700 text-sm"
                           >
                             Edit
                           </Link>
-                          <button
-                            type="button"
-                            className="text-red-600 hover:text-red-700 text-sm"
-                            onClick={() => handleDelete(item.id)}
-                          >
-                            Delete
-                          </button>
                         </div>
                       </td>
                     </tr>

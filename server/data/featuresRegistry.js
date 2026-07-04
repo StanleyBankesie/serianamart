@@ -20,6 +20,7 @@ export const FEATURES_REGISTRY = {
       { feature_key: "administration:templates", type: "feature", label: "Document Templates", path: "/administration/templates" },
       { feature_key: "administration:reports", type: "feature", label: "System Reports", path: "/administration/reports" },
       { feature_key: "administration:settings", type: "feature", label: "System Settings", path: "/administration/settings" },
+      { feature_key: "administration:backups", type: "feature", label: "System Backups", path: "/administration/backups" },
     ],
     dashboards: [
       { feature_key: "administration:system-overview", type: "dashboard", label: "System Overview Dashboard", path: "/administration/system-overview" },
@@ -183,6 +184,7 @@ export const FEATURES_REGISTRY = {
       { feature_key: "maintenance:rosters", type: "feature", label: "Maintenance Rosters", path: "/maintenance/rosters" },
       { feature_key: "maintenance:maintenance-reports", type: "feature", label: "Maintenance Reports", path: "/maintenance/maintenance-reports" },
       { feature_key: "maintenance:setup", type: "feature", label: "Maintenance Setup", path: "/maintenance/setup" },
+      { feature_key: "maintenance:material-receipts", type: "feature", label: "Material Receipts", path: "/maintenance/material-receipts" },
     ],
     dashboards: [
       { feature_key: "maintenance:maintenance-overview", type: "dashboard", label: "Maintenance Overview Dashboard", path: "/maintenance/maintenance-overview" },
@@ -292,6 +294,7 @@ export const FEATURES_REGISTRY = {
       { feature_key: "service-management:service-executions", type: "feature", label: "Service Execution", path: "/service-management/service-executions" },
       { feature_key: "service-management:service-confirmations", type: "feature", label: "Service Confirmations", path: "/service-management/service-confirmations" },
       { feature_key: "service-management:service-bills", type: "feature", label: "Service Bills", path: "/service-management/service-bills" },
+      { feature_key: "service-management:service-invoices", type: "feature", label: "Service Invoices", path: "/service-management/service-invoices" },
       { feature_key: "service-management:billing", type: "feature", label: "Service Billing", path: "/service-management/billing" },
       { feature_key: "service-management:service-reports", type: "feature", label: "Service Reports", path: "/service-management/service-reports" },
       { feature_key: "service-management:visitors-log", type: "feature", label: "Visitors Log Book", path: "/service-management/visitors-log" },

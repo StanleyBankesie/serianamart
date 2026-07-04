@@ -32,6 +32,9 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
   const { canPerformAction } = usePermission();
   const location = useLocation();
   const [items, setItems] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
@@ -115,7 +118,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
     setFrom((prev) => prev || jan1.toISOString().slice(0, 10));
     setTo((prev) => prev || today.toISOString().slice(0, 10));
   }
-  async function load() {
+  async function load(currentPage = page) {
     try {
       setLoading(true);
       const res = await api.get("/finance/vouchers", {
@@ -127,6 +130,11 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
         },
       });
       setItems(res.data?.items || []);
+      if (res.data?.pagination) {
+        setTotalPages(res.data.pagination.totalPages || 1);
+        setTotalCount(res.data.pagination.total || 0);
+        setPage(currentPage);
+      }
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load vouchers");
     } finally {

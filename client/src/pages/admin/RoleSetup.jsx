@@ -293,35 +293,24 @@ export default function RoleSetup() {
         modules: Array.from(selectedModules),
       });
 
-      const featureKeys = [
+      const featureKeys = Array.from(
+        new Set([
         ...Array.from(selectedFeatures),
         ...Array.from(selectedDashboards),
         ...Array.from(selectedHomeDashboards),
-      ];
+        ]),
+      );
 
-      await api.post("/admin/role-features", {
-        role_id: roleId,
-        features: featureKeys,
-      });
-
-      const permissionsPayload = featureKeys.map((fk) => {
-        const [moduleKey] = String(fk).split(":");
-        return {
+      await Promise.all([
+        api.post("/admin/role-features", {
           role_id: roleId,
-          module_key: String(moduleKey || ""),
-          feature_key: String(fk),
-          can_view: true,
-          can_create: false,
-          can_edit: false,
-          can_delete: false,
-        };
-      });
-
-      if (permissionsPayload.length > 0) {
-        await api.post("/admin/role-permissions", {
-          permissions: permissionsPayload,
-        });
-      }
+          features: featureKeys,
+        }),
+        api.post("/admin/role-permissions", {
+          role_id: roleId,
+          feature_keys: featureKeys,
+        }),
+      ]);
 
       setSuccess("Role saved successfully");
       toast.success("Role saved successfully");

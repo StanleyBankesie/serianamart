@@ -39,6 +39,8 @@ import DowntimeLogForm from "./assets/DowntimeLogForm.jsx";
 import DowntimeAnalysisReport from "./reports/DowntimeAnalysisReport.jsx";
 import MaintenanceMaterialRequisitionList from "./material-requisitions/MaintenanceMaterialRequisitionList.jsx";
 import MaintenanceMaterialRequisitionForm from "./material-requisitions/MaintenanceMaterialRequisitionForm.jsx";
+import MaterialReceiptList from "./material-receipt/MaterialReceiptList.jsx";
+import MaterialReceiptForm from "./material-receipt/MaterialReceiptForm.jsx";
 
 function MaintenanceLanding() {
   const [stats, setStats] = React.useState([
@@ -66,14 +68,6 @@ function MaintenanceLanding() {
       changeType: "neutral",
       path: "/maintenance/pm-schedules",
     },
-    {
-      rbac_key: "asset-health",
-      value: "—",
-      label: "Asset Health",
-      change: "Loading…",
-      changeType: "neutral",
-      path: "/maintenance/assets",
-    },
   ]);
 
   React.useEffect(() => {
@@ -89,7 +83,6 @@ function MaintenanceLanding() {
             next[0] = { ...next[0], value: String(d.openRequests ?? "—") };
             next[1] = { ...next[1], value: String(d.activeJobs ?? "—") };
             next[2] = { ...next[2], value: String(d.overduePm ?? "—") };
-            next[3] = { ...next[3], value: `${d.assetHealth ?? 0}%` };
             return next;
           });
         }
@@ -112,12 +105,6 @@ function MaintenanceLanding() {
     {
       title: "Master Data",
       items: [
-        buildFeature(
-          "Assets",
-          "/maintenance/assets",
-          "Register and manage assets",
-          "🏷",
-        ),
         buildFeature(
           "Downtime Tracking",
           "/maintenance/assets/downtime",
@@ -158,6 +145,12 @@ function MaintenanceLanding() {
           "/maintenance/material-requisitions",
           "Request materials from warehouse",
           "📦",
+        ),
+        buildFeature(
+          "Material Receipts",
+          "/maintenance/material-receipts",
+          "Receive materials issued from inventory",
+          "📥",
         ),
       ],
     },
@@ -323,6 +316,10 @@ export default function MaintenanceHome() {
       <Route path="/material-requisitions/new" element={<MaintenanceMaterialRequisitionForm />} />
       <Route path="/material-requisitions/:id" element={<MaintenanceMaterialRequisitionForm />} />
 
+      <Route path="/material-receipts" element={<MaterialReceiptList />} />
+      <Route path="/material-receipts/new" element={<MaterialReceiptForm />} />
+      <Route path="/material-receipts/:id" element={<MaterialReceiptForm />} />
+
       <Route path="/pm-schedules" element={<PmScheduleList />} />
       <Route path="/pm-schedules/new" element={<PmScheduleForm />} />
       <Route path="/pm-schedules/:id" element={<PmScheduleForm />} />
@@ -336,12 +333,6 @@ export default function MaintenanceHome() {
 }
 
 export const maintenanceFeatures = [
-  {
-    module_key: "maintenance",
-    label: "Assets",
-    path: "/maintenance/assets",
-    type: "feature",
-  },
   {
     module_key: "maintenance",
     label: "PM Schedules",
@@ -418,6 +409,12 @@ export const maintenanceFeatures = [
     module_key: "maintenance",
     label: "Material Requisitions",
     path: "/maintenance/material-requisitions",
+    type: "feature",
+  },
+  {
+    module_key: "maintenance",
+    label: "Material Receipts",
+    path: "/maintenance/material-receipts",
     type: "feature",
   },
   {

@@ -5,16 +5,30 @@
 
 import axios from "axios";
 import { queueMutation, getQueueSnapshot } from "../offline/syncEngine.js";
-import { putCache, getCache } from "../offline/cache.js";
 import {
-  clearStoredAuth,
-  isTokenExpired,
-  readStoredAuth,
+  putCache,
+  getCache,
+  deleteCacheByUrlPrefixes,
+} from "../offline/cache.js";
+import {
   touchLastActivity,
+  clearStoredAuth,
+  readStoredAuth,
   writeStoredAuth,
 } from "../auth/authStorage.js";
 
 const AXIOS_TIMEOUT_MS = 30000;
+const WARM_CACHE_MAX_AGE_MS = Math.max(
+  0,
+  Number(import.meta.env.VITE_WARM_CACHE_MAX_AGE_MS || 30 * 60 * 1000),
+);
+
+// State to track post-login grace period
+let _postLoginGraceUntil = 0;
+
+export function startPostLoginGracePeriod(durationMs = 4000) {
+  _postLoginGraceUntil = Date.now() + durationMs;
+}
 
 /**
  * Core Axios instance for making authenticated requests to the backend API.
@@ -37,9 +51,13 @@ export const api = axios.create({
 });
 
 let API_BASE = import.meta.env.VITE_API_BASE_URL;
-if (typeof window !== "undefined" && window.location.hostname.includes("serianamart.omnisuite-erp.com")) {
+if (
+  typeof window !== "undefined" &&
+  window.location.hostname.includes("serianamart.omnisuite-erp.com")
+) {
   API_BASE = "https://serianaserver.omnisuite-erp.com/api";
 } else if (!API_BASE) {
+  // Default to same-origin so Vite dev proxy handles local API traffic.
   API_BASE = "/api";
 }
 api.defaults.baseURL = API_BASE;
@@ -53,16 +71,19 @@ function ensureSyncEngine() {
   );
 }
 
-/* ── Token refresh state ─────────────────────────────────────── */
-
-let refreshPromise = null;
-let refreshErrorCount = 0;
-const MAX_REFRESH_ERRORS = 3;
-let refreshLastErrorTime = 0;
-const REFRESH_COOLDOWN_MS = 60000;
-
 function normalizeUrl(url) {
-  return String(url || "").trim();
+  if (!url) return "";
+  try {
+    const base = api.defaults.baseURL || window.location.origin;
+    const parsed = new URL(url.startsWith("http") ? url : `${base}${url}`);
+    let path = parsed.pathname;
+    if (path.startsWith("/api")) {
+      path = path.substring(4);
+    }
+    return path;
+  } catch {
+    return String(url).trim();
+  }
 }
 
 function isUnauthenticatedEndpoint(url) {
@@ -77,71 +98,120 @@ function isUnauthenticatedEndpoint(url) {
   ].includes(value);
 }
 
-async function requestTokenRefresh() {
-  // If too many consecutive refresh failures and we're still within the
-  // cooldown window, reject immediately — do not hammer the server.
-  if (refreshErrorCount >= MAX_REFRESH_ERRORS) {
-    const elapsed = Date.now() - refreshLastErrorTime;
-    if (elapsed < REFRESH_COOLDOWN_MS) {
-      console.warn(
-        `[auth] refresh skipped — ${refreshErrorCount} consecutive errors, cooling down for ${Math.round((REFRESH_COOLDOWN_MS - elapsed) / 1000)}s`,
-      );
-      return Promise.reject(new Error("Refresh on cooldown — too many failures"));
-    }
-    refreshErrorCount = 0;
+const NON_FATAL_401_PREFIXES = [
+  // Explicitly non-fatal: these endpoints return 401 in some edge-case
+  // contexts (e.g. user lacks a role, superadmin-only) and should NEVER
+  // trigger a logout.
+  "/admin/user-permissions",
+  "/admin/users/",
+  "/admin/page-permissions",
+  "/access/dashboard-permissions",
+  "/push/public-key",
+  // Initial-load data fetches: these endpoints fire immediately after login
+  // from various components. If the session cookie is momentarily not yet
+  // available on the proxy or the scope headers haven\'t been set by the
+  // first render cycle, a transient 401 should NOT log the user out.
+  // The AuthContext already validates the real session via GET /auth/me;
+  // that is the authoritative auth check.
+  "/social-feed",
+  "/access/features",
+  "/admin/me",
+  "/workflows/approvals/pending",
+  "/workflows/",
+  "/access/",
+  "/notifications",
+];
+
+function isNonFatal401Endpoint(url) {
+  const value = normalizeUrl(url);
+  return NON_FATAL_401_PREFIXES.some((p) => value.startsWith(p));
+}
+
+const WARM_CACHE_EXCLUDED_PREFIXES = [
+  "/auth/",
+  "/push/",
+  "/notifications",
+  "/workflows/notifications",
+  "/inventory/alerts/",
+  "/admin/me",
+  "/admin/user-permissions",
+  "/admin/page-permissions",
+  "/access/",
+  "/social-feed",
+];
+
+function isWarmCacheEligible(url, config, cachedEntry) {
+  if (config?.__background === true || config?.__skipWarmCache === true) {
+    return false;
+  }
+  const value = normalizeUrl(url);
+  if (!value || value === "/auth/me") return false;
+  if (WARM_CACHE_EXCLUDED_PREFIXES.some((prefix) => value.startsWith(prefix))) {
+    return false;
+  }
+  if (!cachedEntry || typeof cachedEntry !== "object") return false;
+  if (
+    WARM_CACHE_MAX_AGE_MS > 0 &&
+    Date.now() - Number(cachedEntry.updatedAt || 0) > WARM_CACHE_MAX_AGE_MS
+  ) {
+    return false;
+  }
+  const cachedData = cachedEntry.data;
+  if (Array.isArray(cachedData?.items)) return true;
+  if (
+    cachedData &&
+    typeof cachedData === "object" &&
+    cachedData.pagination &&
+    Array.isArray(cachedData.items)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function buildCachedGetResponse(config, data, meta = {}) {
+  return {
+    data,
+    status: 200,
+    statusText: "OK (warm cache)",
+    headers: {},
+    config: {
+      ...config,
+      __servedFromWarmCache: true,
+      __cacheUpdatedAt: Number(meta.updatedAt || 0),
+    },
+  };
+}
+
+function buildInvalidationPrefixes(url) {
+  const value = normalizeUrl(url);
+  if (!value) return [];
+  const parts = value.split("/").filter(Boolean);
+  if (!parts.length) return [];
+  if (parts[0] === "auth" || parts[0] === "push") return [];
+
+  const prefixes = new Set([value]);
+  if (parts.length >= 2) {
+    prefixes.add(`/${parts[0]}/${parts[1]}`);
+  } else {
+    prefixes.add(`/${parts[0]}`);
   }
 
-  if (!refreshPromise) {
-    refreshPromise = axios({
-      baseURL: api.defaults.baseURL,
-      url: "/auth/refresh",
-      method: "post",
-      withCredentials: true,
-      timeout: AXIOS_TIMEOUT_MS,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
-      .then((response) => {
-        refreshErrorCount = 0;
-        const nextToken =
-          response.data?.token || response.data?.accessToken || null;
-        if (!nextToken) {
-          throw new Error("Refresh endpoint did not return an access token");
-        }
-        const current = readStoredAuth() || {};
-        writeStoredAuth({
-          ...current,
-          token: nextToken,
-          user: response.data?.user || current.user || null,
-        });
-        setAuthToken(nextToken);
-        touchLastActivity();
-        console.debug("[auth] token refreshed successfully");
-        return nextToken;
-      })
-      .catch((error) => {
-        const isHardAuthFailure = error?.response?.status === 401;
-        if (isHardAuthFailure) {
-          refreshErrorCount += 1;
-          refreshLastErrorTime = Date.now();
-          clearStoredAuth();
-          setAuthToken(null);
-        }
-        throw error;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
-  }
-
-  return refreshPromise;
+  return Array.from(prefixes);
 }
 
 api.interceptors.request.use(
   (config) => {
     if (!config.baseURL) {
       config.baseURL = api.defaults.baseURL;
+    }
+    const storedAuth = readStoredAuth();
+    const accessToken = String(storedAuth?.token || "").trim();
+    if (accessToken) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    } else if (config.headers?.Authorization) {
+      delete config.headers.Authorization;
     }
     return config;
   },
@@ -153,25 +223,8 @@ api.interceptors.request.use(
     if (!config.baseURL) {
       config.baseURL = api.defaults.baseURL;
     }
-    if (config.url && !isUnauthenticatedEndpoint(config.url)) {
-      const stored = readStoredAuth();
-      const token = stored?.token || null;
-      if (token && isTokenExpired(token)) {
-        try {
-          await requestTokenRefresh();
-        } catch (err) {
-          console.debug("[auth] pre-request refresh failed, continuing with existing token", err?.response?.status || err?.message);
-        }
-      }
-    }
 
-    const freshToken = readStoredAuth()?.token || null;
-    if (freshToken) {
-      ensureSyncEngine();
-      if (config.url && !isUnauthenticatedEndpoint(config.url)) {
-        config.headers.Authorization = `Bearer ${freshToken}`;
-      }
-    }
+    ensureSyncEngine();
 
     // Attach a cache key for GET requests
     const method = String(config.method || "get").toLowerCase();
@@ -196,7 +249,11 @@ api.interceptors.request.use(
         config?.headers?.["x-skip-offline-queue"] === "1" ||
         config?.headers?.["x-skip-offline-queue"] === 1 ||
         config?.headers?.["x-skip-offline-queue"] === true;
-      if (typeof navigator !== "undefined" && !navigator.onLine && !skipOffline) {
+      if (
+        typeof navigator !== "undefined" &&
+        !navigator.onLine &&
+        !skipOffline
+      ) {
         const queued = await queueMutation({
           method,
           url: config.url,
@@ -211,7 +268,12 @@ api.interceptors.request.use(
         });
       }
     }
-    if (method === "get" && typeof navigator !== "undefined" && !navigator.onLine && config.__cacheKey) {
+    if (
+      method === "get" &&
+      typeof navigator !== "undefined" &&
+      !navigator.onLine &&
+      config.__cacheKey
+    ) {
       const cached = await getCache(config.__cacheKey);
       if (cached && cached.data) {
         return Promise.reject({
@@ -242,6 +304,17 @@ api.interceptors.response.use(
           },
         );
       }
+      if (["post", "put", "patch", "delete"].includes(method)) {
+        const prefixes = buildInvalidationPrefixes(response?.config?.url);
+        if (prefixes.length) {
+          deleteCacheByUrlPrefixes(prefixes).catch((error) => {
+            console.debug(
+              "Cache invalidation error (non-critical):",
+              error.message,
+            );
+          });
+        }
+      }
     } catch (error) {
       // Silently ignore cache setup errors
       console.debug("Cache setup error (non-critical):", error.message);
@@ -257,7 +330,7 @@ api.interceptors.response.use(
       config: response?.config || {},
     };
   },
-  (error) => {
+  async (error) => {
     if (error && error.isOfflineQueued) {
       return Promise.resolve({
         data: {
@@ -284,53 +357,49 @@ api.interceptors.response.use(
     const originalRequest = error?.config || {};
     const requestUrl = normalizeUrl(originalRequest.url);
 
-    const shouldTryRefresh =
-      error?.response?.status === 401 &&
-      !!originalRequest?.headers?.Authorization &&
-      !originalRequest.__isRetryRequest &&
-      !isUnauthenticatedEndpoint(requestUrl);
+    if (error?.response?.status === 401) {
+      const canAttemptRefresh =
+        !originalRequest.__isRetryAfterRefresh &&
+        requestUrl !== "/auth/refresh" &&
+        !isUnauthenticatedEndpoint(requestUrl);
 
-    if (shouldTryRefresh) {
-      const retryCount = originalRequest.__retryCount || 0;
-      if (retryCount >= 1) {
-        console.warn(`[auth] 401 loop detected for ${requestUrl}, not retrying`);
-        return Promise.reject({
-          message: "Too many 401 retries",
-          response: error.response,
-          config: error.config,
-          isAxiosError: true,
-        });
-      }
-
-      return requestTokenRefresh()
-        .then((token) => {
-          originalRequest.__retryCount = retryCount + 1;
-          originalRequest.__isRetryRequest = true;
-          originalRequest.headers = originalRequest.headers || {};
-          originalRequest.headers.Authorization = `Bearer ${token}`;
-          return api(originalRequest);
-        })
-        .catch((err) => {
-          if (err?.response?.status === 401) {
-            // The refresh endpoint itself returned 401 — the refresh token is
-            // expired or invalid. Signal the app to log out.
-            console.error("[auth] refresh token expired or invalid — redirecting to login");
-            if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-              window.dispatchEvent(new CustomEvent("omnisuite:auth-expired"));
-            }
-          } else {
-            console.debug("[auth] refresh failed (transient), original request not retried", err?.message);
+      if (canAttemptRefresh) {
+        try {
+          const nextToken = await refreshSessionToken();
+          if (nextToken) {
+            originalRequest.__isRetryAfterRefresh = true;
+            originalRequest.headers = originalRequest.headers || {};
+            originalRequest.headers.Authorization = `Bearer ${nextToken}`;
+            return _origRequest(originalRequest);
           }
-          return Promise.reject({
-            message: error.message,
-            response: error.response,
-            config: error.config,
-            isAxiosError: true,
-          });
-        });
+        } catch {}
+      }
     }
 
+    if (error?.response?.status === 401) {
+      if (!isNonFatal401Endpoint(requestUrl)) {
+        // Suppress auth-expired events during the post-login grace window.
+        // Right after login, multiple components fire requests in parallel.
+        // Some of these may transiently return 401 before the session is
+        // fully propagated (scope headers not yet set, proxy not yet flushed,
+        // etc.). We validate the real session via GET /auth/me in AuthContext;
+        // that is the authoritative check. Transient 401s on data endpoints
+        // during the first few seconds after login should not trigger logout.
+        const isInGraceWindow = _postLoginGraceUntil > Date.now();
 
+        if (
+          !isInGraceWindow &&
+          typeof window !== "undefined" &&
+          window.location.pathname !== "/login"
+        ) {
+          window.dispatchEvent(new CustomEvent("omnisuite:auth-expired"));
+        }
+
+        if (!isUnauthenticatedEndpoint(requestUrl)) {
+          clearStoredAuth();
+        }
+      }
+    }
 
     return Promise.reject({
       message: error.message,
@@ -340,14 +409,6 @@ api.interceptors.response.use(
     });
   },
 );
-
-export function setAuthToken(token) {
-  if (token) {
-    api.defaults.headers.common.Authorization = `Bearer ${token}`;
-  } else {
-    delete api.defaults.headers.common.Authorization;
-  }
-}
 
 export function setScopeHeaders({ companyId, branchId }) {
   if (companyId)
@@ -379,36 +440,146 @@ const GET_RETRY_LIMIT = Math.max(
   0,
   Number(import.meta.env.VITE_GET_RETRY_LIMIT || 2),
 );
-const queuedGets = [];
-let activeGetCount = 0;
+const FOREGROUND_GET_CONCURRENCY = Math.max(
+  1,
+  Number(
+    import.meta.env.VITE_FOREGROUND_GET_CONCURRENCY || MAX_CONCURRENT_GETS,
+  ),
+);
+const BACKGROUND_GET_CONCURRENCY = Math.max(
+  1,
+  Number(import.meta.env.VITE_BACKGROUND_GET_CONCURRENCY || 1),
+);
+const queuedForegroundGets = [];
+const queuedBackgroundGets = [];
+let activeForegroundGetCount = 0;
+let activeBackgroundGetCount = 0;
+const warmCacheRefreshes = new Map();
 
 const _origRequest = api.request.bind(api);
+let refreshPromise = null;
 
-function dequeueNextGet() {
-  if (activeGetCount >= MAX_CONCURRENT_GETS) return;
-  const next = queuedGets.shift();
+async function refreshSessionToken() {
+  if (!refreshPromise) {
+    refreshPromise = _origRequest({
+      method: "post",
+      url: "/auth/refresh",
+      __isRetryAfterRefresh: true,
+      __skipNetworkRetry: true,
+    })
+      .then((response) => {
+        const nextToken = String(response?.data?.accessToken || "").trim();
+        if (!nextToken) {
+          throw new Error("Missing access token in refresh response");
+        }
+        const current = readStoredAuth() || {};
+        writeStoredAuth({
+          ...current,
+          token: nextToken,
+        });
+        return nextToken;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
+
+function normalizeGetPriority(config) {
+  return config?.__background === true ? "background" : "foreground";
+}
+
+function dequeueNextGet(priority = "foreground") {
+  if (priority === "background") {
+    if (activeBackgroundGetCount >= BACKGROUND_GET_CONCURRENCY) return;
+    if (
+      activeForegroundGetCount + activeBackgroundGetCount >=
+      MAX_CONCURRENT_GETS
+    ) {
+      return;
+    }
+    const next = queuedBackgroundGets.shift();
+    if (typeof next === "function") next();
+    return;
+  }
+
+  if (activeForegroundGetCount >= FOREGROUND_GET_CONCURRENCY) return;
+  if (
+    activeForegroundGetCount + activeBackgroundGetCount >=
+    MAX_CONCURRENT_GETS
+  ) {
+    return;
+  }
+  const next = queuedForegroundGets.shift();
   if (typeof next === "function") next();
 }
 
-function enqueueGet(work) {
+function flushQueuedGets() {
+  let progressed = true;
+  while (progressed) {
+    const before =
+      activeForegroundGetCount +
+      activeBackgroundGetCount +
+      queuedForegroundGets.length +
+      queuedBackgroundGets.length;
+
+    dequeueNextGet("foreground");
+    dequeueNextGet("background");
+
+    const after =
+      activeForegroundGetCount +
+      activeBackgroundGetCount +
+      queuedForegroundGets.length +
+      queuedBackgroundGets.length;
+    progressed = after < before;
+  }
+}
+
+function enqueueGet(work, priority = "foreground") {
   return new Promise((resolve, reject) => {
     const run = () => {
-      activeGetCount += 1;
+      if (priority === "background") {
+        activeBackgroundGetCount += 1;
+      } else {
+        activeForegroundGetCount += 1;
+      }
       Promise.resolve()
         .then(work)
         .then(resolve, reject)
         .finally(() => {
-          activeGetCount = Math.max(0, activeGetCount - 1);
-          dequeueNextGet();
+          if (priority === "background") {
+            activeBackgroundGetCount = Math.max(
+              0,
+              activeBackgroundGetCount - 1,
+            );
+          } else {
+            activeForegroundGetCount = Math.max(
+              0,
+              activeForegroundGetCount - 1,
+            );
+          }
+          flushQueuedGets();
         });
     };
 
-    if (activeGetCount < MAX_CONCURRENT_GETS) {
+    const totalActive = activeForegroundGetCount + activeBackgroundGetCount;
+    const withinPriorityLimit =
+      priority === "background"
+        ? activeBackgroundGetCount < BACKGROUND_GET_CONCURRENCY
+        : activeForegroundGetCount < FOREGROUND_GET_CONCURRENCY;
+
+    if (totalActive < MAX_CONCURRENT_GETS && withinPriorityLimit) {
       run();
       return;
     }
 
-    queuedGets.push(run);
+    if (priority === "background") {
+      queuedBackgroundGets.push(run);
+    } else {
+      queuedForegroundGets.push(run);
+    }
   });
 }
 
@@ -425,10 +596,12 @@ function shouldRetryGet(error, attempt) {
 
 async function runGetRequest(url, config) {
   let attempt = 0;
+  const priority = normalizeGetPriority(config);
   while (true) {
     try {
-      return await enqueueGet(() =>
-        _origRequest({ method: "get", url, ...config }),
+      return await enqueueGet(
+        () => _origRequest({ method: "get", url, ...config }),
+        priority,
       );
     } catch (error) {
       if (!shouldRetryGet(error, attempt)) {
@@ -438,6 +611,44 @@ async function runGetRequest(url, config) {
       await delay(250 * attempt);
     }
   }
+}
+
+function dispatchWarmCacheRefresh(cacheKey, url, response) {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent("omni:warm-cache-refreshed", {
+        detail: {
+          cacheKey,
+          url: normalizeUrl(url),
+          refreshedAt: Date.now(),
+          itemCount: Array.isArray(response?.data?.items)
+            ? response.data.items.length
+            : null,
+        },
+      }),
+    );
+  } catch {}
+}
+
+function scheduleWarmCacheRefresh(url, config, cacheKey) {
+  if (warmCacheRefreshes.has(cacheKey)) {
+    return warmCacheRefreshes.get(cacheKey);
+  }
+  const refreshPromise = runGetRequest(url, {
+    ...config,
+    __background: true,
+    __skipWarmCache: true,
+  })
+    .then((response) => {
+      dispatchWarmCacheRefresh(cacheKey, url, response);
+      return response;
+    })
+    .finally(() => {
+      warmCacheRefreshes.delete(cacheKey);
+    });
+  warmCacheRefreshes.set(cacheKey, refreshPromise);
+  return refreshPromise;
 }
 
 api.get = function (url, config) {
@@ -458,11 +669,36 @@ api.get = function (url, config) {
       return existing;
     }
 
-    const promise = runGetRequest(url, config);
+    const promise = (async () => {
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.onLine !== false &&
+        config?.__skipWarmCache !== true
+      ) {
+        const cached = await getCache(cacheKey);
+        if (isWarmCacheEligible(url, config, cached)) {
+          scheduleWarmCacheRefresh(url, config, cacheKey).catch(() => {});
+          return buildCachedGetResponse(
+            {
+              ...config,
+              method: "get",
+              url,
+              __cacheKey: cacheKey,
+            },
+            cached.data,
+            cached,
+          );
+        }
+      }
+
+      return runGetRequest(url, config);
+    })();
     inflightGets.set(cacheKey, promise);
-    promise.finally(() => {
-      setTimeout(() => inflightGets.delete(cacheKey), 200);
-    });
+    promise
+      .finally(() => {
+        setTimeout(() => inflightGets.delete(cacheKey), 200);
+      })
+      .catch(() => {});
     return promise;
   } catch {
     return _origRequest({ method: "get", url, ...config });

@@ -47,7 +47,7 @@ export default function SortableHeader({
 
   return (
     <th
-      className={`select-none transition-colors ${active ? "bg-sky-50 text-sky-700" : "text-slate-700 hover:text-brand-700"} ${className}`}
+      className={`select-none font-bold transition-colors ${active ? "bg-sky-50 text-sky-700" : "text-slate-700 hover:text-brand-700"} ${className}`}
       title={`Sort by ${label}`}
       aria-sort={ariaSort}
     >

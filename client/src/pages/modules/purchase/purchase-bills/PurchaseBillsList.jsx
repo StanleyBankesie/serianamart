@@ -29,6 +29,9 @@ export default function PurchaseBillsList() {
   const { canPerformAction, exceptionalPerms } = usePermission();
 
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -89,30 +92,29 @@ export default function PurchaseBillsList() {
     }
   }
 
-  useEffect(() => {
-    let mounted = true;
+  const fetchBills = async (currentPage) => {
     setLoading(true);
     setError("");
-
-    api
-      .get("/purchase/bills", { params: { bill_type: billType } })
-      .then((res) => {
-        if (!mounted) return;
-        setItems(Array.isArray(res.data?.items) ? res.data.items : []);
-      })
-      .catch((e) => {
-        if (!mounted) return;
-        setError(e?.response?.data?.message || "Failed to load purchase bills");
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
+    try {
+      const res = await api.get("/purchase/bills", {
+        params: { bill_type: billType, page: currentPage, limit: 50 },
       });
+      const all = Array.isArray(res.data?.items) ? res.data.items : [];
+      setItems(all);
+      if (res.data?.pagination) {
+        setTotalPages(res.data.pagination.totalPages || 1);
+        setTotalCount(res.data.pagination.total || 0);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || "Failed to load bills");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return () => {
-      mounted = false;
-    };
-  }, [billType]);
+  useEffect(() => {
+    fetchBills(page);
+  }, [page, billType]);
 
   const getStatusBadge = (status) => {
     const badges = {
@@ -374,6 +376,33 @@ export default function PurchaseBillsList() {
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex justify-between items-center mt-4 p-4 bg-base-100 rounded-lg shadow-sm border border-base-200">
+            <span className="text-sm text-base-content/70">
+              Showing page {page} of {totalPages}
+              {totalCount > 0 && ` (${totalCount} total bills)`}
+            </span>
+            <div className="join">
+              <button
+                className="join-item btn btn-sm"
+                disabled={page === 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                «
+              </button>
+              <button className="join-item btn btn-sm">Page {page}</button>
+              <button
+                className="join-item btn btn-sm"
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                »
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <DocumentAttachmentsModal
         open={showAttach}

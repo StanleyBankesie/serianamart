@@ -31,6 +31,9 @@ export default function GRNLocalList() {
   const { canReverseApproval, exceptionalPerms, hasExceptional } =
     usePermission();
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [grns, setGrns] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -99,66 +102,37 @@ export default function GRNLocalList() {
     };
   }, []);
 
-  useEffect(() => {
-    let mounted = true;
+  // fetchGrns is handled above
+  const fetchGrns = async (currentPage) => {
     setLoading(true);
     setError("");
-
-    api
-      .get("/inventory/grn", { params: { grn_type: "LOCAL" } })
-      .then((res) => {
-        if (!mounted) return;
-        setGrns(Array.isArray(res.data?.items) ? res.data.items : []);
-      })
-      .catch((e) => {
-        if (!mounted) return;
-        setError(e?.response?.data?.message || "Failed to load GRNs");
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
+    try {
+      const res = await api.get("/inventory/grn", {
+        params: { grn_type: "LOCAL", page: currentPage, limit: 50 },
       });
+      const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+      setGrns(arr);
+      if (res.data?.pagination) {
+        setTotalPages(res.data.pagination.totalPages || 1);
+        setTotalCount(res.data.pagination.total || 0);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || "Failed to load GRNs");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  useEffect(() => {
+    fetchGrns(page);
+  }, [page]);
+
   useEffect(() => {
     const ref = location.state?.highlightRef;
     const hid = location.state?.highlightId;
     const refresh = location.state?.refresh;
     if (!ref && !hid && !refresh) return;
-    let cancelled = false;
-    async function ensureVisible() {
-      const start = Date.now();
-      while (!cancelled && Date.now() - start < 5000) {
-        try {
-          const res = await api.get("/inventory/grn", {
-            params: { grn_type: "LOCAL" },
-          });
-          const arr = Array.isArray(res.data?.items) ? res.data.items : [];
-          setGrns(arr);
-          let hit = false;
-          if (ref) {
-            hit = arr.some(
-              (g) =>
-                String(g.grn_no || "").toLowerCase() ===
-                String(ref).toLowerCase(),
-            );
-          } else if (hid) {
-            hit = arr.some((g) => Number(g.id) === Number(hid));
-          } else {
-            hit = arr.length > 0;
-          }
-          if (hit) break;
-        } catch {}
-        await new Promise((r) => setTimeout(r, 300));
-      }
-    }
-    ensureVisible();
-    return () => {
-      cancelled = true;
-    };
+    fetchGrns(1);
   }, [
     location.state?.highlightRef,
     location.state?.highlightId,
@@ -772,6 +746,33 @@ export default function GRNLocalList() {
               </tbody>
             </table>
           </div>
+          
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex justify-between items-center mt-4 p-4 bg-base-100 rounded-lg shadow-sm border border-base-200">
+              <span className="text-sm text-base-content/70">
+                Showing page {page} of {totalPages}
+                {totalCount > 0 && ` (${totalCount} total GRNs)`}
+              </span>
+              <div className="join">
+                <button
+                  className="join-item btn btn-sm"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  «
+                </button>
+                <button className="join-item btn btn-sm">Page {page}</button>
+                <button
+                  className="join-item btn btn-sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       {showForwardModal ? (

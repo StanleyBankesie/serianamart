@@ -85,14 +85,6 @@ export function clearStoredAuth() {
 }
 
 /**
- * Retrieves the stored JWT token.
- * @returns {string|null} The stored token, or null if none exists.
- */
-export function getStoredToken() {
-  return readStoredAuth()?.token || null;
-}
-
-/**
  * Updates the last activity timestamp in localStorage.
  * @param {number} [timestamp=Date.now()] - The timestamp to set.
  * @returns {number} The recorded timestamp.
@@ -128,47 +120,6 @@ export function clearLastActivity() {
   try {
     localStorage.removeItem(LAST_ACTIVITY_KEY);
   } catch {}
-}
-
-/**
- * Decodes the payload of a JWT token.
- * @param {string} token - The JWT token to decode.
- * @returns {Object|null} The decoded payload, or null if invalid.
- */
-export function decodeJwtPayload(token) {
-  try {
-    const parts = String(token || "").split(".");
-    if (parts.length < 2) return null;
-    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const json =
-      typeof window !== "undefined"
-        ? decodeURIComponent(
-            atob(base64)
-              .split("")
-              .map(
-                (char) =>
-                  `%${`00${char.charCodeAt(0).toString(16)}`.slice(-2)}`,
-              )
-              .join(""),
-          )
-        : null;
-    return json ? JSON.parse(json) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Checks if a JWT token is expired, considering a given skew in seconds.
- * @param {string} token - The JWT token.
- * @param {number} [skewSeconds=30] - Allowed clock skew in seconds.
- * @returns {boolean} True if the token is expired, false otherwise.
- */
-export function isTokenExpired(token, skewSeconds = 30) {
-  const payload = decodeJwtPayload(token);
-  const exp = Number(payload?.exp || 0);
-  if (!exp) return false;
-  return exp * 1000 <= Date.now() + skewSeconds * 1000;
 }
 
 /* ── Remembered credentials helpers ─────────────────────────── */

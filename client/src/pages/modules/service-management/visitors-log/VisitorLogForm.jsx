@@ -4,19 +4,22 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client.js";
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function VisitorLogForm() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const isEdit = Boolean(id);
+  const isView = new URLSearchParams(location.search).get("mode") === "view";
+  const readOnly = isView;
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -57,7 +60,9 @@ export default function VisitorLogForm() {
           status: item.status || "ACTIVE",
         });
       } catch (e) {
-        toast.error(e?.response?.data?.message || "Failed to load visitor record");
+        toast.error(
+          e?.response?.data?.message || "Failed to load visitor record",
+        );
         navigate("/service-management/visitors-log");
       } finally {
         setLoading(false);
@@ -117,7 +122,9 @@ export default function VisitorLogForm() {
       }
       navigate("/service-management/visitors-log");
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to save visitor record");
+      toast.error(
+        e?.response?.data?.message || "Failed to save visitor record",
+      );
       setSaving(false);
     }
   }
@@ -245,7 +252,7 @@ export default function VisitorLogForm() {
               <div className="flex gap-2">
                 <input
                   type="time"
-                  className="input flex-1"
+                  className="input flex-1 min-w-44"
                   value={form.timeIn}
                   onChange={(e) => updateField("timeIn", e.target.value)}
                 />

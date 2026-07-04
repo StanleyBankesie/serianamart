@@ -102,6 +102,8 @@ export default function ServiceBillsList() {
             >
               <option value="ALL">All Status</option>
               <option value="PENDING">Pending</option>
+              <option value="POSTED">Posted</option>
+              <option value="COMPLETED">Completed</option>
               <option value="PAID">Paid</option>
               <option value="OVERDUE">Overdue</option>
             </select>
@@ -150,16 +152,16 @@ export default function ServiceBillsList() {
                   <tr key={r.id}>
                     <td>{r.bill_no}</td>
                     <td>{r.bill_date}</td>
-                    <td>{r.client_name || "-"}</td>
+                    <td>{r.supplier_name || r.client_name || "-"}</td>
                     <td>
                       <span
                         className={`badge ${
-                          String(r.payment || "").toUpperCase() === "PAID"
+                          String(r.payment_status || "").toUpperCase() === "PAID"
                             ? "badge-success"
                             : "badge-warning"
                         }`}
                       >
-                        {String(r.payment || "UNPAID").toUpperCase()}
+                        {String(r.payment_status || "UNPAID").toUpperCase()}
                       </span>
                     </td>
                     <td className="text-right">
@@ -168,11 +170,15 @@ export default function ServiceBillsList() {
                     <td>
                       <span
                         className={`badge ${
-                          String(r.status || "").toUpperCase() === "PAID"
-                            ? "badge-success"
-                            : String(r.status || "").toUpperCase() === "OVERDUE"
-                              ? "badge-error"
-                              : "badge-warning"
+                          String(r.status || "").toUpperCase() === "POSTED"
+                            ? "badge-info"
+                            : String(r.status || "").toUpperCase() === "COMPLETED"
+                              ? "badge-success"
+                              : String(r.status || "").toUpperCase() === "PAID"
+                                ? "badge-success"
+                                : String(r.status || "").toUpperCase() === "OVERDUE"
+                                  ? "badge-error"
+                                  : "badge-warning"
                         }`}
                       >
                         {String(r.status || "").toUpperCase()}
@@ -192,7 +198,7 @@ export default function ServiceBillsList() {
 
                         {/* Slot 2: Edit */}
                         <div className="min-w-[80px]">
-                          {canPerformAction("service-management:service-bills", "edit") && String(r.payment || "").toUpperCase() !== "PAID" ? (
+                          {canPerformAction("service-management:service-bills", "edit") && String(r.payment_status || "").toUpperCase() !== "PAID" && String(r.status || "").toUpperCase() !== "POSTED" ? (
                             <Link
                               to={`/purchase/service-bills/${r.id}?mode=edit`}
                               className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
@@ -219,7 +225,7 @@ export default function ServiceBillsList() {
 
                         {/* Slot 7: Cancel */}
                         <div className="min-w-[80px]">
-                          {canPerformAction("service-management:service-bills", "cancel") && String(r.payment || "").toUpperCase() !== "PAID" ? (
+                          {canPerformAction("service-management:service-bills", "cancel") && String(r.payment_status || "").toUpperCase() !== "PAID" ? (
                             <button
                               type="button"
                               className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"

@@ -29,6 +29,9 @@ export default function MaterialRequisitionList() {
   const { canReverseApproval, hasExceptional } = usePermission();
   const [exCancelAllowed, setExCancelAllowed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -47,66 +50,36 @@ export default function MaterialRequisitionList() {
   const [showAttach, setShowAttach] = useState(false);
   const [activeDocId, setActiveDocId] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
+  const fetchRequisitions = async (currentPage) => {
     setLoading(true);
     setError("");
-
-    api
-      .get("/inventory/material-requisitions")
-      .then((res) => {
-        if (!mounted) return;
-        setRequisitions(Array.isArray(res.data?.items) ? res.data.items : []);
-      })
-      .catch((e) => {
-        if (!mounted) return;
-        setError(
-          e?.response?.data?.message || "Failed to load material requisitions",
-        );
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
+    try {
+      const res = await api.get("/inventory/material-requisitions", {
+        params: { page: currentPage, limit: 50 },
       });
+      const arr = Array.isArray(res.data?.items) ? res.data.items : [];
+      setRequisitions(arr);
+      if (res.data?.pagination) {
+        setTotalPages(res.data.pagination.totalPages || 1);
+        setTotalCount(res.data.pagination.total || 0);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || "Failed to load material requisitions");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  useEffect(() => {
+    fetchRequisitions(page);
+  }, [page]);
+
   useEffect(() => {
     const ref = location.state?.highlightRef;
     const hid = location.state?.highlightId;
     const refresh = location.state?.refresh;
     if (!ref && !hid && !refresh) return;
-    let cancelled = false;
-    async function ensureVisible() {
-      const start = Date.now();
-      while (!cancelled && Date.now() - start < 5000) {
-        try {
-          const res = await api.get("/inventory/material-requisitions");
-          const arr = Array.isArray(res.data?.items) ? res.data.items : [];
-          setRequisitions(arr);
-          let hit = false;
-          if (ref) {
-            hit = arr.some(
-              (r) =>
-                String(r.requisition_no || "").toLowerCase() ===
-                String(ref).toLowerCase(),
-            );
-          } else if (hid) {
-            hit = arr.some((r) => Number(r.id) === Number(hid));
-          } else {
-            hit = arr.length > 0;
-          }
-          if (hit) break;
-        } catch {}
-        await new Promise((r) => setTimeout(r, 300));
-      }
-    }
-    ensureVisible();
-    return () => {
-      cancelled = true;
-    };
+    fetchRequisitions(1);
   }, [
     location.state?.highlightRef,
     location.state?.highlightId,
@@ -653,6 +626,33 @@ export default function MaterialRequisitionList() {
               </tbody>
             </table>
           </div>
+          
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex justify-between items-center mt-4 p-4 bg-base-100 rounded-lg shadow-sm border border-base-200">
+              <span className="text-sm text-base-content/70">
+                Showing page {page} of {totalPages}
+                {totalCount > 0 && ` (${totalCount} total requisitions)`}
+              </span>
+              <div className="join">
+                <button
+                  className="join-item btn btn-sm"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  «
+                </button>
+                <button className="join-item btn btn-sm">Page {page}</button>
+                <button
+                  className="join-item btn btn-sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  »
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       {showForwardModal && (

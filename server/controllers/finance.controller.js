@@ -9,6 +9,7 @@ import {
   getInactiveWorkflowBehavior,
   resolveWorkflowSelection,
 } from "../utils/workflowResolution.js";
+import { cacheGet, cacheSet, cacheDel, cacheDelPattern } from "../utils/redis.js";
 import * as XLSX from "xlsx";
 
 // Page ID mapping for tax code applicable pages
@@ -1788,6 +1789,12 @@ export const listTaxCodes = async (req, res, next) => {
       resolvedPageId = PAGE_ID_MAP[form] || null;
     }
 
+    const cacheKey = `taxes:company:${companyId}:page:${resolvedPageId}:active:${active}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ items: cached });
+    }
+
     const items = await query(
       `SELECT id, code, name, rate_percent, type, is_active,
               valid_pages, is_sales_tax, is_purchase_tax, is_service_tax
@@ -1801,6 +1808,8 @@ export const listTaxCodes = async (req, res, next) => {
         ORDER BY code ASC`,
       { companyId, resolvedPageId, active },
     );
+    
+    await cacheSet(cacheKey, items, 86400).catch(() => {});
     res.json({ items });
   } catch (e) {
     next(e);
@@ -1816,6 +1825,12 @@ export const getTaxCodesByPageId = async (req, res, next) => {
       return res.json({ items: [] });
     }
 
+    const cacheKey = `taxes:company:${companyId}:page:${pageId}:active:1`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ items: cached });
+    }
+
     const items = await query(
       `SELECT id, code, name, rate_percent, type, is_active,
               valid_pages, is_sales_tax, is_purchase_tax, is_service_tax
@@ -1826,6 +1841,8 @@ export const getTaxCodesByPageId = async (req, res, next) => {
         ORDER BY code ASC`,
       { companyId, pageId },
     );
+    
+    await cacheSet(cacheKey, items, 86400).catch(() => {});
     res.json({ items });
   } catch (e) {
     next(e);
@@ -1925,6 +1942,36 @@ export const listVouchers = async (req, res, next) => {
         : normalizedVoucherTypeCode === "PUV"
           ? "PV"
           : null;
+    const page = Math.max(1, parseInt(req.query.page || "1", 10));
+    const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+    const offset = (page - 1) * limit;
+
+    const whereClause = `WHERE v.company_id = :companyId
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+          AND (
+            :normalizedVoucherTypeCode IS NULL OR
+            vt.code = :normalizedVoucherTypeCode OR
+            (:voucherTypeCodeAlt IS NOT NULL AND vt.code = :voucherTypeCodeAlt)
+          )
+          AND (:status IS NULL OR v.status = :status)
+          AND (:from IS NULL OR v.voucher_date >= :from)
+          AND (:to IS NULL OR v.voucher_date <= :to)`;
+
+    const countSql = `SELECT COUNT(*) AS total FROM fin_vouchers v JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id AND vt.company_id = v.company_id ${whereClause}`;
+    const params = {
+      companyId,
+      branchId,
+      branchIdsStr,
+      normalizedVoucherTypeCode,
+      voucherTypeCodeAlt,
+      status,
+      from,
+      to,
+    };
+    
+    const countRes = await query(countSql, params);
+    const total = Number(countRes[0]?.total || 0);
+
     const items = await query(
       `SELECT v.id, v.voucher_no, v.voucher_date, v.status, v.project_id,
               COALESCE(
@@ -1950,29 +1997,19 @@ export const listVouchers = async (req, res, next) => {
          LEFT JOIN fin_currencies c
            ON c.id = v.currency_id
           AND c.company_id = v.company_id
-        WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
-          AND (
-            :normalizedVoucherTypeCode IS NULL OR
-            vt.code = :normalizedVoucherTypeCode OR
-            (:voucherTypeCodeAlt IS NOT NULL AND vt.code = :voucherTypeCodeAlt)
-          )
-          AND (:status IS NULL OR v.status = :status)
-          AND (:from IS NULL OR v.voucher_date >= :from)
-          AND (:to IS NULL OR v.voucher_date <= :to)
-        ORDER BY v.voucher_date DESC, v.id DESC`,
-      {
-        companyId,
-        branchId,
-        branchIdsStr,
-        normalizedVoucherTypeCode,
-        voucherTypeCodeAlt,
-        status,
-        from,
-        to,
-      },
+        ${whereClause}
+        ORDER BY v.voucher_date DESC, v.id DESC LIMIT :limit OFFSET :offset`,
+      { ...params, limit, offset },
     );
-    res.json({ items });
+    res.json({ 
+      items,
+      pagination: {
+        page,
+        pageSize: limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
   } catch (e) {
     next(e);
   }
@@ -2945,18 +2982,18 @@ export const paymentDueReport = async (req, res, next) => {
       { companyId, branchId, branchIdsStr, from, to },
     );
 
-    // Query pur_service_bills (service bills) - exclude if due_date < today AND payment = PAID
+    // Query pur_service_bills (service bills) - exclude if due_date < today AND payment_status = PAID
     const serviceBills = await query(
       `SELECT sb.id, sb.bill_no AS ref_no, sb.bill_date, sb.due_date, sb.client_name AS party_name,
               sb.total_amount AS amount, (sb.total_amount - COALESCE(sb.amount_paid, 0)) AS outstanding,
-              COALESCE(sb.payment, 'UNPAID') AS status
+              COALESCE(sb.payment_status, 'UNPAID') AS status
          FROM pur_service_bills sb
         WHERE sb.company_id = :companyId
           AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)))
           AND (:from IS NULL OR sb.due_date >= :from)
           AND (:to IS NULL OR sb.due_date <= :to)
           AND (sb.total_amount - COALESCE(sb.amount_paid, 0)) > 0
-          AND NOT (sb.due_date < CURRENT_DATE AND COALESCE(sb.payment, 'UNPAID') = 'PAID')
+          AND NOT (sb.due_date < CURRENT_DATE AND COALESCE(sb.payment_status, 'UNPAID') = 'PAID')
         ORDER BY sb.due_date ASC`,
       { companyId, branchId, branchIdsStr, from, to },
     );
@@ -3358,6 +3395,7 @@ export const updateTaxCodeComponent = async (req, res, next) => {
     );
 
     await conn.commit();
+    await cacheDelPattern(`taxes:company:${companyId}:*`).catch(() => {});
     res.json({ ok: true });
   } catch (e) {
     try {
@@ -3394,6 +3432,13 @@ export const listCurrencies = async (req, res, next) => {
       active === undefined || active === null || String(active).trim() === ""
         ? null
         : Number(Boolean(active));
+
+    const cacheKey = `currencies:company:${companyId}:active:${activeFilter}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ items: cached });
+    }
+
     const items = await query(
       `SELECT id, code, name, symbol, is_base, is_active, created_at
          FROM fin_currencies
@@ -3402,6 +3447,8 @@ export const listCurrencies = async (req, res, next) => {
         ORDER BY is_base DESC, code ASC`,
       { companyId, activeFilter },
     );
+    
+    await cacheSet(cacheKey, items, 86400).catch(() => {}); // cache for 24h
     res.json({ items });
   } catch (e) {
     next(e);
@@ -3435,6 +3482,12 @@ export const createCurrency = async (req, res, next) => {
       );
     }
     await conn.commit();
+    
+    // Invalidate cache
+    await cacheDel(`currencies:company:${companyId}:active:null`).catch(() => {});
+    await cacheDel(`currencies:company:${companyId}:active:1`).catch(() => {});
+    await cacheDel(`currencies:company:${companyId}:active:0`).catch(() => {});
+    
     res.status(201).json({ id: ins.insertId });
   } catch (e) {
     try {
@@ -3476,6 +3529,12 @@ export const updateCurrency = async (req, res, next) => {
       );
     }
     await conn.commit();
+
+    // Invalidate cache
+    await cacheDel(`currencies:company:${companyId}:active:null`).catch(() => {});
+    await cacheDel(`currencies:company:${companyId}:active:1`).catch(() => {});
+    await cacheDel(`currencies:company:${companyId}:active:0`).catch(() => {});
+
     res.json({ ok: true });
   } catch (e) {
     try {
@@ -3725,7 +3784,8 @@ export const bulkUpsertOpeningBalances = async (req, res, next) => {
       affected++;
     }
     await conn.commit();
-    res.status(200).json({ upserted: affected });
+    await cacheDelPattern(`taxes:company:${companyId}:*`).catch(() => {});
+    res.status(201).json({ id: ins.insertId });
   } catch (e) {
     try {
       await conn.rollback();

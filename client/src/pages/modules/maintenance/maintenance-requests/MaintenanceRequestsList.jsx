@@ -367,12 +367,13 @@ export default function MaintenanceRequestsList() {
                   <th>Status</th>
                   <th>Created By</th>
                   <th>Created Date</th>
+                  <th>Approval</th>
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
                 {loading ? (
-                  <tr><td colSpan="8" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Fetching Tickets...</td></tr>
+                  <tr><td colSpan="9" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Fetching Tickets...</td></tr>
                 ) : filtered.length > 0 ? filtered.map(r => {
                   const upperStatus = String(r.status || "").toUpperCase();
                   const autoApproved = workflowDisabled && upperStatus !== "CANCELLED" && upperStatus !== "RETURNED";
@@ -386,27 +387,7 @@ export default function MaintenanceRequestsList() {
                       <td className="px-4 py-3 text-sm"><Badge value={displayStatus} colorMap={statusColors} /></td>
                       <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
                       <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors"
-                            onClick={() => navigate(`/maintenance/maintenance-requests/${r.id}?mode=view`)}
-                          >
-                            <Eye size={14} /> View
-                          </button>
-                          <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
-                          <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
-                          <ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} />
-                          {displayStatus !== "APPROVED" && displayStatus !== "PENDING_APPROVAL" && (
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors"
-                              onClick={() => navigate(`/maintenance/maintenance-requests/${r.id}`)}
-                            >
-                              Edit
-                            </button>
-                          )}
+                      <td className="px-4 py-3">
                           <div className="min-w-[160px]">
                             <div className="list-approval-slot">
                               {displayStatus === "APPROVED" ? (
@@ -430,7 +411,7 @@ export default function MaintenanceRequestsList() {
                               ) : (
                                 <button
                                   type="button"
-                                  className="list-approval-forward-btn"
+                                  className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 transition-colors h-9"
                                   onClick={() => openForwardModal(r)}
                                   disabled={submittingForward || workflowDisabled}
                                 >
@@ -439,12 +420,35 @@ export default function MaintenanceRequestsList() {
                               )}
                             </div>
                           </div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors"
+                            onClick={() => navigate(`/maintenance/maintenance-requests/${r.id}?mode=view`)}
+                          >
+                            <Eye size={14} /> View
+                          </button>
+                          <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
+                          <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
+                          <ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} />
+                          {displayStatus !== "APPROVED" && displayStatus !== "PENDING_APPROVAL" && (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors"
+                              onClick={() => navigate(`/maintenance/maintenance-requests/${r.id}`)}
+                            >
+                              Edit
+                            </button>
+                          )}
+
                         </div>
                       </td>
                     </tr>
                   );
                 }) : (
-                  <tr><td colSpan="8" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No maintenance tickets found.</td></tr>
+                  <tr><td colSpan="9" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No maintenance tickets found.</td></tr>
                 )}
               </tbody>
             </table>

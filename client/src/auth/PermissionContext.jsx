@@ -24,6 +24,7 @@ const PermissionContext = createContext();
 const RBAC_CACHE_KEY = "rbac.permission.snapshot.v1";
 const PAGE_PERM_RETRY_MS = 30_000;
 const DASHBOARD_PERM_POLL_MS = 5 * 60_000; // 5 minutes — reduced from 1 min to ease load on slow connections
+const BACKGROUND_GET_CONFIG = { __background: true };
 
 function isTransientBackendError(err) {
   const status = Number(err?.response?.status || 0);
@@ -150,7 +151,37 @@ export const PermissionProvider = ({ children }) => {
         return;
       }
 
-      const res = await api.get("/admin/user-permissions");
+      const snapshot = readPermissionSnapshot();
+      if (snapshot) {
+        setModules(
+          new Set(
+            snapshot.modules.map((m) => String(m || "").trim()).filter(Boolean),
+          ),
+        );
+        setPermissions(
+          Array.isArray(snapshot.permissions) ? snapshot.permissions : [],
+        );
+        setRoleFeatures(
+          new Set(
+            snapshot.roleFeatures
+              .map((f) => String(f || "").trim())
+              .filter(Boolean),
+          ),
+        );
+        setExceptionalPerms(
+          new Set(
+            snapshot.exceptionalPerms
+              .map((c) =>
+                String(c || "")
+                  .toUpperCase()
+                  .trim(),
+              )
+              .filter(Boolean),
+          ),
+        );
+      }
+
+      const res = await api.get("/admin/user-permissions", BACKGROUND_GET_CONFIG);
       const mods = Array.isArray(res.data?.modules) ? res.data.modules : [];
       const rolePerms = Array.isArray(res.data?.permissions)
         ? res.data.permissions
@@ -161,7 +192,10 @@ export const PermissionProvider = ({ children }) => {
 
       // Load user-specific overrides and merge (overrides win)
       const userOverridesRes = await api
-        .get(`/admin/users/${userId}/feature-permissions`)
+        .get(
+          `/admin/users/${userId}/feature-permissions`,
+          BACKGROUND_GET_CONFIG,
+        )
         .catch(() => ({ data: { items: [] } }));
       const overrideItems = Array.isArray(userOverridesRes?.data?.items)
         ? userOverridesRes.data.items
@@ -225,7 +259,10 @@ export const PermissionProvider = ({ children }) => {
       );
       try {
         const exRes = await api
-          .get(`/admin/users/${userId}/exceptional-permissions`)
+          .get(
+            `/admin/users/${userId}/exceptional-permissions`,
+            BACKGROUND_GET_CONFIG,
+          )
           .catch(() => ({ data: { data: { items: [] } } }));
         const rows = Array.isArray(exRes?.data?.data?.items)
           ? exRes.data.data.items
@@ -342,7 +379,10 @@ export const PermissionProvider = ({ children }) => {
         dashboardPermVersionRef.current = null;
         return;
       }
-      const res = await api.get("/access/dashboard-permissions");
+      const res = await api.get(
+        "/access/dashboard-permissions",
+        BACKGROUND_GET_CONFIG,
+      );
       const items = Array.isArray(res.data?.items) ? res.data.items : [];
       const m = new Map();
       const byModule = new Map();
@@ -383,7 +423,10 @@ export const PermissionProvider = ({ children }) => {
 
     dashboardPermCheckInFlightRef.current = true;
     try {
-      const res = await api.get("/access/dashboard-permissions/version");
+      const res = await api.get(
+        "/access/dashboard-permissions/version",
+        BACKGROUND_GET_CONFIG,
+      );
       const latest = res?.data?.updated_at || null;
       const current = dashboardPermVersionRef.current || null;
       if (latest !== current && (latest || current)) {
@@ -433,6 +476,7 @@ export const PermissionProvider = ({ children }) => {
     try {
       const res = await api.get(
         `/admin/page-permissions?path=${encodeURIComponent(base)}`,
+        BACKGROUND_GET_CONFIG,
       );
       const row = res?.data || {};
       const perms = {

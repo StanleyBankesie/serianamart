@@ -8,7 +8,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import CompanyFeed from "../../components/CompanyFeed/CompanyFeed";
 import { useAuth } from "../../auth/AuthContext";
 import api from "../../api/client";
-import { getStoredToken } from "../../auth/authStorage.js";
 
 /**
  * SocialFeedPage component
@@ -43,7 +42,6 @@ export default function SocialFeedPage() {
         setDetailsError(null);
         const uid = Number(user?.sub || user?.id) || "";
         const headers = {
-          Authorization: `Bearer ${getStoredToken() || ""}`,
           "x-user-id": String(uid),
         };
         const res = await fetch(`/api/social-feed/${focusId}`, { headers });

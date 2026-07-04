@@ -9,10 +9,6 @@ import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 
-const STATUSES = ["DRAFT","PENDING","APPROVED","PAID","CANCELLED"];
-const PAYMENT_STATUSES = ["UNPAID","PAID","OVERDUE"];
-const PAYMENT_METHODS = [{ key:"cash",label:"Cash" },{ key:"bank",label:"Bank Transfer" },{ key:"card",label:"Card" },{ key:"mobile",label:"Mobile Money" }];
-
 
 /**
  *  component
@@ -54,7 +50,7 @@ export default function MaintenanceBillForm() {
   useEffect(() => {
     let mounted = true;
     api.get("/purchase/suppliers").then(r => { if (mounted) setSuppliers(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
-    api.get("/maintenance/job-executions").then(r => { if (mounted) setExecutions(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
+    api.get("/maintenance/job-executions?status=COMPLETED").then(r => { if (mounted) setExecutions(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     api.get("/finance/currencies").then(r => { if (mounted) setCurrencies(Array.isArray(r.data?.items) ? r.data.items : []); }).catch(() => {});
     api.get("/finance/tax-codes?form=MAINTENANCE_BILL").then(r => {
       if (!mounted) return;
@@ -271,7 +267,6 @@ export default function MaintenanceBillForm() {
         <div className="card">
           <div className="card-header bg-brand text-white rounded-t-lg font-semibold">Bill Details</div>
           <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div><label className="label">Bill No</label><input className="input w-56" value={form.bill_no} onChange={e => update("bill_no", e.target.value)} /></div>
             <div><label className="label">Bill Date</label><input className="input w-56" type="date" value={form.bill_date} onChange={e => update("bill_date", e.target.value)} /></div>
             <div><label className="label">Due Date</label><input className="input w-56" type="date" value={form.due_date} onChange={e => update("due_date", e.target.value)} /></div>
             <div>
@@ -300,10 +295,6 @@ export default function MaintenanceBillForm() {
             </div>
             <div><label className="label">Exchange Rate</label><input className="input w-56 text-right" type="number" step="0.000001" value={form.exchange_rate} readOnly /></div>
             <div><label className="label">Payment Terms (Days)</label><input className="input w-56" type="number" value={form.payment_terms} onChange={e => update("payment_terms", e.target.value)} /></div>
-            <div><label className="label">Payment Method</label><select className="input w-56" value={form.payment_method} onChange={e => update("payment_method", e.target.value)}>{PAYMENT_METHODS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}</select></div>
-            <div><label className="label">Payment Reference</label><input className="input w-56" value={form.payment_reference} onChange={e => update("payment_reference", e.target.value)} /></div>
-            <div><label className="label">Payment Status</label><select className="input w-56" value={form.payment_status} onChange={e => update("payment_status", e.target.value)}>{PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
-            <div><label className="label">Status</label><select className="input w-56" value={form.status} onChange={e => update("status", e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
             <div className="md:col-span-3"><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={e => update("notes", e.target.value)} /></div>
           </div>
         </div>
@@ -312,7 +303,7 @@ export default function MaintenanceBillForm() {
           <div className="card-body">
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg mb-6">
               <h4 className="text-sm font-semibold mb-3 text-brand">Add Service Line</h4>
-              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-3">
                 <div className="md:col-span-2">
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Description *</label>
                   <input

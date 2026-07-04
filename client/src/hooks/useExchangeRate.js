@@ -1,9 +1,10 @@
 /**
  * @file useExchangeRate.js
- * @description Hook to fetch currency exchange rates.
+ * @description Hook to fetch currency exchange rates (server-cached via Redis).
  */
 
 import { useState, useCallback } from 'react';
+import api from '../services/apiClient';
 
 /**
  * Hook for retrieving currency exchange rates and available currencies.
@@ -30,14 +31,10 @@ export function useExchangeRate() {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch(`https://open.er-api.com/v6/latest/${from}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data && data.rates && data.rates[to]) {
-          return data.rates[to];
-        }
+      const { data } = await api.get(`/finance/exchange-rates/${from}`);
+      if (data && data.rates && data.rates[to]) {
+        return data.rates[to];
       }
-
       throw new Error('Failed to fetch exchange rate');
     } catch (err) {
       console.error('Error fetching exchange rate:', err);
@@ -56,15 +53,12 @@ export function useExchangeRate() {
     setLoading(true);
     setError(null);
     try {
-      const resp = await fetch('https://open.er-api.com/v6/latest/USD');
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data && data.rates) {
-          return Object.keys(data.rates).map(code => ({
-            code,
-            name: code
-          }));
-        }
+      const { data } = await api.get('/finance/exchange-rates/USD');
+      if (data && data.rates) {
+        return Object.keys(data.rates).map(code => ({
+          code,
+          name: code
+        }));
       }
       throw new Error('Failed to fetch currencies');
     } catch (err) {

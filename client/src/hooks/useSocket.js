@@ -6,7 +6,6 @@
 import { useEffect, useState } from "react";
 import io from "socket.io-client";
 import { useAuth } from "../auth/AuthContext";
-import { getStoredToken } from "../auth/authStorage.js";
 
 /**
  * Hook to manage Socket.io connection
@@ -14,7 +13,15 @@ import { getStoredToken } from "../auth/authStorage.js";
  */
 export function useSocket() {
   const [socket, setSocket] = useState(null);
-  const { token, user, scope } = useAuth();
+  const { user, scope, token } = useAuth();
+  const storage =
+    typeof window !== "undefined" && window.localStorage
+      ? window.localStorage
+      : null;
+  const userId = (user && (user.id || user.sub)) || "";
+  const branchId =
+    (scope && scope.branchId) || storage?.getItem("warehouseId") || "";
+  const authKey = `${userId}|${branchId}|${String(token || "")}`;
 
   // Singleton socket across the app to avoid multiple connections
   // when multiple components use this hook simultaneously.
@@ -25,19 +32,23 @@ export function useSocket() {
     window.__omniSocketGlobal__ = window.__omniSocketGlobal__ || {
       socket: null,
       users: 0,
+      authKey: "",
     };
   }
   const globalHolder =
     typeof window !== "undefined" ? window.__omniSocketGlobal__ : null;
 
   useEffect(() => {
-    const tk = token || getStoredToken();
-    if (!tk) {
+    if (!token) {
       return undefined;
     }
 
     // Reuse global socket if exists
-    if (globalHolder && globalHolder.socket) {
+    if (
+      globalHolder &&
+      globalHolder.socket &&
+      globalHolder.authKey === authKey
+    ) {
       setSocket(globalHolder.socket);
       globalHolder.users += 1;
       return () => {
@@ -47,12 +58,17 @@ export function useSocket() {
       };
     }
 
-    // Create socket connection (connect to backend origin in dev/prod)
-    const isDev =
-      typeof window !== "undefined" && window.location.port === "5173";
+    if (globalHolder && globalHolder.socket) {
+      try {
+        globalHolder.socket.close();
+      } catch {}
+      globalHolder.socket = null;
+      globalHolder.users = 0;
+      globalHolder.authKey = "";
+    }
+
     const backendOrigin =
-      import.meta.env.VITE_API_PROXY_TARGET ||
-      (isDev ? "http://localhost:4002" : window.location.origin);
+      import.meta.env.VITE_API_PROXY_TARGET || window.location.origin;
     const transportPref = (
       import.meta.env.VITE_SOCKET_TRANSPORT || ""
     ).toLowerCase();
@@ -60,18 +76,13 @@ export function useSocket() {
       transportPref === "websocket" ? ["websocket"] : ["polling", "websocket"];
     const newSocket = io(backendOrigin, {
       path: "/socket.io",
+      withCredentials: true,
       auth: {
-        token: tk,
+        token,
       },
       query: {
-        userId:
-          (user && (user.id || user.sub)) ||
-          localStorage.getItem("userId") ||
-          "",
-        warehouseId:
-          (scope && scope.branchId) ||
-          localStorage.getItem("warehouseId") ||
-          "",
+        userId: userId || storage?.getItem("userId") || "",
+        warehouseId: branchId,
       },
       reconnection: true,
       reconnectionDelay: 3000, // Start with 3 second delay
@@ -123,6 +134,7 @@ export function useSocket() {
     if (globalHolder) {
       globalHolder.socket = newSocket;
       globalHolder.users = 1;
+      globalHolder.authKey = authKey;
     }
 
     return () => {
@@ -130,7 +142,7 @@ export function useSocket() {
         globalHolder.users = Math.max(0, globalHolder.users - 1);
       }
     };
-  }, [token, user?.id, user?.sub, scope?.branchId]);
+  }, [authKey, token, userId, branchId]);
 
   return socket;
 }

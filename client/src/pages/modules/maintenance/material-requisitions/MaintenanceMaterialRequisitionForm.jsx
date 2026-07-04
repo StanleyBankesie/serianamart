@@ -8,6 +8,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
+import { useAuth } from "../../../../auth/AuthContext.jsx";
 
 /**
  *  component
@@ -17,11 +18,13 @@ import { toast } from "react-toastify";
 export default function MaintenanceMaterialRequisitionForm() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const isNew = id === "new";
+  const { user } = useAuth();
+  const isNew = id === "new" || !id || window.location.pathname.endsWith("/new");
   const isView = new URLSearchParams(window.location.search).get("view") === "1";
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [warehouses, setWarehouses] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [availableItems, setAvailableItems] = useState([]);
@@ -32,7 +35,7 @@ export default function MaintenanceMaterialRequisitionForm() {
     warehouse_id: "",
     department_id: "",
     priority: "MEDIUM",
-    requested_by: "",
+    requested_by: user?.username || "",
     remarks: "",
     status: "DRAFT"
   });
@@ -47,6 +50,11 @@ export default function MaintenanceMaterialRequisitionForm() {
       api.get("/admin/departments").then(r => setDepartments(r.data?.items || [])).catch(() => {}),
       api.get("/inventory/items").then(r => setAvailableItems(r.data?.items || [])).catch(() => {}),
     ]);
+    if (isNew) {
+      api.get("/maintenance/material-requisitions/next-no")
+        .then(r => { if (r.data?.nextNo) setForm(f => ({ ...f, requisition_no: r.data.nextNo })); })
+        .catch(() => {});
+    }
     if (!isNew && id) fetchReq();
   }, [id]);
 
@@ -150,11 +158,7 @@ export default function MaintenanceMaterialRequisitionForm() {
         <div className="card-body">
           <form onSubmit={handleSubmit} className="space-y-6">
             {error ? <div className="text-sm text-red-600">{error}</div> : null}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="label">Requisition No</label>
-                <input type="text" className="input bg-slate-100 dark:bg-slate-700" value={form.requisition_no} disabled />
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className="label">Requisition Date *</label>
                 <input type="date" className="input" value={form.requisition_date}
@@ -170,14 +174,12 @@ export default function MaintenanceMaterialRequisitionForm() {
                 </select>
               </div>
               <div>
-                <label className="label">Status</label>
-                <div className="pt-2">
-                  <span className="inline-block px-3 py-1 rounded-full text-xs font-medium bg-gray-500 text-white">{form.status}</span>
-                </div>
+                <label className="label">Requested By *</label>
+                <input type="text" className="input" value={form.requested_by} onChange={e => setForm({...form, requested_by: e.target.value})} required disabled={readOnly} />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="label">Source Warehouse</label>
                 <select className="input" value={form.warehouse_id} onChange={e => setForm({...form, warehouse_id: e.target.value})} disabled={readOnly}>
@@ -191,10 +193,6 @@ export default function MaintenanceMaterialRequisitionForm() {
                   <option value="">Select Department</option>
                   {departments.map(d => <option key={d.id} value={d.id}>{d.dept_name || d.name}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="label">Requested By *</label>
-                <input type="text" className="input" value={form.requested_by} onChange={e => setForm({...form, requested_by: e.target.value})} required disabled={readOnly} />
               </div>
             </div>
 

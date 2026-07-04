@@ -67,3 +67,42 @@ export async function clearGeneralCache() {
     return false;
   }
 }
+
+export async function deleteCacheByUrlPrefixes(prefixes = []) {
+  try {
+    const normalizedPrefixes = prefixes
+      .map((prefix) => String(prefix || "").trim())
+      .filter(Boolean);
+    if (!normalizedPrefixes.length) {
+      return false;
+    }
+
+    const db = await openDB();
+    if (!db.objectStoreNames.contains(CACHE_STORE)) {
+      return false;
+    }
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(CACHE_STORE, "readwrite");
+      const store = tx.objectStore(CACHE_STORE);
+      const req = store.openCursor();
+
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return;
+        const key = String(cursor.value?.key || "");
+        if (normalizedPrefixes.some((prefix) => key.includes(prefix))) {
+          cursor.delete();
+        }
+        cursor.continue();
+      };
+
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (error) {
+    console.warn("Failed to delete cache entries by prefix:", error);
+    return false;
+  }
+}

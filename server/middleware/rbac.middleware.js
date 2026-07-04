@@ -1,13 +1,26 @@
 import { pool, query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import { permissionCache } from "../utils/permissionCache.js";
 
-// Get user role ID
+// Get user role ID (with Redis cache)
 async function getUserRoleId(userId) {
+  // Check Redis cache first
+  const cached = await permissionCache.getRoleId(userId);
+  if (cached !== null) return cached;
+
+  // Fallback to DB
   const result = await query(
     `SELECT role_id FROM adm_users WHERE id = :userId`,
     { userId }
   );
-  return result.length > 0 ? result[0].role_id : null;
+  const roleId = result.length > 0 ? result[0].role_id : null;
+
+  // Cache for next time
+  if (roleId !== null) {
+    await permissionCache.setRoleId(userId, roleId);
+  }
+
+  return roleId;
 }
 
 // Check module access
@@ -132,6 +145,14 @@ export async function getUserPermissions(req, res, next) {
       return next(httpError(401, "Authentication required"));
     }
 
+    // Check Redis cache for modules and features
+    const cachedModules = await permissionCache.getModules(userId);
+    const cachedFeatures = await permissionCache.getFeatures(userId);
+
+    if (cachedModules !== null && cachedFeatures !== null) {
+      return res.json({ modules: cachedModules, permissions: cachedFeatures });
+    }
+
     const roleId = await getUserRoleId(userId);
     if (!roleId) {
       return res.json({ modules: [], permissions: [] });
@@ -150,11 +171,15 @@ export async function getUserPermissions(req, res, next) {
       { roleId }
     );
 
+    const moduleKeys = modules.map(m => m.module_key);
+    const permissionList = permissions;
+
+    // Cache in Redis
+    await permissionCache.setModules(userId, moduleKeys);
+    await permissionCache.setFeatures(userId, permissionList);
+
     // Return the collected modules and permissions in the response
-    res.json({
-      modules: modules.map(m => m.module_key),
-      permissions: permissions
-    });
+    res.json({ modules: moduleKeys, permissions: permissionList });
   } catch (err) {
     next(err);
   }

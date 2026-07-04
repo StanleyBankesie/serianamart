@@ -59,7 +59,7 @@ export default function ServiceOrderForm() {
     time: "",
   });
 
-  const [extDept, setExtDept] = useState({ dept: "", cost: "" });
+  const [extDept, setExtDept] = useState({ dept: "", project: "" });
   const [extRequestor, setExtRequestor] = useState({
     name: "",
     title: "",
@@ -140,7 +140,7 @@ export default function ServiceOrderForm() {
     currency: "USD",
   });
   const [departments, setDepartments] = useState([]);
-  const [costCenters, setCostCenters] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [serviceCategories, setServiceCategories] = useState([]);
   const [workLocations, setWorkLocations] = useState([]);
@@ -226,13 +226,13 @@ export default function ServiceOrderForm() {
         if (mounted) setDepartments([]);
       }
     }
-    async function fetchCostCenters() {
+    async function fetchProjects() {
       try {
-        const resp = await api.get("/finance/cost-centers");
+        const resp = await api.get("/projects");
         const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
-        if (mounted) setCostCenters(rows);
+        if (mounted) setProjects(rows);
       } catch {
-        if (mounted) setCostCenters([]);
+        if (mounted) setProjects([]);
       }
     }
     async function fetchServiceCategories() {
@@ -263,7 +263,7 @@ export default function ServiceOrderForm() {
       }
     }
     fetchDepartments();
-    fetchCostCenters();
+    fetchProjects();
     fetchServiceCategories();
     fetchWorkLocations();
     fetchCurrencies();
@@ -332,7 +332,7 @@ export default function ServiceOrderForm() {
         } else {
           setExtDept({
             dept: item.department || "",
-            cost: item.cost_center || "",
+            project: item.project_id || "",
           });
           setExtRequestor({
             name: item.requestor_name || "",
@@ -487,7 +487,7 @@ export default function ServiceOrderForm() {
   }
 
   function resetExternal() {
-    setExtDept({ dept: "", cost: "" });
+    setExtDept({ dept: "", project: "" });
     setExtRequestor({ name: "", title: "", email: "", phone: "" });
     setExtContractor({ name: "", id: "", email: "", phone: "" });
     setExtReqs({ cat: "", scope: "" });
@@ -574,7 +574,7 @@ export default function ServiceOrderForm() {
         lines,
       order_type: "EXTERNAL",
       department: extDept.dept || null,
-      cost_center: extDept.cost || null,
+      project_id: extDept.project ? Number(extDept.project) : null,
       requestor_name: extRequestor.name || null,
       requestor_title: extRequestor.title || null,
       requestor_email: extRequestor.email || null,
@@ -1218,20 +1218,20 @@ export default function ServiceOrderForm() {
                     </div>
                     <div className="group">
                       <label className="label">
-                        Cost Center 
+                        Project 
                       </label>
                       <select
                         className="input w-56"
-                        value={extDept.cost}
+                        value={extDept.project}
                         onChange={(e) =>
-                          setExtDept((p) => ({ ...p, cost: e.target.value }))
+                          setExtDept((p) => ({ ...p, project: e.target.value }))
                         }
                         
                       >
-                        <option value="">-- Select Cost Center --</option>
-                        {costCenters.map((cc) => (
-                          <option key={cc.id} value={cc.code}>
-                            {cc.code} • {cc.name}
+                        <option value="">-- Select Project --</option>
+                        {projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.project_code} • {p.project_name}
                           </option>
                         ))}
                       </select>

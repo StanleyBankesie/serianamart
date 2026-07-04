@@ -32,6 +32,9 @@ export default function PurchaseOrdersLocalList() {
   const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -179,78 +182,47 @@ export default function PurchaseOrdersLocalList() {
       cancelled = true;
     };
   }, []);
-  useEffect(() => {
-    let mounted = true;
+  const fetchOrders = async (currentPage, currentStatus) => {
     setLoading(true);
     setError("");
-    api
-      .get("/purchase/orders")
-      .then((res) => {
-        if (!mounted) return;
-        const all = Array.isArray(res.data?.items) ? res.data.items : [];
-        setPurchaseOrders(
-          all.filter(
-            (po) => String(po.po_type || "").toUpperCase() === "LOCAL",
-          ),
-        );
-      })
-      .catch((e) => {
-        if (!mounted) return;
-        setError(
-          e?.response?.data?.message || "Failed to load purchase orders",
-        );
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
-      });
+    try {
+      let url = `/purchase/orders?page=${currentPage}&limit=50`;
+      if (currentStatus !== "ALL") {
+        url += `&status=${currentStatus}`;
+      }
+      const res = await api.get(url);
+      const all = Array.isArray(res.data?.items) ? res.data.items : [];
+      setPurchaseOrders(
+        all.filter((po) => String(po.po_type || "").toUpperCase() === "LOCAL")
+      );
+      if (res.data?.pagination) {
+        setTotalPages(res.data.pagination.totalPages || 1);
+        setTotalCount(res.data.pagination.total || 0);
+      }
+    } catch (e) {
+      setError(e?.response?.data?.message || "Failed to load purchase orders");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  useEffect(() => {
+    fetchOrders(page, statusFilter);
+  }, [page, statusFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter]);
+
+  // Ensure highlight logic works by reloading orders when needed
   useEffect(() => {
     const ref = location.state?.highlightRef;
     const hid = location.state?.highlightId;
     const refresh = location.state?.refresh;
     if (!ref && !hid && !refresh) return;
-    let cancelled = false;
-    async function ensureVisible() {
-      const start = Date.now();
-      while (!cancelled && Date.now() - start < 5000) {
-        try {
-          const res = await api.get("/purchase/orders");
-          const all = Array.isArray(res.data?.items) ? res.data.items : [];
-          const locals = all.filter(
-            (po) => String(po.po_type || "").toUpperCase() === "LOCAL",
-          );
-          setPurchaseOrders(locals);
-          let hit = false;
-          if (ref) {
-            hit = locals.some(
-              (po) =>
-                String(po.po_no || "").toLowerCase() ===
-                String(ref).toLowerCase(),
-            );
-          } else if (hid) {
-            hit = locals.some((po) => Number(po.id) === Number(hid));
-          } else {
-            hit = locals.length > 0;
-          }
-          if (hit) break;
-        } catch {}
-        await new Promise((r) => setTimeout(r, 300));
-      }
-    }
-    ensureVisible();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    location.state?.highlightRef,
-    location.state?.highlightId,
-    location.state?.refresh,
-  ]);
+    fetchOrders(1, statusFilter);
+  }, [location.state?.highlightRef, location.state?.highlightId, location.state?.refresh]);
+  // Removed local visibility loop to prefer fetchOrders
   useEffect(() => {
     function onWorkflowStatus(e) {
       try {
@@ -291,10 +263,7 @@ export default function PurchaseOrdersLocalList() {
   };
 
   const filteredOrders = useMemo(() => {
-    const base =
-      statusFilter === "ALL"
-        ? purchaseOrders.slice()
-        : purchaseOrders.filter((po) => po.status === statusFilter);
+    const base = purchaseOrders;
     if (!searchTerm.trim()) return base;
     return filterAndSort(base, {
       query: searchTerm,
@@ -849,6 +818,34 @@ export default function PurchaseOrdersLocalList() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex justify-between items-center mt-4 p-4 bg-base-100 rounded-lg shadow-sm border border-base-200">
+            <span className="text-sm text-base-content/70">
+              Showing page {page} of {totalPages}
+              {totalCount > 0 && ` (${totalCount} total orders)`}
+            </span>
+            <div className="join">
+              <button
+                className="join-item btn btn-sm"
+                disabled={page === 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                «
+              </button>
+              <button className="join-item btn btn-sm">Page {page}</button>
+              <button
+                className="join-item btn btn-sm"
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                »
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="card-body border-t border-slate-200 dark:border-slate-700">
           <div className="flex items-center justify-between text-sm">
             <span>

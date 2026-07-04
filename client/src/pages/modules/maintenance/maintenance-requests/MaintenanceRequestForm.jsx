@@ -21,7 +21,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceRequestForm() {
@@ -345,7 +345,7 @@ export default function MaintenanceRequestForm() {
             <div>
               <label className="label">Requisition No</label>
               <input
-                className="input"
+                className="input w-56"
                 value={form.request_no}
                 readOnly
                 placeholder="Auto-generated"
@@ -354,7 +354,7 @@ export default function MaintenanceRequestForm() {
             <div>
               <label className="label">Request Date *</label>
               <input
-                className="input"
+                className="input w-56"
                 type="date"
                 value={form.request_date}
                 onChange={(e) => update("request_date", e.target.value)}
@@ -364,7 +364,7 @@ export default function MaintenanceRequestForm() {
             <div>
               <label className="label">Breakdown Date</label>
               <input
-                className="input"
+                className="input w-56"
                 type="date"
                 value={form.breakdown_date || ""}
                 onChange={(e) => update("breakdown_date", e.target.value)}
@@ -373,7 +373,7 @@ export default function MaintenanceRequestForm() {
             <div>
               <label className="label">Department</label>
               <select
-                className="input"
+                className="input w-56"
                 value={form.department}
                 onChange={(e) => update("department", e.target.value)}
               >
@@ -388,7 +388,7 @@ export default function MaintenanceRequestForm() {
             <div>
               <label className="label">Maintenance Section</label>
               <select
-                className="input"
+                className="input w-56"
                 value={form.maintenance_section_id || ""}
                 onChange={(e) => handleSectionChange(e.target.value)}
               >
@@ -403,7 +403,7 @@ export default function MaintenanceRequestForm() {
             <div>
               <label className="label">Location</label>
               <select
-                className="input"
+                className="input w-56"
                 value={form.location_item_id || ""}
                 onChange={(e) => handleLocationChange(e.target.value)}
               >
@@ -418,7 +418,7 @@ export default function MaintenanceRequestForm() {
             <div>
               <label className="label">Asset / Equipment</label>
               <select
-                className="input"
+                className="input w-56"
                 value={form.asset_key}
                 onChange={(e) => handleAssetChange(e.target.value)}
               >
@@ -450,7 +450,7 @@ export default function MaintenanceRequestForm() {
             <div>
               <label className="label">Priority</label>
               <select
-                className="input"
+                className="input w-56"
                 value={form.priority}
                 onChange={(e) => update("priority", e.target.value)}
               >

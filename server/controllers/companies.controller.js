@@ -6,6 +6,7 @@
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { hasColumn, toNumber, ensureBranchColumns } from "../utils/dbUtils.js";
+import { cacheGet, cacheSet, cacheDelPattern } from "../utils/redis.js";
 
 /**
  * Ensures the 'adm_companies' table and its required columns exist.
@@ -254,6 +255,12 @@ export const getCompanyById = async (req, res, next) => {
   try {
     const id = toNumber(req.params.id);
     if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+    const cacheKey = `companies:id:${id}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) {
+      return res.json({ item: cached });
+    }
 
     try {
       await ensureCompanyColumns();

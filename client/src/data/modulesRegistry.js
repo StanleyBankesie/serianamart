@@ -22,6 +22,7 @@ export const MODULES_REGISTRY = {
       { key: "templates", label: "Document Templates", type: "feature" },
       { key: "reports", label: "System Reports", type: "feature" },
       { key: "settings", label: "System Settings", type: "feature" },
+      { key: "backups", label: "System Backups", type: "feature" },
     ],
     dashboards: [
       { key: "system-overview", label: "System Overview Dashboard", type: "dashboard" },
@@ -192,6 +193,7 @@ export const MODULES_REGISTRY = {
       { key: "rosters", label: "Maintenance Rosters", type: "feature" },
       { key: "maintenance-reports", label: "Maintenance Reports", type: "feature" },
       { key: "setup", label: "Maintenance Setup", type: "feature" },
+      { key: "material-receipts", label: "Material Receipts", type: "feature" },
     ],
     dashboards: [
       { key: "maintenance-overview", label: "Maintenance Overview Dashboard", type: "dashboard" },
@@ -306,6 +308,7 @@ export const MODULES_REGISTRY = {
       { key: "service-executions", label: "Service Execution", type: "feature" },
       { key: "service-confirmations", label: "Service Confirmations", type: "feature" },
       { key: "service-bills", label: "Service Bills", type: "feature" },
+      { key: "service-invoices", label: "Service Invoices", type: "feature" },
       { key: "billing", label: "Service Billing", type: "feature" },
       { key: "service-reports", label: "Service Reports", type: "feature" },
       { key: "visitors-log", label: "Visitors Log Book", type: "feature" },

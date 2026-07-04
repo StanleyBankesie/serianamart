@@ -119,10 +119,10 @@ export default function MaterialRequisitionList() {
                           className="px-2 py-1 text-xs text-slate-600 bg-slate-100 border border-slate-200 rounded hover:bg-slate-200">Attach</button>
                         {r.status === "DRAFT" && (
                           <>
-                            <button type="button" onClick={() => handleSubmit(r.id)} disabled={forwarding}
-                              className="px-2 py-1 text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100">Submit</button>
                             <Link to={`/project-management/material-requisitions/${r.id}`}
                               className="px-2 py-1 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded hover:bg-slate-200">Edit</Link>
+                            <button type="button" onClick={() => handleConfirm(r.id)} disabled={forwarding}
+                              className="px-2 py-1 text-xs font-medium text-amber-600 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100">Confirm</button>
                           </>
                         )}
                         {(r.status === "PENDING_APPROVAL" || r.status === "APPROVED") && (

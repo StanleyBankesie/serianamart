@@ -237,8 +237,8 @@ export default function SupplierQuotationsList() {
           <div className="flex justify-between items-center">
             <div className="font-semibold">Supplier Quotations</div>
             <div className="flex gap-2">
-              <Link to="/maintenance" className="btn btn-secondary">Return to Menu</Link>
-              <Link to="/maintenance/supplier-quotations/new" className="btn-success">+ New Quotation</Link>
+              <button onClick={() => (window.location.href = "/maintenance")} className="btn btn-secondary">Return to Menu</button>
+              <button onClick={() => (window.location.href = "/maintenance/supplier-quotations/new")} className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700">+ New Quotation</button>
             </div>
           </div>
         </div>

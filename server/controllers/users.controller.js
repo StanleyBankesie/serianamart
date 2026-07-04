@@ -5,6 +5,7 @@
 import bcrypt from "bcryptjs";
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import { permissionCache } from "../utils/permissionCache.js";
 import {
   toNumber,
   ensureUserColumns,
@@ -368,6 +369,11 @@ export const updateUser = async (req, res, next) => {
     queryStr += ` WHERE id = :id`;
 
     const result = await query(queryStr, params);
+
+    // Invalidate permission cache when user role changes
+    if (role_id !== undefined) {
+      await permissionCache.invalidateUser(id);
+    }
 
     if (Array.isArray(branch_ids)) {
       await ensureUserBranchMapping();

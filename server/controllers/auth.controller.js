@@ -1,8 +1,10 @@
 import Joi from "joi";
 import bcrypt from "bcryptjs";
+import fs from "fs";
 
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import { cacheDel } from "../utils/redis.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 import {
   clearRefreshTokenCookie,
@@ -10,6 +12,7 @@ import {
   ensureAuthTables,
   getUserForAuth,
   getUserPermissions,
+  parseCookieHeader,
   readRefreshTokenFromRequest,
   registerFailedLoginAttempt,
   requiresPasswordReset,
@@ -24,7 +27,12 @@ import "../utils/loadServerEnv.js";
 const loginSchema = Joi.object({
   username: Joi.string().min(3).max(100).required(),
   password: Joi.string().min(1).required(),
-  rememberMe: Joi.boolean().truthy("1").truthy("true").falsy("0").falsy("false").default(false),
+  rememberMe: Joi.boolean()
+    .truthy("1")
+    .truthy("true")
+    .falsy("0")
+    .falsy("false")
+    .default(false),
 }).required();
 
 const forgotRequestSchema = Joi.object({
@@ -56,6 +64,33 @@ function getClientMeta(req) {
   return { ip, userAgent };
 }
 
+function postDebugEvent(hypothesisId, location, msg, data = {}) {
+  try {
+    let debugServerUrl = "http://127.0.0.1:7777/event";
+    let sessionId = "login-db-timeout";
+    try {
+      const envText = fs.readFileSync(".dbg/login-db-timeout.env", "utf8");
+      debugServerUrl =
+        envText.match(/DEBUG_SERVER_URL=(.+)/)?.[1]?.trim() || debugServerUrl;
+      sessionId =
+        envText.match(/DEBUG_SESSION_ID=(.+)/)?.[1]?.trim() || sessionId;
+    } catch {}
+    fetch(debugServerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        runId: "pre-fix",
+        hypothesisId,
+        location,
+        msg,
+        data,
+        ts: Date.now(),
+      }),
+    }).catch(() => {});
+  } catch {}
+}
+
 let _loginLogsTableEnsured = false;
 async function ensureLoginLogsTable() {
   if (_loginLogsTableEnsured) return;
@@ -81,7 +116,8 @@ async function writeLoginLog(user, req) {
   try {
     await ensureLoginLogsTable();
     const { ip, userAgent } = getClientMeta(req);
-    await query(`
+    await query(
+      `
       INSERT INTO adm_login_logs (user_id, username, company_id, branch_id, ip_address, user_agent)
       VALUES (:user_id, :username, :company_id, :branch_id, :ip_address, :user_agent)
       `,
@@ -98,7 +134,8 @@ async function writeLoginLog(user, req) {
 }
 
 async function findUserByUsername(username) {
-  const rows = await query(`
+  const rows = await query(
+    `
     SELECT
       u.id,
       u.company_id,
@@ -130,26 +167,120 @@ async function findUserByUsername(username) {
 function isPasswordMatch(password, passwordHash, username) {
   const hash = String(passwordHash || "");
   const isBcryptHash =
-    hash.startsWith("$2a$") || hash.startsWith("$2b$") || hash.startsWith("$2y$");
+    hash.startsWith("$2a$") ||
+    hash.startsWith("$2b$") ||
+    hash.startsWith("$2y$");
 
   return isBcryptHash ? bcrypt.compare(password, hash) : password === hash;
 }
 
-function sendAuthResponse(res, session) {
-  setRefreshTokenCookie(res, session.refreshToken, {
+async function sendAuthResponse(req, res, session) {
+  const crypto = await import("crypto");
+  const sessionId = crypto.randomBytes(16).toString("hex");
+
+  // Guard: ensure refreshTokenExpiresAt is a valid future Date before computing TTL
+  const expiresAt =
+    session.refreshTokenExpiresAt instanceof Date
+      ? session.refreshTokenExpiresAt
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // fallback: 7 days
+  const ttlSeconds = Math.round((expiresAt.getTime() - Date.now()) / 1000);
+  const safeTtl = ttlSeconds > 0 ? ttlSeconds : 7 * 24 * 3600; // never write with 0 or negative TTL
+
+  console.log(
+    `[AUTH] Creating session: sessionId=${sessionId.substring(0, 8)}... ttl=${safeTtl}s`,
+  );
+
+  try {
+    const { cacheSet, cacheGet } = await import("../utils/redis.js");
+    const sessionKey = `omnisuite_session:${sessionId}`;
+    const sessionPayload = {
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      user: session.user,
+    };
+
+    await cacheSet(sessionKey, sessionPayload, safeTtl);
+
+    // ── Verification: immediately read back what we just wrote ──────────────
+    // This catches the split-brain condition (write to MySQL, read from Redis)
+    // and surfaces it as an explicit log error rather than a silent 401.
+    const verified = await cacheGet(sessionKey);
+    if (verified && verified.user) {
+      console.log(
+        `[AUTH] ✓ Session verified in store: omnisuite_session:${sessionId.substring(0, 8)}... user=${verified.user.username}`,
+      );
+    } else {
+      console.error(
+        `[AUTH] ✗ Session verification FAILED for omnisuite_session:${sessionId.substring(0, 8)}... — cacheGet returned nothing after cacheSet. ` +
+          `This indicates a Redis write/read split-brain. Check REDIS_URL, REDIS_TLS, and redis.js client configuration.`,
+      );
+    }
+  } catch (err) {
+    console.error("[AUTH] Failed to store or verify session", err);
+  }
+
+  const isProd = process.env.NODE_ENV === "production";
+  const isSecureOrigin =
+    (req.headers.origin && req.headers.origin.startsWith("https://")) ||
+    (req.headers.referer && req.headers.referer.startsWith("https://")) ||
+    req.secure ||
+    req.headers["x-forwarded-proto"] === "https";
+
+  const useSecure =
+    isSecureOrigin || String(process.env.COOKIE_SECURE) === "true";
+
+  // For development: SameSite=None requires Secure=true (HTTPS only).
+  // On localhost HTTP, use SameSite=lax which works for same-site cookies.
+  // SameSite=lax allows cookies on top-level navigations and GET requests.
+  const sessionCookieOpts = {
+    httpOnly: true,
+    secure: useSecure,
+    sameSite: useSecure ? "none" : "lax",
+    path: "/",
+    expires: expiresAt,
+  };
+
+  console.log(
+    `[AUTH] Setting cookie options: httpOnly=true, secure=${useSecure}, sameSite=${useSecure ? "none" : "lax"}, expires=${expiresAt}`,
+  );
+
+  if (isProd) {
+    const origin = req.headers.origin || "";
+    // Only set the domain if the request is actually coming from the same eTLD+1
+    if (origin.includes("omnisuite-erp.com")) {
+      sessionCookieOpts.domain = ".omnisuite-erp.com";
+    }
+  }
+
+  console.log(
+    `[AUTH] Setting omnisuite_session cookie with value: ${sessionId.substring(0, 8)}...`,
+  );
+  res.cookie("omnisuite_session", sessionId, sessionCookieOpts);
+
+  setRefreshTokenCookie(req, res, session.refreshToken, {
     rememberMe: session.rememberMe,
-    expiresAt: session.refreshTokenExpiresAt,
+    expiresAt,
   });
 
   res.json({
-    token: session.accessToken,
-    accessToken: session.accessToken,
     user: session.user,
-    expiresAt: session.refreshTokenExpiresAt,
+    accessToken: session.accessToken,
+    expiresAt,
   });
 }
 
-async function completeLogin(req, res, user, rememberMe) {
+export async function completeLogin(req, res, user, rememberMe) {
+  // #region debug-point B:complete-login-start
+  postDebugEvent(
+    "B",
+    "server/controllers/auth.controller.js:completeLogin",
+    "[DEBUG] completeLogin start",
+    {
+      userId: Number(user?.id || 0) || null,
+      rememberMe: Boolean(rememberMe),
+    },
+  );
+  // #endregion
   const permissions = await getUserPermissions(user.id);
   const session = await createSessionTokens({
     user,
@@ -158,20 +289,49 @@ async function completeLogin(req, res, user, rememberMe) {
   });
   await resetFailedLoginAttempts(user.id);
   await writeLoginLog(user, req);
-  sendAuthResponse(res, session);
+  // #region debug-point B:complete-login-before-response
+  postDebugEvent(
+    "B",
+    "server/controllers/auth.controller.js:completeLogin",
+    "[DEBUG] completeLogin before sendAuthResponse",
+    {
+      userId: Number(user?.id || 0) || null,
+      permissionCount: Array.isArray(permissions) ? permissions.length : null,
+    },
+  );
+  // #endregion
+  await sendAuthResponse(req, res, session);
 }
 
 export const login = async (req, res, next) => {
+  const loginStartedAt = Date.now();
   try {
+    // #region debug-point A:login-start
+    postDebugEvent(
+      "A",
+      "server/controllers/auth.controller.js:login",
+      "[DEBUG] login start",
+      {
+        username: String(req.body?.username || ""),
+        rememberMe: Boolean(req.body?.rememberMe),
+      },
+    );
+    // #endregion
     await ensureAuthTables();
     const { value, error } = loginSchema.validate(req.body);
     if (error) throw httpError(400, "VALIDATION_ERROR", error.message);
 
-    const allowDefault = String(process.env.AUTH_ALLOW_DEFAULT_LOGIN || "").trim() === "1";
+    const allowDefault =
+      String(process.env.AUTH_ALLOW_DEFAULT_LOGIN || "").trim() === "1";
     if (allowDefault) {
-      const defUser = String(process.env.AUTH_DEFAULT_USER || "").trim() || "admin";
-      const defPass = String(process.env.AUTH_DEFAULT_PASS || "").trim() || "admin";
-      if (String(value.username || "") === defUser && String(value.password || "") === defPass) {
+      const defUser =
+        String(process.env.AUTH_DEFAULT_USER || "").trim() || "admin";
+      const defPass =
+        String(process.env.AUTH_DEFAULT_PASS || "").trim() || "admin";
+      if (
+        String(value.username || "") === defUser &&
+        String(value.password || "") === defPass
+      ) {
         await completeLogin(
           req,
           res,
@@ -191,10 +351,26 @@ export const login = async (req, res, next) => {
     }
 
     const user = await findUserByUsername(value.username);
+    // #region debug-point A:user-lookup-finished
+    postDebugEvent(
+      "A",
+      "server/controllers/auth.controller.js:login",
+      "[DEBUG] user lookup finished",
+      {
+        username: String(value.username || ""),
+        foundUser: Boolean(user),
+        elapsedMs: Date.now() - loginStartedAt,
+      },
+    );
+    // #endregion
     if (!user) {
       throw httpError(401, "INVALID_CREDENTIALS", "Invalid credentials");
     }
-    if (user.id !== 1 && user.valid_to && new Date(user.valid_to) <= new Date()) {
+    if (
+      user.id !== 1 &&
+      user.valid_to &&
+      new Date(user.valid_to) <= new Date()
+    ) {
       await query(
         `UPDATE adm_users SET status = 'N', is_active = 0 WHERE id = :id`,
         { id: user.id },
@@ -213,6 +389,18 @@ export const login = async (req, res, next) => {
       user.password_hash,
       user.username,
     );
+    // #region debug-point B:password-check-finished
+    postDebugEvent(
+      "B",
+      "server/controllers/auth.controller.js:login",
+      "[DEBUG] password check finished",
+      {
+        userId: Number(user?.id || 0) || null,
+        passwordOk: Boolean(passwordOk),
+        elapsedMs: Date.now() - loginStartedAt,
+      },
+    );
+    // #endregion
     if (!passwordOk) {
       const failures = await registerFailedLoginAttempt(user.id);
       if (failures >= Number(process.env.MAX_FAILED_LOGIN_ATTEMPTS || 5)) {
@@ -222,7 +410,31 @@ export const login = async (req, res, next) => {
     }
 
     await completeLogin(req, res, user, Boolean(value.rememberMe));
+    // #region debug-point A:login-success
+    postDebugEvent(
+      "A",
+      "server/controllers/auth.controller.js:login",
+      "[DEBUG] login success",
+      {
+        userId: Number(user?.id || 0) || null,
+        elapsedMs: Date.now() - loginStartedAt,
+      },
+    );
+    // #endregion
   } catch (err) {
+    // #region debug-point D:login-error
+    postDebugEvent(
+      "D",
+      "server/controllers/auth.controller.js:login",
+      "[DEBUG] login error",
+      {
+        elapsedMs: Date.now() - loginStartedAt,
+        errorCode: err?.code || null,
+        errorMessage: err?.message || String(err),
+        sqlMessage: err?.sqlMessage || null,
+      },
+    );
+    // #endregion
     console.error("Login Error:", err);
     next(err);
   }
@@ -236,9 +448,9 @@ export const refreshAccessToken = async (req, res, next) => {
     }
 
     const session = await rotateRefreshSession(refreshToken);
-    sendAuthResponse(res, session);
+    await sendAuthResponse(req, res, session);
   } catch (err) {
-    clearRefreshTokenCookie(res);
+    clearRefreshTokenCookie(req, res);
     next(err);
   }
 };
@@ -249,7 +461,25 @@ export const logout = async (req, res, next) => {
     if (refreshToken) {
       await revokeRefreshToken(refreshToken).catch(() => {});
     }
-    clearRefreshTokenCookie(res);
+
+    const cookies = parseCookieHeader(req.headers.cookie || "");
+    const sessionId = cookies.omnisuite_session;
+    if (sessionId) {
+      await cacheDel(`omnisuite_session:${sessionId}`).catch(() => {});
+    }
+
+    const isProd = process.env.NODE_ENV === "production";
+    const origin = req.headers.origin || "";
+    const useDomain = isProd && origin.includes("omnisuite-erp.com");
+
+    res.clearCookie("omnisuite_session", {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      path: "/",
+      ...(useDomain ? { domain: ".omnisuite-erp.com" } : {}),
+    });
+    clearRefreshTokenCookie(req, res);
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -261,7 +491,8 @@ export const requestPasswordResetOtp = async (req, res, next) => {
     await ensureAuthTables();
     const { value, error } = forgotRequestSchema.validate(req.body);
     if (error) throw httpError(400, "VALIDATION_ERROR", error.message);
-    const users = await query(`
+    const users = await query(
+      `
       SELECT id, username, email, is_active,
           created_at,
           u.username AS created_by_name
@@ -313,11 +544,13 @@ export const requestPasswordResetOtp = async (req, res, next) => {
         "Could not initialize password reset store",
       );
     }
-    await query(`UPDATE adm_password_resets SET used = 1 WHERE user_id = :userId AND used = 0`,
+    await query(
+      `UPDATE adm_password_resets SET used = 1 WHERE user_id = :userId AND used = 0`,
       { userId: user.id },
     );
     const otp = String(Math.floor(100000 + Math.random() * 900000));
-    await query(`
+    await query(
+      `
       INSERT INTO adm_password_resets (user_id, username, email, otp_code, expires_at)
       VALUES (:user_id, :username, :email, :otp_code, DATE_ADD(NOW(), INTERVAL 30 MINUTE))
       `,
@@ -341,7 +574,8 @@ export const requestPasswordResetOtp = async (req, res, next) => {
         action: "EMAIL_SENT",
         userId: user.id,
         companyId: null,
-        branchId, branchIdsStr: null,
+        branchId,
+        branchIdsStr: null,
         message: `Password reset OTP sent to ${user.email}`,
         urlPath: "/api/forgot-password/request-otp",
       },
@@ -363,7 +597,8 @@ export const resetPasswordWithOtp = async (req, res, next) => {
     await ensureAuthTables();
     const { value, error } = resetPasswordSchema.validate(req.body);
     if (error) throw httpError(400, "VALIDATION_ERROR", error.message);
-    const users = await query(`
+    const users = await query(
+      `
       SELECT id, username, email, is_active,
           created_at,
           u.username AS created_by_name
@@ -380,7 +615,8 @@ export const resetPasswordWithOtp = async (req, res, next) => {
       throw httpError(403, "USER_INACTIVE", "User is inactive");
     let otpRows = [];
     try {
-      otpRows = await query(`
+      otpRows = await query(
+        `
         SELECT id, otp_code, expires_at, used,
           created_at,
           u.username AS created_by_name
@@ -403,7 +639,8 @@ export const resetPasswordWithOtp = async (req, res, next) => {
       throw httpError(400, "VALIDATION_ERROR", "OTP already used");
     const saltRounds = 10;
     const hash = await bcrypt.hash(value.new_password, saltRounds);
-    await query(`UPDATE adm_users SET password_hash = :hash WHERE id = :userId`,
+    await query(
+      `UPDATE adm_users SET password_hash = :hash WHERE id = :userId`,
       { hash, userId: user.id },
     );
     await query(`UPDATE adm_password_resets SET used = 1 WHERE id = :id`, {
@@ -426,13 +663,25 @@ export const changePassword = async (req, res, next) => {
     const { currentPassword, newPassword, confirmNewPassword } = req.body || {};
 
     if (!currentPassword || !newPassword || !confirmNewPassword) {
-      throw httpError(400, "VALIDATION_ERROR", "All password fields are required");
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "All password fields are required",
+      );
     }
     if (newPassword.length < 6) {
-      throw httpError(400, "VALIDATION_ERROR", "New password must be at least 6 characters");
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "New password must be at least 6 characters",
+      );
     }
     if (newPassword !== confirmNewPassword) {
-      throw httpError(400, "VALIDATION_ERROR", "New password and confirm password do not match");
+      throw httpError(
+        400,
+        "VALIDATION_ERROR",
+        "New password and confirm password do not match",
+      );
     }
 
     const [user] = await query(
@@ -454,10 +703,10 @@ export const changePassword = async (req, res, next) => {
 
     const saltRounds = 10;
     const hash = await bcrypt.hash(newPassword, saltRounds);
-    await query(`UPDATE adm_users SET password_hash = ?, status = 'Y' WHERE id = ?`, [
-      hash,
-      user.id,
-    ]);
+    await query(
+      `UPDATE adm_users SET password_hash = ?, status = 'Y' WHERE id = ?`,
+      [hash, user.id],
+    );
 
     res.json({ message: "Password changed successfully", status: "Y" });
   } catch (err) {
@@ -484,7 +733,8 @@ export const updateCurrentUserPhoto = async (req, res, next) => {
       { profile_picture: buffer, userId },
     );
 
-    const [user] = await query(`SELECT u.id, u.username, u.email, u.full_name,
+    const [user] = await query(
+      `SELECT u.id, u.username, u.email, u.full_name,
          u.role_id, r.name AS role_name,
          IF(u.profile_picture IS NULL, NULL, IF(LEFT(u.profile_picture, 4) = 'http' OR LEFT(u.profile_picture, 5) = 'data:', CONVERT(u.profile_picture USING utf8), CONCAT('data:image/jpeg;base64,', REPLACE(TO_BASE64(u.profile_picture), '\\n', '')))) AS profile_picture_url
          FROM adm_users u
@@ -502,7 +752,8 @@ export const getCurrentUser = async (req, res, next) => {
   try {
     const userId = Number(req.user?.sub || req.user?.id);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    const [user] = await query(`SELECT u.id, u.username, u.email, u.full_name,
+    const [user] = await query(
+      `SELECT u.id, u.username, u.email, u.full_name,
          u.role_id, r.name AS role_name,
          IF(u.profile_picture IS NULL, NULL, IF(LEFT(u.profile_picture, 4) = 'http' OR LEFT(u.profile_picture, 5) = 'data:', CONVERT(u.profile_picture USING utf8), CONCAT('data:image/jpeg;base64,', REPLACE(TO_BASE64(u.profile_picture), '\\n', '')))) AS profile_picture_url
          FROM adm_users u
@@ -523,14 +774,17 @@ export const getMyBranches = async (req, res, next) => {
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
     const { ensureUserBranchMapping } = await import("../utils/dbUtils.js");
     await ensureUserBranchMapping();
-    const items = await query(`
+    const items = await query(
+      `
       SELECT b.id, b.company_id, b.name, b.code, c.name AS company_name
         FROM adm_user_branches ub
        JOIN adm_branches b ON b.id = ub.branch_id
        JOIN adm_companies c ON c.id = b.company_id
        WHERE ub.user_id = :userId
     ORDER BY c.name ASC, b.name ASC
-    `, { userId });
+    `,
+      { userId },
+    );
     res.json({ items });
   } catch (err) {
     next(err);

@@ -72,7 +72,19 @@ export default function IssueToRequirementForm() {
   const populateFromRequisition = async (reqId) => {
     if (!reqId) return;
     try {
-      const res = await api.get(`/inventory/material-requisitions/${reqId}`);
+      const isMaint = String(reqId).startsWith("maint_");
+      const isPM = String(reqId).startsWith("pm_");
+      const actualId = isMaint
+        ? String(reqId).replace("maint_", "")
+        : isPM
+          ? String(reqId).replace("pm_", "")
+          : reqId;
+      const endpoint = isMaint
+        ? `/maintenance/material-requisitions/${actualId}`
+        : isPM
+          ? `/projects/material-requisitions/${actualId}`
+          : `/inventory/material-requisitions/${reqId}`;
+      const res = await api.get(endpoint);
       const hdr = res.data?.item || null;
       const details = Array.isArray(res.data?.details) ? res.data.details : [];
       if (hdr) {
@@ -85,7 +97,7 @@ export default function IssueToRequirementForm() {
           departmentId: hdr.department_id
             ? String(hdr.department_id)
             : prev.departmentId,
-          issueType: mapIssueTypeFromReq(hdr.requisition_type),
+          issueType: isMaint ? "MAINTENANCE" : isPM ? "PROJECT" : mapIssueTypeFromReq(hdr.requisition_type),
           issuedTo: hdr.requested_by || prev.issuedTo,
           remarks: prev.remarks || "",
         }));
@@ -113,7 +125,6 @@ export default function IssueToRequirementForm() {
         setItemQueries(initQueries);
       }
     } catch (e) {
-      // keep existing form; surface error for visibility
       setError(
         e?.response?.data?.message || "Failed to populate from requisition",
       );
@@ -125,11 +136,13 @@ export default function IssueToRequirementForm() {
 
     const fetchData = async () => {
       try {
-        const [itemsRes, warehousesRes, deptsRes, reqRes] = await Promise.all([
+        const [itemsRes, warehousesRes, deptsRes, reqRes, maintReqRes, pmReqRes] = await Promise.all([
           api.get("/inventory/items"),
           api.get("/inventory/warehouses"),
           api.get("/admin/departments"),
           api.get("/inventory/material-requisitions"),
+          api.get("/maintenance/material-requisitions").catch(() => ({ data: { items: [] } })),
+          api.get("/projects/material-requisitions").catch(() => ({ data: { items: [] } })),
         ]);
 
         if (mounted) {
@@ -144,14 +157,25 @@ export default function IssueToRequirementForm() {
           setDepartments(
             Array.isArray(deptsRes.data?.items) ? deptsRes.data.items : [],
           );
-          setRequisitions(
-            Array.isArray(reqRes.data?.items)
-              ? reqRes.data.items.filter((r) => {
-                  const s = String(r.status || "").toUpperCase();
-                  return s === "APPROVED" || s === "POSTED";
-                })
-              : [],
-          );
+          const invReqs = Array.isArray(reqRes.data?.items)
+            ? reqRes.data.items.filter((r) => {
+                const s = String(r.status || "").toUpperCase();
+                return s === "APPROVED" || s === "POSTED";
+              }).map((r) => ({ ...r, _source: "inventory" }))
+            : [];
+          const maintReqs = Array.isArray(maintReqRes.data?.items)
+            ? maintReqRes.data.items.filter((r) => {
+                const s = String(r.status || "").toUpperCase();
+                return s === "APPROVED";
+              }).map((r) => ({ ...r, _source: "maintenance", id: `maint_${r.id}` }))
+            : [];
+          const pmReqs = Array.isArray(pmReqRes.data?.items)
+            ? pmReqRes.data.items.filter((r) => {
+                const s = String(r.status || "").toUpperCase();
+                return s === "APPROVED";
+              }).map((r) => ({ ...r, _source: "project", id: `pm_${r.id}` }))
+            : [];
+          setRequisitions([...invReqs, ...maintReqs, ...pmReqs]);
         }
       } catch (e) {
         if (mounted) {
@@ -191,7 +215,11 @@ export default function IssueToRequirementForm() {
           issuedTo: h.issued_to || "",
           departmentId: h.department_id ? String(h.department_id) : "",
           issueType: h.issue_type || "GENERAL",
-          requisitionId: h.requisition_id ? String(h.requisition_id) : "",
+          requisitionId: h.requisition_id
+            ? (h.requisition_source === "maintenance" ? `maint_${h.requisition_id}`
+              : h.requisition_source === "project" ? `pm_${h.requisition_id}`
+              : String(h.requisition_id))
+            : "",
           status: h.status || "DRAFT",
           remarks: h.remarks || "",
         });
@@ -300,6 +328,14 @@ export default function IssueToRequirementForm() {
     setError("");
 
     const finalStatus = statusOverride || formData.status;
+    const rawReqId = formData.requisitionId || "";
+    const isMaintReq = String(rawReqId).startsWith("maint_");
+    const isPMReq = String(rawReqId).startsWith("pm_");
+    const numericReqId = isMaintReq
+      ? Number(String(rawReqId).replace("maint_", ""))
+      : isPMReq
+        ? Number(String(rawReqId).replace("pm_", ""))
+        : Number(rawReqId);
 
     try {
       const payload = {
@@ -313,9 +349,10 @@ export default function IssueToRequirementForm() {
           ? Number(formData.departmentId)
           : null,
         issue_type: formData.issueType,
-        requisition_id: formData.requisitionId
-          ? Number(formData.requisitionId)
+        requisition_id: Number.isFinite(numericReqId) && numericReqId > 0
+          ? numericReqId
           : null,
+        requisition_source: isMaintReq ? "maintenance" : isPMReq ? "project" : "inventory",
         status: finalStatus,
         remarks: formData.remarks || null,
         details: normalizedDetails,
@@ -453,7 +490,7 @@ export default function IssueToRequirementForm() {
                   <option value="">Select Requisition (Optional)</option>
                   {requisitions.map((req) => (
                     <option key={req.id} value={req.id}>
-                      {req.requisition_no}
+                      {req.requisition_no}{req._source === "maintenance" ? " (Maintenance)" : req._source === "project" ? " (Project)" : ""}
                     </option>
                   ))}
                 </select>

@@ -5,22 +5,38 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Search, Plus, ChevronRight, Eye } from "lucide-react";
+import { ArrowLeft, Search, Plus, Eye } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { Guard } from "../../../../hooks/usePermissions";
-import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
+import {
+  ListPrintIconButton,
+  ListPdfIconButton,
+  ListAttachmentIconButton,
+} from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
-const statusColors = { DRAFT:"bg-slate-100 text-slate-600", OPEN:"bg-blue-100 text-blue-700", IN_PROGRESS:"bg-amber-100 text-amber-700", COMPLETED:"bg-green-100 text-green-700", CANCELLED:"bg-red-100 text-red-600" };
+const statusColors = {
+  DRAFT: "bg-slate-100 text-slate-600",
+  OPEN: "bg-blue-100 text-blue-700",
+  IN_PROGRESS: "bg-amber-100 text-amber-700",
+  COMPLETED: "bg-green-100 text-green-700",
+  CANCELLED: "bg-red-100 text-red-600",
+};
 function Badge({ value, colorMap }) {
   const v = String(value || "").toUpperCase();
-  return <span className={`inline-block px-2 py-0.5 text-xs rounded font-medium ${colorMap[v] || "bg-slate-100 text-slate-600"}`}>{v}</span>;
+  return (
+    <span
+      className={`inline-block px-2 py-0.5 text-xs rounded font-medium ${colorMap[v] || "bg-slate-100 text-slate-600"}`}
+    >
+      {v}
+    </span>
+  );
 }
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceJobOrdersList() {
@@ -37,20 +53,47 @@ export default function MaintenanceJobOrdersList() {
       setLoading(true);
       const res = await api.get("/maintenance/job-orders");
       setItems(Array.isArray(res.data?.items) ? res.data.items : []);
-    } catch (e) { toast.error(e?.response?.data?.message || "Failed to load job orders"); }
-    finally { setLoading(false); }
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to load job orders");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { load(); }, [location.state?.refresh]);
+  useEffect(() => {
+    load();
+  }, [location.state?.refresh]);
+
+  
+  async function handleConfirm(item) {
+    try {
+      setLoading(true);
+      await api.put(`/maintenance/job-orders/${item.id}`, { ...item, status: 'POSTED' });
+      toast.success("Job order posted successfully");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to post job order");
+      setLoading(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     if (!q) return items;
-    return items.filter(r =>
-      String(r.order_no || "").toLowerCase().includes(q) ||
-      String(r.asset_name || "").toLowerCase().includes(q) ||
-      String(r.assigned_technician || "").toLowerCase().includes(q) ||
-      String(r.status || "").toLowerCase().includes(q)
+    return items.filter(
+      (r) =>
+        String(r.order_no || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(r.asset_name || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(r.assigned_technician || "")
+          .toLowerCase()
+          .includes(q) ||
+        String(r.status || "")
+          .toLowerCase()
+          .includes(q),
     );
   }, [items, search]);
 
@@ -60,27 +103,37 @@ export default function MaintenanceJobOrdersList() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <Link to="/maintenance" className="btn btn-secondary p-2">
-               <ArrowLeft size={20} />
+              <ArrowLeft size={20} />
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Job Orders</h1>
-              <p className="text-slate-500 text-sm">Track and manage maintenance job orders</p>
+              <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">
+                Job Orders
+              </h1>
+              <p className="text-slate-500 text-sm">
+                Track and manage maintenance job orders
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-             <div className="relative">
-               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-               <input 
-                 className="input pl-10 pr-4 py-2 w-64" 
-                 placeholder="Search orders..." 
-                 value={search} 
-                 onChange={e => setSearch(e.target.value)} 
-               />
-             </div>
-             <Link to="/maintenance/job-orders/new" className="btn-success flex items-center gap-2">
-                <Plus size={20} />
-                + New Job Order
-             </Link>
+            <div className="relative">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                className="input pl-10 pr-4 py-2 w-64"
+                placeholder="Search orders..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <Link
+              to="/maintenance/job-orders/new"
+              className="btn-success flex items-center gap-2"
+            >
+              <Plus size={20} />
+              New Job Order
+            </Link>
           </div>
         </div>
 
@@ -97,42 +150,104 @@ export default function MaintenanceJobOrdersList() {
                   <th>Status</th>
                   <th>Created By</th>
                   <th>Created Date</th>
+                  <th>Confirm</th>
                   <th className="text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
                 {loading ? (
-                   <tr><td colSpan="9" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Loading Orders...</td></tr>
-                ) : filtered.length > 0 ? filtered.map(r => (
-                  <tr key={r.id} className="group">
-                    <td className="px-6 py-4">
-                       <div className="font-bold text-slate-900 dark:text-white text-sm leading-tight">{r.order_no}</div>
-                       <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">{r.order_date}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">{r.request_no || r.request_id}</td>
-                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{r.asset_name}</td>
-                    <td className="px-4 py-3 text-sm text-slate-500">{r.scheduled_date}</td>
-                    <td className="px-4 py-3 text-sm text-slate-500 font-medium">{r.assigned_technician}</td>
-                    <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
-                    <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
-                    <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/job-orders/${r.id}?mode=view`)}><Eye size={15} /></button>
-                        <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
-                        <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
-                        <ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} />
-                        <Link 
-                          to={`/maintenance/job-orders/${r.id}`} 
-                          className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
-                        >
-                          <ChevronRight size={20} />
-                        </Link>
-                      </div>
+                  <tr>
+                    <td
+                      colSpan="10"
+                      className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest"
+                    >
+                      Loading Orders...
                     </td>
                   </tr>
-                )) : (
-                  <tr><td colSpan="9" className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50">No job orders identified.</td></tr>
+                ) : filtered.length > 0 ? (
+                  filtered.map((r) => (
+                    <tr key={r.id} className="group">
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-slate-900 dark:text-white text-sm leading-tight">
+                          {r.order_no}
+                        </div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">
+                          {r.order_date ? new Date(r.order_date).toLocaleDateString() : "-"}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
+                        {r.request_no || r.request_id}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
+                        {r.asset_name}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-500">
+                        {r.scheduled_date ? new Date(r.scheduled_date).toLocaleDateString() : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-500 font-medium">
+                        {r.assigned_technician}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        <Badge value={r.status} colorMap={statusColors} />
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {r.created_by_name || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {r.created_at
+                          ? new Date(r.created_at).toLocaleDateString()
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {r.status === 'DRAFT' ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 transition-colors h-9"
+                            onClick={() => handleConfirm(r)}
+                          >
+                            Confirm
+                          </button>
+                        ) : null}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
+                            title="View"
+                            onClick={() =>
+                              navigate(
+                                `/maintenance/job-orders/${r.id}?mode=view`,
+                              )
+                            }
+                          >
+                            <Eye size={15} />
+                          </button>
+                          <ListPrintIconButton
+                            onClick={() => toast.info("Print coming soon")}
+                          />
+                          <ListPdfIconButton
+                            onClick={() => toast.info("PDF coming soon")}
+                          />
+                          <ListAttachmentIconButton
+                            onClick={() => {
+                              setActiveDocId(r.id);
+                              setShowAttach(true);
+                            }}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan="10"
+                      className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50"
+                    >
+                      No job orders identified.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -142,7 +257,10 @@ export default function MaintenanceJobOrdersList() {
       {showAttach && activeDocId && (
         <DocumentAttachmentsModal
           open={showAttach}
-          onClose={() => { setShowAttach(false); setActiveDocId(null); }}
+          onClose={() => {
+            setShowAttach(false);
+            setActiveDocId(null);
+          }}
           docType="maintenance"
           docId={activeDocId}
         />

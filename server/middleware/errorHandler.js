@@ -21,10 +21,8 @@ export function errorHandler(err, req, res, next) {
   const payload = {
     error: err.code || "INTERNAL_ERROR",
     message: err.message || "Internal server error",
+    stack: err.stack,
+    sqlMessage: err.sqlMessage,
   };
-  // Include stack trace in the response only if not in production
-  if (process.env.NODE_ENV !== "production" && err.stack) {
-    payload.stack = err.stack;
-  }
   res.status(status).json(payload);
 }

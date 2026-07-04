@@ -60,9 +60,7 @@ export default function EquipmentList() {
           <div className="mb-4"><input className="input max-w-md" placeholder="Search by code, name, category, location..." value={search} onChange={e => setSearch(e.target.value)} /></div>
           <div className="overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Location</th><th>Serial No</th><th>Warranty Expiry</th><th>Status</th><th>Actions</th>                    <th>Created By</th>
-                    <th>Created Date</th>
-                    </tr></thead>
+              <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Location</th><th>Serial No</th><th>Warranty Expiry</th><th>Status</th><th>Created By</th><th>Created Date</th><th>Actions</th></tr></thead>
               <tbody>
                 {loading && <tr><td colSpan="10" className="text-center py-8 text-slate-500">Loading...</td></tr>}
                 {!loading && !filtered.length && <tr><td colSpan="10" className="text-center py-8 text-slate-500">No equipment found</td></tr>}

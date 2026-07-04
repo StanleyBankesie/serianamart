@@ -211,7 +211,7 @@ export default function PeriodicalStockStatementPage() {
                         setItemGroupId("");
                       } else if (groupSearchResults.length) {
                         setItemGroupId(groupSearchResults[0].value);
-                        setGroupSearchVal("");
+                        setGroupSearchVal(groupSearchResults[0].group_name);
                         setShowGroupDropdown(false);
                       }
                     }
@@ -243,7 +243,7 @@ export default function PeriodicalStockStatementPage() {
                       className="w-full text-left px-4 py-3 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-b border-slate-100 dark:border-slate-700/50 last:border-0"
                       onClick={() => {
                         setItemGroupId(o.value);
-                        setGroupSearchVal("");
+                        setGroupSearchVal(o.group_name);
                         setShowGroupDropdown(false);
                       }}
                     >
@@ -276,7 +276,7 @@ export default function PeriodicalStockStatementPage() {
                         setQ("");
                       } else if (itemSearchResults.length) {
                         setQ(itemSearchResults[0].item_code);
-                        setSearchVal("");
+                        setSearchVal(itemSearchResults[0].item_name);
                         setShowDropdown(false);
                       }
                     }
@@ -308,7 +308,7 @@ export default function PeriodicalStockStatementPage() {
                       className="w-full text-left px-4 py-3 hover:bg-brand-50 dark:hover:bg-brand-900/20 border-b border-slate-100 dark:border-slate-700/50 last:border-0"
                       onClick={() => {
                         setQ(o.item_code);
-                        setSearchVal("");
+                        setSearchVal(o.item_name);
                         setShowDropdown(false);
                       }}
                     >

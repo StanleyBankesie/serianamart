@@ -42,6 +42,7 @@ export default function InvoiceList() {
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [pagination, setPagination] = useState({ page: 1, pageSize: 50, total: 0, totalPages: 0 });
   const [submittingId, setSubmittingId] = useState(null);
   const [showAttach, setShowAttach] = useState(false);
   const [activeDocId, setActiveDocId] = useState(null);
@@ -64,18 +65,24 @@ export default function InvoiceList() {
     fetchAll();
   }, []);
 
-  const fetchAll = async () => {
+  const fetchAll = async (page = 1) => {
     try {
       setLoading(true);
       setError("");
-      const [invRes, curRes, whRes] = await Promise.all([
-        api.get("/sales/invoices"),
-        api.get("/finance/currencies"),
-        api.get("/inventory/warehouses"),
-      ]);
+      
+      const requests = [api.get(`/sales/invoices?page=${page}&limit=50`)];
+      if (currencies.length === 0) requests.push(api.get("/finance/currencies"));
+      if (warehouses.length === 0) requests.push(api.get("/inventory/warehouses"));
+      
+      const [invRes, curRes, whRes] = await Promise.all(requests);
+      
       setInvoices(Array.isArray(invRes.data?.items) ? invRes.data.items : []);
-      setCurrencies(Array.isArray(curRes.data?.items) ? curRes.data.items : []);
-      setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
+      if (invRes.data?.pagination) {
+        setPagination(invRes.data.pagination);
+      }
+      
+      if (curRes) setCurrencies(Array.isArray(curRes.data?.items) ? curRes.data.items : []);
+      if (whRes) setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
     } catch (error) {
       setError(error?.response?.data?.message || "Error fetching invoices");
       console.error("Error fetching invoices:", error);
@@ -550,8 +557,9 @@ export default function InvoiceList() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table">
+            <>
+              <div className="overflow-x-auto">
+                <table className="table">
                 <thead>
                   <tr>
                     <SortableHeader label="Invoice No" sortKey="invoice_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -691,9 +699,33 @@ export default function InvoiceList() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
-          )}
+                </table>
+              </div>
+
+              {/* Pagination Controls */}
+              <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-slate-200">
+                <div className="text-sm text-slate-500">
+                  Showing <span className="font-medium">{(pagination.page - 1) * pagination.pageSize + 1}</span> to <span className="font-medium">{Math.min(pagination.page * pagination.pageSize, pagination.total)}</span> of <span className="font-medium">{pagination.total}</span> results
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => fetchAll(pagination.page - 1)}
+                    disabled={pagination.page <= 1}
+                    className="px-3 py-1 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded disabled:opacity-50"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={() => fetchAll(pagination.page + 1)}
+                    disabled={pagination.page >= pagination.totalPages}
+                    className="px-3 py-1 text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+        )}
         </div>
       </div>
       <DocumentAttachmentsModal
