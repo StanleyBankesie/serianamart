@@ -1,4 +1,4 @@
-node_modules
+server/node_modules
 change.txt
 adopt.txt
 .env
@@ -7,3 +7,5 @@ server.env.production
 server.env.local
 uploads/
 client/node_modules
+server/.env.local
+server/package-loc.json
