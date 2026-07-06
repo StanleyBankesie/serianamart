@@ -33,8 +33,8 @@ export default function MaterialReceiptList() {
     setLoading(true);
     try {
       const [res, pendRes] = await Promise.all([
-        api.get("/projects/material-receipts"),
-        api.get("/projects/issue-to-requirement/pm")
+        api.get("/maintenance/material-receipts"),
+        api.get("/maintenance/issue-to-requirement/maint")
       ]);
       if (mounted) {
         setItems(Array.isArray(res.data?.items) ? res.data.items : []);
@@ -69,7 +69,7 @@ export default function MaterialReceiptList() {
               <p className="text-sm mt-1">Receive materials issued from Inventory (Project Management department)</p>
             </div>
             <div className="flex gap-2">
-              <Link to="/project-management" className="btn btn-secondary">Return to Menu</Link>
+              <Link to="/maintenance" className="btn btn-secondary">Return to Menu</Link>
               <button onClick={loadData} className="btn btn-secondary p-2" title="Refresh"><RefreshCw size={16} /></button>
               <Link to="/maintenance/material-receipts/new" className="btn-success flex items-center gap-2"><Plus size={16} />Receive{pendingIssues > 0 ? ` (${pendingIssues})` : ""}</Link>
             </div>

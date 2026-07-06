@@ -12,6 +12,7 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import * as XLSX from "xlsx";
 import { autosizeWorksheetColumns } from "../../../utils/xlsxUtils";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  * ItemsList component
@@ -20,6 +21,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The item list view.
  */
 export default function ItemsList() {
+  const { hasExceptional } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -35,6 +37,20 @@ export default function ItemsList() {
   const [previewHeaders, setPreviewHeaders] = useState([]);
   const [previewRows, setPreviewRows] = useState([]);
   const [uploading, setUploading] = useState(false);
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this item? This action cannot be undone.")) return;
+    try {
+      setLoading(true);
+      await api.delete(`/inventory/items/${id}`);
+      toast.success("Item deleted successfully");
+      api.get("/inventory/items?all=1").then(r => setItems(r.data?.items || [])).catch(() => {});
+    } catch (err) {
+      toast.error(err?.response?.data?.message || err.message || "Failed to delete item");
+    } finally {
+      setLoading(false);
+    }
+  };
   const normalizeBarcode = (v) => {
     if (v == null) return "";
     const s = String(v).trim();
@@ -663,7 +679,7 @@ export default function ItemsList() {
           shouldClosePreview = failed === 0;
           if (inserted || updated) {
             toast.success(`Uploaded ${inserted} new, updated ${updated}`);
-            const res = await api.get("/inventory/items");
+            const res = await api.get("/inventory/items?all=1");
             setItems(Array.isArray(res.data?.items) ? res.data.items : []);
           }
           if (failed) {
@@ -809,7 +825,7 @@ export default function ItemsList() {
             let itemId = nameToId.get(key);
             if (!itemId) {
               try {
-                const resAll = await api.get("/inventory/items", {
+                const resAll = await api.get("/inventory/items?all=1", {
                   __skipOfflineQueue: true,
                 });
                 const arr = Array.isArray(resAll.data?.items)
@@ -897,7 +913,7 @@ export default function ItemsList() {
       }
       if (success > 0) {
         toast.success(`Uploaded ${success} items`);
-        const res = await api.get("/inventory/items");
+        const res = await api.get("/inventory/items?all=1");
         setItems(Array.isArray(res.data?.items) ? res.data.items : []);
       }
       if (failed > 0) {
@@ -1342,6 +1358,14 @@ export default function ItemsList() {
                         >
                           Edit
                         </Link>
+                        {hasExceptional("INVENTORY.ITEM.DELETE") && (
+                          <button
+                            onClick={() => handleDelete(it.id)}
+                            className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-full hover:bg-red-100 hover:text-red-700 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td>{it.stock_level ?? "-"}</td>

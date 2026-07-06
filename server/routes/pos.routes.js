@@ -5433,6 +5433,7 @@ router.get(
         WHERE s.company_id = :companyId
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND s.status = 'COMPLETED'
+          AND NOT EXISTS (SELECT 1 FROM pos_returns r WHERE r.sale_id = s.id)
       `;
       const params = { companyId, branchId, branchIdsStr };
 

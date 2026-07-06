@@ -7,7 +7,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
-import { Eye } from "lucide-react";
+import { Eye, Mail, Pencil } from "lucide-react";
 import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 import { Guard } from "../../../../hooks/usePermissions";
@@ -74,31 +74,65 @@ export default function MaintenanceRFQList() {
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Suppliers Invited</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Deadline</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Approval Email</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {loading && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">No RFQs found</td></tr>}
+                {loading && <tr><td colSpan="10" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
+                {!loading && !filtered.length && <tr><td colSpan="10" className="px-4 py-8 text-center text-slate-500">No RFQs found</td></tr>}
                 {!loading && filtered.map(r => (
                   <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="px-4 py-3 font-mono text-sm">{r.rfq_no}</td>
-                    <td className="px-4 py-3 text-sm">{r.rfq_date}</td>
+                    <td className="px-4 py-3 text-sm">{r.rfq_date ? new Date(r.rfq_date).toLocaleDateString() : "-"}</td>
                     <td className="px-4 py-3 text-sm">{r.request_id}</td>
                     <td className="px-4 py-3 text-sm">{r.supplier_names}</td>
-                    <td className="px-4 py-3 text-sm">{r.response_deadline}</td>
+                    <td className="px-4 py-3 text-sm">{r.response_deadline ? new Date(r.response_deadline).toLocaleDateString() : "-"}</td>
                     <td className="px-4 py-3 text-sm"><Badge value={r.status} colorMap={statusColors} /></td>
+                    <td className="px-4 py-3 text-sm whitespace-nowrap space-x-2">
+                      <button
+                        type="button"
+                        disabled={r.status === "APPROVED"}
+                        className={`px-2 py-1 text-xs rounded font-medium ${r.status === "APPROVED" ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"}`}
+                        onClick={async () => {
+                          try {
+                            await api.put(`/maintenance/rfqs/${r.id}`, { status: "APPROVED" });
+                            toast.success("RFQ Confirmed");
+                            api.get("/maintenance/rfqs").then(res => setItems(Array.isArray(res.data?.items) ? res.data.items : []));
+                          } catch (e) {
+                            toast.error(e?.response?.data?.message || "Failed to confirm RFQ");
+                          }
+                        }}
+                      >
+                        {r.status === "APPROVED" ? "Confirmed" : "Confirm"}
+                      </button>
+                      <button
+                        type="button"
+                        className="px-2 py-1 text-xs rounded font-medium bg-blue-100 text-blue-700 hover:bg-blue-200"
+                        onClick={async () => {
+                          try {
+                            const res = await api.post(`/maintenance/rfqs/${r.id}/send-email`);
+                            toast.success(res.data?.message || "Email sent successfully");
+                            api.get("/maintenance/rfqs").then(res => setItems(Array.isArray(res.data?.items) ? res.data.items : []));
+                          } catch(e) {
+                            toast.error(e?.response?.data?.message || "Failed to send email");
+                          }
+                        }}
+                      >
+                        Send Email
+                      </button>
+                    </td>
                     <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>
                     <td className="px-4 py-3 text-sm">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                     <td className="px-4 py-3 text-sm whitespace-nowrap">
                       <div className="flex items-center gap-1">
                         <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/rfq/${r.id}?mode=view`)}><Eye size={15} /></button>
+                        <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="Edit" onClick={() => navigate(`/maintenance/rfq/${r.id}`)}><Pencil size={15} /></button>
                         <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
                         <ListPdfIconButton onClick={() => toast.info("PDF coming soon")} />
                         <ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} />
-                        <Link to={`/maintenance/rfq/${r.id}`} className="text-brand hover:underline mr-3">Edit</Link>
                         <Link to={`/maintenance/supplier-quotations/new?rfq_id=${r.id}&rfq_no=${r.rfq_no}`} className="text-emerald-600 hover:underline">Record Quotation</Link>
                       </div>
                     </td>

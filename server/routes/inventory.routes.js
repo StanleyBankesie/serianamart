@@ -40,6 +40,24 @@ function toDateOnly(s) {
   return String(s).slice(0, 10) || null;
 }
 
+async function userHasExceptionalAllow(userId, permissionCode = null) {
+  const params = { uid: userId };
+  if (permissionCode) params.code = permissionCode;
+  const rows = await query(
+    `
+    SELECT 1
+         FROM adm_exceptional_permissions
+         WHERE user_id = :uid
+       AND effect = 'ALLOW'
+       AND is_active = 1
+       ${permissionCode ? "AND permission_code = :code" : ""}
+     LIMIT 1
+    `,
+    params,
+  ).catch(() => []);
+  return rows.length > 0;
+}
+
 async function resolveTransferScopeTx(
   conn,
   {
@@ -1381,6 +1399,7 @@ router.get(
            ON sb.company_id = i.company_id
           AND sb.item_id = i.id
           WHERE i.company_id = :companyId
+          ${req.query.all !== '1' && req.query.all !== 'true' ? "AND i.is_active = 1" : ""}
          ORDER BY i.item_name ASC
          LIMIT 2000
         `,
@@ -1777,6 +1796,73 @@ router.get(
         LEFT JOIN adm_users u ON u.id = i.created_by
          WHERE ${whereItem}
         GROUP BY i.id, i.item_code, i.item_name
+        ORDER BY i.item_name ASC
+        `,
+        params,
+      ).catch(() => []);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// ─── Stock Value Report ───────────────────────────────────────────────────────
+router.get(
+  "/stock-value",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId = null } = req.scope || {};
+      const warehouseId = toNumber(req.query?.warehouseId);
+      const itemGroupId = toNumber(req.query?.itemGroupId);
+      const itemId = toNumber(req.query?.itemId);
+      const q = String(req.query?.q || "").trim();
+      const params = { companyId, branchId };
+      let whereItem = "i.company_id = :companyId";
+      
+      if (q) {
+        whereItem +=
+          " AND (i.item_code LIKE :q OR i.item_name LIKE :q OR i.uom LIKE :q)";
+        params.q = `%${q}%`;
+      }
+      if (itemGroupId) {
+        whereItem += " AND i.item_group_id = :itemGroupId";
+        params.itemGroupId = itemGroupId;
+      }
+      if (itemId) {
+        whereItem += " AND i.id = :itemId";
+        params.itemId = itemId;
+      }
+
+      const stockWhere = [
+        "sb.company_id = :companyId",
+        "sb.branch_id = :branchId",
+      ];
+      if (warehouseId) {
+        stockWhere.push("sb.warehouse_id = :warehouseId");
+        params.warehouseId = warehouseId;
+      }
+      const rows = await query(
+        `
+        SELECT 
+          i.id AS item_id,
+          i.item_code,
+          i.item_name,
+          i.uom,
+          ig.group_name AS item_group,
+          COALESCE(SUM(sb.qty), 0) AS qty,
+          i.cost_price,
+          (COALESCE(SUM(sb.qty), 0) * i.cost_price) AS value
+         FROM inv_items i
+        LEFT JOIN inv_stock_balances sb
+          ON sb.item_id = i.id
+         AND ${stockWhere.join(" AND ")}
+        LEFT JOIN inv_item_groups ig ON ig.id = i.item_group_id
+         WHERE ${whereItem}
+        GROUP BY i.id, i.item_code, i.item_name, i.uom, ig.group_name, i.cost_price
         ORDER BY i.item_name ASC
         `,
         params,
@@ -8906,6 +8992,40 @@ router.put(
       next(e);
     }
   },
+);
+router.delete(
+  "/items/:id",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { companyId = null } = req.scope || {};
+      const userId = toNumber(req.scope?.userId ?? req.user?.sub) || null;
+
+      const hasPerm = await userHasExceptionalAllow(userId, "INVENTORY.ITEM.DELETE");
+      if (!hasPerm) {
+        throw httpError(403, "FORBIDDEN", "You do not have exceptional permission to delete items");
+      }
+
+      const [result] = await pool.query(
+        "DELETE FROM inv_items WHERE id = ? AND company_id = ?",
+        [id, companyId]
+      );
+
+      if (result.affectedRows === 0) {
+        throw httpError(404, "NOT_FOUND", "Item not found");
+      }
+
+      res.json({ success: true, message: "Item deleted successfully" });
+    } catch (e) {
+      if (e.code === "ER_ROW_IS_REFERENCED_2") {
+        next(httpError(409, "CONSTRAINT_ERROR", "Cannot delete item because it is in use by other records"));
+      } else {
+        next(e);
+      }
+    }
+  }
 );
 
 // ─── Cost Price Endpoints ──────────────────────────────────────────────────

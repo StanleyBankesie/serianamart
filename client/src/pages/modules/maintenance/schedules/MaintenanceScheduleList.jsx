@@ -65,7 +65,7 @@ export default function MaintenanceScheduleList() {
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Schedule Name</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Asset</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Frequency</th>
-                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Next Due</th>
+                  <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Start Date</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assigned To</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
                   <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
@@ -81,7 +81,7 @@ export default function MaintenanceScheduleList() {
                     <td className="px-4 py-3 text-sm font-medium">{r.schedule_name}</td>
                     <td className="px-4 py-3 text-sm">{r.asset_name}</td>
                     <td className="px-4 py-3 text-sm capitalize">{r.frequency}</td>
-                    <td className="px-4 py-3 text-sm">{r.next_due_date}</td>
+                    <td className="px-4 py-3 text-sm">{r.start_date ? new Date(r.start_date).toLocaleDateString() : "-"}</td>
                     <td className="px-4 py-3 text-sm">{r.assigned_to}</td>
                     <td className="px-4 py-3 text-sm"><span className={`inline-block px-2 py-0.5 text-xs rounded font-medium ${r.status === "ACTIVE" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}>{r.status}</span></td>
                     <td className="px-4 py-3 text-sm">{r.created_by_name || "-"}</td>

@@ -52,6 +52,7 @@ import SlowMovingReportPage from "./reports/SlowMovingReportPage.jsx";
 import FastMovingReportPage from "./reports/FastMovingReportPage.jsx";
 import NonMovingReportPage from "./reports/NonMovingReportPage.jsx";
 import StockBalancesReportPage from "./reports/StockBalancesReportPage.jsx";
+import StockValueReportPage from "./reports/StockValueReportPage.jsx";
 import MaterialReturnReportPage from "./reports/MaterialReturnReportPage.jsx";
 import StockAdjustmentReportPage from "./reports/StockAdjustmentReportPage.jsx";
 import LowStockNotificationsPage from "./LowStockNotificationsPage.jsx";
@@ -333,6 +334,12 @@ function InventoryHomeIndex() {
           path: "/inventory/reports/stock-balances",
           description: "Available stock by warehouse",
           icon: "📦",
+        },
+        {
+          name: "Stock Value",
+          path: "/inventory/reports/stock-value",
+          description: "Value of stock by warehouse",
+          icon: "💰",
         },
         {
           name: "Stock Adjustment Report",
@@ -676,6 +683,10 @@ export default function InventoryHome() {
       <Route
         path="reports/stock-balances"
         element={<StockBalancesReportPage />}
+      />
+      <Route
+        path="reports/stock-value"
+        element={<StockValueReportPage />}
       />
       <Route
         path="reports/stock-adjustments"

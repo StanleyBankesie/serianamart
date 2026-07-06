@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, Save, Plus, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import HierarchyEditor from "./HierarchyEditor";
 
 const DEFAULT_PARAMS = {
   default_currency: "GHS",
@@ -24,17 +25,15 @@ const TAB_LABELS = [
   { key: "locations", label: "Locations" },
   { key: "brands", label: "Brands" },
   { key: "models", label: "Models" },
+  { key: "manufacturers", label: "Manufacturers" },
+  { key: "classification-hierarchy", label: "Equip. Classification & Grouping" },
   { key: "status-types", label: "Status Types" },
   { key: "maintenance-types", label: "Maint. Types" },
   { key: "priorities", label: "Priorities" },
-  { key: "supervisors", label: "Supervisors" },
   { key: "technicians", label: "Technicians" },
   { key: "teams", label: "Teams" },
   { key: "assignments", label: "Assignments" },
   { key: "service-providers", label: "Service Providers" },
-  { key: "job-order-types", label: "Job Order Types" },
-  { key: "notifications", label: "Notifications" },
-  { key: "scheduling", label: "Scheduling" },
 ];
 
 const EMPTY_ITEM = {
@@ -44,7 +43,7 @@ const EMPTY_ITEM = {
   is_active: true,
 };
 
-function ModalForm({ open, title, hideDescription, draft, onDraftChange, onClose, onSubmit, nameOptions }) {
+function ModalForm({ open, title, hideDescription, showEmail, showCurrency, currencies = [], draft, onDraftChange, onClose, onSubmit, nameOptions }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
@@ -60,7 +59,17 @@ function ModalForm({ open, title, hideDescription, draft, onDraftChange, onClose
               <select
                 className="input w-full"
                 value={draft.item_name}
-                onChange={e => onDraftChange("item_name", e.target.value)}
+                onChange={e => {
+                  const val = e.target.value;
+                  onDraftChange("item_name", val);
+                  if (nameOptions) {
+                    const opt = nameOptions.find((o) => o.name === val);
+                    if (opt) {
+                      if (showEmail) onDraftChange("email", opt.email || "");
+                      if (showCurrency && opt.currency_id) onDraftChange("currency_id", opt.currency_id);
+                    }
+                  }
+                }}
               >
                 <option value="">-- Select --</option>
                 {nameOptions.map((opt) => (
@@ -68,18 +77,31 @@ function ModalForm({ open, title, hideDescription, draft, onDraftChange, onClose
                 ))}
               </select>
             ) : (
-              <input className="input w-full" value={draft.item_name} onChange={e => onDraftChange("item_name", e.target.value)} />
+              <input className="input w-full" value={draft.item_name || ""} onChange={e => onDraftChange("item_name", e.target.value)} />
             )}
           </div>
-          {!hideDescription && (
+          {showEmail && (
             <div>
-              <label className="label">Description</label>
-              <input className="input w-full" value={draft.description} onChange={e => onDraftChange("description", e.target.value)} />
+              <label className="label">Email</label>
+              <input className="input w-full" type="email" value={draft.email || ""} onChange={e => onDraftChange("email", e.target.value)} />
+            </div>
+          )}
+          {showCurrency && (
+            <div>
+              <label className="label">Currency</label>
+              <select className="input w-full" value={draft.currency_id || ""} onChange={e => onDraftChange("currency_id", e.target.value)}>
+                <option value="">Select Currency...</option>
+                {currencies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} - {c.symbol}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
           <div>
-            <label className="label">Sort Order</label>
-            <input className="input w-full" type="number" value={draft.sort_order} onChange={e => onDraftChange("sort_order", e.target.value)} />
+            <label className="label">Description</label>
+            <input className="input w-full" value={draft.description} onChange={e => onDraftChange("description", e.target.value)} />
           </div>
           <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
             <input type="checkbox" checked={Boolean(draft.is_active)} onChange={e => onDraftChange("is_active", e.target.checked)} />
@@ -107,6 +129,9 @@ function SetupItemsEditor({
   onSaveAndReload,
   onDelete,
   hideDescription = false,
+  showEmail = false,
+  showCurrency = false,
+  currencies = [],
   onOpenModal,
 }) {
   return (
@@ -129,7 +154,8 @@ function SetupItemsEditor({
             <tr>
               <th>Name</th>
               {!hideDescription && <th>Description</th>}
-              <th>Order</th>
+              {showEmail && <th>Email</th>}
+              {showCurrency && <th>Currency</th>}
               <th>Active</th>
               <th>Actions</th>
             </tr>
@@ -137,7 +163,7 @@ function SetupItemsEditor({
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={hideDescription ? "4" : "5"} className="text-center py-6 text-slate-500">
+                <td colSpan="10" className="text-center py-6 text-slate-500">
                   No records found
                 </td>
               </tr>
@@ -162,17 +188,33 @@ function SetupItemsEditor({
                   />
                 </td>
                 )}
+                {showEmail && (
                 <td>
                   <input
                     className="input"
-                    type="number"
-                    value={item.sort_order ?? 0}
-                    onChange={(e) =>
-                      onSave(kind, { ...item, sort_order: e.target.value })
-                    }
-                    onBlur={() => onSave(kind, { ...item, sort_order: item.sort_order })}
+                    type="email"
+                    value={item.email || ""}
+                    onChange={(e) => onSave(kind, { ...item, email: e.target.value })}
+                    onBlur={() => onSave(kind, { ...item, email: item.email })}
                   />
                 </td>
+                )}
+                {showCurrency && (
+                <td>
+                  <select
+                    className="input"
+                    value={item.currency_id || ""}
+                    onChange={(e) => onSave(kind, { ...item, currency_id: e.target.value })}
+                  >
+                    <option value="">Select Currency...</option>
+                    {currencies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} - {c.symbol}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                )}
                 <td>
                   <input
                     type="checkbox"
@@ -230,6 +272,7 @@ export default function MaintenanceSetupPage() {
   const [modalDraft, setModalDraft] = useState({ ...EMPTY_ITEM });
   const [sectionUsers, setSectionUsers] = useState([]);
   const [users, setUsers] = useState([]);
+  const [currencies, setCurrencies] = useState([]);
   const [drafts, setDrafts] = useState({
     "maintenance-types": { ...EMPTY_ITEM },
     priorities: { ...EMPTY_ITEM },
@@ -239,6 +282,7 @@ export default function MaintenanceSetupPage() {
     departments: { ...EMPTY_ITEM },
     brands: { ...EMPTY_ITEM },
     models: { ...EMPTY_ITEM },
+    manufacturers: { ...EMPTY_ITEM },
     "status-types": { ...EMPTY_ITEM },
     supervisors: { ...EMPTY_ITEM },
     technicians: { ...EMPTY_ITEM },
@@ -258,15 +302,16 @@ export default function MaintenanceSetupPage() {
     let m = true;
     api.get("/purchase/suppliers?contractor=Y").then((r) => {
       const items = Array.isArray(r.data?.items) ? r.data.items : [];
-      if (m) setSupplierNameOptions(items.map((s) => ({ id: s.id, name: s.supplier_name })));
+      if (m) setSupplierNameOptions(items.map((s) => ({ id: s.id, name: s.supplier_name, email: s.email, currency_id: s.currency_id })));
     }).catch(() => {});
     return () => { m = false; };
   }, []);
 
   async function loadSetup() {
-    const [catalogRes, paramRes] = await Promise.all([
+    const [catalogRes, paramRes, curRes] = await Promise.all([
       api.get("/maintenance/setup/catalog"),
       api.get("/maintenance/parameters").catch(() => ({ data: { params: {} } })),
+      api.get("/finance/currencies").catch(() => ({ data: { items: [] } })),
     ]);
 
     setCatalogs({
@@ -283,6 +328,7 @@ export default function MaintenanceSetupPage() {
     });
     setSectionUsers(Array.isArray(catalogRes.data?.sectionUsers) ? catalogRes.data.sectionUsers : []);
     setUsers(Array.isArray(catalogRes.data?.users) ? catalogRes.data.users : []);
+    setCurrencies(Array.isArray(curRes.data?.items) ? curRes.data.items : []);
     setParams((prev) => ({ ...prev, ...(paramRes.data?.params || {}), ...(catalogRes.data?.params || {}) }));
   }
 
@@ -337,6 +383,10 @@ export default function MaintenanceSetupPage() {
         departments: "departments",
         brands: "brands",
         models: "models",
+        manufacturers: "manufacturers",
+        classifications: "classifications",
+        categories: "categories",
+        groups: "groups",
         "status-types": "statusTypes",
         supervisors: "supervisors",
         technicians: "technicians",
@@ -594,6 +644,29 @@ export default function MaintenanceSetupPage() {
               />
             </div>
           )}
+          {tab === "manufacturers" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Manufacturers"
+                description="Equipment manufacturers."
+                kind="manufacturers"
+                items={catalogs.manufacturers || []}
+                draft={drafts.manufacturers}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
+                onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
+          {tab === "classification-hierarchy" && (
+            <div className="space-y-8">
+              <HierarchyEditor catalogs={catalogs} reloadSetup={loadSetup} />
+            </div>
+          )}
           {tab === "status-types" && (
             <div className="space-y-8">
               <SetupItemsEditor
@@ -648,24 +721,7 @@ export default function MaintenanceSetupPage() {
               />
             </div>
           )}
-          {tab === "supervisors" && (
-            <div className="space-y-8">
-              <SetupItemsEditor
-                title="Supervisors"
-                description="Configure supervisor names for work orders."
-                kind="supervisors"
-                items={catalogs.supervisors}
-                draft={drafts.supervisors}
-                onDraftChange={setDraft}
-                onCreate={createItem}
-                onSave={saveItem}
-                onSaveAndReload={saveItemAndReload}
-                onDelete={deleteItem}
-                hideDescription
-                onOpenModal={openModal}
-              />
-            </div>
-          )}
+
           {tab === "technicians" && (
             <div className="space-y-8">
               <SetupItemsEditor
@@ -716,28 +772,14 @@ export default function MaintenanceSetupPage() {
                 onSaveAndReload={saveItemAndReload}
                 onDelete={deleteItem}
                 hideDescription
+                showEmail
+                showCurrency
+                currencies={currencies}
                 onOpenModal={openModal}
               />
             </div>
           )}
-          {tab === "job-order-types" && (
-            <div className="space-y-8">
-              <SetupItemsEditor
-                title="Job Order Types"
-                description="Configure job order types (e.g. Planned, Adhoc)."
-                kind="job-order-types"
-                items={catalogs.jobOrderTypes}
-                draft={drafts["job-order-types"]}
-                onDraftChange={setDraft}
-                onCreate={createItem}
-                onSave={saveItem}
-                onSaveAndReload={saveItemAndReload}
-                onDelete={deleteItem}
-                hideDescription
-                onOpenModal={openModal}
-              />
-            </div>
-          )}
+
           {tab === "assignments" && (
             <div className="space-y-6">
               <div className="card bg-slate-50/50 dark:bg-slate-900/50 p-6 space-y-6 border-dashed">
@@ -848,48 +890,17 @@ export default function MaintenanceSetupPage() {
               </div>
             </div>
           )}
-          {tab === "notifications" && (
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Notifications</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400">Configure alert and notification settings</p>
-              </div>
-              <div className="max-w-xl space-y-4">
-                <div>
-                  <label className="label">Master Alert Email</label>
-                  <input className="input w-full" type="email" value={params.notify_email} onChange={e => set("notify_email", e.target.value)} placeholder="maintenance@enterprise.com" />
-                  <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-tight">Receives global alerts for overdue schedules and critical faults.</p>
-                </div>
-              </div>
-            </div>
-          )}
-          {tab === "scheduling" && (
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-4">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Scheduling</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400">Configure automatic scheduling settings</p>
-              </div>
-              <div className="max-w-xl space-y-4">
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
-                  <div>
-                    <div className="text-sm font-bold text-slate-900 dark:text-white">PM Auto-Generation</div>
-                    <div className="text-xs text-slate-500">Automatically spawn job orders from due PM schedules.</div>
-                  </div>
-                  <select className="input w-32" value={params.auto_schedule_enabled} onChange={e => set("auto_schedule_enabled", e.target.value)}>
-                    <option value="false">Off</option>
-                    <option value="true">On</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
+
         </div>
       </div>
 
       <ModalForm
         open={!!modalKind}
         title={`Add ${TAB_LABELS.find(t => t.key === modalKind)?.label || ""}`}
-        hideDescription={["maintenance-types","priorities","brands","models","status-types","supervisors","technicians","teams","service-providers","job-order-types"].includes(modalKind)}
+        hideDescription={["maintenance-types","priorities","brands","models","manufacturers","classifications","categories","groups","status-types","technicians","teams","service-providers"].includes(modalKind)}
+        showEmail={modalKind === "service-providers"}
+        showCurrency={modalKind === "service-providers"}
+        currencies={currencies}
         draft={modalDraft}
         onDraftChange={setModalField}
         onClose={closeModal}

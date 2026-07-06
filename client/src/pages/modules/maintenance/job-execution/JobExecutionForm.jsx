@@ -53,14 +53,34 @@ export default function JobExecutionForm() {
     approved_by: "",
     approval_date: "",
     approval_notes: "",
+    warehouse_id: "",
   });
 
   const [technicians, setTechnicians] = useState([
     { id: uid(), name: "", role: "", hours: "", rate: "" },
   ]);
-  const [materials, setMaterials] = useState([
-    { id: uid(), description: "", qty: "", unit: "pcs", unit_cost: "" },
-  ]);
+  const [materials, setMaterials] = useState([{ id: 1, item_id: '', itemName: '', description: '', qty: 1, unit: 'PCS', unit_cost: 0, availableQty: 0 }]);
+  const [availableItems, setAvailableItems] = useState([]);
+  const [itemQueries, setItemQueries] = useState({});
+  const [warehouses, setWarehouses] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    api.get('/inventory/items').then((res) => {
+      if (mounted) setAvailableItems(Array.isArray(res.data?.items) ? res.data.items : []);
+    }).catch(() => {});
+    api.get('/inventory/warehouses').then((res) => {
+      if (mounted) setWarehouses(Array.isArray(res.data?.items) ? res.data.items : []);
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
+
+  const filterByPrefix = (items, options) => {
+    const q = (options.query || '').toLowerCase();
+    if (!q) return [];
+    return items.filter(i => (i.item_name || '').toLowerCase().includes(q) || (i.item_code || '').toLowerCase().includes(q));
+  };
+
   const [checklist, setChecklist] = useState([
     { id: uid(), task: "", done: false },
   ]);
@@ -480,15 +500,15 @@ export default function JobExecutionForm() {
                       <p className="text-xs text-red-500">{errors.technicians}</p>
                     )}
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
+                      <table className="table w-full">
                         <thead>
-                          <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-                            <th className="py-2 pr-2">Technician</th>
-                            <th className="py-2 pr-2">Role</th>
-                            <th className="py-2 pr-2 w-24">Hours</th>
-                            <th className="py-2 pr-2 w-28">Rate/hr</th>
-                            <th className="py-2 pr-2 w-28 text-right">Subtotal</th>
-                            <th className="py-2 w-10"></th>
+                          <tr>
+                            <th className="w-1/3 min-w-[200px]">Technician</th>
+                            <th className="w-1/4 min-w-[150px]">Role</th>
+                            <th className="w-24 min-w-[100px]">Hours</th>
+                            <th className="w-32 min-w-[110px]">Rate/hr</th>
+                            <th className="w-32 min-w-[120px] text-right">Subtotal</th>
+                            <th className="w-20">Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -496,7 +516,7 @@ export default function JobExecutionForm() {
                             <tr key={t.id} className="border-b border-slate-100">
                               <td className="py-1.5 pr-2">
                                 <input
-                                  className="input"
+                                  className="input w-full"
                                   value={t.name}
                                   onChange={(e) => updateTechnician(t.id, "name", e.target.value)}
                                   placeholder="Technician name"
@@ -504,7 +524,7 @@ export default function JobExecutionForm() {
                               </td>
                               <td className="py-1.5 pr-2">
                                 <input
-                                  className="input"
+                                  className="input w-full"
                                   value={t.role}
                                   onChange={(e) => updateTechnician(t.id, "role", e.target.value)}
                                   placeholder="e.g. Electrician"
@@ -512,7 +532,7 @@ export default function JobExecutionForm() {
                               </td>
                               <td className="py-1.5 pr-2">
                                 <input
-                                  className="input"
+                                  className="input w-full"
                                   type="number"
                                   min="0"
                                   step="0.25"
@@ -522,7 +542,7 @@ export default function JobExecutionForm() {
                               </td>
                               <td className="py-1.5 pr-2">
                                 <input
-                                  className="input"
+                                  className="input w-full"
                                   type="number"
                                   min="0"
                                   step="0.01"
@@ -546,11 +566,11 @@ export default function JobExecutionForm() {
                           ))}
                         </tbody>
                         <tfoot>
-                          <tr>
-                            <td colSpan={4} className="pt-2 text-right text-xs text-slate-500">
+                          <tr className="bg-slate-50 dark:bg-slate-800 font-semibold border-t">
+                            <td colSpan={4} className="py-3 px-4 text-right">
                               Labor Cost Subtotal
                             </td>
-                            <td className="pt-2 text-right font-semibold">
+                            <td className="py-3 px-4 text-right text-brand-600">
                               {laborCost.toFixed(2)}
                             </td>
                             <td></td>
@@ -569,6 +589,22 @@ export default function JobExecutionForm() {
                           {materials.filter((m) => m.description.trim()).length} line item(s)
                         </span>
                       </div>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-slate-600">Temporal Storage / Warehouse</label>
+                          <select
+                            className="input text-sm py-1"
+                            value={form.warehouse_id}
+                            onChange={(e) => update("warehouse_id", e.target.value)}
+                          >
+                            <option value="">-- Select --</option>
+                            {warehouses.map((w) => (
+                              <option key={w.id} value={w.id}>
+                                {w.warehouse_name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       <button
                         type="button"
                         onClick={addMaterial}
@@ -576,29 +612,66 @@ export default function JobExecutionForm() {
                       >
                         + Add Line
                       </button>
+                      </div>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
+                      <table className="table w-full">
                         <thead>
-                          <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
-                            <th className="py-2 pr-2">Description</th>
-                            <th className="py-2 pr-2 w-24">Qty</th>
-                            <th className="py-2 pr-2 w-24">Unit</th>
-                            <th className="py-2 pr-2 w-28">Unit Cost</th>
-                            <th className="py-2 pr-2 w-28 text-right">Line Total</th>
-                            <th className="py-2 w-10"></th>
+                          <tr>
+                            <th className="w-1/2 min-w-[300px]">Item / Description</th>
+                            <th className="w-24 min-w-[100px]">Available Qty</th>
+                            <th className="w-32 min-w-[110px]">Required Qty</th>
+                            <th className="w-24 min-w-[80px]">UOM</th>
+                            <th className="w-32 min-w-[120px]">Cost Price</th>
+                            <th className="w-20">Action</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {materials.map((m) => (
+                          {materials.map((m) => {
+                            const itemQuery = itemQueries[m.id] || '';
+                            const showQuery = m.item_id ? m.itemName : (itemQuery || m.description);
+                            const searchResults = itemQuery.trim() && !m.item_id ? filterByPrefix(availableItems, { query: itemQuery }) : [];
+                            return (
                             <tr key={m.id} className="border-b border-slate-100">
                               <td className="py-1.5 pr-2">
-                                <input
-                                  className="input"
-                                  value={m.description}
-                                  onChange={(e) => updateMaterial(m.id, "description", e.target.value)}
-                                  placeholder="Part or material"
-                                />
+                                <div className="relative">
+                                  <input
+                                    className="input w-full"
+                                    value={showQuery}
+                                    placeholder="Type to search items..."
+                                    onChange={(e) => {
+                                      setItemQueries({ ...itemQueries, [m.id]: e.target.value });
+                                      updateMaterial(m.id, 'description', e.target.value);
+                                      if (m.item_id) {
+                                        updateMaterial(m.id, 'item_id', '');
+                                        updateMaterial(m.id, 'itemName', '');
+                                      }
+                                    }}
+                                  />
+                                  {searchResults.length > 0 && !m.item_id && (
+                                    <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                                      {searchResults.map((sr) => (
+                                        <div
+                                          key={sr.id}
+                                          className="p-2 hover:bg-slate-50 cursor-pointer text-sm"
+                                          onClick={() => {
+                                            updateMaterial(m.id, 'item_id', String(sr.id));
+                                            updateMaterial(m.id, 'itemName', sr.item_name);
+                                            updateMaterial(m.id, 'description', sr.item_name);
+                                            updateMaterial(m.id, 'unit_cost', Number(sr.selling_price || 0));
+                                            setItemQueries({ ...itemQueries, [m.id]: '' });
+                                          }}
+                                        >
+                                          <div className="font-medium">{sr.item_name}</div>
+                                          <div className="text-xs text-slate-500">{sr.item_code}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <input className="input" value={m.availableQty || 0} disabled />
                               </td>
                               <td className="py-1.5 pr-2">
                                 <input
@@ -607,14 +680,14 @@ export default function JobExecutionForm() {
                                   min="0"
                                   step="0.01"
                                   value={m.qty}
-                                  onChange={(e) => updateMaterial(m.id, "qty", e.target.value)}
+                                  onChange={(e) => updateMaterial(m.id, 'qty', e.target.value)}
                                 />
                               </td>
                               <td className="py-1.5 pr-2">
                                 <select
                                   className="input"
                                   value={m.unit}
-                                  onChange={(e) => updateMaterial(m.id, "unit", e.target.value)}
+                                  onChange={(e) => updateMaterial(m.id, 'unit', e.target.value)}
                                 >
                                   {UNITS.map((u) => (
                                     <option key={u} value={u}>{u}</option>
@@ -628,11 +701,8 @@ export default function JobExecutionForm() {
                                   min="0"
                                   step="0.01"
                                   value={m.unit_cost}
-                                  onChange={(e) => updateMaterial(m.id, "unit_cost", e.target.value)}
+                                  onChange={(e) => updateMaterial(m.id, 'unit_cost', e.target.value)}
                                 />
-                              </td>
-                              <td className="py-1.5 pr-2 text-right font-medium">
-                                {((Number(m.qty) || 0) * (Number(m.unit_cost) || 0)).toFixed(2)}
                               </td>
                               <td className="py-1.5 text-center">
                                 <button
@@ -644,14 +714,15 @@ export default function JobExecutionForm() {
                                 </button>
                               </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                         <tfoot>
                           <tr>
                             <td colSpan={4} className="pt-2 text-right text-xs text-slate-500">
                               Materials Cost Subtotal
                             </td>
-                            <td className="pt-2 text-right font-semibold">
+                            <td className="pt-2 font-semibold">
                               {materialsCost.toFixed(2)}
                             </td>
                             <td></td>

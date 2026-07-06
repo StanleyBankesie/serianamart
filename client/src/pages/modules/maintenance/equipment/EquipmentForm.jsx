@@ -8,21 +8,11 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 
-const CATEGORIES = [
-  "HVAC",
-  "Electrical",
-  "Plumbing",
-  "Mechanical",
-  "IT",
-  "Vehicles",
-  "Safety",
-  "Other",
-];
 const STATUSES = ["ACTIVE", "INACTIVE", "UNDER_REPAIR", "DECOMMISSIONED"];
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function EquipmentForm() {
@@ -46,14 +36,32 @@ export default function EquipmentForm() {
     notes: "",
   });
   const [saving, setSaving] = useState(false);
-  const [catalog, setCatalog] = useState({ locations: [], brands: [] });
+  const [catalog, setCatalog] = useState({
+    locations: [],
+    brands: [],
+    classifications: [],
+    categories: [],
+    groups: [],
+    models: [],
+    manufacturers: [],
+  });
   const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
   useEffect(() => {
     api
       .get("/maintenance/setup/catalog")
       .then((r) =>
-        setCatalog(r.data?.catalogs || { locations: [], brands: [] }),
+        setCatalog(
+          r.data?.catalogs || {
+            locations: [],
+            brands: [],
+            classifications: [],
+            categories: [],
+            groups: [],
+            models: [],
+            manufacturers: [],
+          },
+        ),
       )
       .catch(() => {});
   }, []);
@@ -103,6 +111,20 @@ export default function EquipmentForm() {
     }
   }
 
+  const selectedCls = catalog.classifications.find(
+    (c) => c.item_name === form.classification,
+  );
+  const filteredCategories = selectedCls
+    ? catalog.categories.filter((c) => c.parent_id === selectedCls.id)
+    : catalog.categories;
+
+  const selectedCat = catalog.categories.find(
+    (c) => c.item_name === form.category,
+  );
+  const filteredGroups = selectedCat
+    ? catalog.groups.filter((g) => g.parent_id === selectedCat.id)
+    : catalog.groups;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -125,16 +147,16 @@ export default function EquipmentForm() {
           </div>
           <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <label className="label">Equipment Code</label>
+              <label className="label">Asset Code/Tag</label>
               <input
                 className="input"
                 value={form.equipment_code}
                 onChange={(e) => update("equipment_code", e.target.value)}
-                placeholder="e.g. EQ-001"
+                placeholder="e.g. SN00...."
               />
             </div>
             <div>
-              <label className="label">Equipment Name *</label>
+              <label className="label">Asset Name *</label>
               <input
                 className="input"
                 value={form.equipment_name}
@@ -144,31 +166,53 @@ export default function EquipmentForm() {
               />
             </div>
             <div>
-              <label className="label">Category</label>
+              <label className="label">Asset Classification</label>
               <select
-                className="input"
-                value={form.category}
-                onChange={(e) => update("category", e.target.value)}
+                className="input w-52"
+                value={form.classification}
+                onChange={(e) => {
+                  update("classification", e.target.value);
+                  update("category", "");
+                  update("group_name", "");
+                }}
               >
-                <option value="">-- Select Category --</option>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                <option value="">-- Select Classification --</option>
+                {catalog.classifications.map((c) => (
+                  <option key={c.id} value={c.item_name}>
+                    {c.item_name}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="label">Location</label>
+              <label className="label">Asset Category</label>
               <select
                 className="input w-52"
-                value={form.location}
-                onChange={(e) => update("location", e.target.value)}
+                value={form.category}
+                onChange={(e) => {
+                  update("category", e.target.value);
+                  update("group_name", "");
+                }}
               >
-                <option value="">-- Select Location --</option>
-                {catalog.locations.map((l) => (
-                  <option key={l.id} value={l.item_name}>
-                    {l.item_name}
+                <option value="">-- Select Category --</option>
+                {filteredCategories.map((c) => (
+                  <option key={c.id} value={c.item_name}>
+                    {c.item_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Asset Group</label>
+              <select
+                className="input w-52"
+                value={form.group_name}
+                onChange={(e) => update("group_name", e.target.value)}
+              >
+                <option value="">-- Select Group --</option>
+                {filteredGroups.map((g) => (
+                  <option key={g.id} value={g.item_name}>
+                    {g.item_name}
                   </option>
                 ))}
               </select>
@@ -189,38 +233,34 @@ export default function EquipmentForm() {
               </select>
             </div>
             <div>
-              <label className="label">Group</label>
-              <input
-                className="input"
-                value={form.group_name}
-                onChange={(e) => update("group_name", e.target.value)}
-                placeholder="e.g. HVAC Group"
-              />
-            </div>
-            <div>
-              <label className="label">Classification</label>
-              <input
-                className="input"
-                value={form.classification}
-                onChange={(e) => update("classification", e.target.value)}
-                placeholder="e.g. Class A"
-              />
-            </div>
-            <div>
-              <label className="label">Manufacturer</label>
-              <input
-                className="input"
-                value={form.manufacturer}
-                onChange={(e) => update("manufacturer", e.target.value)}
-              />
-            </div>
-            <div>
               <label className="label">Model</label>
-              <input
+              <select
                 className="input"
                 value={form.model}
                 onChange={(e) => update("model", e.target.value)}
-              />
+              >
+                <option value="">-- Select Model --</option>
+                {(catalog.models || []).map((m) => (
+                  <option key={m.id} value={m.item_name}>
+                    {m.item_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Manufacturer</label>
+              <select
+                className="input"
+                value={form.manufacturer}
+                onChange={(e) => update("manufacturer", e.target.value)}
+              >
+                <option value="">-- Select Manufacturer --</option>
+                {(catalog.manufacturers || []).map((m) => (
+                  <option key={m.id} value={m.item_name}>
+                    {m.item_name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label">Serial Number</label>
@@ -229,6 +269,21 @@ export default function EquipmentForm() {
                 value={form.serial_number}
                 onChange={(e) => update("serial_number", e.target.value)}
               />
+            </div>
+            <div>
+              <label className="label">Equipment Location</label>
+              <select
+                className="input w-52"
+                value={form.location}
+                onChange={(e) => update("location", e.target.value)}
+              >
+                <option value="">-- Select Location --</option>
+                {catalog.locations.map((l) => (
+                  <option key={l.id} value={l.item_name}>
+                    {l.item_name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="label">Status</label>

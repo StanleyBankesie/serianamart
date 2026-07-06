@@ -192,12 +192,6 @@ function MaintenanceLanding() {
       title: "Preventive Maintenance",
       items: [
         buildFeature(
-          "PM Schedules",
-          "/maintenance/pm-schedules",
-          "Define preventive maintenance schedules",
-          "🗓",
-        ),
-        buildFeature(
           "Maintenance Schedules",
           "/maintenance/schedules",
           "Manage ad-hoc schedules",
@@ -333,12 +327,6 @@ export default function MaintenanceHome() {
 }
 
 export const maintenanceFeatures = [
-  {
-    module_key: "maintenance",
-    label: "PM Schedules",
-    path: "/maintenance/pm-schedules",
-    type: "feature",
-  },
   {
     module_key: "maintenance",
     label: "Maintenance Reports",

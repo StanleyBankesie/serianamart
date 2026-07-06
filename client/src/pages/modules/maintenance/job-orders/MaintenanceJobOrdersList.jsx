@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Search, Plus, Eye } from "lucide-react";
+import { ArrowLeft, Search, Plus, Eye, Edit } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { Guard } from "../../../../hooks/usePermissions";
@@ -207,6 +207,14 @@ export default function MaintenanceJobOrdersList() {
                           >
                             Confirm
                           </button>
+                        ) : r.status === 'POSTED' ? (
+                          <button
+                            type="button"
+                            disabled
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-500 bg-slate-100 border border-transparent rounded-lg h-9 cursor-not-allowed opacity-70"
+                          >
+                            Confirmed
+                          </button>
                         ) : null}
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -223,6 +231,20 @@ export default function MaintenanceJobOrdersList() {
                           >
                             <Eye size={15} />
                           </button>
+                          {r.status !== 'POSTED' && (
+                            <button
+                              type="button"
+                              className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
+                              title="Edit"
+                              onClick={() =>
+                                navigate(
+                                  `/maintenance/job-orders/${r.id}?mode=edit`,
+                                )
+                              }
+                            >
+                              <Edit size={15} />
+                            </button>
+                          )}
                           <ListPrintIconButton
                             onClick={() => toast.info("Print coming soon")}
                           />

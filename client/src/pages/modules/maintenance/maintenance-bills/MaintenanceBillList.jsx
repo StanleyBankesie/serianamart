@@ -7,7 +7,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
-import { Eye } from "lucide-react";
+import { Eye, Edit } from "lucide-react";
 import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
 
@@ -72,8 +72,8 @@ export default function MaintenanceBillList() {
                 {!loading && filtered.map(r => (
                   <tr key={r.id}>
                     <td className="font-mono text-sm">{r.bill_no}</td>
-                    <td>{r.bill_date}</td>
-                    <td>{r.due_date}</td>
+                    <td>{r.bill_date ? String(r.bill_date).split('T')[0] : ''}</td>
+                    <td>{r.due_date ? String(r.due_date).split('T')[0] : ''}</td>
                     <td>{r.supplier_name}</td>
                     <td className="text-right">{Number(r.total_amount || 0).toFixed(2)}</td>
                     <td>{r.currency}</td>
@@ -81,7 +81,7 @@ export default function MaintenanceBillList() {
                     <td><Badge value={r.status} colorMap={statusColors} /></td>
                     <td>{r.created_by_name || "-"}</td>
                     <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
-                    <td><div className="flex items-center gap-1"><button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/bills/${r.id}?mode=view`)}><Eye size={15} /></button><ListPrintIconButton onClick={() => toast.info("Print coming soon")} /><ListPdfIconButton onClick={() => toast.info("PDF coming soon")} /><ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} /><Link to={`/maintenance/bills/${r.id}`} className="btn-secondary btn-sm">Edit</Link></div></td>
+                    <td><div className="flex items-center gap-1"><button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/bills/${r.id}?mode=view`)}><Eye size={15} /></button><button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="Edit" onClick={() => navigate(`/maintenance/bills/${r.id}`)}><Edit size={15} /></button><ListPrintIconButton onClick={() => toast.info("Print coming soon")} /><ListPdfIconButton onClick={() => toast.info("PDF coming soon")} /><ListAttachmentIconButton onClick={() => { setActiveDocId(r.id); setShowAttach(true); }} /></div></td>
                   </tr>
                 ))}
               </tbody>

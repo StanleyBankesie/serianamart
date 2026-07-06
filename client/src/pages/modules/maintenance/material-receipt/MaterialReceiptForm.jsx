@@ -53,15 +53,15 @@ export default function MaterialReceiptForm() {
       if (!mounted) return;
       const depts = Array.isArray(res.data?.items) ? res.data.items : [];
       setDepartments(depts);
-      const projectDept = depts.find(d => (d.name || "").toLowerCase().includes("project"));
+      const projectDept = depts.find(d => (d.name || "").toLowerCase().includes("maintenance"));
       if (projectDept && isNew) {
         setFormData(prev => ({ ...prev, departmentId: String(projectDept.id) }));
-        api.get("/projects/issue-to-requirement/pm", { params: { department_id: projectDept.id } }).then(r => {
+        api.get("/maintenance/issue-to-requirement/maint", { params: { department_id: projectDept.id } }).then(r => {
           if (!mounted) return;
           setPendingIssues(Array.isArray(r.data?.items) ? r.data.items : []);
         }).catch(() => {});
       } else if (isNew) {
-        api.get("/projects/issue-to-requirement/pm").then(r => {
+        api.get("/maintenance/issue-to-requirement/maint").then(r => {
           if (!mounted) return;
           setPendingIssues(Array.isArray(r.data?.items) ? r.data.items : []);
         }).catch(() => {});
@@ -76,7 +76,7 @@ export default function MaterialReceiptForm() {
     setLoading(true);
     setError("");
 
-    api.get(`/projects/material-receipts/${id}`).then(res => {
+    api.get(`/maintenance/material-receipts/${id}`).then(res => {
       if (!mounted) return;
       const d = res.data?.item;
       const dets = res.data?.details || [];
@@ -119,7 +119,7 @@ export default function MaterialReceiptForm() {
       return;
     }
     try {
-      const res = await api.get(`/projects/issue-to-requirement/pm/${issueId}`);
+      const res = await api.get(`/maintenance/issue-to-requirement/maint/${issueId}`);
       const src = res.data?.item;
       if (src) {
         setFormData(prev => ({
@@ -174,9 +174,9 @@ export default function MaterialReceiptForm() {
       };
 
       if (isNew) {
-        await api.post("/projects/material-receipts", payload);
+        await api.post("/maintenance/material-receipts", payload);
       } else {
-        await api.put(`/projects/material-receipts/${id}`, payload);
+        await api.put(`/maintenance/material-receipts/${id}`, payload);
       }
 
       toast.success(
@@ -235,7 +235,7 @@ export default function MaterialReceiptForm() {
                     const deptId = e.target.value;
                     setFormData({ ...formData, departmentId: deptId, issueId: "" });
                     if (deptId) {
-                      api.get("/projects/issue-to-requirement/pm", { params: { department_id: deptId } }).then(res => {
+                      api.get("/maintenance/issue-to-requirement/maint", { params: { department_id: deptId } }).then(res => {
                         setPendingIssues(Array.isArray(res.data?.items) ? res.data.items : []);
                       }).catch(() => {});
                     } else {

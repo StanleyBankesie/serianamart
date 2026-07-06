@@ -7,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { FileText, MapPin, Calendar, Users, ClipboardList, Save, X } from "lucide-react";
 
 const ORDER_TYPES = [
   "Corrective",
@@ -55,7 +56,8 @@ export default function MaintenanceJobOrderForm() {
   });
   const [requests, setRequests] = useState([]);
   const [equipment, setEquipment] = useState([]);
-  const [setupCatalogs, setSetupCatalogs] = useState({ supervisors: [], technicians: [], teams: [], serviceProviders: [], jobOrderTypes: [] });
+  const [orderCategory, setOrderCategory] = useState("INTERNAL");
+  const [setupCatalogs, setSetupCatalogs] = useState({ supervisors: [], technicians: [], teams: [], serviceProviders: [], maintenanceTypes: [] });
   const [saving, setSaving] = useState(false);
   const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
@@ -85,7 +87,7 @@ export default function MaintenanceJobOrderForm() {
             technicians: Array.isArray(c.technicians) ? c.technicians : [],
             teams: Array.isArray(c.teams) ? c.teams : [],
             serviceProviders: Array.isArray(c.serviceProviders) ? c.serviceProviders : [],
-            jobOrderTypes: Array.isArray(c.jobOrderTypes) ? c.jobOrderTypes : [],
+            maintenanceTypes: Array.isArray(c.maintenanceTypes) ? c.maintenanceTypes : [],
           });
         }
       })
@@ -134,210 +136,236 @@ export default function MaintenanceJobOrderForm() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Link to="/maintenance/job-orders" className="btn-secondary">
-          ← Back
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            {isEdit ? "Edit" : "New"} Job Order
-          </h1>
-          <p className="text-sm mt-1">
-            Create and assign a maintenance job order
-          </p>
+    <div className="space-y-6 pb-20">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-6 py-4 -mx-6 -mt-6 mb-6 flex flex-wrap items-center justify-between gap-4 shadow-sm">
+        <div className="flex items-center gap-4">
+          <Link to="/maintenance/job-orders" className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+            <X size={20} className="text-slate-500" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+              {isEdit ? "Edit Job Order" : "New Job Order"}
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+              Create and assign a maintenance job order
+            </p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <Link to="/maintenance/job-orders" className="btn-secondary">
+            Cancel
+          </Link>
+          <button 
+            type="button" 
+            onClick={handleSubmit} 
+            className="btn-primary flex items-center gap-2" 
+            disabled={saving}
+          >
+            <Save size={16} />
+            {saving ? "Saving..." : "Save Job Order"}
+          </button>
         </div>
       </div>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg font-semibold">
-            Job Order Details
+
+      <form onSubmit={handleSubmit} className="space-y-6 max-w-5xl mx-auto">
+        {/* Segmented Control */}
+        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg w-full max-w-md mx-auto">
+          <button 
+            type="button"
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-all shadow-sm ${orderCategory === 'INTERNAL' ? 'bg-white dark:bg-slate-700 text-brand-600 dark:text-brand-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+            onClick={() => setOrderCategory('INTERNAL')}
+          >
+            Internal
+          </button>
+          <button 
+            type="button"
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-semibold transition-all shadow-sm ${orderCategory === 'EXTERNAL' ? 'bg-white dark:bg-slate-700 text-brand-600 dark:text-brand-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+            onClick={() => setOrderCategory('EXTERNAL')}
+          >
+            External
+          </button>
+        </div>
+
+        {/* Card 1: General Details */}
+        <div className="card overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="bg-slate-50 dark:bg-slate-800/50 px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <FileText size={18} className="text-brand-500" />
+            <h2 className="font-semibold text-slate-800 dark:text-slate-200">General Details</h2>
           </div>
-          <div className="card-body grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="label">Order Date *</label>
-                <input
-                  className="input w-[216px]"
-                  type="date"
-                  value={form.order_date}
-                  onChange={(e) => update("order_date", e.target.value)}
-                  required
-                />
-            </div>
-            <div>
-              <label className="label">Linked Request</label>
-              <select
-                  className="input w-[216px]"
-                  value={form.request_id}
-                  onChange={(e) => update("request_id", e.target.value)}
-                >
-                  <option value="">-- None --</option>
-                  {requests.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.request_no}
-                    </option>
-                  ))}
-                </select>
-            </div>
-            <div>
-              <label className="label">Equipment / Asset</label>
-                <select
-                  className="input w-[216px]"
-                  value={form.asset_name}
-                  onChange={(e) => update("asset_name", e.target.value)}
-                >
-                  <option value="">-- Select --</option>
-                  {equipment.map((eq) => (
-                    <option key={eq.id} value={eq.equipment_name}>
-                      {eq.equipment_code} – {eq.equipment_name}
-                    </option>
-                  ))}
-                </select>
-            </div>
-            <div>
-              <label className="label">Order Type *</label>
-                <select
-                  className="input w-[216px]"
-                  value={form.order_type}
-                  onChange={(e) => update("order_type", e.target.value)}
-                  required
-                >
-                  <option value="">-- Select Type --</option>
-                  {ORDER_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-            </div>
-            <div>
-              <label className="label">Job Order Type *</label>
-                <select
-                  className="input w-[216px]"
-                  value={form.job_order_type}
-                  onChange={(e) => update("job_order_type", e.target.value)}
-              >
-                <option value="">-- Select --</option>
-                {setupCatalogs.jobOrderTypes.filter(t => t.is_active).map(t => (
-                  <option key={t.id} value={t.item_name}>{t.item_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">Scheduled Date</label>
-                <input
-                  className="input w-[216px]"
-                  type="date"
-                  value={form.scheduled_date}
-                  onChange={(e) => update("scheduled_date", e.target.value)}
-                />
-            </div>
-            <div>
-              <label className="label">Location</label>
-                <input
-                  className="input w-[216px]"
-                  value={form.location || ""}
-                  onChange={(e) => update("location", e.target.value)}
-                placeholder="Location"
+              <label className="label">Order Date <span className="text-red-500">*</span></label>
+              <input
+                className="input w-full"
+                type="date"
+                value={form.order_date}
+                onChange={(e) => update("order_date", e.target.value)}
+                required
               />
             </div>
             <div>
-              <label className="label">Supervisor</label>
-                <select
-                  className="input w-[216px]"
-                  value={form.supervisor || ""}
-                  onChange={(e) => update("supervisor", e.target.value)}
+              <label className="label">Maintenance Type <span className="text-red-500">*</span></label>
+              <select
+                className="input w-full"
+                value={form.job_order_type}
+                onChange={(e) => update("job_order_type", e.target.value)}
               >
-                <option value="">-- Select --</option>
-                {setupCatalogs.supervisors.filter(s => s.is_active).map(s => (
-                  <option key={s.id} value={s.item_name}>{s.item_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">Service Provider</label>
-                <select
-                  className="input w-[216px]"
-                  value={form.service_provider || ""}
-                  onChange={(e) => update("service_provider", e.target.value)}
-              >
-                <option value="">-- Select --</option>
-                {setupCatalogs.serviceProviders.filter(s => s.is_active).map(s => (
-                  <option key={s.id} value={s.item_name}>{s.item_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">Assigned Team</label>
-                <select
-                  className="input w-[216px]"
-                  value={form.assigned_team}
-                  onChange={(e) => update("assigned_team", e.target.value)}
-              >
-                <option value="">-- Select --</option>
-                {setupCatalogs.teams.filter(t => t.is_active).map(t => (
+                <option value="">-- Select Type --</option>
+                {(setupCatalogs.maintenanceTypes || []).filter(t => t.is_active).map(t => (
                   <option key={t.id} value={t.item_name}>{t.item_name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="label">Assigned Technician</label>
-                <select
-                  className="input w-[216px]"
-                  value={form.assigned_technician}
-                  onChange={(e) => update("assigned_technician", e.target.value)}
+              <label className="label">Equipment / Asset</label>
+              <select
+                className="input w-full"
+                value={form.asset_name}
+                onChange={(e) => update("asset_name", e.target.value)}
               >
-                <option value="">-- Select --</option>
-                {setupCatalogs.technicians.filter(t => t.is_active).map(t => (
-                  <option key={t.id} value={t.item_name}>{t.item_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="label">Status</label>
-                <select
-                  className="input w-[216px]"
-                  value={form.status}
-                  onChange={(e) => update("status", e.target.value)}
-              >
-                {STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
+                <option value="">-- Select Asset --</option>
+                {equipment.map((eq) => (
+                  <option key={eq.id} value={eq.equipment_name}>
+                    {eq.equipment_code} – {eq.equipment_name}
                   </option>
                 ))}
               </select>
             </div>
-            <div className="md:col-span-3 flex gap-3">
-              <div className="flex-1">
-                <label className="label">Instructions</label>
-                <textarea
-                  className="input w-96"
-                  rows={7}
-                  value={form.instructions}
-                  onChange={(e) => update("instructions", e.target.value)}
-                  placeholder="Work instructions and scope..."
+            <div>
+              <label className="label">Linked Request</label>
+              <select
+                className="input w-full"
+                value={form.request_id}
+                onChange={(e) => update("request_id", e.target.value)}
+              >
+                <option value="">-- None --</option>
+                {requests.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.request_no}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2: Scheduling & Location */}
+        <div className="card overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="bg-slate-50 dark:bg-slate-800/50 px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <Calendar size={18} className="text-brand-500" />
+            <h2 className="font-semibold text-slate-800 dark:text-slate-200">Scheduling & Location</h2>
+          </div>
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="label">Scheduled Date</label>
+              <input
+                className="input w-full"
+                type="date"
+                value={form.scheduled_date}
+                onChange={(e) => update("scheduled_date", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">Location</label>
+              <div className="relative">
+                <input
+                  className="input w-full pl-9"
+                  value={form.location || ""}
+                  onChange={(e) => update("location", e.target.value)}
+                  placeholder="E.g. Building A, Floor 2"
                 />
-              </div>
-              <div className="flex-1">
-                <label className="label">Notes</label>
-                <textarea
-                  className="input w-96"
-                  rows={7}
-                  value={form.notes}
-                  onChange={(e) => update("notes", e.target.value)}
-                  placeholder="Additional notes..."
-                />
+                <MapPin size={16} className="absolute left-3 top-2.5 text-slate-400" />
               </div>
             </div>
           </div>
         </div>
-        <div className="flex justify-end gap-2">
-          <Link to="/maintenance/job-orders" className="btn-secondary">
-            Cancel
-          </Link>
-          <button type="submit" className="btn-primary" disabled={saving}>
-            {saving ? "Saving..." : "Save Job Order"}
-          </button>
+
+        {/* Card 3: Assignment */}
+        <div className="card overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="bg-slate-50 dark:bg-slate-800/50 px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <Users size={18} className="text-brand-500" />
+            <h2 className="font-semibold text-slate-800 dark:text-slate-200">Assignment & Resource</h2>
+          </div>
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            {orderCategory === 'EXTERNAL' ? (
+              <>
+                <div>
+                  <label className="label">Service Provider</label>
+                  <select
+                    className="input w-full"
+                    value={form.service_provider || ""}
+                    onChange={(e) => update("service_provider", e.target.value)}
+                  >
+                    <option value="">-- Select Provider --</option>
+                    {setupCatalogs.serviceProviders.filter(s => s.is_active).map(s => (
+                      <option key={s.id} value={s.item_name}>{s.item_name}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="label">Assigned Team</label>
+                  <select
+                    className="input w-full"
+                    value={form.assigned_team}
+                    onChange={(e) => update("assigned_team", e.target.value)}
+                  >
+                    <option value="">-- Select Team --</option>
+                    {setupCatalogs.teams.filter(t => t.is_active).map(t => (
+                      <option key={t.id} value={t.item_name}>{t.item_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Assigned Technician</label>
+                  <select
+                    className="input w-full"
+                    value={form.assigned_technician}
+                    onChange={(e) => update("assigned_technician", e.target.value)}
+                  >
+                    <option value="">-- Select Technician --</option>
+                    {setupCatalogs.technicians.filter(t => t.is_active).map(t => (
+                      <option key={t.id} value={t.item_name}>{t.item_name}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Card 4: Scope & Notes */}
+        <div className="card overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="bg-slate-50 dark:bg-slate-800/50 px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <ClipboardList size={18} className="text-brand-500" />
+            <h2 className="font-semibold text-slate-800 dark:text-slate-200">Scope & Notes</h2>
+          </div>
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="flex-1">
+              <label className="label">Work Instructions</label>
+              <textarea
+                className="input w-full"
+                rows={5}
+                value={form.instructions}
+                onChange={(e) => update("instructions", e.target.value)}
+                placeholder="Describe the work to be done..."
+              />
+            </div>
+            <div className="flex-1">
+              <label className="label">Additional Notes</label>
+              <textarea
+                className="input w-full"
+                rows={5}
+                value={form.notes}
+                onChange={(e) => update("notes", e.target.value)}
+                placeholder="Internal notes or special precautions..."
+              />
+            </div>
+          </div>
         </div>
       </form>
     </div>

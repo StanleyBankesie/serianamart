@@ -303,47 +303,47 @@ export default function MaintenanceBillForm() {
           <div className="card-body">
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg mb-6">
               <h4 className="text-sm font-semibold mb-3 text-brand">Add Service Line</h4>
-              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-3">
-                <div className="md:col-span-2">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mb-3">
+                <div className="md:col-span-3">
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Description *</label>
                   <input
-                    className="input text-sm"
+                    className="input text-sm w-full"
                     value={newItem.description}
                     onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
                     placeholder="Enter service details"
                   />
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Category</label>
                   <input
-                    className="input text-sm"
+                    className="input text-sm w-full"
                     value={newItem.category}
                     onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
                   />
                 </div>
-                <div>
+                <div className="md:col-span-1">
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Qty</label>
                   <input
                     type="number"
-                    className="input text-sm"
+                    className="input text-sm w-full"
                     value={newItem.qty}
                     onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })}
                   />
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Rate</label>
                   <input
                     type="number"
-                    className="input text-sm"
+                    className="input text-sm w-full"
                     value={newItem.rate}
                     onChange={(e) => setNewItem({ ...newItem, rate: e.target.value })}
                   />
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Disc %</label>
                   <input
                     type="number"
-                    className="input text-sm"
+                    className="input text-sm w-full"
                     value={newItem.discount_percent}
                     onChange={(e) => setNewItem({ ...newItem, discount_percent: e.target.value })}
                   />
@@ -351,7 +351,7 @@ export default function MaintenanceBillForm() {
                 <div className="md:col-span-2">
                   <label className="text-[10px] uppercase font-bold text-slate-500 mb-1 block">Tax Code</label>
                   <select
-                    className="input text-sm"
+                    className="input text-sm w-full"
                     value={newItem.tax_code_id}
                     onChange={(e) => setNewItem({ ...newItem, tax_code_id: e.target.value })}
                   >

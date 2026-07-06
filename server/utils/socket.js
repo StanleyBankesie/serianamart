@@ -53,11 +53,11 @@ export const initializeSocket = (server) => {
       const pubClient = redis.duplicate();
       await Promise.all([
         new Promise((resolve, reject) => {
-          subClient.on("connect", resolve);
+          subClient.on("ready", resolve);
           subClient.on("error", reject);
         }),
         new Promise((resolve, reject) => {
-          pubClient.on("connect", resolve);
+          pubClient.on("ready", resolve);
           pubClient.on("error", reject);
         }),
       ]);

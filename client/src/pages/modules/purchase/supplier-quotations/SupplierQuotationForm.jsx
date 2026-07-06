@@ -338,6 +338,17 @@ export default function SupplierQuotationForm() {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
 
+    if (name === "supplier_id" && value) {
+      const selected = suppliers.find((s) => String(s.id) === String(value));
+      if (selected && selected.currency_id) {
+        const currencyMatch = currencies.find((c) => String(c.id) === String(selected.currency_id));
+        if (currencyMatch) {
+          const code = String(currencyMatch.code || currencyMatch.currency_code || "").toUpperCase();
+          setFormData((prev) => ({ ...prev, currency: code }));
+        }
+      }
+    }
+
     if (name === "rfq_id" && !value) {
       setRfqSuppliersForSelection([]);
       return;
@@ -410,7 +421,7 @@ export default function SupplierQuotationForm() {
     if (field === "item_id") {
       const item = availableItems.find((i) => String(i.id) === String(value));
       if (item) {
-        updatedItems[index].item_name = item.item_name || item.name || "";
+        updatedItems[index].item_name = item.item_name || "";
       }
     }
 
@@ -629,44 +640,31 @@ export default function SupplierQuotationForm() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
-            {isEdit ? "Edit" : "New"} Supplier Quotation
-          </h1>
-          <p className="text-sm mt-1">
-            {isEdit
-              ? "Update quotation details"
-              : "Record a new supplier quotation"}
-          </p>
+    <div className="p-6">
+      <div className="rounded-lg border border-[#dee2e6] bg-white dark:bg-slate-800 shadow-erp">
+        <div className="px-6 py-4 border-b bg-brand text-white rounded-t-lg flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">
+              {isEdit ? "Edit" : "New"} Supplier Quotation
+            </h1>
+            <p className="text-sm mt-1 opacity-90">
+              {isEdit
+                ? "Update quotation details"
+                : "Record a new supplier quotation"}
+            </p>
+          </div>
+          <Link to="/purchase/supplier-quotations" className="px-3 py-1.5 rounded bg-white text-brand hover:bg-slate-100 text-sm font-semibold">
+            ← Back to List
+          </Link>
         </div>
-        <Link to="/purchase/supplier-quotations" className="btn-success">
-          Back to List
-        </Link>
-      </div>
 
       <form onSubmit={handleSubmit}>
-        {loading ? (
-          <div className="bg-white/80 backdrop-blur-xl shadow-xl border border-white/40 rounded-2xl overflow-hidden mb-6">
-            <div className="p-6">Loading...</div>
-          </div>
-        ) : null}
-
-        {error ? (
-          <div className="card mb-6">
-            <div className="card-body text-red-600">{error}</div>
-          </div>
-        ) : null}
-        <div className="bg-white/80 backdrop-blur-xl shadow-xl border border-white/40 rounded-2xl overflow-hidden mb-6">
-          <div className="bg-gradient-to-r from-[#0E3646] to-[#1a4a5e] p-5 text-white border-b border-white/10">
-            <h2 className="text-lg font-semibold text-white dark:text-slate-100">
-              Quotation Information
-            </h2>
-          </div>
-          <div className="p-6">
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              <div>
+        <div className="px-6 py-5 space-y-5">
+          {loading && <div className="text-sm text-slate-500">Loading...</div>}
+          {error && <div className="alert alert-error text-red-600 bg-red-50 p-3 rounded">{error}</div>}
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="hidden">
                 <label className="label">Quotation No *</label>
                 <input
                   type="text"
@@ -676,7 +674,7 @@ export default function SupplierQuotationForm() {
                   onChange={handleInputChange}
                   placeholder="Auto-generated"
                   disabled={isEdit}
-                  required
+                  required={false}
                 />
               </div>
               <div>
@@ -767,7 +765,7 @@ export default function SupplierQuotationForm() {
                   required
                 />
               </div>
-              <div>
+              <div className="hidden">
                 <label className="label">Status</label>
                 <select
                   name="status"
@@ -779,69 +777,11 @@ export default function SupplierQuotationForm() {
                   <option value="SUBMITTED">SUBMITTED</option>
                 </select>
               </div>
-              <div className="md:col-span-2 lg:col-span-3">
-                <label className="label">Remarks</label>
-                <textarea
-                  name="remarks"
-                  className="input"
-                  rows="3"
-                  value={formData.remarks}
-                  onChange={handleInputChange}
-                  placeholder="Additional notes..."
-                />
-              </div>
             </div>
           </div>
-        </div>
-
         <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg">
-            <h2 className="text-lg font-semibold text-white dark:text-slate-100">
-              Supplier & Contact
-            </h2>
-          </div>
-          <div className="card-body">
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              <div>
-                <label className="label">Contact Person</label>
-                <input
-                  type="text"
-                  name="contact_person"
-                  className="input"
-                  value={formData.contact_person}
-                  onChange={handleInputChange}
-                  placeholder="Enter contact person name"
-                />
-              </div>
-              <div>
-                <label className="label">Email</label>
-                <input
-                  type="email"
-                  name="email"
-                  className="input"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  placeholder="email@example.com"
-                />
-              </div>
-              <div>
-                <label className="label">Phone</label>
-                <input
-                  type="tel"
-                  name="phone"
-                  className="input"
-                  value={formData.phone}
-                  onChange={handleInputChange}
-                  placeholder="+233-000-000-0000"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg">
-            <h2 className="text-lg font-semibold text-white dark:text-slate-100">
+          <div className="card-header bg-slate-50 text-slate-800 rounded-t-lg border-b border-slate-200">
+            <h2 className="text-lg font-semibold text-slate-800">
               Terms
             </h2>
           </div>
@@ -851,7 +791,7 @@ export default function SupplierQuotationForm() {
                 <label className="label">Currency</label>
                 <select
                   name="currency"
-                  className="input"
+                  className="input w-full"
                   value={formData.currency}
                   onChange={handleInputChange}
                 >
@@ -922,10 +862,10 @@ export default function SupplierQuotationForm() {
           </div>
         </div>
 
-        <div className="bg-white/80 backdrop-blur-xl shadow-xl border border-white/40 rounded-2xl overflow-hidden mb-6">
-          <div className="bg-gradient-to-r from-[#0E3646] to-[#1a4a5e] p-5 text-white border-b border-white/10">
+        <div className="bg-white/80 backdrop-blur-xl shadow-xl border border-slate-200 rounded-2xl overflow-hidden mb-6">
+          <div className="bg-slate-50 p-5 text-slate-800 border-b border-slate-200">
             <div className="flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-white dark:text-slate-100">
+              <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
                 Quotation Items
               </h2>
               <button
@@ -967,7 +907,7 @@ export default function SupplierQuotationForm() {
                            id={`sq-item-search-${index}`} autoComplete="off"
                            className="input w-72"
                             placeholder="Scan barcode or type item name"
-                            value={itemQueries[index] !== undefined ? itemQueries[index] : (item.item_id && availableItems.find(i => String(i.id) === String(item.item_id)) ? availableItems.find(i => String(i.id) === String(item.item_id)).item_name || availableItems.find(i => String(i.id) === String(item.item_id)).name : item.item_name || "")}
+                            value={itemQueries[index] !== undefined ? itemQueries[index] : (item.item_id && availableItems.find(i => String(i.id) === String(item.item_id)) ? availableItems.find(i => String(i.id) === String(item.item_id)).item_name : item.item_name || "")}
                             onChange={(e) => {
                               const val = e.target.value;
                               setItemQueries((prev) => ({
@@ -1000,7 +940,7 @@ export default function SupplierQuotationForm() {
                                 );
                                 setItemQueries((prev) => ({
                                   ...prev,
-                                  [index]: results[0].item_name || results[0].name || "",
+                                  [index]: results[0].item_name || "",
                                 }));
                               }
                             }}
@@ -1039,13 +979,13 @@ export default function SupplierQuotationForm() {
                                           );
                                           setItemQueries((prev) => ({
                                             ...prev,
-                                            [index]: o.item_name || o.name || "",
+                                            [index]: o.item_name || "",
                                           }));
                                         }}
                                       >
                                         {(o.item_code || o.code || o.id) +
                                           " - " +
-                                          (o.item_name || o.name || "")}
+                                          (o.item_name || "")}
                                      </button>
                                    ))}
                                  </div>
@@ -1131,11 +1071,22 @@ export default function SupplierQuotationForm() {
               </tbody>
             </table>
           </div>
+          <div className="p-6 pt-0">
+            <label className="label">Remarks</label>
+            <textarea
+              name="remarks"
+              className="input w-full"
+              rows="6"
+              value={formData.remarks}
+              onChange={handleInputChange}
+              placeholder="Additional notes..."
+            />
+          </div>
         </div>
 
         <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg">
-            <h2 className="text-lg font-semibold text-white dark:text-slate-100">
+          <div className="card-header bg-slate-50 text-slate-800 rounded-t-lg border-b border-slate-200">
+            <h2 className="text-lg font-semibold text-slate-800">
               Summary
             </h2>
           </div>
@@ -1218,8 +1169,8 @@ export default function SupplierQuotationForm() {
         </div>
 
         <div className="card">
-          <div className="card-header bg-brand text-white rounded-t-lg">
-            <h2 className="text-lg font-semibold text-white dark:text-slate-100">
+          <div className="card-header bg-slate-50 text-slate-800 rounded-t-lg border-b border-slate-200">
+            <h2 className="text-lg font-semibold text-slate-800">
               Supporting Documents
             </h2>
           </div>
@@ -1307,7 +1258,7 @@ export default function SupplierQuotationForm() {
           </div>
         </div>
 
-        <div className="flex gap-4 justify-end">
+        <div className="flex gap-4 justify-end p-6 border-t mt-4">
           <Link to="/purchase/supplier-quotations" className="btn-success">
             Cancel
           </Link>
@@ -1316,6 +1267,7 @@ export default function SupplierQuotationForm() {
           </button>
         </div>
       </form>
+      </div>
     </div>
   );
 }

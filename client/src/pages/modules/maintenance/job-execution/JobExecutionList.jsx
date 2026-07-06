@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Search, ChevronRight, Plus, Eye } from "lucide-react";
+import { ArrowLeft, Search, ChevronRight, Plus, Eye, Edit } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import {
@@ -156,9 +156,9 @@ export default function JobExecutionList() {
                       {r.order_no}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500">
-                      <div>{r.start_date}</div>
+                      <div>{r.start_date ? String(r.start_date).split('T')[0] : ''}</div>
                       <div className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
-                        {r.end_date}
+                        {r.end_date ? String(r.end_date).split('T')[0] : ''}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500">
@@ -188,6 +188,18 @@ export default function JobExecutionList() {
                           }
                         >
                           <Eye size={15} />
+                        </button>
+                        <button
+                          type="button"
+                          className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
+                          title="Edit"
+                          onClick={() =>
+                            navigate(
+                              `/maintenance/job-executions/${r.id}?mode=edit`,
+                            )
+                          }
+                        >
+                          <Edit size={15} />
                         </button>
                         <ListPrintIconButton
                           onClick={() => toast.info("Print coming soon")}

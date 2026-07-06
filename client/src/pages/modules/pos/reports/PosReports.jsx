@@ -1,7 +1,17 @@
+/**
+ * @fileoverview PosReports component.
+ * Provides functionality for PosReports.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
 
+/**
+ *  component
+ * 
+ * @returns {JSX.Element} The rendered component
+ */
 export default function PosReports() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -57,49 +67,35 @@ export default function PosReports() {
         params: { startDate, endDate },
       }),
     ])
-      .then(
-        ([
-          dailyRes,
-          payRes,
-          topRes,
-          retRes,
-          catRes,
-          profitRes,
-          profitItemRes,
-        ]) => {
-          if (!mounted) return;
-          setDailyItems(
-            Array.isArray(dailyRes.data?.items) ? dailyRes.data.items : [],
-          );
-          setPaymentItems(
-            Array.isArray(payRes.data?.items) ? payRes.data.items : [],
-          );
-          setTopItems(
-            Array.isArray(topRes.data?.items)
-              ? [...topRes.data.items].sort(
-                  (a, b) => Number(b.qty || 0) - Number(a.qty || 0),
-                )
-              : [],
-          );
-          setReturnByDay(
-            Array.isArray(retRes.data?.byDay) ? retRes.data.byDay : [],
-          );
-          setReturnByMethod(
-            Array.isArray(retRes.data?.byMethod) ? retRes.data.byMethod : [],
-          );
-          setCategoryShare(
-            Array.isArray(catRes.data?.items) ? catRes.data.items : [],
-          );
-          setProfitByGroup(
-            Array.isArray(profitRes.data?.items) ? profitRes.data.items : [],
-          );
-          setProfitByItem(
-            Array.isArray(profitItemRes.data?.items)
-              ? profitItemRes.data.items
-              : [],
-          );
-        },
-      )
+      .then(([dailyRes, payRes, topRes, retRes, catRes, profitRes, profitItemRes]) => {
+        if (!mounted) return;
+        setDailyItems(
+          Array.isArray(dailyRes.data?.items) ? dailyRes.data.items : [],
+        );
+        setPaymentItems(
+          Array.isArray(payRes.data?.items) ? payRes.data.items : [],
+        );
+        setTopItems(
+          Array.isArray(topRes.data?.items)
+            ? [...topRes.data.items].sort(
+                (a, b) => Number(b.qty || 0) - Number(a.qty || 0),
+              )
+            : [],
+        );
+        setReturnByDay(Array.isArray(retRes.data?.byDay) ? retRes.data.byDay : []);
+        setReturnByMethod(
+          Array.isArray(retRes.data?.byMethod) ? retRes.data.byMethod : [],
+        );
+        setCategoryShare(
+          Array.isArray(catRes.data?.items) ? catRes.data.items : [],
+        );
+        setProfitByGroup(
+          Array.isArray(profitRes.data?.items) ? profitRes.data.items : [],
+        );
+        setProfitByItem(
+          Array.isArray(profitItemRes.data?.items) ? profitItemRes.data.items : [],
+        );
+      })
       .catch((e) => {
         if (!mounted) return;
         setError(e?.response?.data?.message || "Failed to load reports");
@@ -270,9 +266,7 @@ export default function PosReports() {
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
             <div className="font-semibold">Returns Summary (By Method)</div>
-            <div className="text-xs text-slate-500">
-              Cash/Card/Mobile totals
-            </div>
+            <div className="text-xs text-slate-500">Cash/Card/Mobile totals</div>
           </div>
           <div className="card-body">
             <div className="overflow-auto">
@@ -314,9 +308,7 @@ export default function PosReports() {
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
             <div className="font-semibold">Sales by Category</div>
-            <div className="text-xs text-slate-500">
-              Revenue and performance by item category
-            </div>
+            <div className="text-xs text-slate-500">Revenue and performance by item category</div>
           </div>
           <div className="card-body">
             <div className="overflow-auto">
@@ -341,10 +333,7 @@ export default function PosReports() {
                       <td>Total</td>
                       <td className="text-right">
                         {fmtCurrency(
-                          categoryShare.reduce(
-                            (sum, c) => sum + Number(c.total || 0),
-                            0,
-                          ),
+                          categoryShare.reduce((sum, c) => sum + Number(c.total || 0), 0)
                         )}
                       </td>
                     </tr>
@@ -378,19 +367,17 @@ export default function PosReports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(topItemsShowAll ? topItems : topItems.slice(0, 5)).map(
-                    (t, idx) => (
-                      <tr key={idx}>
-                        <td>{String(t.item || "")}</td>
-                        <td className="text-right">
-                          {Number(t.qty || 0).toLocaleString()}
-                        </td>
-                        <td className="text-right font-semibold">
-                          {fmtCurrency(t.amount)}
-                        </td>
-                      </tr>
-                    ),
-                  )}
+                  {(topItemsShowAll ? topItems : topItems.slice(0, 5)).map((t, idx) => (
+                    <tr key={idx}>
+                      <td>{String(t.item || "")}</td>
+                      <td className="text-right">
+                        {Number(t.qty || 0).toLocaleString()}
+                      </td>
+                      <td className="text-right font-semibold">
+                        {fmtCurrency(t.amount)}
+                      </td>
+                    </tr>
+                  ))}
                   {!topItems.length && (
                     <tr>
                       <td colSpan={3} className="text-center text-slate-500">
@@ -406,9 +393,7 @@ export default function PosReports() {
                 onClick={() => setTopItemsShowAll((v) => !v)}
                 className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
               >
-                {topItemsShowAll
-                  ? "Show Less"
-                  : `Show More (${topItems.length - 5} more)`}
+                {topItemsShowAll ? "Show Less" : `Show More (${topItems.length - 5} more)`}
               </button>
             )}
           </div>
@@ -419,9 +404,7 @@ export default function PosReports() {
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
             <div className="font-semibold">Profit Margin by Item Group</div>
-            <div className="text-xs text-slate-500">
-              Cost vs revenue performance by item group
-            </div>
+            <div className="text-xs text-slate-500">Cost vs revenue performance by item group</div>
           </div>
           <div className="card-body">
             <div className="overflow-auto">
@@ -440,20 +423,10 @@ export default function PosReports() {
                     <tr key={idx}>
                       <td>{String(g.item_group || "Uncategorized")}</td>
                       <td className="text-right">{fmtCurrency(g.revenue)}</td>
-                      <td className="text-right">
-                        {fmtCurrency(g.total_cost)}
-                      </td>
-                      <td className="text-right font-semibold">
-                        {fmtCurrency(g.profit)}
-                      </td>
+                      <td className="text-right">{fmtCurrency(g.total_cost)}</td>
+                      <td className="text-right font-semibold">{fmtCurrency(g.profit)}</td>
                       <td className="text-right font-bold">
-                        <span
-                          className={
-                            Number(g.margin_pct) >= 0
-                              ? "text-green-600"
-                              : "text-red-600"
-                          }
-                        >
+                        <span className={Number(g.margin_pct) >= 0 ? "text-green-600" : "text-red-600"}>
                           {Number(g.margin_pct).toFixed(1)}%
                         </span>
                       </td>
@@ -462,52 +435,16 @@ export default function PosReports() {
                   {profitByGroup.length > 0 && (
                     <tr className="bg-slate-50 font-bold">
                       <td>Total</td>
-                      <td className="text-right">
-                        {fmtCurrency(
-                          profitByGroup.reduce(
-                            (s, g) => s + Number(g.revenue || 0),
-                            0,
-                          ),
-                        )}
-                      </td>
-                      <td className="text-right">
-                        {fmtCurrency(
-                          profitByGroup.reduce(
-                            (s, g) => s + Number(g.total_cost || 0),
-                            0,
-                          ),
-                        )}
-                      </td>
-                      <td className="text-right">
-                        {fmtCurrency(
-                          profitByGroup.reduce(
-                            (s, g) => s + Number(g.profit || 0),
-                            0,
-                          ),
-                        )}
-                      </td>
+                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.revenue || 0), 0))}</td>
+                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.total_cost || 0), 0))}</td>
+                      <td className="text-right">{fmtCurrency(profitByGroup.reduce((s, g) => s + Number(g.profit || 0), 0))}</td>
                       <td className="text-right">
                         {(() => {
-                          const totalRev = profitByGroup.reduce(
-                            (s, g) => s + Number(g.revenue || 0),
-                            0,
-                          );
-                          const totalCost = profitByGroup.reduce(
-                            (s, g) => s + Number(g.total_cost || 0),
-                            0,
-                          );
-                          const overallMargin =
-                            totalRev > 0
-                              ? ((totalRev - totalCost) / totalRev) * 100
-                              : 0;
+                          const totalRev = profitByGroup.reduce((s, g) => s + Number(g.revenue || 0), 0);
+                          const totalCost = profitByGroup.reduce((s, g) => s + Number(g.total_cost || 0), 0);
+                          const overallMargin = totalRev > 0 ? ((totalRev - totalCost) / totalRev) * 100 : 0;
                           return (
-                            <span
-                              className={
-                                overallMargin >= 0
-                                  ? "text-green-600"
-                                  : "text-red-600"
-                              }
-                            >
+                            <span className={overallMargin >= 0 ? "text-green-600" : "text-red-600"}>
                               {overallMargin.toFixed(1)}%
                             </span>
                           );
@@ -530,12 +467,8 @@ export default function PosReports() {
 
         <div className="card">
           <div className="card-header bg-slate-50 rounded-t-lg">
-            <div className="font-semibold">
-              Profit Margin by Individual Item
-            </div>
-            <div className="text-xs text-slate-500">
-              Cost vs revenue per item
-            </div>
+            <div className="font-semibold">Profit Margin by Individual Item</div>
+            <div className="text-xs text-slate-500">Cost vs revenue per item</div>
           </div>
           <div className="card-body">
             <div className="overflow-auto">
@@ -550,27 +483,14 @@ export default function PosReports() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(profitByItemShowAll
-                    ? profitByItem
-                    : profitByItem.slice(0, 5)
-                  ).map((g, idx) => (
+                  {(profitByItemShowAll ? profitByItem : profitByItem.slice(0, 5)).map((g, idx) => (
                     <tr key={idx}>
                       <td>{String(g.item || "Unknown")}</td>
                       <td className="text-right">{fmtCurrency(g.revenue)}</td>
-                      <td className="text-right">
-                        {fmtCurrency(g.total_cost)}
-                      </td>
-                      <td className="text-right font-semibold">
-                        {fmtCurrency(g.profit)}
-                      </td>
+                      <td className="text-right">{fmtCurrency(g.total_cost)}</td>
+                      <td className="text-right font-semibold">{fmtCurrency(g.profit)}</td>
                       <td className="text-right font-bold">
-                        <span
-                          className={
-                            Number(g.margin_pct) >= 0
-                              ? "text-green-600"
-                              : "text-red-600"
-                          }
-                        >
+                        <span className={Number(g.margin_pct) >= 0 ? "text-green-600" : "text-red-600"}>
                           {Number(g.margin_pct).toFixed(1)}%
                         </span>
                       </td>
@@ -579,52 +499,16 @@ export default function PosReports() {
                   {profitByItem.length > 0 && (
                     <tr className="bg-slate-50 font-bold">
                       <td>Total</td>
-                      <td className="text-right">
-                        {fmtCurrency(
-                          profitByItem.reduce(
-                            (s, g) => s + Number(g.revenue || 0),
-                            0,
-                          ),
-                        )}
-                      </td>
-                      <td className="text-right">
-                        {fmtCurrency(
-                          profitByItem.reduce(
-                            (s, g) => s + Number(g.total_cost || 0),
-                            0,
-                          ),
-                        )}
-                      </td>
-                      <td className="text-right">
-                        {fmtCurrency(
-                          profitByItem.reduce(
-                            (s, g) => s + Number(g.profit || 0),
-                            0,
-                          ),
-                        )}
-                      </td>
+                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.revenue || 0), 0))}</td>
+                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.total_cost || 0), 0))}</td>
+                      <td className="text-right">{fmtCurrency(profitByItem.reduce((s, g) => s + Number(g.profit || 0), 0))}</td>
                       <td className="text-right">
                         {(() => {
-                          const totalRev = profitByItem.reduce(
-                            (s, g) => s + Number(g.revenue || 0),
-                            0,
-                          );
-                          const totalCost = profitByItem.reduce(
-                            (s, g) => s + Number(g.total_cost || 0),
-                            0,
-                          );
-                          const overallMargin =
-                            totalRev > 0
-                              ? ((totalRev - totalCost) / totalRev) * 100
-                              : 0;
+                          const totalRev = profitByItem.reduce((s, g) => s + Number(g.revenue || 0), 0);
+                          const totalCost = profitByItem.reduce((s, g) => s + Number(g.total_cost || 0), 0);
+                          const overallMargin = totalRev > 0 ? ((totalRev - totalCost) / totalRev) * 100 : 0;
                           return (
-                            <span
-                              className={
-                                overallMargin >= 0
-                                  ? "text-green-600"
-                                  : "text-red-600"
-                              }
-                            >
+                            <span className={overallMargin >= 0 ? "text-green-600" : "text-red-600"}>
                               {overallMargin.toFixed(1)}%
                             </span>
                           );
@@ -647,9 +531,7 @@ export default function PosReports() {
                 onClick={() => setProfitByItemShowAll((v) => !v)}
                 className="mt-3 text-sm text-brand hover:text-brand-600 font-medium"
               >
-                {profitByItemShowAll
-                  ? "Show Less"
-                  : `Show More (${profitByItem.length - 5} more)`}
+                {profitByItemShowAll ? "Show Less" : `Show More (${profitByItem.length - 5} more)`}
               </button>
             )}
           </div>
