@@ -42,10 +42,12 @@ export default function MaintenanceScheduleForm() {
     asset_name: "",
     frequency: "Monthly",
     start_date: "",
+    end_date: "",
     classification: "",
     category: "",
     group_name: "",
     maintenance_days: "",
+    maintenance_routine: "",
     assigned_to: "",
     description: "",
     status: "ACTIVE",
@@ -57,6 +59,7 @@ export default function MaintenanceScheduleForm() {
   const [classifications, setClassifications] = useState([]);
   const [categories, setCategories] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [maintenanceRoutines, setMaintenanceRoutines] = useState([]);
   const [saving, setSaving] = useState(false);
   const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
@@ -146,6 +149,9 @@ export default function MaintenanceScheduleForm() {
           setClassifications(setupRes.data?.catalogs?.classifications || []);
           setCategories(setupRes.data?.catalogs?.categories || []);
           setGroups(setupRes.data?.catalogs?.groups || []);
+          setMaintenanceRoutines(
+            setupRes.data?.catalogs?.maintenanceRoutines || [],
+          );
         }
       })
       .catch(() => {});
@@ -159,6 +165,7 @@ export default function MaintenanceScheduleForm() {
               ...p,
               ...item,
               start_date: (item.start_date || "").slice(0, 10),
+              end_date: (item.end_date || "").slice(0, 10),
               tasks:
                 typeof item.tasks === "string"
                   ? JSON.parse(item.tasks)
@@ -392,6 +399,15 @@ export default function MaintenanceScheduleForm() {
               />
             </div>
             <div>
+              <label className="label">End Date</label>
+              <input
+                className="input w-56"
+                type="date"
+                value={form.end_date}
+                onChange={(e) => update("end_date", e.target.value)}
+              />
+            </div>
+            <div>
               <label className="label">Status</label>
               <select
                 className="input w-56"
@@ -406,7 +422,7 @@ export default function MaintenanceScheduleForm() {
               </select>
             </div>
           </div>
-          <div className="card-body">
+          <div className="card-body grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="label">Maintenance Days</label>
               <select
@@ -418,6 +434,21 @@ export default function MaintenanceScheduleForm() {
                 {DAYS_OF_WEEK.map((day) => (
                   <option key={day} value={day}>
                     {day}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Maintenance Routine</label>
+              <select
+                className="input w-56"
+                value={form.maintenance_routine}
+                onChange={(e) => update("maintenance_routine", e.target.value)}
+              >
+                <option value="">-- Select Routine --</option>
+                {maintenanceRoutines.map((routine) => (
+                  <option key={routine.id} value={routine.item_name}>
+                    {routine.item_name}
                   </option>
                 ))}
               </select>

@@ -315,26 +315,6 @@ export default function DirectPurchase() {
         const it = items.find((x) => Number(x.id) === Number(value));
         const fallbackUom = it?.uom || defaultUomCode;
         let unitPrice = it && Number(it.cost_price) ? Number(it.cost_price) : 0;
-        if (Array.isArray(standardPrices) && standardPrices.length) {
-          const filtered = standardPrices
-            .filter((p) => String(p.product_id) === String(value))
-            .sort((a, b) => {
-              const ad = a.effective_date
-                ? new Date(a.effective_date).getTime()
-                : 0;
-              const bd = b.effective_date
-                ? new Date(b.effective_date).getTime()
-                : 0;
-              return (
-                bd - ad ||
-                new Date(b.created_at).getTime() -
-                  new Date(a.created_at).getTime()
-              );
-            });
-          if (filtered.length > 0) {
-            unitPrice = Number(filtered[0].cost_price) || unitPrice;
-          }
-        }
         next.uom = String(fallbackUom || "PCS");
         next.unit_price = unitPrice;
 
@@ -539,25 +519,6 @@ export default function DirectPurchase() {
       it && Number(it.cost_price)
         ? Number(it.cost_price)
         : Number(lines[i]?.unit_price || 0);
-    if (Array.isArray(standardPrices) && standardPrices.length) {
-      const filtered = standardPrices
-        .filter((p) => String(p.product_id) === String(itemId))
-        .sort((a, b) => {
-          const ad = a.effective_date
-            ? new Date(a.effective_date).getTime()
-            : 0;
-          const bd = b.effective_date
-            ? new Date(b.effective_date).getTime()
-            : 0;
-          return (
-            bd - ad ||
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          );
-        });
-      if (filtered.length > 0) {
-        unitPrice = Number(filtered[0].cost_price) || unitPrice;
-      }
-    }
     setLines((prev) => {
       const next = [...prev];
       next[i] = recomputeLineTotals({

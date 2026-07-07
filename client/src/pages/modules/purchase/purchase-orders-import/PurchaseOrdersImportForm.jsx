@@ -875,27 +875,6 @@ export default function PurchaseOrdersImportForm() {
         : 0;
       let unitPrice = fallbackPrice;
 
-      if (Array.isArray(standardPrices) && standardPrices.length) {
-        const filtered = standardPrices
-          .filter((p) => String(p.product_id) === String(value))
-          .sort((a, b) => {
-            const ad = a.effective_date
-              ? new Date(a.effective_date).getTime()
-              : 0;
-            const bd = b.effective_date
-              ? new Date(b.effective_date).getTime()
-              : 0;
-            return (
-              bd - ad ||
-              new Date(b.created_at).getTime() -
-                new Date(a.created_at).getTime()
-            );
-          });
-        if (filtered.length > 0) {
-          unitPrice = Number(filtered[0].cost_price) || unitPrice;
-        }
-      }
-
       updated[index].unit_price = unitPrice;
     }
 

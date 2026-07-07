@@ -1,4 +1,4 @@
-﻿import { query, pool } from "../db/pool.js";
+import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { consumeStockFIFOTx, recordMovementTx } from "../services/stock.service.js";
 
@@ -927,7 +927,7 @@ export const createStockJournal = async (req, res) => {
 // ===== DASHBOARD STATS =====
 
 export const getProductionStats = async (req, res) => {
-  const { company_id, branch_id } = req.user;
+  const { companyId, branchId = null, branchIdsStr = "" } = req.scope || {};
   
   const safeCount = async (sql, params) => {
     try {
@@ -938,11 +938,28 @@ export const getProductionStats = async (req, res) => {
     }
   };
 
-  const boms = await safeCount("SELECT COUNT(*) as count FROM prod_boms WHERE company_id = :company_id", { company_id });
-  const activeOrders = await safeCount("SELECT COUNT(*) as count FROM prod_work_orders WHERE company_id = :company_id AND branch_id = :branch_id AND status != 'COMPLETED'", { company_id, branch_id });
-  const dailyPlans = await safeCount("SELECT COUNT(*) as count FROM prod_daily_plans WHERE company_id = :company_id AND branch_id = :branch_id", { company_id, branch_id });
-  const jobCards = await safeCount("SELECT COUNT(*) as count FROM prod_job_cards WHERE company_id = :company_id AND branch_id = :branch_id AND status = 'PENDING'", { company_id, branch_id });
-  const pendingRequisitions = await safeCount("SELECT COUNT(*) as count FROM prod_material_requisitions WHERE company_id = :company_id AND branch_id = :branch_id AND status = 'PENDING'", { company_id, branch_id });
+  const whereBranch = "(:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))";
+
+  const boms = await safeCount(
+    `SELECT COUNT(*) as count FROM prod_boms WHERE company_id = :companyId`,
+    { companyId },
+  );
+  const activeOrders = await safeCount(
+    `SELECT COUNT(*) as count FROM prod_work_orders WHERE company_id = :companyId AND ${whereBranch} AND status != 'COMPLETED'`,
+    { companyId, branchId, branchIdsStr },
+  );
+  const dailyPlans = await safeCount(
+    `SELECT COUNT(*) as count FROM prod_daily_plans WHERE company_id = :companyId AND ${whereBranch}`,
+    { companyId, branchId, branchIdsStr },
+  );
+  const jobCards = await safeCount(
+    `SELECT COUNT(*) as count FROM prod_job_cards WHERE company_id = :companyId AND ${whereBranch} AND status = 'PENDING'`,
+    { companyId, branchId, branchIdsStr },
+  );
+  const pendingRequisitions = await safeCount(
+    `SELECT COUNT(*) as count FROM prod_material_requisitions WHERE company_id = :companyId AND ${whereBranch} AND status = 'PENDING'`,
+    { companyId, branchId, branchIdsStr },
+  );
 
   res.json({
     boms,

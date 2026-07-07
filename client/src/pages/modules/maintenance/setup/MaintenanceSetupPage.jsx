@@ -29,6 +29,7 @@ const TAB_LABELS = [
   { key: "classification-hierarchy", label: "Equip. Classification & Grouping" },
   { key: "status-types", label: "Status Types" },
   { key: "maintenance-types", label: "Maint. Types" },
+  { key: "maintenance-routines", label: "Maint. Routines" },
   { key: "priorities", label: "Priorities" },
   { key: "technicians", label: "Technicians" },
   { key: "teams", label: "Teams" },
@@ -259,6 +260,7 @@ export default function MaintenanceSetupPage() {
   const [params, setParams] = useState(DEFAULT_PARAMS);
   const [catalogs, setCatalogs] = useState({
     maintenanceTypes: [],
+    maintenanceRoutines: [],
     priorities: [],
     executionTypes: [],
     sections: [],
@@ -275,6 +277,7 @@ export default function MaintenanceSetupPage() {
   const [currencies, setCurrencies] = useState([]);
   const [drafts, setDrafts] = useState({
     "maintenance-types": { ...EMPTY_ITEM },
+    "maintenance-routines": { ...EMPTY_ITEM },
     priorities: { ...EMPTY_ITEM },
     "execution-types": { ...EMPTY_ITEM },
     sections: { ...EMPTY_ITEM },
@@ -316,6 +319,7 @@ export default function MaintenanceSetupPage() {
 
     setCatalogs({
       maintenanceTypes: [],
+      maintenanceRoutines: [],
       priorities: [],
       executionTypes: [],
       sections: [],
@@ -376,6 +380,7 @@ export default function MaintenanceSetupPage() {
     setCatalogs((prev) => {
       const mapping = {
         "maintenance-types": "maintenanceTypes",
+        "maintenance-routines": "maintenanceRoutines",
         priorities: "priorities",
         "execution-types": "executionTypes",
         sections: "sections",
@@ -703,6 +708,24 @@ export default function MaintenanceSetupPage() {
               />
             </div>
           )}
+          {tab === "maintenance-routines" && (
+            <div className="space-y-8">
+              <SetupItemsEditor
+                title="Maintenance Routine"
+                description="Define reusable maintenance routines for maintenance schedules."
+                kind="maintenance-routines"
+                items={catalogs.maintenanceRoutines}
+                draft={drafts["maintenance-routines"]}
+                onDraftChange={setDraft}
+                onCreate={createItem}
+                onSave={saveItem}
+                onSaveAndReload={saveItemAndReload}
+                onDelete={deleteItem}
+                hideDescription
+                onOpenModal={openModal}
+              />
+            </div>
+          )}
           {tab === "priorities" && (
             <div className="space-y-8">
               <SetupItemsEditor
@@ -897,7 +920,7 @@ export default function MaintenanceSetupPage() {
       <ModalForm
         open={!!modalKind}
         title={`Add ${TAB_LABELS.find(t => t.key === modalKind)?.label || ""}`}
-        hideDescription={["maintenance-types","priorities","brands","models","manufacturers","classifications","categories","groups","status-types","technicians","teams","service-providers"].includes(modalKind)}
+        hideDescription={["maintenance-types","maintenance-routines","priorities","brands","models","manufacturers","classifications","categories","groups","status-types","technicians","teams","service-providers"].includes(modalKind)}
         showEmail={modalKind === "service-providers"}
         showCurrency={modalKind === "service-providers"}
         currencies={currencies}

@@ -26,6 +26,10 @@ export default function MaintenanceScheduleList() {
   const [showAttach, setShowAttach] = useState(false);
   const [activeDocId, setActiveDocId] = useState(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+
   useEffect(() => {
     let m = true;
     setLoading(true);
@@ -36,10 +40,18 @@ export default function MaintenanceScheduleList() {
   }, [location.state?.refresh]);
 
   const filtered = useMemo(() => {
+    setCurrentPage(1); // Reset to first page on search
     const q = search.toLowerCase();
     if (!q) return items;
     return items.filter(r => String(r.schedule_name || "").toLowerCase().includes(q) || String(r.asset_name || "").toLowerCase().includes(q) || String(r.frequency || "").toLowerCase().includes(q));
   }, [items, search]);
+
+  // Pagination logic
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const paginatedItems = filtered.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   return (
     <Guard moduleKey="maintenance">
@@ -76,7 +88,7 @@ export default function MaintenanceScheduleList() {
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                 {loading && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">Loading...</td></tr>}
                 {!loading && !filtered.length && <tr><td colSpan="9" className="px-4 py-8 text-center text-slate-500">No schedules found</td></tr>}
-                {!loading && filtered.map(r => (
+                {!loading && paginatedItems.map(r => (
                   <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="px-4 py-3 text-sm font-medium">{r.schedule_name}</td>
                     <td className="px-4 py-3 text-sm">{r.asset_name}</td>
@@ -92,6 +104,30 @@ export default function MaintenanceScheduleList() {
               </tbody>
             </table>
           </div>
+          {/* Pagination Controls */}
+          {!loading && totalPages > 1 && (
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-800/60">
+              <span className="text-xs text-slate-500">
+                Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length} entries
+              </span>
+              <div className="flex gap-1">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => p - 1)}
+                  className="px-3 py-1 text-xs font-medium rounded border border-slate-300 dark:border-slate-600 disabled:opacity-50 hover:bg-slate-100 dark:hover:bg-slate-700"
+                >
+                  Previous
+                </button>
+                <button
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  className="px-3 py-1 text-xs font-medium rounded border border-slate-300 dark:border-slate-600 disabled:opacity-50 hover:bg-slate-100 dark:hover:bg-slate-700"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       {showAttach && activeDocId && (

@@ -9069,7 +9069,8 @@ router.post(
       let notFound = 0;
       for (const row of items) {
         const itemCode = String(row.item_code || row["Item Code"] || "").trim();
-        const costPrice = Number(row.cost_price || row["Cost Price"] || 0);
+        const costPriceVal = row["New Cost Price"] ?? row["Cost Price"] ?? row.cost_price ?? row["Current Cost Price"] ?? 0;
+        const costPrice = Number(costPriceVal);
         if (!itemCode || !Number.isFinite(costPrice)) continue;
         const [existing] = await query(
           "SELECT id FROM inv_items WHERE item_code = :itemCode AND company_id = :companyId LIMIT 1",

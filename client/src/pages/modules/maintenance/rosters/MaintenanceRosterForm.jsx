@@ -41,7 +41,7 @@ export default function MaintenanceRosterForm() {
 
   const [form, setForm] = useState({
     roster_name: "",
-    status: "DRAFT",
+    status: "POSTED",
     roster_date: "",
     schedule_id: "",
     asset_classification: "",
@@ -54,6 +54,7 @@ export default function MaintenanceRosterForm() {
     selected_assets: [], // multi-select array
     frequency: "",
     maintenance_days: "",
+    maintenance_routine: "",
     task_description: "",
     estimated_duration: "",
   });
@@ -151,7 +152,25 @@ export default function MaintenanceRosterForm() {
   const handleScheduleSelect = (e) => {
     const sid = e.target.value;
     update("schedule_id", sid);
-    if (!sid) return;
+    if (!sid) {
+      // Clear all schedule-sourced fields when deselected
+      setForm((p) => ({
+        ...p,
+        schedule_id: "",
+        period_start: "",
+        period_end: "",
+        asset_classification: "",
+        asset_category: "",
+        asset_group: "",
+        frequency: "",
+        maintenance_days: "",
+        maintenance_routine: "",
+        task_description: "",
+        estimated_duration: "",
+        selected_assets: [],
+      }));
+      return;
+    }
 
     const s = schedules.find((sch) => sch.id.toString() === sid);
     if (s) {
@@ -167,17 +186,32 @@ export default function MaintenanceRosterForm() {
           }
         } catch (err) {}
       }
+
+      // Parse selected_assets from the schedule
+      let scheduleAssets = [];
+      if (s.selected_assets) {
+        try {
+          scheduleAssets = typeof s.selected_assets === 'string'
+            ? JSON.parse(s.selected_assets)
+            : s.selected_assets;
+          if (!Array.isArray(scheduleAssets)) scheduleAssets = [];
+        } catch (err) { scheduleAssets = []; }
+      }
+
       setForm((p) => ({
         ...p,
         schedule_id: sid,
         period_start: (s.start_date || "").slice(0, 10),
+        period_end: (s.end_date || "").slice(0, 10),
         asset_classification: s.classification || "",
         asset_category: s.category || "",
         asset_group: s.group_name || "",
         frequency: s.frequency || "",
         maintenance_days: s.maintenance_days || "",
+        maintenance_routine: s.maintenance_routine || "",
         task_description: tDesc,
         estimated_duration: tDur,
+        selected_assets: scheduleAssets,
       }));
     }
   };
@@ -197,8 +231,13 @@ export default function MaintenanceRosterForm() {
         await api.put(`/maintenance/rosters/${id}`, form);
         toast.success("Roster updated");
       } else {
-        await api.post("/maintenance/rosters", form);
-        toast.success("Roster created");
+        const res = await api.post("/maintenance/rosters", form);
+        const count = res.data?.generatedCount || 1;
+        toast.success(
+          count > 1
+            ? `✅ ${count} roster dates generated successfully!`
+            : "Roster created successfully!"
+        );
       }
       navigate("/maintenance/rosters", { state: { refresh: true } });
     } catch (err) {
@@ -304,6 +343,36 @@ export default function MaintenanceRosterForm() {
                 ))}
               </select>
             </div>
+
+            {/* Generation preview panel */}
+            {form.schedule_id && (
+              <div className="md:col-span-4 rounded-xl border border-brand-200 dark:border-brand-800 bg-brand-50/60 dark:bg-brand-900/20 px-4 py-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-brand-700 dark:text-brand-400 mb-2">
+                  📋 Schedule Loaded — Saving will auto-generate all roster dates
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  {[
+                    { label: "Start Date", value: form.period_start },
+                    { label: "End Date", value: form.period_end },
+                    { label: "Frequency / Routine", value: form.maintenance_routine || form.frequency },
+                    { label: "Maintenance Day", value: form.maintenance_days },
+                    { label: "Task Description", value: form.task_description, span: true },
+                    { label: "Est. Duration", value: form.estimated_duration ? `${form.estimated_duration} hrs` : "" },
+                    { label: "Assets Linked", value: (form.selected_assets || []).length > 0 ? `${form.selected_assets.length} asset(s)` : "" },
+                  ].map(({ label, value, span }) => value ? (
+                    <div key={label} className={span ? "col-span-2" : ""}>
+                      <span className="block text-slate-400">{label}</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 line-clamp-1">{value}</span>
+                    </div>
+                  ) : null)}
+                </div>
+                {(!form.period_start || !form.period_end || (!form.maintenance_routine && !form.frequency) || !form.maintenance_days) && (
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-400 font-medium">
+                    ⚠️ Some generation fields are missing. The linked schedule must have: Start Date, End Date, Frequency, and Maintenance Day filled in.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="label">Start Date</label>
@@ -502,6 +571,7 @@ export default function MaintenanceRosterForm() {
             
             <input type="hidden" name="frequency" value={form.frequency} />
             <input type="hidden" name="maintenance_days" value={form.maintenance_days} />
+            <input type="hidden" name="maintenance_routine" value={form.maintenance_routine} />
             <input type="hidden" name="task_description" value={form.task_description} />
             <input type="hidden" name="estimated_duration" value={form.estimated_duration} />
           </div>

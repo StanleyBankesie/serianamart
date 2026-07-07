@@ -310,7 +310,7 @@ export default function HomePage() {
       });
 
     client
-      .get("/pos/analytics/overview")
+      .get("/bi/home-overview")
       .then((res) => {
         if (cancelled) return;
         setOverview(res.data || null);
@@ -590,6 +590,7 @@ export default function HomePage() {
     {
       label: "Today Sales",
       value: fmtCurrency(overview?.todaySales || 0),
+      badge: overview?.badges?.["today-sales"]?.text || "",
       icon: "💵",
       path: "/sales/reports",
       color: "from-ticker-green to-ticker-green",
@@ -597,6 +598,7 @@ export default function HomePage() {
     {
       label: "Total Customers",
       value: String(overview?.totalCustomers ?? 0),
+      badge: overview?.badges?.["total-customers"]?.text || "",
       icon: "👥",
       home_key: "total-customers",
       path: "/sales/customers",
@@ -605,6 +607,7 @@ export default function HomePage() {
     {
       label: "Average Order",
       value: fmtCurrency(overview?.averageOrder || 0),
+      badge: overview?.badges?.["average-order"]?.text || "",
       icon: "🧾",
       path: "/sales/reports",
       color: "from-ticker-purple to-ticker-purple",
@@ -612,6 +615,7 @@ export default function HomePage() {
     {
       label: "Monthly Revenue",
       value: fmtCurrency(overview?.monthlyRevenue || 0),
+      badge: overview?.badges?.["monthly-revenue"]?.text || "",
       icon: "📊",
       path: "/finance/reports",
       color: "from-ticker-orange to-ticker-orange",
@@ -859,9 +863,11 @@ export default function HomePage() {
                 >
                   <div className="flex flex-col h-full justify-between">
                     <div className="flex justify-end min-h-[22px]">
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] leading-none flex items-center gap-1">
-                        ↓ 2.1% VS LAST MONTH
-                      </span>
+                      {metric.badge ? (
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] leading-none flex items-center gap-1">
+                          {metric.badge}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-6">
                       <div
@@ -890,9 +896,11 @@ export default function HomePage() {
                 >
                   <div className="flex flex-col h-full justify-between">
                     <div className="flex justify-end min-h-[22px]">
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md text-amber-200 border border-amber-400/20 shadow-sm leading-none flex items-center gap-1">
-                        ↑ 1.5% VS LAST MONTH
-                      </span>
+                      {metric.badge ? (
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md text-amber-200 border border-amber-400/20 shadow-sm leading-none flex items-center gap-1">
+                          {metric.badge}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-6">
                       <div className="text-3xl font-extrabold text-white tracking-tight">
@@ -929,9 +937,11 @@ export default function HomePage() {
                 >
                   <div className="flex flex-col h-full justify-between">
                     <div className="flex justify-end min-h-[22px]">
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-sm leading-none flex items-center gap-1">
-                        ↓ 12% VS LAST QUARTER
-                      </span>
+                      {metric.badge ? (
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-sm leading-none flex items-center gap-1">
+                          {metric.badge}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-6">
                       <div className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-1.5">
@@ -968,9 +978,11 @@ export default function HomePage() {
                 >
                   <div className="flex flex-col h-full justify-between">
                     <div className="flex justify-end min-h-[22px]">
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white border border-white/20 shadow-sm leading-none flex items-center gap-1">
-                        ↑ NEW METRIC
-                      </span>
+                      {metric.badge ? (
+                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white border border-white/20 shadow-sm leading-none flex items-center gap-1">
+                          {metric.badge}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-6">
                       <div className="text-3xl font-extrabold text-white tracking-tight">

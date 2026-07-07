@@ -13,7 +13,7 @@ if (!DEV_MODE) {
       (async () => {
         const cache = await caches.open(ASSET_CACHE);
         await cache.addAll([
-        "/assets/index-D9k7VWVK.js"
+        "/assets/index-CJFary1C.js"
 ]);
         // NOTE: Do NOT call self.skipWaiting() here.
         // skipWaiting causes the new SW to immediately take over ALL open tabs

@@ -30,6 +30,7 @@ import PMPurchaseRequisitionList from "./purchase-requisitions/PMPurchaseRequisi
 import PMPurchaseRequisitionForm from "./purchase-requisitions/PMPurchaseRequisitionForm.jsx";
 import ProjectIncomeReport from "./reports/ProjectIncomeReport.jsx";
 import ProjectExpenseReport from "./reports/ProjectExpenseReport.jsx";
+import ProjectManagementDashboardPage from "./ProjectManagementDashboardPage.jsx";
 
 function ProjectManagementLanding() {
   const [stats, setStats] = React.useState([
@@ -224,6 +225,14 @@ function ProjectManagementLanding() {
       title="Project Management"
       description="Strategic project planning and operational execution"
       stats={stats}
+      moduleKey="project-management"
+      headerActions={[
+        {
+          label: "Dashboard",
+          path: "/project-management/dashboard",
+          icon: "📊",
+        },
+      ]}
       sections={sections}
       features={projectManagementFeatures}
     />
@@ -239,6 +248,7 @@ export default function ProjectManagementHome() {
   return (
     <Routes>
       <Route path="/" element={<ProjectManagementLanding />} />
+      <Route path="dashboard" element={<ProjectManagementDashboardPage />} />
 
       <Route path="/projects" element={<ProjectList />} />
       <Route path="/projects/new" element={<ProjectForm />} />

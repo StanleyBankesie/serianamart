@@ -250,6 +250,7 @@ function ServiceManagementLanding() {
       title="Service Management"
       description="End-to-end service request, confirmation, and billing"
       stats={stats}
+      moduleKey="service-management"
       headerActions={[
         {
           label: "Dashboard",

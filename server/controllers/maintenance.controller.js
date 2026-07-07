@@ -212,7 +212,9 @@ async function ensureTables(companyId, branchId) {
   await query(`ALTER TABLE maint_schedules ADD COLUMN IF NOT EXISTS category VARCHAR(100) NULL`).catch(() => {});
   await query(`ALTER TABLE maint_schedules ADD COLUMN IF NOT EXISTS group_name VARCHAR(100) NULL`).catch(() => {});
   await query(`ALTER TABLE maint_schedules ADD COLUMN IF NOT EXISTS maintenance_days VARCHAR(255) NULL`).catch(() => {});
+  await query(`ALTER TABLE maint_schedules ADD COLUMN IF NOT EXISTS maintenance_routine VARCHAR(255) NULL`).catch(() => {});
   await query(`ALTER TABLE maint_schedules ADD COLUMN IF NOT EXISTS start_date DATE NULL`).catch(() => {});
+  await query(`ALTER TABLE maint_schedules ADD COLUMN IF NOT EXISTS end_date DATE NULL`).catch(() => {});
   await query(`ALTER TABLE maint_schedules ADD COLUMN IF NOT EXISTS tasks TEXT NULL`).catch(() => {});
   await query(`ALTER TABLE maint_schedules ADD COLUMN IF NOT EXISTS selected_assets TEXT NULL`).catch(() => {});
 
@@ -246,6 +248,7 @@ async function ensureTables(companyId, branchId) {
   await query(`ALTER TABLE maint_rosters ADD COLUMN IF NOT EXISTS selected_assets TEXT NULL`).catch(() => {});
   await query(`ALTER TABLE maint_rosters ADD COLUMN IF NOT EXISTS frequency VARCHAR(50) NULL`).catch(() => {});
   await query(`ALTER TABLE maint_rosters ADD COLUMN IF NOT EXISTS maintenance_days VARCHAR(255) NULL`).catch(() => {});
+  await query(`ALTER TABLE maint_rosters ADD COLUMN IF NOT EXISTS maintenance_routine VARCHAR(255) NULL`).catch(() => {});
   await query(`ALTER TABLE maint_rosters ADD COLUMN IF NOT EXISTS task_description TEXT NULL`).catch(() => {});
   await query(`ALTER TABLE maint_rosters ADD COLUMN IF NOT EXISTS estimated_duration DECIMAL(5,2) NULL`).catch(() => {});
 
@@ -465,6 +468,234 @@ function cleanText(value) {
   return text || null;
 }
 
+const WEEKDAY_INDEX = {
+  sunday: 0,
+  monday: 1,
+  tuesday: 2,
+  wednesday: 3,
+  thursday: 4,
+  friday: 5,
+  saturday: 6,
+};
+
+function parseIsoDate(value) {
+  if (!value) return null;
+  const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatIsoDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addMonths(date, months) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months, 1);
+  return next;
+}
+
+function startOfWeek(date) {
+  const next = new Date(date);
+  const diff = (next.getDay() + 6) % 7;
+  next.setDate(next.getDate() - diff);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function getWeekdayIndex(maintenanceDay) {
+  const key = String(maintenanceDay || "").trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(WEEKDAY_INDEX, key)
+    ? WEEKDAY_INDEX[key]
+    : null;
+}
+
+function firstWeekdayOnOrAfter(date, weekday) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  const diff = (weekday - next.getDay() + 7) % 7;
+  next.setDate(next.getDate() + diff);
+  return next;
+}
+
+function nthWeekdayOfMonth(year, month, weekday, occurrence) {
+  const firstDay = new Date(year, month, 1);
+  const firstMatch = firstWeekdayOnOrAfter(firstDay, weekday);
+  const result = addDays(firstMatch, (occurrence - 1) * 7);
+  return result.getMonth() === month ? result : null;
+}
+
+function normalizeMaintenanceRoutine(value) {
+  const raw = String(value || "").trim();
+  const text = raw.toLowerCase();
+
+  if (!raw) return null;
+  if (
+    text === "daily" ||
+    text === "every day" ||
+    text === "once a day"
+  ) {
+    return { unit: "day", interval: 1, occurrences: 1, label: "Daily" };
+  }
+  if (
+    text === "weekly" ||
+    text === "once a week" ||
+    text === "every week"
+  ) {
+    return { unit: "week", interval: 1, occurrences: 1, label: "Once a week" };
+  }
+  if (
+    text === "twice a week" ||
+    text === "2x a week" ||
+    text === "2 times a week" ||
+    text === "two times a week"
+  ) {
+    return { unit: "week", interval: 1, occurrences: 2, label: "Twice a week" };
+  }
+  if (
+    text === "biweekly" ||
+    text === "every 2 weeks" ||
+    text === "once every 2 weeks"
+  ) {
+    return { unit: "week", interval: 2, occurrences: 1, label: "Every 2 weeks" };
+  }
+  if (
+    text === "monthly" ||
+    text === "once a month" ||
+    text === "every month"
+  ) {
+    return { unit: "month", interval: 1, occurrences: 1, label: "Once a month" };
+  }
+  if (
+    text === "twice a month" ||
+    text === "2x a month" ||
+    text === "2 times a month" ||
+    text === "two times a month"
+  ) {
+    return { unit: "month", interval: 1, occurrences: 2, label: "Twice a month" };
+  }
+  if (text === "quarterly" || text === "every quarter") {
+    return { unit: "month", interval: 3, occurrences: 1, label: "Quarterly" };
+  }
+  if (
+    text === "biannual" ||
+    text === "bi-annual" ||
+    text === "twice a year" ||
+    text === "every 6 months" ||
+    text === "semi-annual"
+  ) {
+    return { unit: "month", interval: 6, occurrences: 1, label: "Every 6 months" };
+  }
+  if (
+    text === "annual" ||
+    text === "annually" ||
+    text === "yearly" ||
+    text === "once a year" ||
+    text === "every year"
+  ) {
+    return { unit: "month", interval: 12, occurrences: 1, label: "Annually" };
+  }
+
+  return null;
+}
+
+function generateRosterDates(periodStart, periodEnd, maintenanceDay, maintenanceRoutine) {
+  const start = parseIsoDate(periodStart);
+  const end = parseIsoDate(periodEnd);
+  const routine = normalizeMaintenanceRoutine(maintenanceRoutine);
+
+  if (!start || !end || start > end || !routine) return [];
+
+  if (routine.unit === "day") {
+    const dates = [];
+    for (let cursor = new Date(start); cursor <= end; cursor = addDays(cursor, 1)) {
+      dates.push(formatIsoDate(cursor));
+    }
+    return dates;
+  }
+
+  const weekday = getWeekdayIndex(maintenanceDay);
+  if (weekday === null) return [];
+
+  const generated = new Set();
+
+  if (routine.unit === "week") {
+    const offsets =
+      routine.occurrences >= 2
+        ? weekday <= 3
+          ? [0, 3]
+          : [-3, 0]
+        : [0];
+    const anchor = startOfWeek(start);
+
+    for (
+      let weekCursor = new Date(anchor);
+      weekCursor <= end;
+      weekCursor = addDays(weekCursor, routine.interval * 7)
+    ) {
+      const primary = firstWeekdayOnOrAfter(weekCursor, weekday);
+      for (const offset of offsets) {
+        const occurrence = addDays(primary, offset);
+        if (occurrence < start || occurrence > end) continue;
+        generated.add(formatIsoDate(occurrence));
+      }
+    }
+  }
+
+  if (routine.unit === "month") {
+    for (
+      let monthCursor = new Date(start.getFullYear(), start.getMonth(), 1);
+      monthCursor <= end;
+      monthCursor = addMonths(monthCursor, routine.interval)
+    ) {
+      const first = nthWeekdayOfMonth(
+        monthCursor.getFullYear(),
+        monthCursor.getMonth(),
+        weekday,
+        1,
+      );
+      if (first && first >= start && first <= end) {
+        generated.add(formatIsoDate(first));
+      }
+
+      if (routine.occurrences >= 2) {
+        const third = nthWeekdayOfMonth(
+          monthCursor.getFullYear(),
+          monthCursor.getMonth(),
+          weekday,
+          3,
+        );
+        if (third && third >= start && third <= end) {
+          generated.add(formatIsoDate(third));
+        }
+      }
+    }
+  }
+
+  return Array.from(generated).sort();
+}
+
+function buildGeneratedRosterName(baseName, rosterDate, totalCount) {
+  const name = cleanText(baseName) || "Maintenance Roster";
+  if (totalCount <= 1) return name;
+  return `${name} - ${rosterDate}`;
+}
+
+async function insertRosterRecord(params) {
+  return query(
+    `INSERT INTO maint_rosters (company_id,branch_id,roster_name,period_start,period_end,team_members,shift_details,status,employee_id,employee_name,team,supervisor,roster_date,shift,start_time,end_time,asset_classification,asset_category,asset_group,assigned_area,primary_asset,availability_status,overtime_eligible,max_work_hours,remarks,total_hours,schedule_id,selected_assets,frequency,maintenance_days,maintenance_routine,task_description,estimated_duration) VALUES (:companyId,:branchId,:roster_name,:period_start,:period_end,:team_members,:shift_details,:status,:employee_id,:employee_name,:team,:supervisor,:roster_date,:shift,:start_time,:end_time,:asset_classification,:asset_category,:asset_group,:assigned_area,:primary_asset,:availability_status,:overtime_eligible,:max_work_hours,:remarks,:total_hours,:schedule_id,:selected_assets,:frequency,:maintenance_days,:maintenance_routine,:task_description,:estimated_duration)`,
+    params,
+  );
+}
+
 const SETUP_ITEM_TYPE_MAP = {
   "maintenance-types": "MAINTENANCE_TYPE",
   priorities: "PRIORITY",
@@ -479,6 +710,7 @@ const SETUP_ITEM_TYPE_MAP = {
   technicians: "TECHNICIAN",
   teams: "TEAM",
   "service-providers": "SERVICE_PROVIDER",
+  "maintenance-routines": "MAINTENANCE_ROUTINE",
   "job-order-types": "JOB_ORDER_TYPE",
   classifications: "CLASSIFICATION",
   categories: "CATEGORY",
@@ -582,6 +814,7 @@ async function getSetupSummary(companyId, branchId, branchIdsStr = '') {
     technicians: [],
     teams: [],
     serviceProviders: [],
+    maintenanceRoutines: [],
     jobOrderTypes: [],
     classifications: [],
     categories: [],
@@ -617,6 +850,7 @@ async function getSetupSummary(companyId, branchId, branchIdsStr = '') {
     if (row.item_type === "TECHNICIAN") catalogs.technicians.push(item);
     if (row.item_type === "TEAM") catalogs.teams.push(item);
     if (row.item_type === "SERVICE_PROVIDER") catalogs.serviceProviders.push(item);
+    if (row.item_type === "MAINTENANCE_ROUTINE") catalogs.maintenanceRoutines.push(item);
     if (row.item_type === "JOB_ORDER_TYPE") catalogs.jobOrderTypes.push(item);
     if (row.item_type === "CLASSIFICATION") catalogs.classifications.push(item);
     if (row.item_type === "CATEGORY") catalogs.categories.push(item);
@@ -1814,7 +2048,7 @@ export const listSchedules = async (req, res, next) => {
 
     await ensureTables(companyId, branchId);
     const items = await query(`SELECT m.id, m.company_id, m.branch_id, m.schedule_name, 
-          m.asset_id, m.asset_name, m.frequency, m.start_date, m.classification, m.category, m.group_name, m.maintenance_days, m.assigned_to, 
+          m.asset_id, m.asset_name, m.frequency, m.start_date, m.end_date, m.classification, m.category, m.group_name, m.maintenance_days, m.maintenance_routine, m.assigned_to, 
           m.status, m.created_at, m.created_by, m.tasks,
           u.username AS created_by_name
          FROM maint_schedules m
@@ -1856,7 +2090,7 @@ export const createSchedule = async (req, res, next) => {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     await ensureTables(companyId, branchId);
     const b = req.body || {};
-    const r = await query(`INSERT INTO maint_schedules (company_id,branch_id,schedule_name,asset_id,asset_name,frequency,start_date,classification,category,group_name,maintenance_days,assigned_to,description,status,tasks,selected_assets) VALUES (:companyId,:branchId,:schedule_name,:asset_id,:asset_name,:frequency,:start_date,:classification,:category,:group_name,:maintenance_days,:assigned_to,:description,:status,:tasks,:selected_assets)`,
+    const r = await query(`INSERT INTO maint_schedules (company_id,branch_id,schedule_name,asset_id,asset_name,frequency,start_date,end_date,classification,category,group_name,maintenance_days,maintenance_routine,assigned_to,description,status,tasks,selected_assets) VALUES (:companyId,:branchId,:schedule_name,:asset_id,:asset_name,:frequency,:start_date,:end_date,:classification,:category,:group_name,:maintenance_days,:maintenance_routine,:assigned_to,:description,:status,:tasks,:selected_assets)`,
       {
         companyId,
         branchId, branchIdsStr,
@@ -1865,13 +2099,14 @@ export const createSchedule = async (req, res, next) => {
         asset_name: b.asset_name || null,
         frequency: b.frequency || null,
         start_date: b.start_date || null,
+        end_date: b.end_date || null,
         classification: b.classification || null,
         category: b.category || null,
         group_name: b.group_name || null,
         maintenance_days: b.maintenance_days || null,
+        maintenance_routine: b.maintenance_routine || null,
         assigned_to: b.assigned_to || null,
         description: b.description || null,
-        status: b.status || "ACTIVE",
         status: b.status || "ACTIVE",
         tasks: b.tasks ? (typeof b.tasks === 'string' ? b.tasks : JSON.stringify(b.tasks)) : null,
         selected_assets: b.selected_assets ? (typeof b.selected_assets === 'string' ? b.selected_assets : JSON.stringify(b.selected_assets)) : null,
@@ -1889,7 +2124,7 @@ export const updateSchedule = async (req, res, next) => {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_schedules SET schedule_name=:schedule_name,asset_id=:asset_id,asset_name=:asset_name,frequency=:frequency,start_date=:start_date,classification=:classification,category=:category,group_name=:group_name,maintenance_days=:maintenance_days,assigned_to=:assigned_to,description=:description,status=:status,tasks=:tasks,selected_assets=:selected_assets WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+    await query(`UPDATE maint_schedules SET schedule_name=:schedule_name,asset_id=:asset_id,asset_name=:asset_name,frequency=:frequency,start_date=:start_date,end_date=:end_date,classification=:classification,category=:category,group_name=:group_name,maintenance_days=:maintenance_days,maintenance_routine=:maintenance_routine,assigned_to=:assigned_to,description=:description,status=:status,tasks=:tasks,selected_assets=:selected_assets WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
@@ -1899,10 +2134,12 @@ export const updateSchedule = async (req, res, next) => {
         asset_name: b.asset_name || null,
         frequency: b.frequency || null,
         start_date: b.start_date || null,
+        end_date: b.end_date || null,
         classification: b.classification || null,
         category: b.category || null,
         group_name: b.group_name || null,
         maintenance_days: b.maintenance_days || null,
+        maintenance_routine: b.maintenance_routine || null,
         assigned_to: b.assigned_to || null,
         description: b.description || null,
         status: b.status || "ACTIVE",
@@ -1927,12 +2164,35 @@ export const listRosters = async (req, res, next) => {
     if (cached) return res.json({ items: cached });
 
     await ensureTables(companyId, branchId);
-    const items = await query(`SELECT *,
-          created_at,
-          u.username AS created_by_name
-         FROM maint_rosters
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) ORDER BY period_start DESC LIMIT 200`,
+    const items = await query(`SELECT
+          r.id,
+          r.roster_name,
+          r.period_start,
+          r.period_end,
+          r.status,
+          r.employee_name,
+          r.roster_date,
+          r.shift,
+          r.start_time,
+          r.end_time,
+          r.assigned_area,
+          r.total_hours,
+          r.schedule_id,
+          r.maintenance_days,
+          r.maintenance_routine,
+          r.frequency,
+          r.task_description,
+          r.estimated_duration,
+          r.created_at,
+          u.username AS created_by_name,
+          s.schedule_name
+         FROM maint_rosters r
+        LEFT JOIN adm_users u ON u.id = r.created_by
+        LEFT JOIN maint_schedules s ON s.id = r.schedule_id
+         WHERE r.company_id=:companyId
+           AND (:branchIdsStr = '' OR FIND_IN_SET(r.branch_id, :branchIdsStr))
+         ORDER BY COALESCE(r.roster_date, r.period_start, r.created_at) DESC, r.id DESC
+         LIMIT 200`,
       { companyId, branchId, branchIdsStr },
     );
     await cacheSet(`maint_rosters:company:${companyId}:branches:${branchIdsStr}`, items, 300);
@@ -1991,39 +2251,99 @@ export const createRoster = async (req, res, next) => {
       }
     }
 
-    const r = await query(`INSERT INTO maint_rosters (company_id,branch_id,roster_name,period_start,period_end,team_members,shift_details,status,employee_id,employee_name,team,supervisor,roster_date,shift,start_time,end_time,asset_classification,asset_category,asset_group,assigned_area,primary_asset,availability_status,overtime_eligible,max_work_hours,remarks,total_hours,schedule_id,selected_assets,frequency,maintenance_days,task_description,estimated_duration) VALUES (:companyId,:branchId,:roster_name,:period_start,:period_end,:team_members,:shift_details,:status,:employee_id,:employee_name,:team,:supervisor,:roster_date,:shift,:start_time,:end_time,:asset_classification,:asset_category,:asset_group,:assigned_area,:primary_asset,:availability_status,:overtime_eligible,:max_work_hours,:remarks,:total_hours,:schedule_id,:selected_assets,:frequency,:maintenance_days,:task_description,:estimated_duration)`,
-      {
-        companyId,
-        branchId, branchIdsStr,
-        roster_name: b.roster_name || null,
-        period_start: b.period_start || null,
-        period_end: b.period_end || null,
-        team_members: b.team_members || null,
-        shift_details: b.shift_details || null,
-        status: b.status || "DRAFT",
-        employee_id: b.employee_id || null,
-        employee_name: b.employee_name || null,
-        team: b.team || null,
-        supervisor: b.supervisor || null,
-        roster_date: b.roster_date || null,
-        shift: b.shift || null,
-        start_time: b.start_time || null,
-        end_time: b.end_time || null,
-        asset_classification: b.asset_classification || null,
-        asset_category: b.asset_category || null,
-        asset_group: b.asset_group || null,
-        assigned_area: b.assigned_area || null,
-        primary_asset: b.primary_asset || null,
-        availability_status: b.availability_status || null,
-        overtime_eligible: b.overtime_eligible ? 1 : 0,
-        max_work_hours: b.max_work_hours || null,
-        remarks: b.remarks || null,
-        total_hours: b.total_hours || null,
-        schedule_id: b.schedule_id ? Number(b.schedule_id) : null,
-        selected_assets: b.selected_assets ? (typeof b.selected_assets === 'string' ? b.selected_assets : JSON.stringify(b.selected_assets)) : null,
-      },
+    const basePayload = {
+      companyId,
+      branchId, branchIdsStr,
+      roster_name: b.roster_name || null,
+      period_start: b.period_start || null,
+      period_end: b.period_end || null,
+      team_members: b.team_members || null,
+      shift_details: b.shift_details || null,
+      status: b.status || "DRAFT",
+      employee_id: b.employee_id || null,
+      employee_name: b.employee_name || null,
+      team: b.team || null,
+      supervisor: b.supervisor || null,
+      roster_date: b.roster_date || null,
+      shift: b.shift || null,
+      start_time: b.start_time || null,
+      end_time: b.end_time || null,
+      asset_classification: b.asset_classification || null,
+      asset_category: b.asset_category || null,
+      asset_group: b.asset_group || null,
+      assigned_area: b.assigned_area || null,
+      primary_asset: b.primary_asset || null,
+      availability_status: b.availability_status || null,
+      overtime_eligible: b.overtime_eligible ? 1 : 0,
+      max_work_hours: b.max_work_hours || null,
+      remarks: b.remarks || null,
+      total_hours: b.total_hours || b.estimated_duration || null,
+      schedule_id: b.schedule_id ? Number(b.schedule_id) : null,
+      selected_assets: b.selected_assets ? (typeof b.selected_assets === 'string' ? b.selected_assets : JSON.stringify(b.selected_assets)) : null,
+      frequency: b.frequency || null,
+      maintenance_days: b.maintenance_days || null,
+      maintenance_routine: b.maintenance_routine || null,
+      task_description: b.task_description || null,
+      estimated_duration: b.estimated_duration || null,
+    };
+
+    const generatedDates = generateRosterDates(
+      b.period_start,
+      b.period_end,
+      b.maintenance_days,
+      b.maintenance_routine || b.frequency,
     );
-    res.status(201).json({ id: r.insertId });
+
+    if (generatedDates.length > 0) {
+      const existing = await query(
+        `SELECT roster_date
+           FROM maint_rosters
+          WHERE company_id = :companyId
+            AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
+            AND schedule_id = :scheduleId
+            AND roster_date BETWEEN :periodStart AND :periodEnd`,
+        {
+          companyId,
+          branchId, branchIdsStr,
+          scheduleId: basePayload.schedule_id,
+          periodStart: b.period_start,
+          periodEnd: b.period_end,
+        },
+      );
+
+      const existingDates = new Set(
+        existing.map((row) => formatIsoDate(new Date(row.roster_date))),
+      );
+      const datesToCreate = generatedDates.filter((date) => !existingDates.has(date));
+
+      if (!datesToCreate.length) {
+        throw httpError(
+          400,
+          "BAD_REQUEST",
+          "Generated rosters already exist for the selected schedule and period",
+        );
+      }
+
+      const ids = [];
+      for (const rosterDate of datesToCreate) {
+        const result = await insertRosterRecord({
+          ...basePayload,
+          roster_name: buildGeneratedRosterName(basePayload.roster_name, rosterDate, datesToCreate.length),
+          roster_date: rosterDate,
+        });
+        ids.push(result.insertId);
+      }
+      await cacheDelPattern(`maint_rosters:company:${companyId}:*`);
+      return res.status(201).json({
+        ids,
+        generatedCount: ids.length,
+        skippedCount: generatedDates.length - ids.length,
+      });
+    }
+
+    const r = await insertRosterRecord(basePayload);
+    await cacheDelPattern(`maint_rosters:company:${companyId}:*`);
+    res.status(201).json({ id: r.insertId, generatedCount: 1, skippedCount: 0 });
   } catch (err) {
     next(err);
   }
@@ -2057,7 +2377,7 @@ export const updateRoster = async (req, res, next) => {
       }
     }
 
-    await query(`UPDATE maint_rosters SET roster_name=:roster_name,period_start=:period_start,period_end=:period_end,team_members=:team_members,shift_details=:shift_details,status=:status,employee_id=:employee_id,employee_name=:employee_name,team=:team,supervisor=:supervisor,roster_date=:roster_date,shift=:shift,start_time=:start_time,end_time=:end_time,asset_classification=:asset_classification,asset_category=:asset_category,asset_group=:asset_group,assigned_area=:assigned_area,primary_asset=:primary_asset,availability_status=:availability_status,overtime_eligible=:overtime_eligible,max_work_hours=:max_work_hours,remarks=:remarks,total_hours=:total_hours,schedule_id=:schedule_id,selected_assets=:selected_assets,frequency=:frequency,maintenance_days=:maintenance_days,task_description=:task_description,estimated_duration=:estimated_duration WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+    await query(`UPDATE maint_rosters SET roster_name=:roster_name,period_start=:period_start,period_end=:period_end,team_members=:team_members,shift_details=:shift_details,status=:status,employee_id=:employee_id,employee_name=:employee_name,team=:team,supervisor=:supervisor,roster_date=:roster_date,shift=:shift,start_time=:start_time,end_time=:end_time,asset_classification=:asset_classification,asset_category=:asset_category,asset_group=:asset_group,assigned_area=:assigned_area,primary_asset=:primary_asset,availability_status=:availability_status,overtime_eligible=:overtime_eligible,max_work_hours=:max_work_hours,remarks=:remarks,total_hours=:total_hours,schedule_id=:schedule_id,selected_assets=:selected_assets,frequency=:frequency,maintenance_days=:maintenance_days,maintenance_routine=:maintenance_routine,task_description=:task_description,estimated_duration=:estimated_duration WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
@@ -2085,9 +2405,14 @@ export const updateRoster = async (req, res, next) => {
         overtime_eligible: b.overtime_eligible ? 1 : 0,
         max_work_hours: b.max_work_hours || null,
         remarks: b.remarks || null,
-        total_hours: b.total_hours || null,
+        total_hours: b.total_hours || b.estimated_duration || null,
         schedule_id: b.schedule_id ? Number(b.schedule_id) : null,
         selected_assets: b.selected_assets ? (typeof b.selected_assets === 'string' ? b.selected_assets : JSON.stringify(b.selected_assets)) : null,
+        frequency: b.frequency || null,
+        maintenance_days: b.maintenance_days || null,
+        maintenance_routine: b.maintenance_routine || null,
+        task_description: b.task_description || null,
+        estimated_duration: b.estimated_duration || null,
       },
     );
     await cacheDelPattern(`maint_rosters:company:${companyId}:*`);

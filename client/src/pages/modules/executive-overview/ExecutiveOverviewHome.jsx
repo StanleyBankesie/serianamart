@@ -10,6 +10,49 @@ import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const toDateStr = (date) => {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const startOfMonth = (date) => new Date(date.getFullYear(), date.getMonth(), 1);
+
+const endOfMonth = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0);
+
+const startOfWeek = (date) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d;
+};
+
+const sumOutstanding = (items) =>
+  (Array.isArray(items) ? items : []).reduce(
+    (sum, row) => sum + Number(row?.outstanding || 0),
+    0,
+  );
+
+const countOverdue = (items) =>
+  (Array.isArray(items) ? items : []).filter(
+    (row) => String(row?.status || "").toUpperCase() === "OVERDUE",
+  ).length;
+
+const buildDeltaBadge = (current, previous, suffix) => {
+  const cur = Number(current || 0);
+  const prev = Number(previous || 0);
+  if (!Number.isFinite(cur) || !Number.isFinite(prev)) return "";
+  if (prev === 0) {
+    return cur > 0 ? `↑ NEW ${suffix}` : `— ${suffix}`;
+  }
+  const delta = ((cur - prev) * 100) / prev;
+  const rounded = Math.round(Math.abs(delta) * 10) / 10;
+  if (rounded === 0) return `— ${suffix}`;
+  return `${delta > 0 ? "↑" : "↓"} ${rounded}% ${suffix}`;
+};
+
 // ERP Standard Module Icons (using Lucide-style SVG icons)
 const ModuleIcon = ({ name, className = "w-6 h-6" }) => {
   const icons = {
@@ -199,39 +242,136 @@ export default function ExecutiveOverviewHome() {
     weekSales: null,
     monthSales: null,
     supplierOutstanding: null,
+    badges: {},
   });
 
   useEffect(() => {
     let mounted = true;
     async function loadKpis() {
       try {
-        // Outstanding Receivables
-        const [recRes, payRes, salesRes, suppRes] = await Promise.allSettled([
-          api.get("/finance/reports/outstanding-receivable", { params: { from: null, to: null } }),
-          api.get("/finance/reports/payment-due", { params: { from: null, to: null } }),
-          api.get("/sales/dashboard/metrics", { params: { topProducts: 1, topCustomers: 1 } }),
-          api.get("/finance/reports/supplier-outstanding"),
+        const today = new Date();
+        const currentMonthStart = startOfMonth(today);
+        const previousMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const previousMonthStart = startOfMonth(previousMonthDate);
+        const previousMonthEnd = endOfMonth(previousMonthDate);
+        const currentWeekStart = startOfWeek(today);
+        const previousWeekEnd = new Date(currentWeekStart);
+        previousWeekEnd.setDate(previousWeekEnd.getDate() - 1);
+
+        const [homeRes, weekRes, prevWeekRes, recRes, payRes, suppRes, fastRes, prevFastRes, slowRes, prevSlowRes] =
+          await Promise.allSettled([
+            api.get("/bi/home-overview"),
+            api.get("/sales/dashboard/metrics", {
+              params: { topProducts: 1, topCustomers: 1, from: toDateStr(currentWeekStart), to: toDateStr(today) },
+            }),
+            api.get("/sales/dashboard/metrics", {
+              params: { topProducts: 1, topCustomers: 1, from: toDateStr(startOfWeek(previousWeekEnd)), to: toDateStr(previousWeekEnd) },
+            }),
+            api.get("/finance/reports/outstanding-receivable", {
+              params: { from: null, to: null },
+            }),
+            api.get("/finance/reports/payment-due", {
+              params: { from: null, to: null },
+            }),
+            api.get("/finance/reports/supplier-outstanding"),
+            api.get("/inventory/reports/fast-moving", {
+              params: {
+                from: toDateStr(currentMonthStart),
+                to: toDateStr(today),
+              },
+            }),
+            api.get("/inventory/reports/fast-moving", {
+              params: {
+                from: toDateStr(previousMonthStart),
+                to: toDateStr(previousMonthEnd),
+              },
+            }),
+            api.get("/inventory/reports/slow-moving", {
+              params: {
+                from: toDateStr(currentMonthStart),
+                to: toDateStr(today),
+              },
+            }),
+            api.get("/inventory/reports/slow-moving", {
+              params: {
+                from: toDateStr(previousMonthStart),
+                to: toDateStr(previousMonthEnd),
+              },
+            }),
         ]);
 
         if (!mounted) return;
 
+        const home = homeRes.status === "fulfilled" ? (homeRes.value.data || {}) : {};
+        const weekCards = weekRes.status === "fulfilled" ? (weekRes.value.data?.cards || {}) : {};
+        const prevWeekCards =
+          prevWeekRes.status === "fulfilled"
+            ? (prevWeekRes.value.data?.cards || {})
+            : {};
         const rec = recRes.status === "fulfilled" ? (recRes.value.data?.items || []) : [];
         const pay = payRes.status === "fulfilled" ? (payRes.value.data?.items || []) : [];
-        const salesCards = salesRes.status === "fulfilled" ? (salesRes.value.data?.cards || {}) : {};
-        const suppTotals = suppRes.status === "fulfilled" ? (suppRes.value.data?.totals || {}) : {};
+        const suppTotals =
+          suppRes.status === "fulfilled" ? (suppRes.value.data?.totals || {}) : {};
+        const suppItems =
+          suppRes.status === "fulfilled" ? (suppRes.value.data?.items || []) : [];
+        const fastItems =
+          fastRes.status === "fulfilled" ? (fastRes.value.data?.items || []) : [];
+        const prevFastItems =
+          prevFastRes.status === "fulfilled"
+            ? (prevFastRes.value.data?.items || [])
+            : [];
+        const slowItems =
+          slowRes.status === "fulfilled" ? (slowRes.value.data?.items || []) : [];
+        const prevSlowItems =
+          prevSlowRes.status === "fulfilled"
+            ? (prevSlowRes.value.data?.items || [])
+            : [];
 
-        const totalRec = rec.reduce((s, r) => s + Number(r.outstanding || 0), 0);
-        const totalPay = pay.reduce((s, r) => s + Number(r.outstanding || 0), 0);
+        const totalRec = sumOutstanding(rec);
+        const totalPay = sumOutstanding(pay);
+        const overdueReceivables = countOverdue(rec);
+        const overduePayables = countOverdue(pay);
+        const currentWeekSales = Number(weekCards.wtd_sales || 0);
+        const previousWeekSales = Number(prevWeekCards.wtd_sales || 0);
 
         setKpis({
           outstandingReceivables: totalRec,
           outstandingPayables: totalPay,
-          todaySales: Number(salesCards.today_sales || 0),
-          weekSales: Number(salesCards.wtd_sales || 0),
-          monthSales: Number(salesCards.mtd_sales || 0),
+          todaySales: Number(home.todaySales || 0),
+          weekSales: currentWeekSales,
+          monthSales: Number(home.monthlyRevenue || 0),
           supplierOutstanding: Number(suppTotals.total || 0),
-          fastMovingCount: null,
-          slowMovingCount: null,
+          fastMovingCount: fastItems.length,
+          slowMovingCount: slowItems.length,
+          badges: {
+            outstandingReceivables:
+              overdueReceivables > 0
+                ? `${overdueReceivables} OVERDUE`
+                : "— CURRENT",
+            outstandingPayables:
+              overduePayables > 0 ? `${overduePayables} OVERDUE` : "— CURRENT",
+            todaySales: home?.badges?.["today-sales"]?.text || "",
+            weekSales: buildDeltaBadge(
+              currentWeekSales,
+              previousWeekSales,
+              "VS LAST WEEK",
+            ),
+            monthSales: home?.badges?.["monthly-revenue"]?.text || "",
+            supplierOutstanding:
+              suppItems.length > 0
+                ? `${suppItems.length} SUPPLIERS`
+                : "— NO SUPPLIERS",
+            fastMovingCount: buildDeltaBadge(
+              fastItems.length,
+              prevFastItems.length,
+              "VS LAST MONTH",
+            ),
+            slowMovingCount: buildDeltaBadge(
+              slowItems.length,
+              prevSlowItems.length,
+              "VS LAST MONTH",
+            ),
+          },
         });
       } catch {}
     }
@@ -244,6 +384,8 @@ export default function ExecutiveOverviewHome() {
     {
       label: "Outstanding Receivables",
       kpiKey: "outstandingReceivables",
+      badgeKey: "outstandingReceivables",
+      format: "currency",
       iconName: "receivables",
       iconBg: "bg-emerald-100",
       iconColor: "text-emerald-700",
@@ -253,6 +395,8 @@ export default function ExecutiveOverviewHome() {
     {
       label: "Outstanding Payables",
       kpiKey: "outstandingPayables",
+      badgeKey: "outstandingPayables",
+      format: "currency",
       iconName: "payables",
       iconBg: "bg-amber-100",
       iconColor: "text-amber-700",
@@ -262,6 +406,8 @@ export default function ExecutiveOverviewHome() {
     {
       label: "Today's Sales",
       kpiKey: "todaySales",
+      badgeKey: "todaySales",
+      format: "currency",
       iconName: "sales",
       iconBg: "bg-blue-100",
       iconColor: "text-blue-700",
@@ -271,6 +417,8 @@ export default function ExecutiveOverviewHome() {
     {
       label: "Current Month Revenue",
       kpiKey: "monthSales",
+      badgeKey: "monthSales",
+      format: "currency",
       iconName: "revenue",
       iconBg: "bg-violet-100",
       iconColor: "text-violet-700",
@@ -280,6 +428,8 @@ export default function ExecutiveOverviewHome() {
     {
       label: "Current Week Revenue",
       kpiKey: "weekSales",
+      badgeKey: "weekSales",
+      format: "currency",
       iconName: "week",
       iconBg: "bg-indigo-100",
       iconColor: "text-indigo-700",
@@ -289,6 +439,8 @@ export default function ExecutiveOverviewHome() {
     {
       label: "Supplier Outstanding",
       kpiKey: "supplierOutstanding",
+      badgeKey: "supplierOutstanding",
+      format: "currency",
       iconName: "supplier",
       iconBg: "bg-rose-100",
       iconColor: "text-rose-700",
@@ -297,7 +449,9 @@ export default function ExecutiveOverviewHome() {
     },
     {
       label: "Fast Moving Items",
-      kpiKey: null,
+      kpiKey: "fastMovingCount",
+      badgeKey: "fastMovingCount",
+      format: "count",
       iconName: "fast",
       iconBg: "bg-cyan-100",
       iconColor: "text-cyan-700",
@@ -306,7 +460,9 @@ export default function ExecutiveOverviewHome() {
     },
     {
       label: "Slow Moving Items",
-      kpiKey: null,
+      kpiKey: "slowMovingCount",
+      badgeKey: "slowMovingCount",
+      format: "count",
       iconName: "slow",
       iconBg: "bg-orange-100",
       iconColor: "text-orange-700",
@@ -358,8 +514,13 @@ export default function ExecutiveOverviewHome() {
             {KPI_CARDS.map((card, i) => {
               const val = card.kpiKey ? kpis[card.kpiKey] : null;
               const hasValue = val !== null && val !== undefined;
+              const badgeText = card.badgeKey ? kpis.badges?.[card.badgeKey] : "";
               const cardType = i % 4;
-              const formattedVal = hasValue ? `₵${fmt(val)}` : "View Report";
+              const formattedVal = hasValue
+                ? card.format === "count"
+                  ? Number(val || 0).toLocaleString()
+                  : `₵${fmt(val)}`
+                : "—";
 
               if (cardType === 0) {
                 // Card 1: Amber Gold
@@ -372,9 +533,11 @@ export default function ExecutiveOverviewHome() {
                     <div className="flex flex-col h-full justify-between">
                       <div className="flex justify-between items-start min-h-[22px]">
                         <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold leading-none">{card.desc}</p>
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] leading-none flex items-center">
-                          ↓ 2.1%
-                        </span>
+                        {badgeText ? (
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.2)] leading-none flex items-center">
+                            {badgeText}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-5">
                         <div 
@@ -402,9 +565,11 @@ export default function ExecutiveOverviewHome() {
                     <div className="flex flex-col h-full justify-between">
                       <div className="flex justify-between items-start min-h-[22px]">
                         <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold leading-none">{card.desc}</p>
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md text-amber-200 border border-amber-400/20 shadow-sm leading-none flex items-center">
-                          ↑ 1.5%
-                        </span>
+                        {badgeText ? (
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md text-amber-200 border border-amber-400/20 shadow-sm leading-none flex items-center">
+                            {badgeText}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-5">
                         <div className="text-2xl font-extrabold text-white tracking-tight">
@@ -432,9 +597,11 @@ export default function ExecutiveOverviewHome() {
                     <div className="flex flex-col h-full justify-between">
                       <div className="flex justify-between items-start min-h-[22px]">
                         <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold leading-none">{card.desc}</p>
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-sm leading-none flex items-center">
-                          ↓ 12%
-                        </span>
+                        {badgeText ? (
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white/90 border border-white/15 shadow-sm leading-none flex items-center">
+                            {badgeText}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-5">
                         <div className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-1.5">
@@ -464,9 +631,11 @@ export default function ExecutiveOverviewHome() {
                     <div className="flex flex-col h-full justify-between">
                       <div className="flex justify-between items-start min-h-[22px]">
                         <p className="text-[10px] text-white/70 uppercase tracking-widest font-bold leading-none">{card.desc}</p>
-                        <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white border border-white/20 shadow-sm leading-none flex items-center">
-                          ↑ NEW
-                        </span>
+                        {badgeText ? (
+                          <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-white border border-white/20 shadow-sm leading-none flex items-center">
+                            {badgeText}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-5">
                         <div className="text-2xl font-extrabold text-white tracking-tight">

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { api } from "../../../../api/client";
+import { toast } from "react-toastify";
 import { filterByPrefix } from "@/utils/searchUtils.js";
 import "./PriceSetup.css";
 
@@ -435,6 +436,77 @@ export default function PriceSetup() {
     XLSX.writeFile(wb, filename);
   };
 
+  const handleExportStandardPrices = async () => {
+    try {
+      const res = await api.get("/sales/prices/standard");
+      const exportData = Array.isArray(res.data) ? res.data : res.data.items || [];
+
+      const wb = XLSX.utils.book_new();
+      const grouped = {};
+      exportData.forEach((item) => {
+        const ptName = item.price_type_name || "Uncategorized";
+        if (!grouped[ptName]) grouped[ptName] = [];
+        grouped[ptName].push(item);
+      });
+
+      if (Object.keys(grouped).length === 0) {
+        const ws = XLSX.utils.aoa_to_sheet([["Item Code", "Item Name", "Currency", "UOM", "Selling Price"]]);
+        XLSX.utils.book_append_sheet(wb, ws, "Standard Prices");
+      } else {
+        Object.keys(grouped).forEach((ptName) => {
+          const items = grouped[ptName];
+          const rows = items.map((item) => {
+            const currency = currencies.find((c) => c.id === item.currency_id);
+            const currencyName = currency ? currency.code : item.currency_id || "-";
+            const uom = item.uom || item.default_uom || "-";
+
+            return [
+              item.item_code || "",
+              item.item_name || `Product ${item.product_id}`,
+              currencyName,
+              uom,
+              Number(item.selling_price).toFixed(2),
+            ];
+          });
+          const ws = XLSX.utils.aoa_to_sheet([["Item Code", "Item Name", "Currency", "UOM", "Selling Price"], ...rows]);
+          let validName = ptName.replace(/[/\\?*:[\]]/g, "_").substring(0, 31);
+          if (!validName) validName = "Sheet";
+          XLSX.utils.book_append_sheet(wb, ws, validName);
+        });
+      }
+
+      XLSX.writeFile(wb, "standard_prices_export.xlsx");
+    } catch (err) {
+      console.error("Export failed", err);
+      alert("Export failed: " + (err.response?.data?.message || err.message));
+    }
+  };
+
+  const handleExportCostPrices = () => {
+    const headers = ["Item Code", "Item Name", "Currency", "UOM", "Cost Price"];
+    const rows = costData.map((item) => {
+      const currency = currencies.find((c) => c.id === item.currency_id) ||
+        currencies.find((c) => String(c.code || "").toUpperCase() === String(item.currency_code || "").toUpperCase()) ||
+        currencies.find((c) => String(c.name || "").toUpperCase() === String(item.currency_name || "").toUpperCase());
+
+      const currencyName = currency ? currency.code : item.currency_name || item.currency_code || "-";
+      const uom = item.uom || item.default_uom || "-";
+
+      return [
+        item.item_code || "",
+        item.item_name || "",
+        currencyName,
+        uom,
+        Number(item.cost_price || 0).toFixed(2),
+      ];
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Cost Prices");
+    XLSX.writeFile(wb, "cost_prices_export.xlsx");
+  };
+
   const handleUploadClick = () => {
     fileInputRef.current.click();
   };
@@ -453,7 +525,7 @@ export default function PriceSetup() {
         const items = XLSX.utils.sheet_to_json(sheet);
 
         if (items.length === 0) {
-          alert("File is empty or invalid format");
+          toast.warn("File is empty or invalid format");
           return;
         }
 
@@ -462,11 +534,11 @@ export default function PriceSetup() {
             ? "/sales/prices/bulk/standard"
             : "/sales/prices/bulk/customer";
         await api.post(endpoint, { items });
-        alert("Uploaded successfully");
+        toast.success("✅ Prices uploaded successfully!");
         loadTabData();
       } catch (err) {
         console.error("Upload failed", err);
-        alert("Upload failed: " + (err.response?.data?.message || err.message));
+        toast.error("Upload failed: " + (err.response?.data?.message || err.message));
       }
     };
     reader.readAsArrayBuffer(file);
@@ -489,19 +561,19 @@ export default function PriceSetup() {
         const sheet = workbook.Sheets[sheetName];
         const items = XLSX.utils.sheet_to_json(sheet);
         if (items.length === 0) {
-          alert("File is empty or invalid format");
+          toast.warn("File is empty or invalid format");
           return;
         }
         const res = await api.post("/inventory/items/cost-prices/bulk", {
           items,
         });
-        alert(
-          `Uploaded successfully. ${res.data.updated} updated, ${res.data.notFound} not found.`,
+        toast.success(
+          `✅ Cost prices uploaded! ${res.data.updated} updated, ${res.data.notFound} not found.`,
         );
         loadCostData();
       } catch (err) {
         console.error("Upload failed", err);
-        alert("Upload failed: " + (err.response?.data?.message || err.message));
+        toast.error("Upload failed: " + (err.response?.data?.message || err.message));
       }
     };
     reader.readAsArrayBuffer(file);
@@ -681,22 +753,23 @@ export default function PriceSetup() {
       const itemId = Number(costFormData.item_id);
       const costPrice = Number(costFormData.cost_price);
       if (!itemId) {
-        alert("Select a product");
+        toast.warn("Select a product");
         return;
       }
       if (!Number.isFinite(costPrice) || costPrice < 0) {
-        alert("Enter a valid cost price");
+        toast.warn("Enter a valid cost price");
         return;
       }
       await api.post("/inventory/items/cost-price", {
         item_id: itemId,
         cost_price: costPrice,
       });
+      toast.success("✅ Cost price saved successfully!");
       handleCloseCostModal();
       loadCostData();
     } catch (err) {
       console.error("Error saving cost price:", err);
-      alert("Failed to save: " + (err.response?.data?.message || err.message));
+      toast.error("Failed to save: " + (err.response?.data?.message || err.message));
     }
   };
 
@@ -1508,14 +1581,14 @@ export default function PriceSetup() {
         type="file"
         ref={fileInputRef}
         style={{ display: "none" }}
-        accept=".csv"
+        accept=".csv, .xlsx, .xls"
         onChange={handleFileChange}
       />
       <input
         type="file"
         ref={costFileInputRef}
         style={{ display: "none" }}
-        accept=".csv"
+        accept=".csv, .xlsx, .xls"
         onChange={handleCostFileChange}
       />
 
@@ -1656,6 +1729,14 @@ export default function PriceSetup() {
                 >
                   📤 Upload Prices
                 </button>
+                {sellingView === "standard" && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleExportStandardPrices}
+                  >
+                    📤 Export Prices
+                  </button>
+                )}
                 <button
                   className="btn btn-primary"
                   onClick={() =>
@@ -1680,6 +1761,12 @@ export default function PriceSetup() {
                   onClick={handleOpenCostUpload}
                 >
                   📤 Upload Cost Prices
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleExportCostPrices}
+                >
+                  📤 Export Cost Prices
                 </button>
                 <button
                   className="btn btn-primary"

@@ -1,135 +1,61 @@
-/**
- * @fileoverview ServiceDashboardPage component.
- * Provides functionality for ServiceDashboardPage.
- */
-
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
+import {
+  DashboardPageShell,
+  MetricCard,
+  SectionCard,
+  HorizontalBarList,
+  LineTrendChart,
+  RecordsTable,
+  ShortcutGrid,
+  formatCurrency,
+  formatDate,
+  formatNumber,
+  getCurrentDateRange,
+  groupCounts,
+  sumBy,
+} from "../../../components/dashboard/ModuleDashboardWidgets.jsx";
 
-function Card({ title, value }) {
+function statusBadge(status) {
+  const value = String(status || "").toUpperCase();
+  const palette =
+    value === "COMPLETED" || value === "DONE" || value === "CLOSED"
+      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+      : value === "PENDING" || value === "OPEN" || value === "IN_PROGRESS"
+        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+        : value === "CANCELLED" || value === "REJECTED"
+          ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+          : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 shadow-erp">
-      <div className="text-sm text-slate-500">{title}</div>
-      <div className="text-2xl font-bold mt-1">{Number(value || 0).toLocaleString()}</div>
-    </div>
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${palette}`}>
+      {String(status || "Unknown").replaceAll("_", " ")}
+    </span>
   );
 }
 
-function MultiLineChart({ title, data, seriesDefs }) {
-  const w = 780;
-  const h = 300;
-  const pad = 40;
-  const max = Math.max(
-    ...data.flatMap((d) => seriesDefs.map((s) => Number(d[s.key] || 0))),
-    1,
-  );
-  const sx = (i) => pad + (i * (w - pad * 2)) / Math.max(data.length - 1, 1);
-  const sy = (v) => h - pad - ((Number(v || 0) / max) * (h - pad * 2));
-  const colors = ["#0ea5e9", "#22c55e", "#f59e0b", "#a855f7"];
-  return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 shadow-erp">
-      <div className="flex items-center justify-between mb-3">
-        <div className="text-lg font-bold">{title}</div>
-        <div className="text-xs text-slate-500 flex items-center gap-3">
-          {seriesDefs.map((s, i) => (
-            <span key={s.key} className="inline-flex items-center gap-1">
-              <span className="w-3 h-3 rounded-sm" style={{ background: colors[i % colors.length] }} />
-              {s.label}
-            </span>
-          ))}
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-[300px]">
-        <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="#cbd5e1" />
-        <line x1={pad} y1={pad} x2={pad} y2={h - pad} stroke="#cbd5e1" />
-        {[0.25, 0.5, 0.75].map((t, i) => {
-          const y = h - pad - t * (h - pad * 2);
-          return <line key={i} x1={pad} y1={y} x2={w - pad} y2={y} stroke="#e2e8f0" />;
-        })}
-        {seriesDefs.map((s, i) => {
-          const pts = data.map((d, idx) => [sx(idx), sy(d[s.key])]);
-          return (
-            <polyline
-              key={s.key}
-              points={pts.map(([x, y]) => `${x},${y}`).join(" ")}
-              fill="none"
-              stroke={colors[i % colors.length]}
-              strokeWidth="2"
-            />
-          );
-        })}
-        {data.map((d, idx) => (
-          <text
-            key={idx}
-            x={sx(idx)}
-            y={h - 8}
-            fontSize="10"
-            textAnchor="middle"
-            fill="#64748b"
-          >
-            {(d.label || "").slice(5)}
-          </text>
-        ))}
-      </svg>
-    </div>
-  );
-}
-
-function SimpleBarChart({ title, data, palette = [] }) {
-  const max = Math.max(...data.map((d) => Number(d.value || 0)), 1);
-  const w = 760;
-  const h = 300;
-  const pad = 40;
-  const barW = Math.max(18, (w - pad * 2) / Math.max(data.length * 1.6, 1));
-  const step = (w - pad * 2) / Math.max(data.length, 1);
-  const colors =
-    palette.length
-      ? palette
-      : ["#4f46e5","#06b6d4","#22c55e","#f59e0b","#a855f7","#ef4444","#14b8a6","#8b5cf6","#f97316","#0ea5e9","#10b981"];
-  return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 shadow-erp">
-      <div className="text-lg font-bold mb-3">{title}</div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-[300px]">
-        {data.map((d, i) => {
-          const x = pad + i * step + (step - barW) / 2;
-          const vh = ((Number(d.value || 0) / max) * (h - pad * 2)) | 0;
-          const y = h - pad - vh;
-          return (
-            <g key={i}>
-              <rect x={x} y={y} width={barW} height={vh} fill={colors[i % colors.length]} rx="2" />
-              <text x={x + barW / 2} y={h - 8} fontSize="10" textAnchor="middle" fill="#64748b">
-                {String(d.label || "").slice(0, 10)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
 export default function ServiceDashboardPage() {
   const location = useLocation();
   const backTo =
     location.state?.fromExecutiveOverview === true
       ? "/executive-overview"
       : "/service-management";
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const range = useMemo(() => getCurrentDateRange(), []);
+  const [from, setFrom] = useState(range.from);
+  const [to, setTo] = useState(range.to);
   const [topN, setTopN] = useState(10);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [visitorStats, setVisitorStats] = useState({
-    total: 0,
-    active: 0,
-    today: 0,
+  const [data, setData] = useState({
+    metrics: null,
+    visitors: null,
+    requests: [],
+    orders: [],
+    revenue: { items: [], metrics: {} },
+    sla: { items: [], metrics: {} },
+    technicians: [],
+    outstandingBills: [],
+    costAnalysis: [],
   });
 
   useEffect(() => {
@@ -138,18 +64,80 @@ export default function ServiceDashboardPage() {
       setLoading(true);
       setError("");
       try {
-        const params = { top: topN };
-        if (from) params.from = from;
-        if (to) params.to = to;
-        const res = await api.get("/purchase/service/dashboard/metrics", { params });
+        const params = { from: from || null, to: to || null, top: topN };
+        const [
+          metricsRes,
+          visitorsRes,
+          requestsRes,
+          ordersRes,
+          revenueRes,
+          slaRes,
+          techniciansRes,
+          outstandingRes,
+          costRes,
+        ] = await Promise.allSettled([
+          api.get("/purchase/service/dashboard/metrics", { params }),
+          api.get("/visitors/dashboard/stats"),
+          api.get("/service-management/reports/request-summary", { params }),
+          api.get("/service-management/reports/order-status", { params }),
+          api.get("/service-management/reports/service-revenue", { params }),
+          api.get("/service-management/reports/sla-compliance", { params }),
+          api.get("/service-management/reports/technician-utilization", { params }),
+          api.get("/service-management/reports/outstanding-bills"),
+          api.get("/service-management/reports/cost-analysis"),
+        ]);
+
         if (!mounted) return;
-        setData(res.data || {});
-      } catch (e) {
+
+        setData({
+          metrics:
+            metricsRes.status === "fulfilled" ? metricsRes.value.data || {} : {},
+          visitors:
+            visitorsRes.status === "fulfilled"
+              ? visitorsRes.value.data?.stats || {}
+              : {},
+          requests:
+            requestsRes.status === "fulfilled"
+              ? requestsRes.value.data?.items || []
+              : [],
+          orders:
+            ordersRes.status === "fulfilled"
+              ? ordersRes.value.data?.items || []
+              : [],
+          revenue:
+            revenueRes.status === "fulfilled"
+              ? {
+                  items: revenueRes.value.data?.items || [],
+                  metrics: revenueRes.value.data?.metrics || {},
+                }
+              : { items: [], metrics: {} },
+          sla:
+            slaRes.status === "fulfilled"
+              ? {
+                  items: slaRes.value.data?.items || [],
+                  metrics: slaRes.value.data?.metrics || {},
+                }
+              : { items: [], metrics: {} },
+          technicians:
+            techniciansRes.status === "fulfilled"
+              ? techniciansRes.value.data?.items || []
+              : [],
+          outstandingBills:
+            outstandingRes.status === "fulfilled"
+              ? outstandingRes.value.data?.items || []
+              : [],
+          costAnalysis:
+            costRes.status === "fulfilled"
+              ? costRes.value.data?.items || []
+              : [],
+        });
+      } catch (err) {
         if (!mounted) return;
-        setError(e?.response?.data?.message || "Failed to load service dashboard");
+        setError(
+          err?.response?.data?.message || "Failed to load service dashboard.",
+        );
       } finally {
-        if (!mounted) return;
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     }
     load();
@@ -158,93 +146,418 @@ export default function ServiceDashboardPage() {
     };
   }, [from, to, topN]);
 
-  useEffect(() => {
-    let mounted = true;
-    async function loadVisitorStats() {
-      try {
-        const res = await api.get("/visitors/dashboard/stats");
-        if (!mounted) return;
-        setVisitorStats({
-          total: res.data?.stats?.total_visitors || 0,
-          active: res.data?.stats?.active_visitors || 0,
-          today: res.data?.stats?.today_visitors || 0,
-        });
-      } catch {
-        // Silent fail
-      }
-    }
-    loadVisitorStats();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const insights = useMemo(() => {
+    const cards = data.metrics?.cards || {};
+    const topCategories = (data.metrics?.top_categories || []).map((item) => ({
+      label: item.label,
+      value: Number(item.value || 0),
+    }));
+    const technicianLeaderboard = [...(data.technicians || [])]
+      .sort((a, b) => Number(b.total_jobs || 0) - Number(a.total_jobs || 0))
+      .slice(0, 6)
+      .map((item) => ({
+        label: item.technician || "Unassigned",
+        value: Number(item.total_jobs || 0),
+      }));
+    const riskyJobs = [...(data.costAnalysis || [])]
+      .filter((item) => Number(item.profit_loss || 0) < 0)
+      .sort((a, b) => Number(a.profit_loss || 0) - Number(b.profit_loss || 0))
+      .slice(0, 6);
 
-  const cards = data?.cards || {};
-  const trend = data?.month_wise_trend || [];
-  const topCategories = data?.top_categories || [];
+    return {
+      cards,
+      topCategories,
+      technicianLeaderboard,
+      requestStatus: groupCounts(data.requests, (item) => item.status),
+      requestPriority: groupCounts(data.requests, (item) => item.priority),
+      orderStatus: groupCounts(data.orders, (item) => item.status),
+      totalOutstandingBalance: sumBy(data.outstandingBills, (item) => item.balance),
+      riskyJobs,
+    };
+  }, [data]);
 
   return (
-    <div className="space-y-6">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center text-white">
-            <div>
-              <h1 className="text-2xl font-bold">Service Management Dashboard</h1>
-              <p className="text-sm mt-1">Requests → Orders → Executions → Confirmations</p>
-            </div>
-            <div className="flex gap-2 items-center">
-              <input type="date" className="input input-sm w-36" value={from} onChange={(e) => setFrom(e.target.value)} title="From" />
-              <input type="date" className="input input-sm w-36" value={to} onChange={(e) => setTo(e.target.value)} title="To" />
-              <label className="text-sm">Top</label>
-              <select className="input input-sm w-24" value={topN} onChange={(e) => setTopN(Number(e.target.value))}>
-                {[1,2,3,5,10,15,20].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-              <Link to={backTo} className="btn btn-secondary">Return</Link>
-            </div>
+    <DashboardPageShell
+      title="Service Management Dashboard"
+      subtitle="Comprehensive live view of service demand, order pipeline, SLA performance, technician output, revenue, receivables, and visitor activity."
+      backTo={backTo}
+      backLabel="Return"
+      filters={
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-white/70">
+              From
+            </label>
+            <input
+              type="date"
+              className="input w-full"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-white/70">
+              To
+            </label>
+            <input
+              type="date"
+              className="input w-full"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-white/70">
+              Top Categories
+            </label>
+            <select
+              className="input w-full"
+              value={topN}
+              onChange={(e) => setTopN(Number(e.target.value))}
+            >
+              {[3, 5, 10, 15, 20].map((value) => (
+                <option key={value} value={value}>
+                  Top {value}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
-        <div className="card-body">
-          {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
-          {loading ? <div className="text-slate-500">Loading...</div> : null}
-          {!loading && (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-                <Card title="YTD Requests" value={cards.ytd_requests} />
-                <Card title="MTD Requests" value={cards.mtd_requests} />
-                <Card title="WTD Requests" value={cards.wtd_requests} />
-                <Card title="YTD Orders" value={cards.ytd_orders} />
-                <Card title="MTD Orders" value={cards.mtd_orders} />
-                <Card title="WTD Orders" value={cards.wtd_orders} />
-                <Card title="YTD Executions" value={cards.ytd_executions} />
-                <Card title="MTD Executions" value={cards.mtd_executions} />
-                <Card title="WTD Executions" value={cards.wtd_executions} />
-                <Card title="YTD Confirmations" value={cards.ytd_confirmations} />
-                <Card title="MTD Confirmations" value={cards.mtd_confirmations} />
-                <Card title="WTD Confirmations" value={cards.wtd_confirmations} />
-                <Card title="YTD Service Bill Value" value={cards.ytd_service_bill_value} />
-                <Card title="MTD Service Bill Value" value={cards.mtd_service_bill_value} />
-                <Card title="Total Visitors" value={visitorStats.total} />
-                <Card title="Active Visitors" value={visitorStats.active} />
-                <Card title="Today's Visitors" value={visitorStats.today} />
-              </div>
-              <div className="grid grid-cols-1">
-                <MultiLineChart
-                  title="Month-wise Service Trend"
-                  data={trend}
-                  seriesDefs={[
-                    { key: "orders", label: "Orders" },
-                    { key: "executions", label: "Executions" },
-                    { key: "confirmations", label: "Confirmations" },
-                  ]}
-                />
-              </div>
-              <div className="grid grid-cols-1">
-                <SimpleBarChart title={`Top ${topN} Service Categories`} data={topCategories} />
-              </div>
-            </>
-          )}
+      }
+      actions={[
+        {
+          label: "Service Requests",
+          path: "/service-management/customer-service-requests",
+          icon: "📨",
+          description: "Open live request intake and service demand.",
+        },
+        {
+          label: "Service Orders",
+          path: "/service-management/service-orders",
+          icon: "🧾",
+          description: "Track order execution and operational progress.",
+        },
+        {
+          label: "Service Revenue",
+          path: "/service-management/reports/service-revenue",
+          icon: "💵",
+          description: "Review billing and service revenue detail.",
+        },
+        {
+          label: "SLA Report",
+          path: "/service-management/reports/sla-compliance",
+          icon: "⏱️",
+          description: "Inspect compliance versus agreed service levels.",
+        },
+      ]}
+    >
+      {error ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
+          {error}
         </div>
+      ) : null}
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          title="YTD Requests"
+          value={formatNumber(insights.cards.ytd_requests)}
+          helper={`${formatNumber(insights.cards.mtd_requests)} this month.`}
+          icon="📨"
+          tone="indigo"
+        />
+        <MetricCard
+          title="YTD Orders"
+          value={formatNumber(insights.cards.ytd_orders)}
+          helper={`${formatNumber(insights.cards.wtd_orders)} this week.`}
+          icon="🧾"
+          tone="amber"
+        />
+        <MetricCard
+          title="YTD Executions"
+          value={formatNumber(insights.cards.ytd_executions)}
+          helper={`${formatNumber(insights.cards.mtd_executions)} executed this month.`}
+          icon="⚙️"
+          tone="emerald"
+        />
+        <MetricCard
+          title="YTD Confirmations"
+          value={formatNumber(insights.cards.ytd_confirmations)}
+          helper={`${formatNumber(insights.cards.mtd_confirmations)} confirmations this month.`}
+          icon="✅"
+          tone="teal"
+        />
+        <MetricCard
+          title="MTD Service Revenue"
+          value={formatCurrency(data.revenue.metrics?.total_revenue || insights.cards.mtd_service_bill_value || 0)}
+          helper={`${formatCurrency(data.revenue.metrics?.outstanding_amount || 0)} outstanding from billed work.`}
+          icon="💵"
+          tone="rose"
+        />
+        <MetricCard
+          title="SLA Compliance"
+          value={`${Number(data.sla.metrics?.sla_compliance_percent || 0).toFixed(1)}%`}
+          helper={`${formatNumber(data.sla.metrics?.breached_sla || 0)} breached requests in period.`}
+          icon="⏱️"
+          tone="indigo"
+        />
+        <MetricCard
+          title="Outstanding Bills"
+          value={formatNumber(data.outstandingBills.length)}
+          helper={formatCurrency(insights.totalOutstandingBalance)}
+          icon="📑"
+          tone="amber"
+        />
+        <MetricCard
+          title="Active Visitors"
+          value={formatNumber(data.visitors?.active_visitors)}
+          helper={`${formatNumber(data.visitors?.today_visitors)} visitors recorded today.`}
+          icon="🏢"
+          tone="slate"
+        />
       </div>
-    </div>
+
+      {loading ? (
+        <div className="rounded-3xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+          Loading service dashboard...
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+            <SectionCard
+              title="Monthly Service Trend"
+              subtitle="Orders, executions, and confirmations over time."
+            >
+              <LineTrendChart
+                data={data.metrics?.month_wise_trend || []}
+                series={[
+                  { key: "orders", label: "Orders" },
+                  { key: "executions", label: "Executions" },
+                  { key: "confirmations", label: "Confirmations" },
+                ]}
+              />
+            </SectionCard>
+
+            <SectionCard
+              title="Top Service Categories"
+              subtitle={`Top ${topN} service categories by current dashboard activity.`}
+            >
+              <HorizontalBarList
+                items={insights.topCategories}
+                tone="teal"
+                emptyText="No category activity available."
+              />
+            </SectionCard>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-3">
+            <SectionCard
+              title="Request Priority Mix"
+              subtitle="Current urgency levels in the request queue."
+            >
+              <HorizontalBarList
+                items={insights.requestPriority}
+                tone="amber"
+                emptyText="No request data available."
+              />
+            </SectionCard>
+            <SectionCard
+              title="Request Status"
+              subtitle="How the incoming request pipeline is moving."
+            >
+              <HorizontalBarList
+                items={insights.requestStatus}
+                tone="indigo"
+                emptyText="No request statuses available."
+              />
+            </SectionCard>
+            <SectionCard
+              title="Order Status"
+              subtitle="Operational flow of service orders in the selected period."
+            >
+              <HorizontalBarList
+                items={insights.orderStatus}
+                tone="emerald"
+                emptyText="No service orders available."
+              />
+            </SectionCard>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <SectionCard
+              title="Technician Workload"
+              subtitle="Technicians with the highest assigned service volume."
+            >
+              <HorizontalBarList
+                items={insights.technicianLeaderboard}
+                tone="rose"
+                emptyText="No technician utilization data available."
+              />
+            </SectionCard>
+
+            <SectionCard
+              title="Recent Service Requests"
+              subtitle="Newest customer demand entering the service pipeline."
+            >
+              <RecordsTable
+                rows={data.requests.slice(0, 6)}
+                columns={[
+                  { key: "request_no", label: "Request" },
+                  { key: "customer_name", label: "Customer" },
+                  { key: "service_type", label: "Service" },
+                  { key: "priority", label: "Priority" },
+                  {
+                    key: "status",
+                    label: "Status",
+                    render: (row) => statusBadge(row.status),
+                  },
+                  {
+                    key: "request_date",
+                    label: "Date",
+                    render: (row) => formatDate(row.request_date),
+                  },
+                ]}
+                emptyText="No service requests available."
+              />
+            </SectionCard>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <SectionCard
+              title="Current Service Orders"
+              subtitle="Latest service orders and their execution position."
+            >
+              <RecordsTable
+                rows={data.orders.slice(0, 6)}
+                columns={[
+                  { key: "order_no", label: "Order" },
+                  { key: "technician", label: "Technician" },
+                  {
+                    key: "estimated_cost",
+                    label: "Est. Cost",
+                    align: "right",
+                    render: (row) => formatCurrency(row.estimated_cost || 0),
+                  },
+                  {
+                    key: "actual_cost",
+                    label: "Actual Cost",
+                    align: "right",
+                    render: (row) => formatCurrency(row.actual_cost || 0),
+                  },
+                  {
+                    key: "status",
+                    label: "Status",
+                    render: (row) => statusBadge(row.status),
+                  },
+                ]}
+                emptyText="No service orders available."
+              />
+            </SectionCard>
+
+            <SectionCard
+              title="Outstanding Receivables"
+              subtitle="Open service bills waiting for collection."
+            >
+              <RecordsTable
+                rows={data.outstandingBills.slice(0, 6)}
+                columns={[
+                  { key: "bill_no", label: "Bill" },
+                  { key: "customer", label: "Customer" },
+                  { key: "aging", label: "Aging" },
+                  {
+                    key: "balance",
+                    label: "Balance",
+                    align: "right",
+                    render: (row) => formatCurrency(row.balance || 0),
+                  },
+                  {
+                    key: "due_date",
+                    label: "Due Date",
+                    render: (row) => formatDate(row.due_date),
+                  },
+                ]}
+                emptyText="No outstanding bills available."
+              />
+            </SectionCard>
+          </div>
+
+          <SectionCard
+            title="Loss-Making Jobs"
+            subtitle="Service jobs where current cost exceeds billed value."
+          >
+            <RecordsTable
+              rows={insights.riskyJobs}
+              columns={[
+                { key: "order_no", label: "Order" },
+                {
+                  key: "total_cost",
+                  label: "Total Cost",
+                  align: "right",
+                  render: (row) => formatCurrency(row.total_cost || 0),
+                },
+                {
+                  key: "billed_amount",
+                  label: "Billed",
+                  align: "right",
+                  render: (row) => formatCurrency(row.billed_amount || 0),
+                },
+                {
+                  key: "profit_loss",
+                  label: "Profit/Loss",
+                  align: "right",
+                  render: (row) => formatCurrency(row.profit_loss || 0),
+                },
+              ]}
+              emptyText="No negative-margin service jobs detected."
+            />
+          </SectionCard>
+
+          <SectionCard
+            title="Service Shortcuts"
+            subtitle="Jump directly from the dashboard into the operational and reporting pages that matter most."
+          >
+            <ShortcutGrid
+              items={[
+                {
+                  label: "Customer Service Requests",
+                  path: "/service-management/customer-service-requests",
+                  description: "Open the request register and intake queue.",
+                  icon: "📨",
+                },
+                {
+                  label: "Service Orders",
+                  path: "/service-management/service-orders",
+                  description: "Manage created service orders.",
+                  icon: "🧾",
+                },
+                {
+                  label: "Execution Performance",
+                  path: "/service-management/reports/execution-performance",
+                  description: "Review technician productivity and throughput.",
+                  icon: "⚙️",
+                },
+                {
+                  label: "SLA Compliance",
+                  path: "/service-management/reports/sla-compliance",
+                  description: "Inspect within-SLA versus breached tickets.",
+                  icon: "⏱️",
+                },
+                {
+                  label: "Service Revenue",
+                  path: "/service-management/reports/service-revenue",
+                  description: "Billing and revenue analytics.",
+                  icon: "💵",
+                },
+                {
+                  label: "Outstanding Bills",
+                  path: "/service-management/reports/outstanding-bills",
+                  description: "Focus on customer balances awaiting collection.",
+                  icon: "📑",
+                },
+              ]}
+            />
+          </SectionCard>
+        </>
+      )}
+    </DashboardPageShell>
   );
 }

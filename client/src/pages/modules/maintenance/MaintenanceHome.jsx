@@ -41,6 +41,7 @@ import MaintenanceMaterialRequisitionList from "./material-requisitions/Maintena
 import MaintenanceMaterialRequisitionForm from "./material-requisitions/MaintenanceMaterialRequisitionForm.jsx";
 import MaterialReceiptList from "./material-receipt/MaterialReceiptList.jsx";
 import MaterialReceiptForm from "./material-receipt/MaterialReceiptForm.jsx";
+import MaintenanceDashboardPage from "./MaintenanceDashboardPage.jsx";
 
 function MaintenanceLanding() {
   const [stats, setStats] = React.useState([
@@ -229,6 +230,14 @@ function MaintenanceLanding() {
       title="Maintenance"
       description="Asset maintenance and work order management"
       stats={stats}
+      moduleKey="maintenance"
+      headerActions={[
+        {
+          label: "Dashboard",
+          path: "/maintenance/dashboard",
+          icon: "📊",
+        },
+      ]}
       sections={sections}
       features={maintenanceFeatures}
     />
@@ -244,6 +253,7 @@ export default function MaintenanceHome() {
   return (
     <Routes>
       <Route path="/" element={<MaintenanceLanding />} />
+      <Route path="dashboard" element={<MaintenanceDashboardPage />} />
 
       <Route path="/assets" element={<AssetList />} />
       <Route path="/assets/new" element={<AssetForm />} />
