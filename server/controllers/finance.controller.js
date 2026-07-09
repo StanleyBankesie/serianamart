@@ -5531,7 +5531,7 @@ export const getFinanceDashboardStats = async (req, res, next) => {
          JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.company_id = :companyId AND v.status = 'POSTED'
          JOIN fin_accounts a ON a.id = vl.account_id
          JOIN fin_account_groups g ON g.id = a.group_id
-         WHERE g.code IN ('AST_CASH')`,
+         WHERE g.code IN ('AST_CASH') AND a.name = 'Cash on Hand'`,
         { companyId },
       );
       cashBalance = Number(cashRow?.balance || 0);

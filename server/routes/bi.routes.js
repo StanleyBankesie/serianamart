@@ -12,6 +12,7 @@ import {
   getSalesReport,
   getPurchaseReport,
   getInventoryReport,
+  getHomeOverview,
 } from "../controllers/bi.controller.js";
 
 const router = express.Router();
@@ -25,6 +26,15 @@ router.get(
   requireBranchScope,
   requirePermission("BI.DASHBOARD.VIEW"),
   (req, res, next) => getDashboards(req, res, next),
+);
+
+// GET /home-overview - Fetch overview data for the home page
+router.get(
+  "/home-overview",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  (req, res, next) => getHomeOverview(req, res, next),
 );
 
 // ===== REPORTS =====
@@ -74,7 +84,7 @@ router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchSc
       // Calculate total sales amount and count for last 30 days
       const [s] = await query(
         "SELECT COUNT(*) as count, COALESCE(SUM(total_amount),0) as total FROM sal_invoices WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND invoice_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       dashboards = 1;
       salesTotal = Number(s.total || 0);
@@ -83,7 +93,7 @@ router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchSc
       // Calculate total purchase amount for last 30 days
       const [p] = await query(
         "SELECT COALESCE(SUM(total_amount),0) as total FROM pur_orders WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND po_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       purchaseTotal = Number(p.total || 0);
     } catch {}
@@ -91,7 +101,7 @@ router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchSc
       // Get unique inventory item count
       const [inv] = await query(
         "SELECT COUNT(DISTINCT item_id) as count FROM inv_stock_balances WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))",
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       inventoryItems = Number(inv.count || 0);
     } catch {}
@@ -99,7 +109,7 @@ router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchSc
       // Get active employee count
       const [hr] = await query(
         "SELECT COUNT(*) as count FROM hr_employees WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND status IN ('ACTIVE','PROBATION') AND deleted_at IS NULL",
-        { companyId, branchId },
+        { companyId, branchId, branchIdsStr },
       );
       hrEmployees = Number(hr.count || 0);
     } catch {}
@@ -115,129 +125,6 @@ router.get("/dashboard-stats", requireAuth, requireCompanyScope, requireBranchSc
         hrEmployees,
         reportTypes: 4,
       },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/home-overview", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
-  try {
-    const { companyId, branchId = null, branchIdsStr = "" } = req.scope || {};
-
-    const pct = (cur, prev) => {
-      const a = Number(cur || 0);
-      const b = Number(prev || 0);
-      if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-      if (b === 0) return null;
-      return ((a - b) * 100) / b;
-    };
-
-    const badgeFromPct = (pctValue, suffix) => {
-      const p = Number(pctValue);
-      if (!Number.isFinite(p)) return "";
-      const rounded = Math.round(Math.abs(p) * 10) / 10;
-      if (rounded === 0) return `— ${suffix}`;
-      const arrow = p > 0 ? "↑" : "↓";
-      return `${arrow} ${rounded}% ${suffix}`;
-    };
-
-    const [todaySalesRow] = await query(
-      `SELECT COALESCE(SUM(total_amount),0) AS total, COUNT(*) AS count
-       FROM sal_invoices
-       WHERE company_id = :companyId
-         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
-         AND DATE(invoice_date) = CURDATE()`,
-      { companyId, branchId, branchIdsStr },
-    ).catch(() => [{ total: 0, count: 0 }]);
-    const [yesterdaySalesRow] = await query(
-      `SELECT COALESCE(SUM(total_amount),0) AS total
-       FROM sal_invoices
-       WHERE company_id = :companyId
-         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
-         AND DATE(invoice_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)`,
-      { companyId, branchId, branchIdsStr },
-    ).catch(() => [{ total: 0 }]);
-    const [monthSalesRow] = await query(
-      `SELECT COALESCE(SUM(total_amount),0) AS total, COUNT(*) AS count
-       FROM sal_invoices
-       WHERE company_id = :companyId
-         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
-         AND YEAR(invoice_date) = YEAR(CURDATE())
-         AND MONTH(invoice_date) = MONTH(CURDATE())`,
-      { companyId, branchId, branchIdsStr },
-    ).catch(() => [{ total: 0, count: 0 }]);
-    const [lastMonthSalesRow] = await query(
-      `SELECT COALESCE(SUM(total_amount),0) AS total, COUNT(*) AS count
-       FROM sal_invoices
-       WHERE company_id = :companyId
-         AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
-         AND YEAR(invoice_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
-         AND MONTH(invoice_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))`,
-      { companyId, branchId, branchIdsStr },
-    ).catch(() => [{ total: 0, count: 0 }]);
-    const [customersRow] = await query(
-      `SELECT COUNT(*) AS count
-       FROM sal_customers
-       WHERE company_id = :companyId`,
-      { companyId },
-    ).catch(() => [{ count: 0 }]);
-    const [newCustomersThisMonthRow] = await query(
-      `SELECT COUNT(*) AS count
-       FROM sal_customers
-       WHERE company_id = :companyId
-         AND YEAR(created_at) = YEAR(CURDATE())
-         AND MONTH(created_at) = MONTH(CURDATE())`,
-      { companyId },
-    ).catch(() => [{ count: 0 }]);
-    const [newCustomersLastMonthRow] = await query(
-      `SELECT COUNT(*) AS count
-       FROM sal_customers
-       WHERE company_id = :companyId
-         AND YEAR(created_at) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
-         AND MONTH(created_at) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))`,
-      { companyId },
-    ).catch(() => [{ count: 0 }]);
-
-    const todaySales = Math.round(Number(todaySalesRow?.total || 0) * 100) / 100;
-    const yesterdaySales = Math.round(Number(yesterdaySalesRow?.total || 0) * 100) / 100;
-    const monthlyRevenue = Math.round(Number(monthSalesRow?.total || 0) * 100) / 100;
-    const lastMonthRevenue = Math.round(Number(lastMonthSalesRow?.total || 0) * 100) / 100;
-    const monthCount = Number(monthSalesRow?.count || 0) || 0;
-    const lastMonthCount = Number(lastMonthSalesRow?.count || 0) || 0;
-    const averageOrder = monthCount > 0 ? Math.round((monthlyRevenue / monthCount) * 100) / 100 : 0;
-    const lastMonthAverageOrder = lastMonthCount > 0 ? Math.round((lastMonthRevenue / lastMonthCount) * 100) / 100 : 0;
-
-    const totalCustomers = Number(customersRow?.count || 0) || 0;
-    const newCustomersThisMonth = Number(newCustomersThisMonthRow?.count || 0) || 0;
-    const newCustomersLastMonth = Number(newCustomersLastMonthRow?.count || 0) || 0;
-
-    const badges = {
-      "today-sales": {
-        text: badgeFromPct(pct(todaySales, yesterdaySales), "VS YESTERDAY"),
-      },
-      "total-customers": {
-        text:
-          newCustomersLastMonth > 0
-            ? badgeFromPct(pct(newCustomersThisMonth, newCustomersLastMonth), "NEW VS LAST MONTH")
-            : newCustomersThisMonth > 0
-              ? `↑ ${newCustomersThisMonth} NEW THIS MONTH`
-              : "— NEW THIS MONTH",
-      },
-      "average-order": {
-        text: badgeFromPct(pct(averageOrder, lastMonthAverageOrder), "VS LAST MONTH"),
-      },
-      "monthly-revenue": {
-        text: badgeFromPct(pct(monthlyRevenue, lastMonthRevenue), "VS LAST MONTH"),
-      },
-    };
-
-    res.json({
-      todaySales,
-      totalCustomers,
-      averageOrder,
-      monthlyRevenue,
-      badges,
     });
   } catch (err) {
     next(err);

@@ -570,7 +570,9 @@ const recentlyRotatedTokens = new Map();
 // Endpoint / Major Logic: Refreshes access tokens and rotates refresh tokens, supporting slight concurrency delay
 export async function rotateRefreshSession(rawToken, oldAccessToken = null) {
   const tokenHash = hashRefreshToken(rawToken);
+  const { cacheGet, cacheSet } = await import("../utils/redis.js");
 
+  // 1. Check in-memory map (fast path for single process)
   if (recentlyRotatedTokens.has(tokenHash)) {
     const cached = recentlyRotatedTokens.get(tokenHash);
     if (Date.now() < cached.expiresAt) {
@@ -579,8 +581,28 @@ export async function rotateRefreshSession(rawToken, oldAccessToken = null) {
     }
   }
 
+  // 2. Check Redis (fast path for multi-process)
+  const redisKey = `auth:rotated_refresh:${tokenHash}`;
+  const redisCached = await cacheGet(redisKey);
+  if (redisCached) {
+    return redisCached;
+  }
+
   const promise = (async () => {
-    const refreshRecord = await consumeRefreshToken(rawToken);
+    let refreshRecord;
+    try {
+      refreshRecord = await consumeRefreshToken(rawToken);
+    } catch (err) {
+      if (err.message === "Refresh token is invalid") {
+        // Race condition mitigation: Another process might have JUST rotated it and deleted it from DB.
+        // If they deleted it, they must have saved the new tokens to Redis right before deleting.
+        // Let's check Redis one more time.
+        const secondCheck = await cacheGet(redisKey);
+        if (secondCheck) return secondCheck;
+      }
+      throw err;
+    }
+
     const user = await getUserForAuth(refreshRecord.user_id);
     if (!user || !Number(user.is_active)) {
       await revokeRefreshToken(rawToken);
@@ -588,13 +610,21 @@ export async function rotateRefreshSession(rawToken, oldAccessToken = null) {
     }
 
     const permissions = await getUserPermissions(user.id);
-    await revokeRefreshToken(rawToken);
-
+    
+    // Generate new tokens
     const newTokens = await createSessionTokens({
       user,
       rememberMe: refreshRecord.remember_me,
       permissions,
     });
+
+    // 3. Save to Redis BEFORE revoking from DB.
+    // This ensures that concurrent processes will either find the old token in the DB,
+    // or the new tokens in Redis. There's no gap where both are missing.
+    await cacheSet(redisKey, newTokens, 60);
+
+    // 4. Now we can safely revoke the old token from the DB.
+    await revokeRefreshToken(rawToken);
 
     return newTokens;
   })();

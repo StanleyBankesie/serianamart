@@ -8,6 +8,7 @@ import { cacheDel } from "../utils/redis.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 import {
   clearRefreshTokenCookie,
+  buildAuthUserPayload,
   createSessionTokens,
   ensureAuthTables,
   getUserForAuth,
@@ -752,7 +753,11 @@ export const getCurrentUser = async (req, res, next) => {
   try {
     const userId = Number(req.user?.sub || req.user?.id);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    const [user] = await query(
+    const baseUser = await getUserForAuth(userId);
+    if (!baseUser) return res.status(404).json({ message: "User not found" });
+    const permissions = await getUserPermissions(userId).catch(() => []);
+    const authUser = await buildAuthUserPayload(baseUser, permissions);
+    const [userMeta] = await query(
       `SELECT u.id, u.username, u.email, u.full_name,
          u.role_id, r.name AS role_name,
          IF(u.profile_picture IS NULL, NULL, IF(LEFT(u.profile_picture, 4) = 'http' OR LEFT(u.profile_picture, 5) = 'data:', CONVERT(u.profile_picture USING utf8), CONCAT('data:image/jpeg;base64,', REPLACE(TO_BASE64(u.profile_picture), '\\n', '')))) AS profile_picture_url
@@ -761,8 +766,23 @@ export const getCurrentUser = async (req, res, next) => {
          WHERE u.id = :userId`,
       { userId },
     );
-    if (!user) return res.status(404).json({ message: "User not found" });
-    res.json({ user });
+    res.json({
+      user: {
+        ...authUser,
+        company_id: Number(baseUser.company_id || 0) || null,
+        branch_id: Number(baseUser.branch_id || 0) || null,
+        role_id: Number(userMeta?.role_id || 0) || null,
+        role_name: userMeta?.role_name || null,
+        profile_picture_url:
+          userMeta?.profile_picture_url || authUser.profile_picture_url || null,
+      },
+      scope: {
+        companyId:
+          Number(baseUser.company_id || authUser?.companyIds?.[0] || 0) || null,
+        branchId:
+          Number(baseUser.branch_id || authUser?.branchIds?.[0] || 0) || null,
+      },
+    });
   } catch (err) {
     next(err);
   }

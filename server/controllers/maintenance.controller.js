@@ -14,12 +14,13 @@ function toNumber(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-let tablesEnsured = false;
+let tablesEnsuredPromise = null;
 
 // Helper to run database migrations/ensure tables exist for maintenance module
-async function ensureTables(companyId, branchId) {
-  if (tablesEnsured) return;
-  
+function ensureTables(companyId, branchId) {
+  if (!tablesEnsuredPromise) {
+    tablesEnsuredPromise = (async () => {
+      try {
   await query(`CREATE TABLE IF NOT EXISTS maint_requests (
     id INT AUTO_INCREMENT PRIMARY KEY,
     company_id INT NOT NULL, branch_id INT NOT NULL,
@@ -396,7 +397,12 @@ async function ensureTables(companyId, branchId) {
   for (const t of noCreatedAt) {
     await query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).catch(() => {});
   }
-  tablesEnsured = true;
+  } finally {
+    // Done
+  }
+    })();
+  }
+  return tablesEnsuredPromise;
 }
 
 // ===== HELPERS =====

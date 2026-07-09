@@ -7170,7 +7170,6 @@ router.get(
          FROM sal_quotations q
         LEFT JOIN sal_customers c ON c.id = q.customer_id AND c.company_id = q.company_id
         LEFT JOIN adm_users u ON u.id = q.created_by
-        LEFT JOIN adm_users u ON u.id = q.created_by
          WHERE q.company_id = :companyId
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND (:from IS NULL OR q.quotation_date >= :from)

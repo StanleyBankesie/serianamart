@@ -10161,8 +10161,8 @@ router.get(
       const [lowStock] = await query(
         `SELECT COUNT(*) as count FROM inv_items i
        WHERE i.company_id = :companyId AND i.is_active = 1 AND i.reorder_level > 0
-       AND i.reorder_level > (SELECT COALESCE(SUM(sb.qty), 0) FROM inv_stock_balances sb WHERE sb.item_id = i.id AND sb.branch_id = :branchId)`,
-        { companyId, branchId },
+       AND i.reorder_level > (SELECT COALESCE(SUM(sb.qty), 0) FROM inv_stock_balances sb WHERE sb.item_id = i.id AND (:branchIdsStr = '' OR FIND_IN_SET(sb.branch_id, :branchIdsStr)))`,
+        { companyId, branchIdsStr },
       ).catch(() => [{ count: 0 }]);
       const [adjustments] = await query(
         "SELECT COUNT(*) as count FROM inv_stock_adjustments WHERE company_id = :companyId AND branch_id = :branchId AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)",

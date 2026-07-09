@@ -47,6 +47,7 @@ import ProductionSetup from "./setup/ProductionSetup";
 function ProductionHomeIndex() {
   const [stats, setStats] = useState([
     {
+      rbac_key: "work-orders",
       label: "Active Production Orders",
       value: "0",
       change: "Execution",
@@ -55,6 +56,7 @@ function ProductionHomeIndex() {
       color: "from-blue-600 to-blue-700",
     },
     {
+      rbac_key: "job-cards",
       label: "Open Job Cards",
       value: "0",
       change: "Shop Floor",
@@ -63,6 +65,7 @@ function ProductionHomeIndex() {
       color: "from-indigo-600 to-indigo-700",
     },
     {
+      rbac_key: "work-orders",
       label: "Pending Requisitions",
       value: "0",
       change: "Materials",
@@ -71,6 +74,7 @@ function ProductionHomeIndex() {
       color: "from-amber-600 to-amber-700",
     },
     {
+      rbac_key: "boms",
       label: "BOM Master Records",
       value: "0",
       change: "Masters",

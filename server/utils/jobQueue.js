@@ -21,41 +21,10 @@ let lowStockWorker = null;
  * @returns {Queue|null}
  */
 export function getLowStockQueue(jobHandler) {
-  try {
-    const redis = getRawRedis();
-    if (!redis) return null;
-
-    if (!lowStockQueue) {
-      const connection = redis;
-
-      lowStockQueue = new Queue(QUEUE_NAME, {
-        connection,
-        defaultJobOptions: {
-          removeOnComplete: 50,
-          removeOnFail: 20,
-        },
-      });
-
-      lowStockWorker = new Worker(
-        QUEUE_NAME,
-        async () => {
-          await jobHandler();
-        },
-        { connection }
-      );
-
-      lowStockWorker.on("failed", (job, err) => {
-        console.error(`[JobQueue] Job ${job?.id} failed:`, err.message);
-      });
-
-      console.log("[JobQueue] BullMQ low-stock queue initialised");
-    }
-
-    return lowStockQueue;
-  } catch (err) {
-    console.warn("[JobQueue] BullMQ unavailable, will use setInterval fallback:", err.message);
-    return null;
-  }
+  // Disable BullMQ to avoid max request limit errors on Upstash Redis
+  // This forces the caller to use the setInterval fallback
+  console.log("[JobQueue] BullMQ disabled, will use setInterval fallback");
+  return null;
 }
 
 /**

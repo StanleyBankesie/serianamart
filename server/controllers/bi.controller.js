@@ -33,6 +33,103 @@ async function safeQuery(sql, params, fallbackRows) {
  * @param {import('express').Response} res - The Express response object.
  * @param {import('express').NextFunction} next - The Express next middleware function.
  */
+// Home Overview Endpoint
+export const getHomeOverview = async (req, res, next) => {
+  try {
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    
+    const [todaySalesData] = await safeQuery(
+      `SELECT SUM(total_amount) as total FROM sal_invoices 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND DATE(invoice_date) = CURDATE()`,
+      { companyId, branchId, branchIdsStr },
+      [{ total: 0 }]
+    );
+    const [todayPosData] = await safeQuery(
+      `SELECT SUM(net_amount) as total FROM pos_sales 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND DATE(sale_datetime) = CURDATE() AND status != 'VOID'`,
+      { companyId, branchId, branchIdsStr },
+      [{ total: 0 }]
+    );
+    const todaySales = Number(todaySalesData?.total || 0) + Number(todayPosData?.total || 0);
+
+    const [lastMonthSalesData] = await safeQuery(
+      `SELECT SUM(total_amount) as total FROM sal_invoices 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND DATE(invoice_date) = DATE_SUB(CURDATE(), INTERVAL 1 MONTH)`,
+      { companyId, branchId, branchIdsStr },
+      [{ total: 0 }]
+    );
+    const [lastMonthPosData] = await safeQuery(
+      `SELECT SUM(net_amount) as total FROM pos_sales 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND DATE(sale_datetime) = DATE_SUB(CURDATE(), INTERVAL 1 MONTH) AND status != 'VOID'`,
+      { companyId, branchId, branchIdsStr },
+      [{ total: 0 }]
+    );
+    const lastMonthSales = Number(lastMonthSalesData?.total || 0) + Number(lastMonthPosData?.total || 0);
+
+    let todaySalesPct = 0;
+    if (lastMonthSales > 0) {
+      todaySalesPct = Math.round(((todaySales - lastMonthSales) / lastMonthSales) * 100);
+    } else if (todaySales > 0) {
+      todaySalesPct = 100; // 100% increase if last month was 0 but today is > 0
+    }
+
+    const [customersData] = await safeQuery(
+      `SELECT COUNT(*) as count FROM sal_customers 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND is_active = 1`,
+      { companyId, branchId, branchIdsStr },
+      [{ count: 0 }]
+    );
+    const totalCustomers = Number(customersData?.count || 0);
+
+    const [avgOrderData] = await safeQuery(
+      `SELECT SUM(total_amount) as total, COUNT(*) as count FROM sal_invoices 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+      { companyId, branchId, branchIdsStr },
+      [{ total: 0, count: 0 }]
+    );
+    const [avgPosData] = await safeQuery(
+      `SELECT SUM(net_amount) as total, COUNT(*) as count FROM pos_sales 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND status != 'VOID'`,
+      { companyId, branchId, branchIdsStr },
+      [{ total: 0, count: 0 }]
+    );
+    const totalOrderAmount = Number(avgOrderData?.total || 0) + Number(avgPosData?.total || 0);
+    const totalOrderCount = Number(avgOrderData?.count || 0) + Number(avgPosData?.count || 0);
+    const averageOrder = totalOrderCount > 0 ? (totalOrderAmount / totalOrderCount) : 0;
+
+    const [monthlyRevData] = await safeQuery(
+      `SELECT SUM(total_amount) as total FROM sal_invoices 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND MONTH(invoice_date) = MONTH(CURDATE()) AND YEAR(invoice_date) = YEAR(CURDATE())`,
+      { companyId, branchId, branchIdsStr },
+      [{ total: 0 }]
+    );
+    const [monthlyPosData] = await safeQuery(
+      `SELECT SUM(net_amount) as total FROM pos_sales 
+       WHERE company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) AND MONTH(sale_datetime) = MONTH(CURDATE()) AND YEAR(sale_datetime) = YEAR(CURDATE()) AND status != 'VOID'`,
+      { companyId, branchId, branchIdsStr },
+      [{ total: 0 }]
+    );
+    const monthlyRevenue = Number(monthlyRevData?.total || 0) + Number(monthlyPosData?.total || 0);
+
+    const badges = {
+      "today-sales": { text: `${todaySalesPct >= 0 ? '+' : ''}${todaySalesPct}% vs last month` },
+      "total-customers": { text: "Active" },
+      "average-order": { text: "" },
+      "monthly-revenue": { text: "This Month" },
+    };
+
+    res.json({
+      todaySales,
+      totalCustomers,
+      averageOrder,
+      monthlyRevenue,
+      badges
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // Dashboard Endpoint - Main Statistics
 export const getDashboards = async (req, res, next) => {
   try {

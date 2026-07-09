@@ -33,3 +33,31 @@ Stack: SyntaxError: Unexpected token '}'
     at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:484:27)
 
 ---
+2026-07-07T18:36:36.454Z
+[Process] uncaughtException
+Code: EADDRINUSE
+Message: listen EADDRINUSE: address already in use 127.0.0.1:4002
+Stack: Error: listen EADDRINUSE: address already in use 127.0.0.1:4002
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at node:net:2203:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+
+---
+2026-07-07T20:23:03.354Z
+[Process] unhandledRejection
+Code: n/a
+Message: Connection is closed.
+Stack: Error: Connection is closed.
+    at EventEmitter.sendCommand (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\ioredis\built\Redis.js:344:28)
+    at EventEmitter.publish (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\ioredis\built\utils\Commander.js:90:25)
+    at RedisAdapter.broadcast (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\@socket.io\redis-adapter\dist\index.js:473:28)
+    at BroadcastOperator.emit (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\socket.io\dist\broadcast-operator.js:169:26)
+    at Namespace.<anonymous> (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/socket.js:156:39)
+    at Namespace.emit (node:events:524:28)
+    at Namespace.emitReserved (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\socket.io\dist\typed-events.js:56:22)
+    at Namespace._doConnect (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\socket.io\dist\namespace.js:279:14)
+    at C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\socket.io\dist\namespace.js:241:22
+    at process.processTicksAndRejections (node:internal/process/task_queues:85:11)
+
+---
