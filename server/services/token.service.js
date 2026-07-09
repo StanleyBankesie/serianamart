@@ -530,6 +530,19 @@ export async function revokeRefreshToken(rawToken) {
   });
 }
 
+// Major Logic: Expires a refresh token in 30 seconds instead of immediate deletion.
+// This allows concurrent requests to succeed even if Redis is completely down.
+export async function expireRefreshTokenGracefully(rawToken) {
+  const tokenHash = hashRefreshToken(rawToken);
+  const expiryDate = new Date(Date.now() + 30000);
+  await query(
+    `UPDATE refresh_tokens 
+     SET expiry_date = :expiryDate 
+     WHERE refresh_token = :tokenHash AND expiry_date > :expiryDate`,
+    { tokenHash, expiryDate }
+  );
+}
+
 // Major Logic: Logs user out everywhere by revoking all their refresh tokens
 export async function revokeUserRefreshTokens(userId) {
   await query(`DELETE FROM refresh_tokens WHERE user_id = :userId`, {
@@ -623,8 +636,10 @@ export async function rotateRefreshSession(rawToken, oldAccessToken = null) {
     // or the new tokens in Redis. There's no gap where both are missing.
     await cacheSet(redisKey, newTokens, 60);
 
-    // 4. Now we can safely revoke the old token from the DB.
-    await revokeRefreshToken(rawToken);
+    // 4. Set a short grace period on the token instead of immediate deletion.
+    // This allows concurrent requests to succeed even if Redis is completely down
+    // (e.g. Upstash quota exceeded).
+    await expireRefreshTokenGracefully(rawToken);
 
     return newTokens;
   })();
