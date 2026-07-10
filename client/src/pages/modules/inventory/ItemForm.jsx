@@ -367,13 +367,17 @@ export default function ItemForm() {
 
       if (isNew) {
         await api.post("/inventory/items", payload);
+        toast.success("Item saved successfully");
       } else {
         await api.put(`/inventory/items/${id}`, payload);
+        toast.success("Item updated successfully");
       }
 
       navigate(returnTo);
     } catch (e2) {
-      setError(e2?.response?.data?.message || "Failed to save item");
+      const errorMessage = e2?.response?.data?.message || "Failed to save item";
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setSaving(false);
     }
