@@ -814,7 +814,7 @@ export default function PosSalesEntry() {
               id: it.id,
               name: it.item_name || "",
               code: it.item_code || "",
-              price: Number(it.selling_price ?? 0),
+              price: Number(it.selling_price) || Number(it.cost_price) || 0,
               availQty: Number(it.stock_level ?? 0),
               image_url: it.image_url || "",
               barcode: it.barcode || "",
@@ -857,7 +857,9 @@ export default function PosSalesEntry() {
       .get("/sales/purchase-reward-campaigns/active")
       .then((res) => {
         if (!mounted) return;
-        setPurchaseRewardCampaigns(Array.isArray(res.data?.items) ? res.data.items : []);
+        setPurchaseRewardCampaigns(
+          Array.isArray(res.data?.items) ? res.data.items : [],
+        );
       })
       .catch(() => {});
     return () => {
@@ -957,7 +959,10 @@ export default function PosSalesEntry() {
     const activeModes = Array.isArray(paymentModes) ? paymentModes : [];
     const defaultMode =
       activeModes.find(
-        (m) => String(m.type || "").trim().toLowerCase() === "cash",
+        (m) =>
+          String(m.type || "")
+            .trim()
+            .toLowerCase() === "cash",
       ) || activeModes[0];
     return defaultMode?.id ? String(defaultMode.id) : "";
   }
@@ -1102,7 +1107,9 @@ export default function PosSalesEntry() {
         if (Number.isFinite(realPrice) && realPrice !== unitPrice) {
           setCart((prev) =>
             prev.map((p) =>
-              p.id === prod.id ? { ...p, price: realPrice } : p,
+              p.id === prod.id
+                ? { ...p, price: realPrice > 0 ? realPrice : p.price }
+                : p,
             ),
           );
         }
@@ -1193,7 +1200,9 @@ export default function PosSalesEntry() {
           if (Number.isFinite(realPrice) && realPrice !== prod.price) {
             setCart((prev) =>
               prev.map((p) =>
-                p.id === prod.id ? { ...p, price: realPrice } : p,
+                p.id === prod.id
+                  ? { ...p, price: realPrice > 0 ? realPrice : p.price }
+                  : p,
               ),
             );
           }
@@ -1595,17 +1604,32 @@ export default function PosSalesEntry() {
       }));
       // Purchase reward: add free items from active campaigns
       let consumedReward = [];
-      if (Array.isArray(purchaseRewardCampaigns) && purchaseRewardCampaigns.length) {
+      if (
+        Array.isArray(purchaseRewardCampaigns) &&
+        purchaseRewardCampaigns.length
+      ) {
         for (const campaign of purchaseRewardCampaigns) {
           const rows = Array.isArray(campaign.rows) ? campaign.rows : [];
           for (const rule of rows) {
-            const purchaseIds = (rule.item_ids || "").split(",").map(s => Number(s.trim())).filter(n => n > 0);
-            const freeIds = (rule.free_item_ids || "").split(",").map(s => Number(s.trim())).filter(n => n > 0);
+            const purchaseIds = (rule.item_ids || "")
+              .split(",")
+              .map((s) => Number(s.trim()))
+              .filter((n) => n > 0);
+            const freeIds = (rule.free_item_ids || "")
+              .split(",")
+              .map((s) => Number(s.trim()))
+              .filter((n) => n > 0);
             const purchaseQtyNeeded = Number(rule.item_qty || 0);
             const freeQtyPer = Number(rule.free_qty || 0);
-            if (!purchaseIds.length || !freeIds.length || !purchaseQtyNeeded || !freeQtyPer) continue;
-            const cartItem = saleCart.find(
-              (c) => purchaseIds.includes(Number(c.id)),
+            if (
+              !purchaseIds.length ||
+              !freeIds.length ||
+              !purchaseQtyNeeded ||
+              !freeQtyPer
+            )
+              continue;
+            const cartItem = saleCart.find((c) =>
+              purchaseIds.includes(Number(c.id)),
             );
             if (!cartItem) continue;
             const cartQty = Number(cartItem.quantity || 0);
@@ -1613,9 +1637,7 @@ export default function PosSalesEntry() {
             const times = Math.floor(cartQty / purchaseQtyNeeded);
             const totalFreeQty = times * freeQtyPer;
             for (const freeId of freeIds) {
-              const freeProduct = products.find(
-                (p) => Number(p.id) === freeId,
-              );
+              const freeProduct = products.find((p) => Number(p.id) === freeId);
               lines.push({
                 item_id: freeId,
                 name: freeProduct ? freeProduct.name : "Free Item",
@@ -2397,7 +2419,7 @@ export default function PosSalesEntry() {
                         <tr className="bg-slate-50 text-slate-700">
                           <th className="px-3 py-2 text-left">Item Code</th>
                           <th className="px-3 py-2 text-left">Item Name</th>
-                          
+
                           <th className="px-3 py-2 text-right">Price</th>
                           <th className="px-3 py-2 text-right">QTY</th>
                           <th className="px-3 py-2 text-right">Discount</th>
@@ -2420,7 +2442,7 @@ export default function PosSalesEntry() {
                             <tr key={it.id}>
                               <td className="px-3 py-2">{it.code}</td>
                               <td className="px-3 py-2">{it.name}</td>
-                              
+
                               <td className="px-3 py-2 text-right">
                                 {`GH₵ ${unitPrice.toFixed(2)}`}
                               </td>
@@ -2609,7 +2631,13 @@ export default function PosSalesEntry() {
                             : "btn-secondary"
                         }`}
                         onClick={() => {
-                          if (["credit","on account","account"].some(s => String(m.name || "").toLowerCase().includes(s))) {
+                          if (
+                            ["credit", "on account", "account"].some((s) =>
+                              String(m.name || "")
+                                .toLowerCase()
+                                .includes(s),
+                            )
+                          ) {
                             setCreditPendingModeId(String(m.id));
                             setShowCreditCustomerModal(true);
                             return;
@@ -2644,12 +2672,21 @@ export default function PosSalesEntry() {
                   type="button"
                   className="btn-success w-full text-base"
                   onClick={() => {
-                    const isCredit = selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s));
+                    const isCredit =
+                      selectedPaymentMode &&
+                      ["credit", "on account", "account"].some((s) =>
+                        String(selectedPaymentMode.name || "")
+                          .toLowerCase()
+                          .includes(s),
+                      );
                     if (isCredit && paymentStatus === "PAID") {
                       setShowCreditPaymentModal(true);
                     } else if (isCredit && paymentStatus === "UNPAID") {
                       checkout();
-                    } else if (tendered < total && !additionalPaymentModeIds.length) {
+                    } else if (
+                      tendered < total &&
+                      !additionalPaymentModeIds.length
+                    ) {
                       setSplitPrimaryAmount(tendered);
                       setShowSplitPaymentModal(true);
                     } else {
@@ -2662,7 +2699,13 @@ export default function PosSalesEntry() {
                     paymentModesLoading ||
                     !paymentModes.length ||
                     !selectedPaymentModeId ||
-                    (selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s)) && !selectedCustomerId)
+                    (selectedPaymentMode &&
+                      ["credit", "on account", "account"].some((s) =>
+                        String(selectedPaymentMode.name || "")
+                          .toLowerCase()
+                          .includes(s),
+                      ) &&
+                      !selectedCustomerId)
                   }
                 >
                   {tendered < total && !additionalPaymentModeIds.length
@@ -2930,21 +2973,30 @@ export default function PosSalesEntry() {
               Choose the payment method for this credit sale.
             </p>
             <div className="grid grid-cols-2 gap-2">
-              {paymentModes.filter((m) => !["credit","on account","account"].some(s => String(m.name || "").toLowerCase().includes(s))).map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className="btn btn-secondary text-base"
-                  onClick={() => {
-                    setSelectedPaymentModeId(String(m.id));
-                    setAdditionalPaymentModeIds([]);
-                    setShowCreditPaymentModal(false);
-                    focusBarcodeField();
-                  }}
-                >
-                  {m.name}
-                </button>
-              ))}
+              {paymentModes
+                .filter(
+                  (m) =>
+                    !["credit", "on account", "account"].some((s) =>
+                      String(m.name || "")
+                        .toLowerCase()
+                        .includes(s),
+                    ),
+                )
+                .map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className="btn btn-secondary text-base"
+                    onClick={() => {
+                      setSelectedPaymentModeId(String(m.id));
+                      setAdditionalPaymentModeIds([]);
+                      setShowCreditPaymentModal(false);
+                      focusBarcodeField();
+                    }}
+                  >
+                    {m.name}
+                  </button>
+                ))}
             </div>
             <button
               type="button"
