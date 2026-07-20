@@ -1922,7 +1922,7 @@ export default function PurchaseOrdersLocalForm() {
                                   }
                                   className="w-full p-2 border border-[#dee2e6] rounded text-sm text-right focus:outline-none focus:border-[#0E3646]"
                                   min="0"
-                                  step="1"
+                                  step="any"
                                 />
                               </td>
                               <td className="p-3">
@@ -2009,7 +2009,7 @@ export default function PurchaseOrdersLocalForm() {
                                   }
                                   className="w-full p-2 border border-[#dee2e6] rounded text-sm text-right focus:outline-none focus:border-[#0E3646]"
                                   min="0"
-                                  step="1"
+                                  step="any"
                                 />
                               </td>
                               <td className="p-3">
