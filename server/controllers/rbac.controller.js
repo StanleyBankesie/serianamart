@@ -64,9 +64,10 @@ export async function createRole(req, res, next) {
       return next(httpError(400, "Role code already exists"));
     }
     
-    const result = await query(`INSERT INTO adm_roles (name, code, is_active) 
-       VALUES (:name, :code, :is_active)`,
-      { name, code, is_active: is_active ? 1 : 0 }
+    const companyId = req.body.company_id || req.scope?.companyId || null;
+    const result = await query(`INSERT INTO adm_roles (company_id, name, code, is_active) 
+       VALUES (:companyId, :name, :code, :is_active)`,
+      { companyId, name, code, is_active: is_active ? 1 : 0 }
     );
     
     const newRole = await query(`SELECT id, name, code, is_active, created_at, updated_at,
@@ -223,7 +224,7 @@ export async function saveRoleModules(req, res, next) {
       if (!roleInfo || roleInfo.length === 0) {
         throw new Error("Role not found");
       }
-      const companyId = roleInfo[0].company_id;
+      const companyId = roleInfo[0].company_id || req.scope?.companyId || null;
 
       // 2. Fetch active licensed modules for this company
       const [licenseModules] = await conn.query(`
@@ -236,11 +237,14 @@ export async function saveRoleModules(req, res, next) {
 
       // 3. Filter submitted moduleKeys against allowed license modules
       // Always allow 'administration' and 'dashboard' as they are core modules
-      const validModuleKeys = moduleKeys.filter(mk => 
-        allowedModuleCodes.includes(mk) || 
-        mk === 'administration' || 
-        mk === 'dashboard'
-      );
+      // If companyId is null (system role), allow all submitted modules
+      const validModuleKeys = !companyId 
+        ? moduleKeys 
+        : moduleKeys.filter(mk => 
+            allowedModuleCodes.includes(mk) || 
+            mk === 'administration' || 
+            mk === 'dashboard'
+          );
 
       // Replace role modules with the newly validated list
       await conn.query(`DELETE FROM adm_role_modules WHERE role_id = ?`, [roleId]);
