@@ -38,14 +38,26 @@ export function loadServerEnv(metaUrl = import.meta.url) {
   const runtimeNodeEnv = String(process.env.NODE_ENV || "").toLowerCase();
   const runtimeIsProd = runtimeNodeEnv === "production";
 
-  // Per user request: completely ignore all .env files in production
-  // Rely strictly on Plesk Node.js console environment variables.
+  const serverRoot = resolveServerRoot(metaUrl);
+
   if (runtimeIsProd) {
+    // In production, load .env.production WITHOUT override=true so that
+    // Plesk environment variables always take priority. This file only fills
+    // in variables that Plesk failed to inject (e.g. DB_NAME).
+    const prodEnvPath = path.join(serverRoot, ".env.production");
+    const fallbackPaths = [
+      path.join(serverRoot, "server.env.production"),
+      prodEnvPath,
+    ];
+    for (const p of fallbackPaths) {
+      if (fs.existsSync(p)) {
+        dotenv.config({ path: p, override: false });
+        break;
+      }
+    }
     loaded = true;
     return;
   }
-
-  const serverRoot = resolveServerRoot(metaUrl);
 
   // Define file paths for base, local, and production environment configurations
   const baseCandidates = [
