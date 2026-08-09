@@ -2725,7 +2725,9 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
 
     const companyId = Number(roleResult?.[0]?.company_id || 0);
     let licensedModules = null;
-    if (companyId) {
+    if (companyId === 1) {
+      licensedModules = new Set(["*"]);
+    } else if (companyId) {
       const licenseQuery = await query(`SELECT id FROM adm_company_licenses WHERE company_id = :companyId ORDER BY id DESC LIMIT 1`, { companyId });
       if (licenseQuery && licenseQuery.length > 0) {
         const licenseId = licenseQuery[0].id;

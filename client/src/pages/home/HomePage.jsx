@@ -668,8 +668,8 @@ export default function HomePage() {
     if (checked.length > 0) {
       return checked.slice(0, 4);
     }
-    // Fallback to first 4 default metrics if no explicit toggle set
-    return allPossibleMetrics.slice(0, 4);
+    // Return empty if no explicit toggle set and not super admin
+    return [];
   }, [allPossibleMetrics, canViewDashboardElement]);
 
   // Quick Actions section removed per request
