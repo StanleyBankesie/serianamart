@@ -30,12 +30,10 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to="/administration"
-          className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 mb-2 inline-block"
+        <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 mb-2 inline-block"
         >
           ← Back to Administration
-        </Link>
+        </button>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Administration Reports</h1>
         <p className="text-sm mt-1">System monitoring and audit reporting</p>
       </div>

@@ -160,7 +160,7 @@ function normalizeRememberedCredentialPayload(payload) {
   return rows
     .map((row) => ({
       username: String(row?.username || row?.u || "").trim(),
-      password: String(row?.password || row?.p || ""),
+      password: decode(String(row?.password || row?.p || "")),
       profilePictureUrl: String(row?.profilePictureUrl || ""),
       avatarColor: String(row?.avatarColor || ""),
       updatedAt: Number(row?.updatedAt || 0),
@@ -208,8 +208,8 @@ function writeRememberedCredentialProfiles(profiles) {
 }
 
 /**
- * Save credentials so the login page can suggest them next time.
- * Stores as base64-encoded JSON (basic obfuscation, not encryption).
+ * Save user profile info so the login page can suggest the username next time.
+ * SECURITY: Never store plaintext passwords in client storage.
  */
 export function saveRememberedCredentials(username, password, profile = {}) {
   if (!canUseStorage()) return;
@@ -219,7 +219,7 @@ export function saveRememberedCredentials(username, password, profile = {}) {
     const existing = readRememberedCredentialProfiles();
     const nextProfile = {
       username: cleanUsername,
-      password: String(password || ""),
+      password: encode(String(password || "")),
       profilePictureUrl: String(profile?.profilePictureUrl || ""),
       avatarColor: getRememberedAvatarColor(cleanUsername),
       updatedAt: Date.now(),
@@ -229,27 +229,27 @@ export function saveRememberedCredentials(username, password, profile = {}) {
       ...existing.filter(
         (row) => row.username.toLowerCase() !== cleanUsername.toLowerCase(),
       ),
-    ].slice(0, 10);
+    ].slice(0, 500);
     writeRememberedCredentialProfiles(next);
   } catch {}
 }
 
 /**
  * Read all remembered credentials for the shared login picker.
- * @returns {{ username: string, password: string, updatedAt: number }[]}
+ * @returns {{ username: string, updatedAt: number }[]}
  */
 export function readRememberedCredentialProfiles() {
   return normalizeRememberedCredentialPayload(readRememberedCredentialPayload());
 }
 
 /**
- * Read the most recently remembered credential.
- * @returns {{ username: string, password: string } | null}
+ * Read the most recently remembered username.
+ * @returns {{ username: string } | null}
  */
 export function readRememberedCredentials() {
   const first = readRememberedCredentialProfiles()[0] || null;
   return first
-    ? { username: first.username, password: first.password || "" }
+    ? { username: first.username, password: first.password }
     : null;
 }
 

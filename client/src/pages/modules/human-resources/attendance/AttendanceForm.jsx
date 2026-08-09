@@ -8,20 +8,32 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { filterAndSort } from "../../../../utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
  * 
  * @returns {JSX.Element} The rendered component
  */
-export default function AttendanceForm() {
+export default function AttendanceForm({ isOpen = true, onClose, onSuccess, attendanceId }) {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
-  const { id } = useParams();
+  const { id: paramId } = useParams();
+  const id = attendanceId || paramId;
   const isEdit = Boolean(id);
 
   const [loading, setLoading] = useState(false);
   const [employees, setEmployees] = useState([]);
-  const [form, setForm] = useState({ employee_id: '', attendance_date: new Date().toISOString().split('T')[0], status: 'PRESENT' });
+  const [form, setForm] = useState({
+    employee_id: '',
+    attendance_date: new Date().toISOString().split('T')[0],
+    status: 'PRESENT',
+  });
+
+  const handleClose = () => {
+    if (onClose) onClose();
+    else navigate('/human-resources/attendance');
+  };
 
   useEffect(() => {
     async function loadEmployees() {
@@ -43,7 +55,6 @@ export default function AttendanceForm() {
             ...item,
             attendance_date: item.attendance_date ? item.attendance_date.slice(0, 10) : ''
           });
-          setEmpQuery(item.full_name || item.emp_code || "");
         }
       } catch {
         toast.error("Failed to load attendance");
@@ -68,7 +79,8 @@ export default function AttendanceForm() {
     try {
       await api.post('/hr/attendance', form);
       toast.success(isEdit ? "Attendance updated" : "Attendance marked");
-      navigate('/human-resources/attendance');
+      if (onSuccess) onSuccess();
+      handleClose();
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to save");
     } finally {
@@ -76,27 +88,38 @@ export default function AttendanceForm() {
     }
   }
 
-  return (
-    <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">{isEdit ? 'Edit Attendance' : 'New Attendance Entry'}</h1>
-        <Link to="/human-resources/attendance" className="btn-secondary">Back</Link>
-      </div>
+  if (!isOpen) return null;
 
-      <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6 max-w-2xl mx-auto">
-        <div className="space-y-4">
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-900/50">
+          <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <span>⏰</span> {isEdit ? 'Edit Attendance Entry' : 'New Attendance Entry'}
+          </h2>
+          <button
+            onClick={handleClose}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl font-semibold leading-none p-1 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-700 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <form onSubmit={submit} className="p-6 space-y-5 overflow-y-auto">
           <div>
-            <label className="label font-semibold">Employee (Code or Name) *</label>
+            <label className="label font-semibold text-xs uppercase tracking-wider text-slate-500 mb-1 block">Employee *</label>
             <select
-              className="input"
+              className="input text-sm"
               value={form.employee_id}
               onChange={(e) => update('employee_id', e.target.value)}
               required
             >
-              <option value="">Select Employee</option>
+              <option value="">-- Select Employee --</option>
               {employees.map(e => (
                 <option key={e.id} value={e.id}>
-                  {e.emp_code} - {e.first_name} {e.last_name}
+                  {e.first_name} {e.last_name}
                 </option>
               ))}
             </select>
@@ -104,12 +127,14 @@ export default function AttendanceForm() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="label font-semibold">Date *</label>
-              <input className="input" type="date" value={form.attendance_date} onChange={(e) => update('attendance_date', e.target.value)} required />
+              <label className="label font-semibold text-xs uppercase tracking-wider text-slate-500 mb-1 block">Date *</label>
+              <input className="input text-sm" type="date" value={form.attendance_date} onChange={(e) => update('attendance_date', e.target.value)} required 
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
+              />
             </div>
             <div>
-              <label className="label font-semibold">Status</label>
-              <select className="input" value={form.status} onChange={(e) => update('status', e.target.value)}>
+              <label className="label font-semibold text-xs uppercase tracking-wider text-slate-500 mb-1 block">Status</label>
+              <select className="input text-sm" value={form.status} onChange={(e) => update('status', e.target.value)}>
                 <option value="PRESENT">Present</option>
                 <option value="ABSENT">Absent</option>
                 <option value="LEAVE">Leave</option>
@@ -118,15 +143,16 @@ export default function AttendanceForm() {
               </select>
             </div>
           </div>
-        </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t">
-          <Link to="/human-resources/attendance" className="btn-secondary">Cancel</Link>
-          <button className="btn-primary px-8" type="submit" disabled={loading}>
-            {loading ? 'Saving...' : 'Save Entry'}
-          </button>
-        </div>
-      </form>
+          {/* Modal Footer */}
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700/60 mt-6">
+            <button type="button" onClick={handleClose} className="btn-secondary text-sm">Cancel</button>
+            <button className="btn-primary px-6 text-sm" type="submit" disabled={loading}>
+              {loading ? 'Saving...' : 'Save Entry'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

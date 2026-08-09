@@ -13,6 +13,12 @@ import api from "../../../../api/client.js";
  * @returns {JSX.Element} The rendered component
  */
 export default function PosReports() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, []);
+
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(false);
@@ -107,7 +113,7 @@ export default function PosReports() {
     return () => {
       mounted = false;
     };
-  }, [startDate, endDate]);
+  }, [startDate, endDate, pollingCounter]);
 
   const fmtCurrency = (n) =>
     `GH₵${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -115,12 +121,10 @@ export default function PosReports() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to="/pos"
-          className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+        <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
         >
           ← Back to POS
-        </Link>
+        </button>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
           POS Reports
         </h1>

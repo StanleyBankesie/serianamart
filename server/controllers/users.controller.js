@@ -18,6 +18,7 @@ import {
   ensureRoleFeaturesTable,
 } from "../utils/dbUtils.js";
 import { getAllFeatures } from "../data/featuresRegistry.js";
+import { checkUserLimit } from "../services/license.service.js";
 
 /**
  * Fetches a paginated and filtered list of users based on company, branch, active status, and search query.
@@ -64,17 +65,20 @@ export const getUsers = async (req, res, next) => {
       params.scopeCompanyId = scopeCompanyId;
     }
     if (branchIdsStr) {
-      clauses.push("(:branchIdsStr = '' OR FIND_IN_SET(u.branch_id, :branchIdsStr))");
+      clauses.push("(:branchIdsStr = '' OR u.branch_id IS NULL OR FIND_IN_SET(u.branch_id, :branchIdsStr) > 0)");
       params.branchIdsStr = branchIdsStr;
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const lim = Math.min(100, Math.max(1, parseInt(limit || "50", 10)));
     const sql = `
-      SELECT u.id, u.company_id, u.branch_id, u.username, u.email, u.full_name, u.is_active, u.created_at,
-             c.name as company_name, b.name as branch_name
+      SELECT u.id, u.company_id, u.branch_id, u.username, u.full_name, u.email, 
+             u.is_active, u.created_at,
+             c.name as company_name, b.name as branch_name,
+             uc.username as created_by_name
       FROM adm_users u
       LEFT JOIN adm_companies c ON u.company_id = c.id
       LEFT JOIN adm_branches b ON u.branch_id = b.id
+      LEFT JOIN adm_users uc ON u.created_by = uc.id
       ${where}
       ORDER BY u.username ASC
       LIMIT ${lim}
@@ -223,6 +227,7 @@ export const createUser = async (req, res, next) => {
       user_type,
       valid_from,
       valid_to,
+      telephone,
       role_id,
       branch_ids,
     } = req.body || {};
@@ -234,14 +239,21 @@ export const createUser = async (req, res, next) => {
         "company_id, branch_id, username, and email are required",
       );
 
+    if (String(is_active) !== "0" && is_active !== 0 && is_active !== false) {
+      const limitCheck = await checkUserLimit(company_id);
+      if (!limitCheck.allowed) {
+        throw httpError(400, "LICENSE_LIMIT_EXCEEDED", limitCheck.reason);
+      }
+    }
+
     const hashedPassword = password_hash ? await bcrypt.hash(password_hash, 10) : null;
 
     const result = await query(`INSERT INTO adm_users (
         company_id, branch_id, username, email, full_name, password_hash, is_active,
-        profile_picture, is_employee, user_type, valid_from, valid_to, role_id
+        profile_picture, is_employee, user_type, valid_from, valid_to, telephone, role_id
       ) VALUES (
         :company_id, :branch_id, :username, :email, :full_name, :password_hash, :is_active,
-        :profile_picture, :is_employee, :user_type, :valid_from, :valid_to, :role_id
+        :profile_picture, :is_employee, :user_type, :valid_from, :valid_to, :telephone, :role_id
       )`,
       {
         company_id,
@@ -262,6 +274,7 @@ export const createUser = async (req, res, next) => {
         user_type: user_type || "Internal",
         valid_from: valid_from || null,
         valid_to: valid_to || null,
+        telephone: telephone || null,
         role_id: role_id || null,
       },
     );
@@ -313,6 +326,7 @@ export const updateUser = async (req, res, next) => {
       user_type,
       valid_from,
       valid_to,
+      telephone,
       role_id,
       password_hash,
       branch_ids,
@@ -324,6 +338,16 @@ export const updateUser = async (req, res, next) => {
         "VALIDATION_ERROR",
         "company_id, branch_id, username, and email are required",
       );
+
+    if (String(is_active) !== "0" && is_active !== 0 && is_active !== false) {
+      const oldUser = await query("SELECT is_active FROM adm_users WHERE id = :id", { id });
+      if (oldUser && oldUser.length > 0 && String(oldUser[0].is_active) !== "1") {
+        const limitCheck = await checkUserLimit(company_id);
+        if (!limitCheck.allowed) {
+          throw httpError(400, "LICENSE_LIMIT_EXCEEDED", limitCheck.reason);
+        }
+      }
+    }
 
     let queryStr = `UPDATE adm_users SET
       company_id = :company_id,
@@ -337,6 +361,7 @@ export const updateUser = async (req, res, next) => {
       user_type = :user_type,
       valid_from = :valid_from,
       valid_to = :valid_to,
+      telephone = :telephone,
       role_id = :role_id`;
 
     const params = {
@@ -358,6 +383,7 @@ export const updateUser = async (req, res, next) => {
       user_type: user_type || "Internal",
       valid_from: valid_from || null,
       valid_to: valid_to || null,
+      telephone: telephone || null,
       role_id: role_id || null,
     };
 
@@ -422,6 +448,7 @@ export const patchUser = async (req, res, next) => {
       "user_type",
       "valid_from",
       "valid_to",
+      "telephone",
       "role_id",
     ];
     const updates = [];
@@ -658,22 +685,31 @@ export const saveUserFeaturePermissions = async (req, res, next) => {
       await query("DELETE FROM adm_user_permissions WHERE user_id = ?", [userId]);
     }
 
-    for (const p of resolved) {
-      const pageId = toNumber(p.page_id);
-      if (!pageId) continue;
-      await query(
-        `INSERT INTO adm_user_permissions (user_id, page_id, can_view, can_create, can_edit, can_delete)
-         VALUES (:userId, :pageId, :canView, :canCreate, :canEdit, :canDelete)
-         ON DUPLICATE KEY UPDATE
-           can_view = :canView, can_create = :canCreate, can_edit = :canEdit, can_delete = :canDelete`,
-        {
-          userId, pageId,
-          canView: p.can_view ? 1 : 0,
-          canCreate: p.can_create ? 1 : 0,
-          canEdit: p.can_edit ? 1 : 0,
-          canDelete: p.can_delete ? 1 : 0,
-        },
-      );
+    // Bulk upsert all resolved rows in a single query for speed
+    if (resolved.length > 0) {
+      const rowsToInsert = resolved.filter((p) => toNumber(p.page_id));
+      if (rowsToInsert.length > 0) {
+        // Build: INSERT INTO ... VALUES (?,?,?,?,?,?),... ON DUPLICATE KEY UPDATE ...
+        const valuePlaceholders = rowsToInsert.map(() => "(?,?,?,?,?,?)").join(",");
+        const flatValues = rowsToInsert.flatMap((p) => [
+          userId,
+          toNumber(p.page_id),
+          p.can_view ? 1 : 0,
+          p.can_create ? 1 : 0,
+          p.can_edit ? 1 : 0,
+          p.can_delete ? 1 : 0,
+        ]);
+        await query(
+          `INSERT INTO adm_user_permissions (user_id, page_id, can_view, can_create, can_edit, can_delete)
+           VALUES ${valuePlaceholders}
+           ON DUPLICATE KEY UPDATE
+             can_view = VALUES(can_view),
+             can_create = VALUES(can_create),
+             can_edit = VALUES(can_edit),
+             can_delete = VALUES(can_delete)`,
+          flatValues,
+        );
+      }
     }
 
     res.json({
@@ -909,6 +945,7 @@ export const getUserAssignments = async (req, res, next) => {
     const items = await query(`SELECT 
          u.id, 
          u.username, 
+         u.full_name,
          u.email, 
          r.name as role_name,
          COUNT(up.page_id) as custom_count,
@@ -918,7 +955,7 @@ export const getUserAssignments = async (req, res, next) => {
        JOIN adm_user_permissions up ON u.id = up.user_id
        LEFT JOIN adm_roles r ON u.role_id = r.id
         LEFT JOIN adm_users uc ON uc.id = u.created_by
-         GROUP BY u.id, u.username, u.email, r.name, uc.username
+         GROUP BY u.id, u.username, u.full_name, u.email, r.name, uc.username
        ORDER BY u.username`,
     );
     res.json({

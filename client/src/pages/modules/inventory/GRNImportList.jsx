@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
+import PendingApprovalTooltip from "@/components/PendingApprovalTooltip.jsx";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import {
@@ -18,6 +19,8 @@ import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { usePermission } from "@/auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -25,6 +28,7 @@ import { filterAndSort } from "@/utils/searchUtils.js";
  * @returns {JSX.Element} The rendered component
  */
 export default function GRNImportList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   const { canReverseApproval, exceptionalPerms, hasExceptional } = usePermission();
@@ -34,6 +38,7 @@ export default function GRNImportList() {
   const [error, setError] = useState("");
   const [submittingId, setSubmittingId] = useState(null);
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardComments, setForwardComments] = useState("");
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -390,11 +395,13 @@ export default function GRNImportList() {
     setWfError("");
     setShowForwardModal(false);
     setSelectedDoc(null);
+    setForwardComments("");
     try {
       const res = await api.post(`/inventory/grn/${selectedDoc.id}/submit`, {
         amount: selectedDoc.invoice_amount ?? null,
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
+        comments: forwardComments,
       });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       let approverName = null;
@@ -492,7 +499,7 @@ export default function GRNImportList() {
               <p className="text-sm mt-1">Receive import purchase deliveries</p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link to="/inventory/grn-import/new" className="btn-success">
@@ -517,8 +524,12 @@ export default function GRNImportList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th>GRN No</th>
@@ -638,7 +649,8 @@ export default function GRNImportList() {
                                     className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
                                     onClick={async () => {
                                       try {
-                                        await api.post("/workflows/reverse-by-document", { document_type: "GOODS_RECEIPT", document_id: g.id });
+                                        await api.post("/workflows/reverse-by-document", { document_type: "GOODS_RECEIPT", document_id: g.id 
+        });
                                         toast.success("Approval reversed");
                                         setGrns((prev) => prev.map((x) => x.id === g.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x));
                                       } catch (e) {
@@ -650,7 +662,7 @@ export default function GRNImportList() {
                                   </button>
                                 )}
                               </div>
-                            ) : g.forwarded_to_username ? (
+                            ) : g.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(g.status || "").toUpperCase()) ? (
                               <span className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg bg-amber-500 text-white whitespace-nowrap overflow-hidden text-ellipsis h-9">
                                 Forwarded to {g.forwarded_to_username}
                               </span>
@@ -904,7 +916,7 @@ export default function GRNImportList() {
                 </div>
               ) : null}
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                   <thead>
                     <tr>
                       <th>Item Code</th>

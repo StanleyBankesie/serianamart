@@ -172,9 +172,9 @@ export default function WarehouseForm() {
               </h1>
               <p className="text-sm mt-1">Maintain warehouse master data</p>
             </div>
-            <Link to="/inventory/warehouses" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -257,9 +257,9 @@ export default function WarehouseForm() {
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-              <Link to="/inventory/warehouses" className="btn-success">
+              <button onClick={() => window.history.back()} className="btn-success">
                 Cancel
-              </Link>
+              </button>
               <button type="submit" className="btn-success" disabled={saving}>
                 {saving ? "Saving..." : "Save Warehouse"}
               </button>

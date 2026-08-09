@@ -44,15 +44,15 @@ export default function LeaveScheduling({ isEmbedded }) {
     try {
       const [eRes, tRes, rRes, dRes, lRes, etRes, cRes, sRes, wsRes] =
         await Promise.all([
-          api.get("/hr/employees?status=ACTIVE"),
-          api.get("/hr/leave/types"),
-          api.get("/hr/leave/records?source=SCHEDULE"),
-          api.get("/hr/departments"),
-          api.get("/hr/setup/locations"),
-          api.get("/hr/setup/employment-types"),
-          api.get("/hr/setup/employee-categories"),
-          api.get("/hr/shifts"),
-          api.get("/hr/work-schedules"),
+          api.get("/hr/employees?status=ACTIVE").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/leave/types").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/leave/records?source=SCHEDULE").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/departments").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/setup/locations").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/setup/employment-types").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/setup/employee-categories").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/shifts").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/work-schedules").catch(() => ({ data: { items: [] } })),
         ]);
       setEmployees(eRes.data?.items || []);
       setTypes(tRes.data?.items || []);
@@ -229,9 +229,9 @@ export default function LeaveScheduling({ isEmbedded }) {
     <div className={isEmbedded ? "space-y-6" : "p-4 md:p-8 space-y-8"}>
       {!isEmbedded && (
         <div className="flex items-center gap-4">
-          <Link to="/human-resources/leave" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             ← Back
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
               Leave Scheduling

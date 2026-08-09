@@ -19,6 +19,12 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function TrialBalanceReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [groupId, setGroupId] = useState("");
@@ -27,6 +33,7 @@ export default function TrialBalanceReportPage() {
   const [accountId, setAccountId] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [controlBreak, setControlBreak] = useState(true);
 
   async function run() {
     try {
@@ -81,7 +88,7 @@ export default function TrialBalanceReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, groupId, accountId]);
+  }, [from, to, groupId, accountId, pollingCounter]);
 
   // Transform data for new column format
   const transformedItems = items.map((r) => {
@@ -120,16 +127,27 @@ export default function TrialBalanceReportPage() {
 
   const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(transformedItems, "account_code", "asc");
 
+  const groupedItems = React.useMemo(() => {
+    if (!controlBreak) return null;
+    const groups = {};
+    sortedItems.forEach(r => {
+      const type = r.account_type || "Unknown Type";
+      const cat = r.account_category || "Unknown Category";
+      const key = `${type} - ${cat}`;
+      if (!groups[key]) groups[key] = { type, cat, rows: [] };
+      groups[key].rows.push(r);
+    });
+    return groups;
+  }, [sortedItems, controlBreak]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/finance"
-            className="font-sans text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="font-sans text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Finance
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Trial Balance
           </h1>
@@ -139,7 +157,7 @@ export default function TrialBalanceReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-7 gap-4 mb-6">
+          <div className="flex flex-wrap items-end gap-4 mb-6">
             <div>
               <label className="label">From</label>
               <input
@@ -194,6 +212,10 @@ export default function TrialBalanceReportPage() {
               </select>
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
+              <label className="flex items-center gap-2 mr-4 cursor-pointer border px-3 py-1.5 rounded-lg border-slate-200 hover:bg-slate-50 transition-colors h-[42px]">
+                <input type="checkbox" className="toggle toggle-brand toggle-sm" checked={controlBreak} onChange={e => setControlBreak(e.target.checked)} />
+                <span className="text-sm font-medium text-slate-700">Control Break Format</span>
+              </label>
               <button
                 type="button"
                 className="btn-secondary"
@@ -285,8 +307,12 @@ export default function TrialBalanceReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <SortableHeader label="Account Type" sortKey="account_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Account Category" sortKey="account_category" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  {!controlBreak && (
+                    <>
+                      <SortableHeader label="Account Type" sortKey="account_type" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                      <SortableHeader label="Account Category" sortKey="account_category" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    </>
+                  )}
                   <SortableHeader label="Account" sortKey="account_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Opening Balance" sortKey="opening_balance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                   <th className="text-center">Type</th>
@@ -296,59 +322,146 @@ export default function TrialBalanceReportPage() {
                   <th className="text-center">Type</th>
                 </tr>
               </thead>
-              <tbody>
-                {sortedItems.map((r) => (
-                  <tr key={r.account_id}>
-                    <td>{r.account_type || "-"}</td>
-                    <td>{r.account_category || "-"}</td>
-                    <td>
-                      <Link 
-                        to={`/finance/reports/general-ledger?accountId=${r.account_id}&from=${from}&to=${to}`}
-                        className="font-medium text-blue-500 hover:text-blue-600 hover:underline"
-                      >
-                        {r.account_name}
-                      </Link>
-                    </td>
-                    <td className="text-right">
-                      {r.opening_balance > 0 ? r.opening_balance.toLocaleString() : "—"}
-                    </td>
-                    <td className="text-center">
-                      {r.opening_balance > 0 ? (
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          r.opening_type === "DR" 
-                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" 
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                        }`}>
-                          {r.opening_type}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    <td className="text-right">
-                      {r.debit_amount > 0 ? r.debit_amount.toLocaleString() : "—"}
-                    </td>
-                    <td className="text-right">
-                      {r.credit_amount > 0 ? r.credit_amount.toLocaleString() : "—"}
-                    </td>
-                    <td className="text-right">
-                      {r.closing_balance > 0 ? r.closing_balance.toLocaleString() : "—"}
-                    </td>
-                    <td className="text-center">
-                      {r.closing_balance > 0 ? (
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          r.closing_type === "DR" 
-                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" 
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                        }`}>
-                          {r.closing_type}
-                        </span>
-                      ) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+              {groupedItems ? (
+                Object.entries(groupedItems).map(([key, group]) => {
+                  const gTotals = group.rows.reduce(
+                    (acc, r) => {
+                      acc.opening_dr += r.opening_type === "DR" ? r.opening_balance : 0;
+                      acc.opening_cr += r.opening_type === "CR" ? r.opening_balance : 0;
+                      acc.debit_amount += r.debit_amount;
+                      acc.credit_amount += r.credit_amount;
+                      acc.closing_dr += r.closing_type === "DR" ? r.closing_balance : 0;
+                      acc.closing_cr += r.closing_type === "CR" ? r.closing_balance : 0;
+                      return acc;
+                    },
+                    { opening_dr: 0, opening_cr: 0, debit_amount: 0, credit_amount: 0, closing_dr: 0, closing_cr: 0 }
+                  );
+                  return (
+                    <tbody key={key} className="border-b-[8px] border-slate-200/50">
+                      <tr className="bg-slate-100 dark:bg-slate-800">
+                        <td colSpan="7" className="font-bold text-slate-700 dark:text-slate-200 py-3 px-4">
+                          {group.type} <span className="mx-2 text-slate-400">›</span> <span className="text-brand-600 dark:text-brand-400">{group.cat}</span>
+                        </td>
+                      </tr>
+                      {group.rows.map((r) => (
+                        <tr key={r.account_id}>
+                          <td>
+                            <Link 
+                              to={`/finance/reports/general-ledger?accountId=${r.account_id}&from=${from}&to=${to}`}
+                              className="font-medium text-blue-500 hover:text-blue-600 hover:underline"
+                            >
+                              {r.account_name}
+                            </Link>
+                          </td>
+                          <td className="text-right">
+                            {r.opening_balance > 0 ? r.opening_balance.toLocaleString() : "—"}
+                          </td>
+                          <td className="text-center">
+                            {r.opening_balance > 0 ? (
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                r.opening_type === "DR" 
+                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" 
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              }`}>
+                                {r.opening_type}
+                              </span>
+                            ) : "—"}
+                          </td>
+                          <td className="text-right">
+                            {r.debit_amount > 0 ? r.debit_amount.toLocaleString() : "—"}
+                          </td>
+                          <td className="text-right">
+                            {r.credit_amount > 0 ? r.credit_amount.toLocaleString() : "—"}
+                          </td>
+                          <td className="text-right">
+                            {r.closing_balance > 0 ? r.closing_balance.toLocaleString() : "—"}
+                          </td>
+                          <td className="text-center">
+                            {r.closing_balance > 0 ? (
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                                r.closing_type === "DR" 
+                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" 
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              }`}>
+                                {r.closing_type}
+                              </span>
+                            ) : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50 dark:bg-slate-800/50 font-semibold border-t-2 border-slate-200">
+                        <td className="text-right pr-4 py-2 text-sm text-slate-500">Subtotal:</td>
+                        <td className="text-right py-2">
+                          {gTotals.opening_dr > 0 && <div className="text-xs text-blue-600 font-medium">DR: {gTotals.opening_dr.toLocaleString()}</div>}
+                          {gTotals.opening_cr > 0 && <div className="text-xs text-amber-600 font-medium">CR: {gTotals.opening_cr.toLocaleString()}</div>}
+                        </td>
+                        <td className="text-center"></td>
+                        <td className="text-right text-brand-600 py-2">{gTotals.debit_amount > 0 ? gTotals.debit_amount.toLocaleString() : "—"}</td>
+                        <td className="text-right text-brand-600 py-2">{gTotals.credit_amount > 0 ? gTotals.credit_amount.toLocaleString() : "—"}</td>
+                        <td className="text-right py-2">
+                          {gTotals.closing_dr > 0 && <div className="text-xs text-blue-600 font-medium">DR: {gTotals.closing_dr.toLocaleString()}</div>}
+                          {gTotals.closing_cr > 0 && <div className="text-xs text-amber-600 font-medium">CR: {gTotals.closing_cr.toLocaleString()}</div>}
+                        </td>
+                        <td className="text-center"></td>
+                      </tr>
+                    </tbody>
+                  );
+                })
+              ) : (
+                <tbody>
+                  {sortedItems.map((r) => (
+                    <tr key={r.account_id}>
+                      <td>{r.account_type || "-"}</td>
+                      <td>{r.account_category || "-"}</td>
+                      <td>
+                        <Link 
+                          to={`/finance/reports/general-ledger?accountId=${r.account_id}&from=${from}&to=${to}`}
+                          className="font-medium text-blue-500 hover:text-blue-600 hover:underline"
+                        >
+                          {r.account_name}
+                        </Link>
+                      </td>
+                      <td className="text-right">
+                        {r.opening_balance > 0 ? r.opening_balance.toLocaleString() : "—"}
+                      </td>
+                      <td className="text-center">
+                        {r.opening_balance > 0 ? (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            r.opening_type === "DR" 
+                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" 
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                          }`}>
+                            {r.opening_type}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      <td className="text-right">
+                        {r.debit_amount > 0 ? r.debit_amount.toLocaleString() : "—"}
+                      </td>
+                      <td className="text-right">
+                        {r.credit_amount > 0 ? r.credit_amount.toLocaleString() : "—"}
+                      </td>
+                      <td className="text-right">
+                        {r.closing_balance > 0 ? r.closing_balance.toLocaleString() : "—"}
+                      </td>
+                      <td className="text-center">
+                        {r.closing_balance > 0 ? (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            r.closing_type === "DR" 
+                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" 
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                          }`}>
+                            {r.closing_type}
+                          </span>
+                        ) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              )}
               <tfoot>
                 <tr className="bg-slate-100 dark:bg-slate-800 font-semibold">
-                  <td colSpan="3" className="font-semibold">Totals</td>
+                  <td colSpan={controlBreak ? 1 : 3} className="font-semibold text-right pr-4">Grand Totals</td>
                   <td className="text-right">{totals.opening_dr.toLocaleString()}</td>
                   <td className="text-center">DR</td>
                   <td className="text-right">{totals.debit_amount.toLocaleString()}</td>
@@ -357,7 +470,7 @@ export default function TrialBalanceReportPage() {
                   <td className="text-center">DR</td>
                 </tr>
                 <tr className="bg-slate-100 dark:bg-slate-800 font-semibold">
-                  <td colSpan="3"></td>
+                  <td colSpan={controlBreak ? 1 : 3}></td>
                   <td className="text-right">{totals.opening_cr.toLocaleString()}</td>
                   <td className="text-center">CR</td>
                   <td colSpan="2"></td>

@@ -204,6 +204,52 @@ export const MODULES_CONFIG = [
     ]
   },
   {
+    key: "business-intelligence",
+    name: "Business Intelligence",
+    icon: "📈",
+    path: "/business-intelligence",
+    features: [
+      {
+        key: "reports",
+        name: "Report Center",
+        description: "View and generate BI reports",
+        path: "/business-intelligence/reports"
+      },
+      {
+        key: "data-explorer",
+        name: "Data Explorer",
+        description: "Self-service ad-hoc querying",
+        path: "/business-intelligence/explorer"
+      },
+      {
+        key: "kpi-center",
+        name: "KPI Center",
+        description: "Manage KPIs and thresholds",
+        path: "/business-intelligence/kpi"
+      },
+      {
+        key: "ai-insights",
+        name: "AI Insights",
+        description: "AI-generated business insights",
+        path: "/business-intelligence/insights"
+      },
+      {
+        key: "alerts-center",
+        name: "Alerts Center",
+        description: "Manage and view analytical alerts",
+        path: "/business-intelligence/alerts"
+      }
+    ],
+    dashboards: [
+      {
+        key: "executive-dashboard",
+        name: "Executive Dashboard",
+        description: "High-level cross-module analytics",
+        path: "/business-intelligence/executive-dashboard"
+      }
+    ]
+  },
+  {
     key: "admin",
     name: "Admin",
     icon: "⚙️",

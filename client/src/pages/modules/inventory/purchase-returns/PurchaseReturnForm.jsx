@@ -8,8 +8,10 @@ import {
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Plus, Trash2 } from "lucide-react";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 export default function PurchaseReturnForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -581,9 +583,9 @@ export default function PurchaseReturnForm() {
                 Record goods returned to supplier and auto-create a Debit Note
               </p>
             </div>
-            <Link to="/purchase/purchase-returns" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
         <div className="card-body p-6">
@@ -1052,12 +1054,10 @@ export default function PurchaseReturnForm() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Link
-                to="/purchase/purchase-returns"
-                className="btn btn-secondary"
+              <button onClick={() => window.history.back()} className="btn btn-secondary"
               >
                 {readOnly ? "Back to List" : "Cancel"}
-              </Link>
+              </button>
               {!readOnly && (
                 <button
                   type="submit"

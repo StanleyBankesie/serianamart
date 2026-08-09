@@ -11,6 +11,8 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -18,6 +20,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function SuppliersList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [searchTerm, setSearchTerm] = useState("");
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -87,7 +90,7 @@ export default function SuppliersList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/purchase" className="btn btn-secondary">
+              <Link to="/purchase?section=Procurement" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link to="/purchase/suppliers/new" className="btn-success">
@@ -112,8 +115,12 @@ export default function SuppliersList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader label="Code" sortKey="supplier_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

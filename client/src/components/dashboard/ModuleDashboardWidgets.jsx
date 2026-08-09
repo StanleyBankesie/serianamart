@@ -1,31 +1,48 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 const toneMap = {
+  // App brand colors
+  brand: {
+    card: "from-brand-800 to-brand-900",
+    badge: "bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300",
+    bar: "bg-brand-600",
+  },
+  primary: {
+    card: "from-primary to-primary-dark",
+    badge: "bg-primary-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+    bar: "bg-primary",
+  },
+  secondary: {
+    card: "from-secondary to-secondary-dark",
+    badge: "bg-secondary-50 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+    bar: "bg-secondary",
+  },
+  // Legacy tones kept for backward compat
   indigo: {
-    card: "from-indigo-500 to-indigo-600",
-    badge: "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300",
-    bar: "bg-indigo-500",
+    card: "from-brand-700 to-brand-900",
+    badge: "bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300",
+    bar: "bg-brand-600",
   },
   emerald: {
-    card: "from-emerald-500 to-emerald-600",
-    badge: "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-    bar: "bg-emerald-500",
+    card: "from-secondary to-secondary-dark",
+    badge: "bg-secondary-50 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+    bar: "bg-secondary",
   },
   amber: {
-    card: "from-amber-500 to-orange-500",
-    badge: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-    bar: "bg-amber-500",
+    card: "from-primary to-primary-dark",
+    badge: "bg-primary-50 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+    bar: "bg-primary",
   },
   rose: {
-    card: "from-rose-500 to-rose-600",
-    badge: "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
-    bar: "bg-rose-500",
+    card: "from-red-500 to-red-600",
+    badge: "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+    bar: "bg-red-500",
   },
   teal: {
-    card: "from-teal-500 to-cyan-600",
-    badge: "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
-    bar: "bg-teal-500",
+    card: "from-brand-700 to-brand-900",
+    badge: "bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300",
+    bar: "bg-brand-500",
   },
   slate: {
     card: "from-slate-700 to-slate-800",
@@ -98,14 +115,22 @@ export function DashboardPageShell({
   actions = [],
   children,
 }) {
+  // If the user navigated here from a specific page (e.g. BI Report Center),
+  // use that as the back destination instead of the module default.
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const fromPath = params.get("from");
+  const resolvedBackTo = fromPath || backTo;
+  const resolvedBackLabel = fromPath ? "← Report Center" : backLabel;
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
       <div className="rounded-[28px] bg-gradient-to-r from-brand-900 via-brand-800 to-slate-900 text-white p-6 shadow-erp-xl">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <Link to={backTo} className="btn btn-secondary">
-                {backLabel}
+              <Link to={resolvedBackTo} className="btn btn-secondary">
+                {resolvedBackLabel}
               </Link>
               <span className="text-xs uppercase tracking-[0.3em] text-white/60">
                 Dashboard

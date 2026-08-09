@@ -4,15 +4,21 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { api } from "../../../../api/client";
 import { useGhanaCities } from "../../../../hooks/useGhanaCities";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
+import PhoneInput from "../../../../components/PhoneInput.jsx";
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function CustomerForm() {
@@ -20,8 +26,7 @@ export default function CustomerForm() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const isEdit = Boolean(id);
-  const isViewOnly =
-    Boolean(isEdit) && searchParams.get("mode") === "view";
+  const isViewOnly = Boolean(isEdit) && searchParams.get("mode") === "view";
   const dispatch = useDispatch();
   const { cities: ghanaCities } = useGhanaCities();
 
@@ -181,14 +186,21 @@ export default function CustomerForm() {
     if (isEdit || !salesAccounts.length) return;
     // Only set if no sales account is selected yet
     if (form.sales_account_id) return;
-    
-    // Find account with "sales" in name, or use first account as default
+
+    // Find account with exactly "Sales Account" in name, or use first account as default
     const preferred =
+      salesAccounts.find(
+        (a) => String(a.name || "").toLowerCase() === "sales account",
+      ) ||
       salesAccounts.find((a) => /sales/i.test(String(a.name || ""))) ||
       salesAccounts[0];
-    
+
     if (preferred?.id) {
-      console.log("Setting default sales account:", preferred.name, preferred.id);
+      console.log(
+        "Setting default sales account:",
+        preferred.name,
+        preferred.id,
+      );
       setForm((p) => ({ ...p, sales_account_id: String(preferred.id) }));
     }
   }, [isEdit, salesAccounts]); // Run when salesAccounts changes
@@ -218,6 +230,7 @@ export default function CustomerForm() {
         payment_terms: form.payment_terms || "Net 30",
         is_active: Boolean(form.is_active),
         sales_account_id: form.sales_account_id || null,
+        service_customer: form.service_customer === 'Y' || form.service_customer === true ? 'Y' : 'N',
       };
       let createdId = null;
       if (isEdit) {
@@ -228,10 +241,12 @@ export default function CustomerForm() {
         createdId = res?.data?.id || res?.data?.item?.id || null;
       }
       dispatch(setRefresh({ key: "customers", id: createdId || null }));
-      
+
       // Show success message
-      const successMessage = isEdit ? "Customer updated successfully!" : "Customer created successfully!";
-      
+      const successMessage = isEdit
+        ? "Customer updated successfully!"
+        : "Customer created successfully!";
+
       navigate("/sales/customers", {
         state: {
           afterSave: {
@@ -265,13 +280,16 @@ export default function CustomerForm() {
           </div>
           <div className="flex gap-2">
             {!isEdit && (
-              <Link to="/sales/prospect-conversion" className="btn btn-secondary">
+              <Link
+                to="/sales/prospect-conversion"
+                className="btn btn-secondary"
+              >
                 Convert Prospect
               </Link>
             )}
-            <Link to="/sales/customers" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -287,230 +305,259 @@ export default function CustomerForm() {
                   disabled={loading || isViewOnly}
                   className="min-w-0 border-0 p-0 m-0 space-y-4"
                 >
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">Customer Code</label>
-                    <input
-                      className="input"
-                      value={form.customer_code || ""}
-                      onChange={(e) => update("customer_code", e.target.value)}
-                      placeholder="Auto-generated if empty"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Customer Name *</label>
+                      <input
+                        className="input"
+                        value={form.customer_name || ""}
+                        onChange={(e) =>
+                          update("customer_name", e.target.value)
+                        }
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Customer Type</label>
+                      <select
+                        className="input w-60"
+                        value={form.customer_type || "Individual"}
+                        onChange={(e) =>
+                          update("customer_type", e.target.value)
+                        }
+                      >
+                        <option value="Individual">Individual</option>
+                        <option value="Business">Business</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Contact Person</label>
+                      <input
+                        className="input"
+                        value={form.contact_person || ""}
+                        onChange={(e) =>
+                          update("contact_person", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Email</label>
+                      <input
+                        className="input"
+                        type="email"
+                        value={form.email || ""}
+                        onChange={(e) => update("email", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Phone</label>
+                      <PhoneInput
+                        className="w-60"
+                        value={form.phone || ""}
+                        onChange={(v) => update("phone", v)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Mobile</label>
+                      <PhoneInput
+                        className="w-60"
+                        value={form.mobile || ""}
+                        onChange={(v) => update("mobile", v)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Credit Limit</label>
+                      <input
+                        className="input"
+                        type="number"
+                        value={form.credit_limit || ""}
+                        onChange={(e) => update("credit_limit", e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Payment Terms</label>
+                      <select
+                        className="input w-60"
+                        value={form.payment_terms || "Net 30"}
+                        onChange={(e) =>
+                          update("payment_terms", e.target.value)
+                        }
+                      >
+                        <option value="Immediate">Immediate</option>
+                        <option value="Net 15">Net 15</option>
+                        <option value="Net 30">Net 30</option>
+                        <option value="Net 45">Net 45</option>
+                        <option value="Net 60">Net 60</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Status</label>
+                      <select
+                        className="input w-60"
+                        value={form.is_active ? "1" : "0"}
+                        onChange={(e) =>
+                          update("is_active", e.target.value === "1")
+                        }
+                      >
+                        <option value="1">Active</option>
+                        <option value="0">Inactive</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Address</label>
+                      <textarea
+                        className="input w-60"
+                        rows="2"
+                        value={form.address || ""}
+                        onChange={(e) => update("address", e.target.value)}
+                      ></textarea>
+                    </div>
+                    <div>
+                      <label className="label">City</label>
+                      <input
+                        className="input"
+                        list="ghana-cities"
+                        value={form.city || ""}
+                        onChange={(e) => update("city", e.target.value)}
+                      />
+                      <datalist id="ghana-cities">
+                        {ghanaCities.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="label">State</label>
+                      <input
+                        className="input"
+                        list="ghana-regions"
+                        value={form.state || ""}
+                        onChange={(e) => update("state", e.target.value)}
+                      />
+                      <datalist id="ghana-regions">
+                        {GHANA_REGIONS.map((r) => (
+                          <option key={r} value={r} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="label">Zone</label>
+                      <select
+                        className="input w-60"
+                        value={form.zone || ""}
+                        onChange={(e) => update("zone", e.target.value)}
+                      >
+                        <option value="">Select zone</option>
+                        {zoneOptions.map((z) => (
+                          <option key={z} value={z}>
+                            {z}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Country</label>
+                      <input
+                        className="input"
+                        list="world-countries"
+                        value={form.country || ""}
+                        onChange={(e) => update("country", e.target.value)}
+                      />
+                      <datalist id="world-countries">
+                        {countries.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="label">Price Type</label>
+                      <select
+                        className="input w-60"
+                        value={form.price_type_id || ""}
+                        onChange={(e) =>
+                          update("price_type_id", e.target.value)
+                        }
+                      >
+                        <option value="">-- Select Price Type --</option>
+                        {priceTypes.map((pt) => (
+                          <option key={pt.id} value={pt.id}>
+                            {pt.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Currency</label>
+                      <select
+                        className="input w-60"
+                        value={form.currency_id || ""}
+                        onChange={(e) => update("currency_id", e.target.value)}
+                      >
+                        <option value="">-- Select Currency --</option>
+                        {currencies.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {(c.code || c.currency_code) +
+                              " - " +
+                              (c.name || c.currency_name || "")}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Revenue Account</label>
+                      <select
+                        className="input w-60"
+                        value={form.sales_account_id || ""}
+                        onChange={(e) =>
+                          update("sales_account_id", e.target.value)
+                        }
+                      >
+                        <option value="">-- Select Revenue Account --</option>
+                        {salesAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code ? `${a.code} - ` : ""}
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Default revenue/income account for this customer's sales
+                        transactions.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="label">Customer Name *</label>
-                    <input
-                      className="input"
-                      value={form.customer_name || ""}
-                      onChange={(e) => update("customer_name", e.target.value)}
-                      required
-                    />
+
+                  <div className="flex items-center gap-6 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="checkbox"
+                        checked={
+                          form.service_customer === "Y" ||
+                          form.service_customer === true
+                        }
+                        onChange={(e) =>
+                          update(
+                            "service_customer",
+                            e.target.checked ? "Y" : "N",
+                          )
+                        }
+                      />
+                      <span className="text-sm font-medium">
+                        Service Customer
+                      </span>
+                    </label>
                   </div>
-                  <div>
-                    <label className="label">Customer Type</label>
-                    <select
-                      className="input"
-                      value={form.customer_type || "Individual"}
-                      onChange={(e) => update("customer_type", e.target.value)}
-                    >
-                      <option value="Individual">Individual</option>
-                      <option value="Business">Business</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label">Contact Person</label>
-                    <input
-                      className="input"
-                      value={form.contact_person || ""}
-                      onChange={(e) => update("contact_person", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Email</label>
-                    <input
-                      className="input"
-                      type="email"
-                      value={form.email || ""}
-                      onChange={(e) => update("email", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Phone</label>
-                    <input
-                      className="input"
-                      value={form.phone || ""}
-                      onChange={(e) => update("phone", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Mobile</label>
-                    <input
-                      className="input"
-                      value={form.mobile || ""}
-                      onChange={(e) => update("mobile", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Credit Limit</label>
-                    <input
-                      className="input"
-                      type="number"
-                      value={form.credit_limit || ""}
-                      onChange={(e) => update("credit_limit", e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Payment Terms</label>
-                    <select
-                      className="input"
-                      value={form.payment_terms || "Net 30"}
-                      onChange={(e) => update("payment_terms", e.target.value)}
-                    >
-                      <option value="Immediate">Immediate</option>
-                      <option value="Net 15">Net 15</option>
-                      <option value="Net 30">Net 30</option>
-                      <option value="Net 45">Net 45</option>
-                      <option value="Net 60">Net 60</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label">Status</label>
-                    <select
-                      className="input"
-                      value={form.is_active ? "1" : "0"}
-                      onChange={(e) =>
-                        update("is_active", e.target.value === "1")
-                      }
-                    >
-                      <option value="1">Active</option>
-                      <option value="0">Inactive</option>
-                    </select>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="label">Address</label>
-                    <textarea
-                      className="input"
-                      rows="3"
-                      value={form.address || ""}
-                      onChange={(e) => update("address", e.target.value)}
-                    ></textarea>
-                  </div>
-                  <div>
-                    <label className="label">City</label>
-                    <input
-                      className="input"
-                      list="ghana-cities"
-                      value={form.city || ""}
-                      onChange={(e) => update("city", e.target.value)}
-                    />
-                    <datalist id="ghana-cities">
-                      {ghanaCities.map((c) => (
-                        <option key={c} value={c} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label className="label">State</label>
-                    <input
-                      className="input"
-                      list="ghana-regions"
-                      value={form.state || ""}
-                      onChange={(e) => update("state", e.target.value)}
-                    />
-                    <datalist id="ghana-regions">
-                      {GHANA_REGIONS.map((r) => (
-                        <option key={r} value={r} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label className="label">Zone</label>
-                    <select
-                      className="input"
-                      value={form.zone || ""}
-                      onChange={(e) => update("zone", e.target.value)}
-                    >
-                      <option value="">Select zone</option>
-                      {zoneOptions.map((z) => (
-                        <option key={z} value={z}>{z}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label">Country</label>
-                    <input
-                      className="input"
-                      list="world-countries"
-                      value={form.country || ""}
-                      onChange={(e) => update("country", e.target.value)}
-                    />
-                    <datalist id="world-countries">
-                      {countries.map((c) => (
-                        <option key={c} value={c} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div>
-                    <label className="label">Price Type</label>
-                    <select
-                      className="input"
-                      value={form.price_type_id || ""}
-                      onChange={(e) => update("price_type_id", e.target.value)}
-                    >
-                      <option value="">-- Select Price Type --</option>
-                      {priceTypes.map((pt) => (
-                        <option key={pt.id} value={pt.id}>
-                          {pt.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="label">Currency</label>
-                    <select
-                      className="input"
-                      value={form.currency_id || ""}
-                      onChange={(e) => update("currency_id", e.target.value)}
-                    >
-                      <option value="">-- Select Currency --</option>
-                      {currencies.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {(c.code || c.currency_code) +
-                            " - " +
-                            (c.name || c.currency_name || "")}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="label">Sales Account</label>
-                    <select
-                      className="input"
-                      value={form.sales_account_id || ""}
-                      onChange={(e) => update("sales_account_id", e.target.value)}
-                    >
-                      <option value="">-- Select Sales Account --</option>
-                      {salesAccounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.code ? `${a.code} - ` : ""}{a.name}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Default revenue/income account for this customer's sales transactions.
-                    </p>
-                  </div>
-                </div>
                 </fieldset>
                 {!isViewOnly && (
-                <div className="flex justify-end gap-3 pt-4">
-                  <Link to="/sales/customers" className="btn btn-secondary">
-                    Cancel
-                  </Link>
-                  <button className="btn-success" disabled={loading}>
-                    {loading ? "Saving..." : "Save Customer"}
-                  </button>
-                </div>
+                  <div className="flex justify-end gap-3 pt-4">
+                    <button onClick={() => window.history.back()} className="btn btn-secondary">
+                      Cancel
+                    </button>
+                    <button className="btn-success" disabled={loading}>
+                      {loading ? "Saving..." : "Save Customer"}
+                    </button>
+                  </div>
                 )}
               </div>
 

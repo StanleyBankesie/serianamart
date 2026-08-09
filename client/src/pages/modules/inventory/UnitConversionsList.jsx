@@ -9,6 +9,8 @@ import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useUoms } from "@/hooks/useUoms";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -16,6 +18,7 @@ import { useUoms } from "@/hooks/useUoms";
  * @returns {JSX.Element} The rendered component
  */
 export default function UnitConversionsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [conversions, setConversions] = useState([]);
@@ -126,7 +129,7 @@ export default function UnitConversionsList() {
               <p className="text-sm mt-1">Define unit conversions per item</p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <button
@@ -154,8 +157,12 @@ export default function UnitConversionsList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th>Item</th>

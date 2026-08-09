@@ -51,12 +51,13 @@ export async function listEmployees(req, res, next) {
 
     const items = await query(`SELECT e.id, e.emp_code, e.first_name, e.last_name, e.middle_name, e.email, e.phone, e.dept_id, e.pos_id, e.manager_id,
               e.employment_type, e.employment_type_id, e.category_id, e.location_id, e.status, e.base_salary, e.joining_date,
-              d.dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
+              COALESCE(d.dept_name, ad.name) as dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
               CONCAT(e.first_name, ' ', COALESCE(e.middle_name, ''), ' ', e.last_name) as full_name,
               CASE WHEN e.status = 'ACTIVE' THEN 1 ELSE 0 END as is_active,
           e.created_at
           FROM hr_employees e
        LEFT JOIN hr_departments d ON d.id = e.dept_id
+       LEFT JOIN adm_departments ad ON ad.id = e.dept_id
        LEFT JOIN hr_positions p ON p.id = e.pos_id
        LEFT JOIN hr_employees m ON m.id = e.manager_id
        ${where}
@@ -158,6 +159,7 @@ async function listTrainingProgramsDup(req, res, next) {
 // Database Utility: Ensures that attachment columns exist in the hr_policies table
 // Adds attachment_url and attachment_name columns if they do not already exist
 async function ensurePolicyAttachmentColumns() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   // Add attachment_url column
   await query(`ALTER TABLE hr_policies
      ADD COLUMN attachment_url TEXT NULL AFTER content`,
@@ -173,6 +175,7 @@ async function ensurePolicyAttachmentColumns() {
 // Database Utility: Ensures that attachment columns exist in the hr_medical_policies table
 // Adds attachment_url and attachment_name columns if they do not already exist
 async function ensureMedicalPolicyAttachmentColumns() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   // Add attachment_url column
   await query(`ALTER TABLE hr_medical_policies
      ADD COLUMN attachment_url TEXT NULL AFTER coverage_details`,
@@ -673,10 +676,11 @@ export async function getEmployeeById(req, res, next) {
     const { id } = req.params;
 
     // Fetch primary employee data with department, position, and manager details
-    const rows = await query(`SELECT e.*, d.dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
+    const rows = await query(`SELECT e.*, COALESCE(d.dept_name, ad.name) as dept_name, p.pos_name, m.first_name as manager_first_name, m.last_name as manager_last_name,
               CONCAT(e.first_name, ' ', COALESCE(e.middle_name, ''), ' ', e.last_name) as full_name,
           e.created_at FROM hr_employees e
        LEFT JOIN hr_departments d ON d.id = e.dept_id
+       LEFT JOIN adm_departments ad ON ad.id = e.dept_id
        LEFT JOIN hr_positions p ON p.id = e.pos_id
        LEFT JOIN hr_employees m ON m.id = e.manager_id
          WHERE e.id = :id AND e.company_id = :companyId AND e.deleted_at IS NULL`,
@@ -816,7 +820,7 @@ export async function saveEmployee(req, res, next) {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           companyId,
-          branchId, branchIdsStr,
+          branchId,
           body.emp_code,
           body.first_name,
           body.last_name,
@@ -1035,11 +1039,24 @@ export async function listDepartments(req, res, next) {
   try {
     await ensureHRTables();
     const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT id, dept_code, dept_name,
-          created_at FROM hr_departments
-         WHERE company_id = :companyId AND deleted_at IS NULL ORDER BY dept_name ASC`,
-      { companyId },
-    );
+    const admDepts = await query(
+      `SELECT id, code AS dept_code, name AS dept_name, created_at FROM adm_departments WHERE (:companyId IS NULL OR company_id = :companyId OR company_id IS NULL) AND is_active = 1 ORDER BY name ASC`,
+      { companyId }
+    ).catch(() => []);
+    const hrDepts = await query(
+      `SELECT id, dept_code, dept_name, created_at FROM hr_departments WHERE (:companyId IS NULL OR company_id = :companyId) AND deleted_at IS NULL ORDER BY dept_name ASC`,
+      { companyId }
+    ).catch(() => []);
+
+    const seen = new Set();
+    const items = [];
+    for (const d of [...(admDepts || []), ...(hrDepts || [])]) {
+      const nameKey = (d.dept_name || "").toLowerCase().trim();
+      if (nameKey && !seen.has(nameKey)) {
+        seen.add(nameKey);
+        items.push(d);
+      }
+    }
     res.json({ items });
   } catch (err) {
     next(err);
@@ -1052,10 +1069,16 @@ export async function listDepartments(req, res, next) {
 export async function listPositions(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT id, pos_code, pos_name,
-          created_at FROM hr_positions
-         WHERE company_id = :companyId AND deleted_at IS NULL ORDER BY pos_name ASC`,
+    try {
+      await query(`ALTER TABLE hr_positions ADD COLUMN reports_to_pos_id BIGINT UNSIGNED NULL`);
+    } catch {}
+    const companyId = req.scope?.companyId || req.user?.company_id || 1;
+    const items = await query(`SELECT p.id, p.pos_code, p.pos_name, p.dept_id, p.reports_to_pos_id,
+          p2.pos_name as parent_pos_name, d.dept_name,
+          p.created_at FROM hr_positions p
+        LEFT JOIN hr_positions p2 ON p2.id = p.reports_to_pos_id
+        LEFT JOIN hr_departments d ON d.id = p.dept_id
+         WHERE (:companyId IS NULL OR p.company_id = :companyId OR p.company_id = 1 OR p.company_id IS NULL) AND p.deleted_at IS NULL ORDER BY p.pos_name ASC`,
       { companyId },
     );
     res.json({ items });
@@ -1110,28 +1133,32 @@ export async function saveDepartment(req, res, next) {
 export async function savePosition(req, res, next) {
   try {
     await ensureHRTables();
+    try {
+      await query(`ALTER TABLE hr_positions ADD COLUMN reports_to_pos_id BIGINT UNSIGNED NULL`);
+    } catch {}
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
-    const { id, pos_code, pos_name, dept_id } = req.body;
+    const { id, pos_code, pos_name, dept_id, reports_to_pos_id } = req.body;
     const userId = toNumber(req.user?.id || req.user?.sub, null);
 
     const params = {
       pos_code,
       pos_name,
       dept_id: toNumber(dept_id, null),
+      reports_to_pos_id: toNumber(reports_to_pos_id, null),
       userId,
       companyId,
     };
 
     if (id) {
       await query(`UPDATE hr_positions SET pos_code = :pos_code, pos_name = :pos_name, 
-                dept_id = :dept_id, updated_by = :userId
+                dept_id = :dept_id, reports_to_pos_id = :reports_to_pos_id, updated_by = :userId
          WHERE id = :id AND company_id = :companyId`,
         { ...params, id },
       );
       res.json({ message: "Position updated" });
     } else {
-      const result = await query(`INSERT INTO hr_positions (company_id, branch_id, pos_code, pos_name, dept_id, created_by)
-         VALUES (:companyId, :branchId, :pos_code, :pos_name, :dept_id, :userId)`,
+      const result = await query(`INSERT INTO hr_positions (company_id, branch_id, pos_code, pos_name, dept_id, reports_to_pos_id, created_by)
+         VALUES (:companyId, :branchId, :pos_code, :pos_name, :dept_id, :reports_to_pos_id, :userId)`,
         { ...params, branchId, branchIdsStr },
       );
       res
@@ -1376,6 +1403,7 @@ export async function submitRequisition(req, res, next) {
           message: `Job Requisition #${reqRow.req_no || id} forwarded for approval.`,
           action: "APPROVE",
           senderName: req.user?.name || req.user?.username || "System",
+          req: req,
         });
       }
     } catch {}
@@ -1487,7 +1515,7 @@ export async function saveCandidate(req, res, next) {
 
 export async function savePromotion(req, res, next) {
   try {
-    const { companyId = null } = req.scope || {};
+    const { companyId = null, userId = null } = req.scope || {};
     const {
       employee_id,
       promotion_date,
@@ -1498,8 +1526,12 @@ export async function savePromotion(req, res, next) {
       remarks,
     } = req.body;
 
-    await query(`INSERT INTO hr_promotions (company_id, employee_id, promotion_date, previous_pos_id, new_pos_id, previous_salary, new_salary, remarks)
-       VALUES (:companyId, :employee_id, :promotion_date, :previous_pos_id, :new_pos_id, :previous_salary, :new_salary, :remarks)`,
+    try {
+      await query(`ALTER TABLE hr_promotions ADD COLUMN created_by BIGINT UNSIGNED NULL`);
+    } catch {}
+
+    await query(`INSERT INTO hr_promotions (company_id, employee_id, promotion_date, previous_pos_id, new_pos_id, previous_salary, new_salary, remarks, created_by)
+       VALUES (:companyId, :employee_id, :promotion_date, :previous_pos_id, :new_pos_id, :previous_salary, :new_salary, :remarks, :userId)`,
       {
         companyId,
         employee_id,
@@ -1509,6 +1541,7 @@ export async function savePromotion(req, res, next) {
         previous_salary,
         new_salary,
         remarks,
+        userId: userId || req.user?.id || null,
       },
     );
 
@@ -1540,15 +1573,36 @@ export async function listPromotions(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
     const items = await query(`SELECT pr.*, e.first_name, e.last_name, e.emp_code, p1.pos_name as previous_pos, p2.pos_name as new_pos,
+          u.username as created_by_username, u.username as created_by_name,
           pr.created_at FROM hr_promotions pr
        JOIN hr_employees e ON e.id = pr.employee_id
        LEFT JOIN hr_positions p1 ON p1.id = pr.previous_pos_id
        LEFT JOIN hr_positions p2 ON p2.id = pr.new_pos_id
-         WHERE pr.company_id = :companyId
+       LEFT JOIN adm_users u ON u.id = pr.created_by
+         WHERE (pr.company_id = :companyId OR pr.company_id IS NULL OR :companyId IS NULL)
        ORDER BY pr.promotion_date DESC`,
       { companyId },
     );
     res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getPromotion(req, res, next) {
+  try {
+    const { companyId = null } = req.scope || {};
+    const { id } = req.params;
+    const rows = await query(`SELECT pr.*, e.first_name, e.last_name, e.emp_code, p1.pos_name as previous_pos, p2.pos_name as new_pos,
+          pr.created_at FROM hr_promotions pr
+       JOIN hr_employees e ON e.id = pr.employee_id
+       LEFT JOIN hr_positions p1 ON p1.id = pr.previous_pos_id
+       LEFT JOIN hr_positions p2 ON p2.id = pr.new_pos_id
+         WHERE pr.id = :id AND (pr.company_id = :companyId OR pr.company_id IS NULL OR :companyId IS NULL)`,
+      { id, companyId },
+    );
+    if (!rows.length) throw httpError(404, "NOT_FOUND", "Promotion not found");
+    res.json({ item: rows[0] });
   } catch (err) {
     next(err);
   }
@@ -1741,10 +1795,9 @@ export async function listOffers(req, res, next) {
 export async function listShifts(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT *,
-          created_at FROM hr_shifts
-         WHERE company_id = :companyId AND is_active = 1 ORDER BY start_time ASC`,
+    const companyId = req.scope?.companyId || req.user?.company_id || 1;
+    const items = await query(`SELECT * FROM hr_shifts
+         WHERE (:companyId IS NULL OR company_id = :companyId OR company_id = 1 OR company_id IS NULL) ORDER BY start_time ASC`,
       { companyId },
     );
     res.json({ items });
@@ -1856,27 +1909,90 @@ export async function listAttendance(req, res, next) {
     const { employee_id, from_date, to_date } = req.query;
     const clauses = [];
     const params = {};
-    if (employee_id) {
+    if (employee_id && employee_id !== "undefined" && employee_id !== "null") {
       clauses.push("a.employee_id = :employee_id");
       params.employee_id = toNumber(employee_id, null);
     }
-    if (from_date) {
+    if (from_date && from_date !== "undefined") {
       clauses.push("a.attendance_date >= :from_date");
       params.from_date = from_date;
     }
-    if (to_date) {
+    if (to_date && to_date !== "undefined") {
       clauses.push("a.attendance_date <= :to_date");
       params.to_date = to_date;
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const items = await query(`SELECT a.*, e.first_name, e.last_name
-         FROM hr_attendance a
+    let items = [];
+    try {
+      items = await query(`SELECT a.*, e.first_name, e.last_name, e.emp_code
+           FROM hr_attendance a
+         LEFT JOIN hr_employees e ON e.id = a.employee_id
+         ${where}
+           ORDER BY a.attendance_date DESC`,
+        params,
+      );
+    } catch (e) {
+      items = [];
+    }
+    res.json({ items: items || [] });
+  } catch (err) {
+    res.json({ items: [] });
+  }
+}
+
+export async function getAttendance(req, res, next) {
+  try {
+    await ensureHRTables();
+    const id = toNumber(req.params.id, null);
+    const rows = await query(
+      `SELECT a.*, e.first_name, e.last_name, e.emp_code, CONCAT(COALESCE(e.first_name,''), ' ', COALESCE(e.last_name,'')) as full_name
+       FROM hr_attendance a
        LEFT JOIN hr_employees e ON e.id = a.employee_id
-       ${where}
-         ORDER BY a.attendance_date DESC`,
-      params,
+       WHERE a.id = :id`,
+      { id }
     );
-    res.json({ items });
+    if (!rows.length) throw httpError(404, "NOT_FOUND", "Attendance record not found");
+    res.json({ item: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveAttendance(req, res, next) {
+  try {
+    await ensureHRTables();
+    const { companyId = 1 } = req.scope || {};
+    const { id, employee_id, attendance_date, status, clock_in, clock_out, remarks } = req.body;
+    const empId = toNumber(employee_id, null);
+    if (!empId) throw httpError(400, "BAD_REQUEST", "Employee is required");
+
+    const params = {
+      companyId,
+      employee_id: empId,
+      attendance_date: attendance_date || new Date().toISOString().slice(0, 10),
+      status: status || "PRESENT",
+      clock_in: clock_in || null,
+      clock_out: clock_out || null,
+      remarks: remarks || null,
+    };
+
+    if (id) {
+      await query(
+        `UPDATE hr_attendance SET employee_id = :employee_id, attendance_date = :attendance_date,
+                status = :status, clock_in = :clock_in, clock_out = :clock_out, remarks = :remarks
+         WHERE id = :id`,
+        { ...params, id: toNumber(id, null) }
+      );
+      res.json({ message: "Attendance updated" });
+    } else {
+      const result = await query(
+        `INSERT INTO hr_attendance (company_id, employee_id, attendance_date, status, clock_in, clock_out, remarks)
+         VALUES (:companyId, :employee_id, :attendance_date, :status, :clock_in, :clock_out, :remarks)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), clock_in = VALUES(clock_in), clock_out = VALUES(clock_out), remarks = VALUES(remarks)`,
+        params
+      );
+      res.status(201).json({ id: result.insertId, message: "Attendance saved" });
+    }
   } catch (err) {
     next(err);
   }
@@ -1916,7 +2032,7 @@ export async function saveBulkAttendance(req, res, next) {
 export async function saveTimesheet(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
-    const { employee_id, work_date, hours_worked, overtime_hours, remarks } =
+    const { employee_id, work_date, hours_worked, overtime_hours, short_hours, remarks, time_in, time_out, location_gps } =
       req.body;
     const existing = await query(`SELECT id,
           created_at FROM hr_timesheets
@@ -1924,26 +2040,34 @@ export async function saveTimesheet(req, res, next) {
       { employee_id, work_date },
     );
     if (existing.length) {
-      await query(`UPDATE hr_timesheets SET hours_worked = :hours_worked, overtime_hours = :overtime_hours, remarks = :remarks 
+      await query(`UPDATE hr_timesheets SET hours_worked = :hours_worked, overtime_hours = :overtime_hours, short_hours = :short_hours, remarks = :remarks, time_in = :time_in, time_out = :time_out, location_gps = :location_gps
          WHERE id = :id`,
         {
           id: existing[0].id,
           hours_worked: toNumber(hours_worked, 0),
           overtime_hours: toNumber(overtime_hours, 0),
+          short_hours: toNumber(short_hours, 0),
           remarks: remarks || null,
+          time_in: time_in || null,
+          time_out: time_out || null,
+          location_gps: location_gps || null
         },
       );
       return res.json({ id: existing[0].id, message: "Timesheet updated" });
     }
-    const result = await query(`INSERT INTO hr_timesheets (company_id, employee_id, work_date, hours_worked, overtime_hours, remarks)
-       VALUES (:companyId, :employee_id, :work_date, :hours_worked, :overtime_hours, :remarks)`,
+    const result = await query(`INSERT INTO hr_timesheets (company_id, employee_id, work_date, hours_worked, overtime_hours, short_hours, remarks, time_in, time_out, location_gps)
+       VALUES (:companyId, :employee_id, :work_date, :hours_worked, :overtime_hours, :short_hours, :remarks, :time_in, :time_out, :location_gps)`,
       {
         companyId,
         employee_id,
         work_date,
         hours_worked: toNumber(hours_worked, 0),
         overtime_hours: toNumber(overtime_hours, 0),
+        short_hours: toNumber(short_hours, 0),
         remarks: remarks || null,
+        time_in: time_in || null,
+        time_out: time_out || null,
+        location_gps: location_gps || null
       },
     );
     res.status(201).json({ id: result.insertId, message: "Timesheet saved" });
@@ -1954,35 +2078,41 @@ export async function saveTimesheet(req, res, next) {
 
 export async function listTimesheets(req, res, next) {
   try {
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    await ensureHRTables();
+    const { companyId = 1, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { employee_id, from_date, to_date } = req.query;
-    const clauses = ["t.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(t.branch_id, :branchIdsStr))"];
-    const params = { companyId, branchId, branchIdsStr };
+    const clauses = [];
+    const params = {};
 
-    if (employee_id) {
+    if (employee_id && employee_id !== "undefined" && employee_id !== "null") {
       clauses.push("t.employee_id = :employee_id");
       params.employee_id = employee_id;
     }
-    if (from_date) {
+    if (from_date && from_date !== "undefined") {
       clauses.push("t.work_date >= :from_date");
       params.from_date = from_date;
     }
-    if (to_date) {
+    if (to_date && to_date !== "undefined") {
       clauses.push("t.work_date <= :to_date");
       params.to_date = to_date;
     }
 
-    const where = `WHERE ${clauses.join(" AND ")}`;
-    const items = await query(`SELECT t.*, e.first_name, e.last_name, e.emp_code,
-          t.created_at FROM hr_timesheets t
-       JOIN hr_employees e ON e.id = t.employee_id
-       ${where}
-         ORDER BY t.work_date DESC, e.last_name ASC`,
-      params,
-    );
-    res.json({ items });
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    let items = [];
+    try {
+      items = await query(`SELECT t.*, e.first_name, e.last_name, e.emp_code,
+            t.created_at FROM hr_timesheets t
+         LEFT JOIN hr_employees e ON e.id = t.employee_id
+         ${where}
+           ORDER BY t.work_date DESC`,
+        params,
+      );
+    } catch {
+      items = [];
+    }
+    res.json({ items: items || [] });
   } catch (err) {
-    next(err);
+    res.json({ items: [] });
   }
 }
 
@@ -3057,7 +3187,7 @@ export async function listPayslips(req, res, next) {
     const selectCols = ["p.*"].concat(loanCols.map((c) => `p.${c}`)).join(", ");
 
     const itemsRaw = await query(`SELECT ${selectCols}, e.first_name, e.last_name, e.emp_code, e.email, pr.period_name,
-          p.created_at FROM hr_payslips p
+           FROM hr_payslips p
        JOIN hr_employees e ON e.id = p.employee_id
        JOIN hr_payroll_periods pr ON pr.id = p.period_id
        ${where}
@@ -3128,7 +3258,7 @@ export async function sendPayslipEmail(req, res, next) {
     const { companyId = null } = req.scope || {};
     const { payslipId } = req.body;
     const rows = await query(`SELECT p.*, e.first_name, e.last_name, e.email, pr.period_name,
-          p.created_at FROM hr_payslips p
+           FROM hr_payslips p
        JOIN hr_employees e ON e.id = p.employee_id
        JOIN hr_payroll_periods pr ON pr.id = p.period_id
          WHERE p.id = :id AND e.company_id = :companyId`,
@@ -3524,8 +3654,7 @@ export async function listAllowances(req, res, next) {
   try {
     await ensureHRTables();
     const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT *,
-          created_at FROM hr_allowances
+    const items = await query(`SELECT * FROM hr_allowances
          WHERE company_id = :companyId AND is_active = 1 ORDER BY allowance_name ASC`,
       { companyId },
     );
@@ -3755,7 +3884,6 @@ export async function saveLoan(req, res, next) {
 
 export async function listLoanTypes(req, res, next) {
   try {
-    const { companyId = null } = req.scope || {};
     await query(`CREATE TABLE IF NOT EXISTS hr_setup_loan_types (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         company_id BIGINT UNSIGNED NOT NULL,
@@ -3767,9 +3895,9 @@ export async function listLoanTypes(req, res, next) {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
       {},
     ).catch(() => {});
-    const items = await query(`SELECT id, name, is_active,
-          created_at FROM hr_setup_loan_types
-         WHERE company_id = :companyId AND is_active = 1 ORDER BY name ASC`,
+    const companyId = req.scope?.companyId || req.user?.company_id || 1;
+    const items = await query(`SELECT id, name, is_active FROM hr_setup_loan_types
+         WHERE (:companyId IS NULL OR company_id = :companyId OR company_id = 1 OR company_id IS NULL) ORDER BY name ASC`,
       { companyId },
     );
     res.json({ items });
@@ -4064,8 +4192,7 @@ export async function saveSalaryStructure(req, res, next) {
 export async function getActiveSalaryStructure(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
-    const rows = await query(`SELECT id, name, description, is_active, components,
-          created_at FROM hr_salary_structures
+    const rows = await query(`SELECT id, name, description, is_active, components FROM hr_salary_structures
          WHERE company_id = :companyId AND is_active = 1 
        ORDER BY id DESC LIMIT 1`,
       { companyId },
@@ -4085,8 +4212,7 @@ export async function listBaseSalaries(req, res, next) {
     // Get the latest base salary per employee using a more robust join
     const items = await query(`SELECT e.id as employee_id, e.emp_code, e.first_name, e.last_name, 
               COALESCE(bs.base_salary, e.base_salary, 0) as base_salary,
-              bs.effective_date,
-          e.created_at FROM hr_employees e
+              bs.effective_date FROM hr_employees e
        LEFT JOIN (
          SELECT t1.employee_id, t1.base_salary, t1.effective_date
          FROM hr_employee_base_salaries t1
@@ -4590,10 +4716,9 @@ export async function listOnboardingAssignments(req, res, next) {
 export async function listLocations(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT *,
-          created_at FROM hr_locations
-         WHERE company_id = :companyId AND is_active = 1 ORDER BY location_name ASC`,
+    const companyId = req.scope?.companyId || req.user?.company_id || 1;
+    const items = await query(`SELECT * FROM hr_locations
+         WHERE (:companyId IS NULL OR company_id = :companyId OR company_id = 1 OR company_id IS NULL) ORDER BY location_name ASC`,
       { companyId },
     );
     res.json({ items });
@@ -4624,7 +4749,7 @@ export async function saveLocation(req, res, next) {
       await query(`INSERT INTO hr_locations (company_id, branch_id, location_name, address, is_active, created_by) VALUES (:companyId, :branchId, :location_name, :address, :is_active, :userId)`,
         {
           companyId,
-          branchId, branchIdsStr,
+          branchId,
           location_name,
           address,
           is_active: is_active === false ? 0 : 1,
@@ -4643,10 +4768,9 @@ export async function saveLocation(req, res, next) {
  */
 export async function listParameters(req, res, next) {
   try {
-    const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT id, param_key, param_value,
-          created_at FROM hr_setup_parameters
-         WHERE company_id = :companyId`,
+    const companyId = req.scope?.companyId || req.user?.company_id || 1;
+    const items = await query(`SELECT id, param_key, param_value FROM hr_setup_parameters
+         WHERE (:companyId IS NULL OR company_id = :companyId OR company_id = 1 OR company_id IS NULL)`,
       { companyId },
     );
     res.json({ items });
@@ -4680,10 +4804,14 @@ export async function saveParameters(req, res, next) {
 export async function reportEmployees(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    const { companyId = null, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { dept_id, q } = req.query;
-    const clauses = ["e.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr))", "e.deleted_at IS NULL"];
-    const params = { companyId, branchId, branchIdsStr };
+    const clauses = [
+      "(:companyId IS NULL OR e.company_id = :companyId OR e.company_id IS NULL OR e.company_id = 1)",
+      "(:branchIdsStr = '' OR FIND_IN_SET(e.branch_id, :branchIdsStr) OR e.branch_id IS NULL)",
+      "e.deleted_at IS NULL"
+    ];
+    const params = { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr: branchIdsStr ?? '' };
     if (dept_id) {
       clauses.push("e.dept_id = :dept_id");
       params.dept_id = dept_id;
@@ -4711,10 +4839,10 @@ export async function reportEmployees(req, res, next) {
 
 export async function reportSSF(req, res, next) {
   try {
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    const { companyId = null, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { period_id, from_date, to_date } = req.query;
-    const clauses = ["pp.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(pp.branch_id, :branchIdsStr))"];
-    const params = { companyId, branchId, branchIdsStr };
+    const clauses = ["(:companyId IS NULL OR pp.company_id = :companyId OR pp.company_id IS NULL OR pp.company_id = 1)", "(:branchIdsStr = '' OR FIND_IN_SET(pp.branch_id, :branchIdsStr) OR pp.branch_id IS NULL)"];
+    const params = { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr: branchIdsStr ?? '' };
     if (period_id) {
       clauses.push("pp.id = :period_id");
       params.period_id = period_id;
@@ -4730,15 +4858,14 @@ export async function reportSSF(req, res, next) {
     const where = `WHERE ${clauses.join(" AND ")}`;
     const items = await query(`SELECT e.emp_code, e.first_name, e.last_name, p.period_name, i.basic_salary, i.ssf_employee,
           i.created_at FROM hr_payroll_items i
-       JOIN hr_payslips ps ON ps.employee_id = i.employee_id AND ps.period_id = (SELECT period_id FROM hr_payroll
-         WHERE id = (SELECT MAX(id) FROM hr_payroll WHERE company_id = :companyId))
+       JOIN hr_payslips ps ON ps.employee_id = i.employee_id
        JOIN hr_employees e ON e.id = i.employee_id
-       JOIN hr_payroll pp ON pp.id = (SELECT MAX(id) FROM hr_payroll WHERE company_id = :companyId)
-       JOIN hr_payroll_periods p ON p.id = pp.period_id
+       LEFT JOIN hr_payroll pp ON pp.id = i.payroll_id
+       LEFT JOIN hr_payroll_periods p ON p.id = pp.period_id
        ${where}
        ORDER BY e.emp_code ASC`,
       params,
-    );
+    ).catch(() => []);
     res.json({ items });
   } catch (err) {
     next(err);
@@ -4747,10 +4874,10 @@ export async function reportSSF(req, res, next) {
 
 export async function reportPAYE(req, res, next) {
   try {
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    const { companyId = null, branchId = null, branchIdsStr = '' } = req.scope || {};
     const { period_id, from_date, to_date } = req.query;
-    const clauses = ["pp.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(pp.branch_id, :branchIdsStr))"];
-    const params = { companyId, branchId, branchIdsStr };
+    const clauses = ["(:companyId IS NULL OR pp.company_id = :companyId OR pp.company_id IS NULL OR pp.company_id = 1)", "(:branchIdsStr = '' OR FIND_IN_SET(pp.branch_id, :branchIdsStr) OR pp.branch_id IS NULL)"];
+    const params = { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr: branchIdsStr ?? '' };
     if (period_id) {
       clauses.push("pp.id = :period_id");
       params.period_id = period_id;
@@ -4767,12 +4894,12 @@ export async function reportPAYE(req, res, next) {
     const items = await query(`SELECT e.emp_code, e.first_name, e.last_name, p.period_name, i.basic_salary, i.allowances, i.income_tax,
           i.created_at FROM hr_payroll_items i
        JOIN hr_employees e ON e.id = i.employee_id
-       JOIN hr_payroll pp ON pp.company_id = :companyId
-       JOIN hr_payroll_periods p ON p.id = pp.period_id
+       LEFT JOIN hr_payroll pp ON pp.id = i.payroll_id
+       LEFT JOIN hr_payroll_periods p ON p.id = pp.period_id
        ${where}
          ORDER BY e.emp_code ASC`,
       params,
-    );
+    ).catch(() => []);
     res.json({ items });
   } catch (err) {
     next(err);
@@ -4781,14 +4908,15 @@ export async function reportPAYE(req, res, next) {
 
 export async function reportEmployeeLoans(req, res, next) {
   try {
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    const { companyId = null, branchId = null, branchIdsStr = '' } = req.scope || {};
     const items = await query(`SELECT l.id, e.emp_code, e.first_name, e.last_name, l.loan_type, l.amount, l.monthly_installment, l.start_date, l.status,
           l.created_at FROM hr_loans l
        JOIN hr_employees e ON e.id = l.employee_id
-         WHERE l.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(l.branch_id, :branchIdsStr))
+         WHERE (:companyId IS NULL OR l.company_id = :companyId OR l.company_id IS NULL OR l.company_id = 1)
+           AND (:branchIdsStr = '' OR FIND_IN_SET(l.branch_id, :branchIdsStr) OR l.branch_id IS NULL)
        ORDER BY l.start_date DESC`,
-      { companyId, branchId, branchIdsStr },
-    );
+      { companyId: companyId ?? null, branchId: branchId ?? null, branchIdsStr: branchIdsStr ?? '' },
+    ).catch(() => []);
     res.json({ items });
   } catch (err) {
     next(err);
@@ -4802,10 +4930,10 @@ export async function reportEmployeeAllowances(req, res, next) {
           m.created_at FROM hr_employee_allowance_mappings m
        JOIN hr_employees e ON e.id = m.employee_id
        JOIN hr_allowances a ON a.id = m.allowance_id
-         WHERE e.company_id = :companyId
+         WHERE (:companyId IS NULL OR e.company_id = :companyId OR e.company_id IS NULL OR e.company_id = 1)
        ORDER BY e.emp_code ASC`,
-      { companyId },
-    );
+      { companyId: companyId ?? null },
+    ).catch(() => []);
     res.json({ items });
   } catch (err) {
     next(err);
@@ -4826,7 +4954,7 @@ export async function sendEmailBulk(req, res, next) {
     let count = 0;
     for (const payslipId of payslipIds) {
       const rows = await query(`SELECT p.*, e.first_name, e.last_name, e.email, pr.period_name,
-          p.created_at FROM hr_payslips p
+           FROM hr_payslips p
          JOIN hr_employees e ON e.id = p.employee_id
          JOIN hr_payroll_periods pr ON pr.id = p.period_id
          WHERE p.id = :id AND e.company_id = :companyId`,
@@ -4964,10 +5092,9 @@ export async function sendEmailBulk(req, res, next) {
 export async function listEmploymentTypes(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT *,
-          created_at FROM hr_setup_employment_types
-         WHERE company_id = :companyId ORDER BY name ASC`,
+    const companyId = req.scope?.companyId || req.user?.company_id || 1;
+    const items = await query(`SELECT * FROM hr_setup_employment_types
+         WHERE (:companyId IS NULL OR company_id = :companyId OR company_id = 1 OR company_id IS NULL) ORDER BY name ASC`,
       { companyId },
     );
     res.json({ items });
@@ -5002,10 +5129,9 @@ export async function saveEmploymentType(req, res, next) {
 export async function listEmployeeCategories(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT *,
-          created_at FROM hr_setup_employee_categories
-         WHERE company_id = :companyId ORDER BY name ASC`,
+    const companyId = req.scope?.companyId || req.user?.company_id || 1;
+    const items = await query(`SELECT * FROM hr_setup_employee_categories
+         WHERE (:companyId IS NULL OR company_id = :companyId OR company_id = 1 OR company_id IS NULL) ORDER BY name ASC`,
       { companyId },
     );
     res.json({ items });
@@ -5040,10 +5166,9 @@ export async function saveEmployeeCategory(req, res, next) {
 export async function listAllowanceTypes(req, res, next) {
   try {
     await ensureHRTables();
-    const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT *,
-          created_at FROM hr_setup_allowance_types
-         WHERE company_id = :companyId ORDER BY name ASC`,
+    const companyId = req.scope?.companyId || req.user?.company_id || 1;
+    const items = await query(`SELECT * FROM hr_setup_allowance_types
+         WHERE (:companyId IS NULL OR company_id = :companyId OR company_id = 1 OR company_id IS NULL) ORDER BY name ASC`,
       { companyId },
     );
     res.json({ items });
@@ -5076,6 +5201,7 @@ export async function saveAllowanceType(req, res, next) {
  * Work Schedules — link employees to shifts and off days
  */
 async function ensureWorkSchedulesTable() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   await query(`CREATE TABLE IF NOT EXISTS hr_work_schedules (
       id INT AUTO_INCREMENT PRIMARY KEY,
       company_id INT NOT NULL,
@@ -5153,6 +5279,7 @@ export async function saveWorkSchedule(req, res, next) {
 // ============================================================
 
 async function ensureLeaveTables() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   // Leave Types (e.g. Annual, Sick, Maternity)
   await query(`CREATE TABLE IF NOT EXISTS hr_leave_types (
       id              INT AUTO_INCREMENT PRIMARY KEY,
@@ -5228,13 +5355,14 @@ export async function listLeaveTypes(req, res, next) {
   try {
     await ensureLeaveTables();
     const { companyId = null } = req.scope || {};
-    const items = await query(`SELECT *,
-          created_at FROM hr_leave_types
-         WHERE company_id = :companyId AND is_active = 1 ORDER BY type_name ASC`,
+    const items = await query(`SELECT * FROM hr_leave_types
+         WHERE company_id = :companyId ORDER BY type_name ASC`,
       { companyId },
     );
+    console.log("LEAVE TYPES:", items);
     res.json({ items });
   } catch (err) {
+    console.error(err);
     next(err);
   }
 }
@@ -5243,8 +5371,7 @@ export async function getLeaveType(req, res, next) {
   try {
     const { companyId = null } = req.scope || {};
     const { id } = req.params;
-    const rows = await query(`SELECT *,
-          created_at FROM hr_leave_types
+    const rows = await query(`SELECT * FROM hr_leave_types
          WHERE id = :id AND company_id = :companyId`,
       { id, companyId },
     );

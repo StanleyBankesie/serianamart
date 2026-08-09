@@ -7,6 +7,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -14,6 +15,7 @@ import { api } from "api/client";
  * @returns {JSX.Element} The rendered component
  */
 export default function PdcPostingForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const [loading, setLoading] = useState(true);
   const [item, setItem] = useState(null);
@@ -116,9 +118,9 @@ export default function PdcPostingForm() {
             <span>PDC Posting not found or has been deleted.</span>
           </div>
         </div>
-        <Link to="/finance/pdc-postings" className="btn btn-primary mt-6">
+        <button onClick={() => window.history.back()} className="btn btn-primary mt-6">
           Back to PDC Registry
-        </Link>
+        </button>
       </div>
     );
   }
@@ -135,12 +137,10 @@ export default function PdcPostingForm() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Link
-            to="/finance/pdc-postings"
-            className="btn btn-sm bg-white/20 hover:bg-white/30 border-none text-white backdrop-blur-sm"
+          <button onClick={() => window.history.back()} className="btn btn-sm bg-white/20 hover:bg-white/30 border-none text-white backdrop-blur-sm"
           >
             Back to List
-          </Link>
+          </button>
           <button
             className="btn btn-sm bg-white/20 hover:bg-white/30 border-none text-white backdrop-blur-sm"
             disabled={loading}
@@ -237,6 +237,8 @@ export default function PdcPostingForm() {
                   onChange={(e) =>
                     setDraft((p) => ({ ...p, instrument_date: e.target.value }))
                   }
+                
+                  disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
               <div className="form-control">
@@ -283,9 +285,9 @@ export default function PdcPostingForm() {
             </div>
 
             <div className="mt-8 flex justify-end gap-3">
-              <Link to="/finance/pdc-postings" className="btn btn-outline">
+              <button onClick={() => window.history.back()} className="btn btn-outline">
                 Cancel
-              </Link>
+              </button>
               <button className="btn btn-success text-white px-8" onClick={save}>
                 Save Changes
               </button>

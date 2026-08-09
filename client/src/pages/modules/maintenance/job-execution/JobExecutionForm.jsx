@@ -9,6 +9,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 const COMPLETION = ["IN_PROGRESS", "COMPLETED", "ON_HOLD", "CANCELLED"];
 const UNITS = ["pcs", "set", "box", "ltr", "kg", "m", "roll", "unit"];
@@ -25,6 +26,7 @@ function uid() {
  * Step 3: Execution Details & Closing (end date, work performed, sign-off)
  */
 export default function JobExecutionForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
@@ -296,9 +298,9 @@ export default function JobExecutionForm() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link to="/maintenance/job-executions" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             ← Back
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
               {isEdit ? "Edit" : "New"} Job Execution
@@ -386,6 +388,8 @@ export default function JobExecutionForm() {
                         type="date"
                         value={form.start_date}
                         onChange={(e) => update("start_date", e.target.value)}
+                      
+                        disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                       {errors.start_date && (
                         <p className="text-xs text-red-500 mt-1">
@@ -827,6 +831,8 @@ export default function JobExecutionForm() {
                         type="date"
                         value={form.end_date}
                         onChange={(e) => update("end_date", e.target.value)}
+                      
+                        disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                       {errors.end_date && (
                         <p className="text-xs text-red-500 mt-1">{errors.end_date}</p>
@@ -920,6 +926,8 @@ export default function JobExecutionForm() {
                           type="date"
                           value={form.sign_off_date}
                           onChange={(e) => update("sign_off_date", e.target.value)}
+                        
+                          disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
                         />
                       </div>
                       <div>
@@ -950,6 +958,8 @@ export default function JobExecutionForm() {
                           type="date"
                           value={form.approval_date}
                           onChange={(e) => update("approval_date", e.target.value)}
+                        
+                          disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
                         />
                       </div>
                       <div className="md:col-span-2">

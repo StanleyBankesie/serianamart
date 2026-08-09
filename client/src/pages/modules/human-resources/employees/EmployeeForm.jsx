@@ -8,16 +8,238 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
+import { usePermission } from "@/auth/PermissionContext.jsx";
+import { useGhanaCities } from "@/hooks/useGhanaCities";
+
+const GHANA_REGIONS = [
+  "Ahafo",
+  "Ashanti",
+  "Bono",
+  "Bono East",
+  "Central",
+  "Eastern",
+  "Greater Accra",
+  "North East",
+  "Northern",
+  "Oti",
+  "Savannah",
+  "Upper East",
+  "Upper West",
+  "Volta",
+  "Western",
+  "Western North",
+];
+
+const WORLD_COUNTRIES = [
+  "Ghana",
+  "Afghanistan",
+  "Albania",
+  "Algeria",
+  "Andorra",
+  "Angola",
+  "Antigua and Barbuda",
+  "Argentina",
+  "Armenia",
+  "Australia",
+  "Austria",
+  "Azerbaijan",
+  "Bahamas",
+  "Bahrain",
+  "Bangladesh",
+  "Barbados",
+  "Belarus",
+  "Belgium",
+  "Belize",
+  "Benin",
+  "Bhutan",
+  "Bolivia",
+  "Bosnia and Herzegovina",
+  "Botswana",
+  "Brazil",
+  "Brunei",
+  "Bulgaria",
+  "Burkina Faso",
+  "Burundi",
+  "Cabo Verde",
+  "Cambodia",
+  "Cameroon",
+  "Canada",
+  "Central African Republic",
+  "Chad",
+  "Chile",
+  "China",
+  "Colombia",
+  "Comoros",
+  "Congo",
+  "Costa Rica",
+  "Croatia",
+  "Cuba",
+  "Cyprus",
+  "Czech Republic",
+  "Democratic Republic of the Congo",
+  "Denmark",
+  "Djibouti",
+  "Dominica",
+  "Dominican Republic",
+  "Ecuador",
+  "Egypt",
+  "El Salvador",
+  "Equatorial Guinea",
+  "Eritrea",
+  "Estonia",
+  "Eswatini",
+  "Ethiopia",
+  "Fiji",
+  "Finland",
+  "France",
+  "Gabon",
+  "Gambia",
+  "Georgia",
+  "Germany",
+  "Greece",
+  "Grenada",
+  "Guatemala",
+  "Guinea",
+  "Guinea-Bissau",
+  "Guyana",
+  "Haiti",
+  "Honduras",
+  "Hungary",
+  "Iceland",
+  "India",
+  "Indonesia",
+  "Iran",
+  "Iraq",
+  "Ireland",
+  "Israel",
+  "Italy",
+  "Ivory Coast",
+  "Jamaica",
+  "Japan",
+  "Jordan",
+  "Kazakhstan",
+  "Kenya",
+  "Kiribati",
+  "Kuwait",
+  "Kyrgyzstan",
+  "Laos",
+  "Latvia",
+  "Lebanon",
+  "Lesotho",
+  "Liberia",
+  "Libya",
+  "Liechtenstein",
+  "Lithuania",
+  "Luxembourg",
+  "Madagascar",
+  "Malawi",
+  "Malaysia",
+  "Maldives",
+  "Mali",
+  "Malta",
+  "Marshall Islands",
+  "Mauritania",
+  "Mauritius",
+  "Mexico",
+  "Micronesia",
+  "Moldova",
+  "Monaco",
+  "Mongolia",
+  "Montenegro",
+  "Morocco",
+  "Mozambique",
+  "Myanmar",
+  "Namibia",
+  "Nauru",
+  "Nepal",
+  "Netherlands",
+  "New Zealand",
+  "Nicaragua",
+  "Niger",
+  "Nigeria",
+  "North Korea",
+  "North Macedonia",
+  "Norway",
+  "Oman",
+  "Pakistan",
+  "Palau",
+  "Palestine",
+  "Panama",
+  "Papua New Guinea",
+  "Paraguay",
+  "Peru",
+  "Philippines",
+  "Poland",
+  "Portugal",
+  "Qatar",
+  "Romania",
+  "Russia",
+  "Rwanda",
+  "Saint Kitts and Nevis",
+  "Saint Lucia",
+  "Saint Vincent and the Grenadines",
+  "Samoa",
+  "San Marino",
+  "Sao Tome and Principe",
+  "Saudi Arabia",
+  "Senegal",
+  "Serbia",
+  "Seychelles",
+  "Sierra Leone",
+  "Singapore",
+  "Slovakia",
+  "Slovenia",
+  "Solomon Islands",
+  "Somalia",
+  "South Africa",
+  "South Korea",
+  "South Sudan",
+  "Spain",
+  "Sri Lanka",
+  "Sudan",
+  "Suriname",
+  "Sweden",
+  "Switzerland",
+  "Syria",
+  "Taiwan",
+  "Tajikistan",
+  "Tanzania",
+  "Thailand",
+  "Timor-Leste",
+  "Togo",
+  "Tonga",
+  "Trinidad and Tobago",
+  "Tunisia",
+  "Turkey",
+  "Turkmenistan",
+  "Tuvalu",
+  "Uganda",
+  "Ukraine",
+  "United Arab Emirates",
+  "United Kingdom",
+  "United States",
+  "Uruguay",
+  "Uzbekistan",
+  "Vanuatu",
+  "Vatican City",
+  "Venezuela",
+  "Vietnam",
+  "Yemen",
+  "Zambia",
+  "Zimbabwe",
+];
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function EmployeeForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const { cities: ghanaCities } = useGhanaCities();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -38,13 +260,13 @@ export default function EmployeeForm() {
     location_id: "",
     employment_type_id: "",
     category_id: "",
-    status: "PROBATION",
+    status: "ACTIVE",
     address: "",
     picture_url: "",
     national_id: "",
     city: "",
     state: "",
-    country: "",
+    country: "Ghana",
     emergency_contact_name: "",
     emergency_contact_phone: "",
     bank_name: "",
@@ -61,60 +283,68 @@ export default function EmployeeForm() {
   const [allowances, setAllowances] = useState([]);
   const [locations, setLocations] = useState([]);
   const [employees, setEmployees] = useState([]);
-  const [countries, setCountries] = useState([]);
-  const [ghanaRegions, setGhanaRegions] = useState([]);
+  const [countries, setCountries] = useState(WORLD_COUNTRIES);
 
   useEffect(() => {
     async function loadOptions() {
-      try {
-        const [depts, pos, et, ec, tx, al, locs, emps] = await Promise.all([
-          api.get("/hr/departments"),
-          api.get("/hr/positions"),
-          api.get("/hr/setup/employment-types"),
-          api.get("/hr/setup/employee-categories"),
-          api.get("/hr/tax-configs"),
-          api.get("/hr/allowances"),
-          api.get("/hr/setup/locations"),
-          api.get("/hr/employees?status=ALL"),
-        ]);
-        setDepartments(depts.data?.items || []);
-        setPositions(pos.data?.items || []);
-        setEmploymentTypes(et.data?.items || []);
-        setEmployeeCategories(ec.data?.items || []);
-        setTaxes(tx.data?.items || []);
-        setAllowances(al.data?.items || []);
-        setLocations(locs.data?.items || []);
-        setEmployees(emps.data?.items || []);
+      const safeGet = async (url) => {
         try {
-          const res = await fetch(
-            "https://restcountries.com/v3.1/all?fields=name",
-          );
-          const js = await res.json();
-          const list = js
-            .map((c) => c?.name?.common)
-            .filter(Boolean)
-            .sort((a, b) => a.localeCompare(b));
-          setCountries(list);
-        } catch {}
-        setGhanaRegions([
-          "Ahafo",
-          "Ashanti",
-          "Bono",
-          "Bono East",
-          "Central",
-          "Eastern",
-          "Greater Accra",
-          "North East",
-          "Northern",
-          "Oti",
-          "Savannah",
-          "Upper East",
-          "Upper West",
-          "Volta",
-          "Western",
-          "Western North",
+          const res = await api.get(url);
+          return res.data?.items || res.data?.data?.items || res.data || [];
+        } catch (err) {
+          console.warn(`Failed to load ${url}`, err);
+          return [];
+        }
+      };
+
+      const [depts, adminDepts, pos, et, ec, tx, al, locs, emps] =
+        await Promise.all([
+          safeGet("/hr/departments"),
+          safeGet("/admin/departments"),
+          safeGet("/hr/positions"),
+          safeGet("/hr/setup/employment-types"),
+          safeGet("/hr/setup/employee-categories"),
+          safeGet("/hr/tax-configs"),
+          safeGet("/hr/allowances"),
+          safeGet("/hr/setup/locations"),
+          safeGet("/hr/employees?status=ALL"),
         ]);
-      } catch {}
+
+      const combinedDepts = [];
+      const seenDeptKeys = new Set();
+      for (const d of [...adminDepts, ...depts]) {
+        const dept_name = d.dept_name || d.name;
+        const key = `${d.id}-${(dept_name || "").toLowerCase().trim()}`;
+        if (dept_name && !seenDeptKeys.has(key)) {
+          seenDeptKeys.add(key);
+          combinedDepts.push({ ...d, dept_name });
+        }
+      }
+
+      setDepartments(combinedDepts);
+      setPositions(pos);
+      setEmploymentTypes(et);
+      setEmployeeCategories(ec);
+      setTaxes(tx);
+      setAllowances(al);
+      setLocations(locs);
+      setEmployees(emps);
+
+      try {
+        const res = await fetch(
+          "https://restcountries.com/v3.1/all?fields=name",
+        );
+        const js = await res.json();
+        const list = (js || [])
+          .map((c) => c?.name?.common)
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b));
+        if (list.length > 0) {
+          setCountries(list);
+        }
+      } catch {
+        setCountries(WORLD_COUNTRIES);
+      }
     }
     loadOptions();
   }, []);
@@ -133,10 +363,13 @@ export default function EmployeeForm() {
         const item = response.data.item;
         setForm({
           ...item,
-          dob: item.dob ? item.dob.slice(0, 10) : "",
-          joining_date: item.joining_date ? item.joining_date.slice(0, 10) : "",
-          tax_mappings: item.tax_mappings || [],
-          allowance_mappings: item.allowance_mappings || [],
+          dob: item.dob ? String(item.dob).slice(0, 10) : "",
+          joining_date: item.joining_date ? String(item.joining_date).slice(0, 10) : "",
+          city: item.city || "",
+          state: item.state || "",
+          country: item.country || "Ghana",
+          tax_mappings: Array.isArray(item.tax_mappings) ? item.tax_mappings : [],
+          allowance_mappings: Array.isArray(item.allowance_mappings) ? item.allowance_mappings : [],
         });
       }
     } catch (err) {
@@ -392,9 +625,9 @@ export default function EmployeeForm() {
                   />
                 </label>
               </div>
-              <Link to="/human-resources/employees" className="btn-secondary">
+              <button onClick={() => window.history.back()} className="btn-secondary">
                 Back to List
-              </Link>
+              </button>
             </div>
           </div>
         </div>
@@ -457,6 +690,9 @@ export default function EmployeeForm() {
                         type="date"
                         value={form.dob ? form.dob.slice(0, 10) : ""}
                         onChange={(e) => update("dob", e.target.value)}
+                        disabled={
+                          isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")
+                        }
                       />
                     </div>
                     <div>
@@ -502,18 +738,10 @@ export default function EmployeeForm() {
                       />
                     </div>
                     <div>
-                      <label className="label">City</label>
-                      <input
-                        className="input"
-                        value={form.city || ""}
-                        onChange={(e) => update("city", e.target.value)}
-                      />
-                    </div>
-                    <div>
                       <label className="label">Country</label>
                       <select
-                        className="input"
-                        value={form.country || ""}
+                        className="input w-64"
+                        value={form.country || "Ghana"}
                         onChange={(e) => update("country", e.target.value)}
                       >
                         <option value="">Select Country</option>
@@ -524,32 +752,36 @@ export default function EmployeeForm() {
                         ))}
                       </select>
                     </div>
-                    {String(form.country || "").toLowerCase() === "ghana" ? (
-                      <div>
-                        <label className="label">Region</label>
-                        <select
-                          className="input"
-                          value={form.state || ""}
-                          onChange={(e) => update("state", e.target.value)}
-                        >
-                          <option value="">Select Region</option>
-                          {ghanaRegions.map((r) => (
-                            <option key={r} value={r}>
-                              {r}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : (
-                      <div>
-                        <label className="label">State/Province</label>
-                        <input
-                          className="input"
-                          value={form.state || ""}
-                          onChange={(e) => update("state", e.target.value)}
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <label className="label">City</label>
+                      <input
+                        className="input"
+                        list="city-suggestions"
+                        value={form.city || ""}
+                        onChange={(e) => update("city", e.target.value)}
+                        placeholder="Select or enter City"
+                      />
+                      <datalist id="city-suggestions">
+                        {ghanaCities.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="label">State / Region / Province</label>
+                      <input
+                        className="input"
+                        list="state-suggestions"
+                        value={form.state || ""}
+                        onChange={(e) => update("state", e.target.value)}
+                        placeholder="Select or enter State / Region / Province"
+                      />
+                      <datalist id="state-suggestions">
+                        {GHANA_REGIONS.map((r) => (
+                          <option key={r} value={r} />
+                        ))}
+                      </datalist>
+                    </div>
                     <div>
                       <label className="label">Emergency Contact Name</label>
                       <input
@@ -709,21 +941,8 @@ export default function EmployeeForm() {
                   }
                   onChange={(e) => update("joining_date", e.target.value)}
                   required
+                  disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
-              </div>
-              <div>
-                <label className="label">Status</label>
-                <select
-                  className="input"
-                  value={form.status || ""}
-                  onChange={(e) => update("status", e.target.value)}
-                >
-                  <option value="PROBATION">Probation</option>
-                  <option value="ACTIVE">Active</option>
-                  <option value="TERMINATED">Terminated</option>
-                  <option value="RESIGNED">Resigned</option>
-                  <option value="SUSPENDED">Suspended</option>
-                </select>
               </div>
               <div>
                 <label className="label">Location</label>
@@ -846,9 +1065,9 @@ export default function EmployeeForm() {
             </div>
 
             <div className="flex justify-end gap-3 border-t pt-4 mt-8">
-              <Link to="/human-resources/employees" className="btn-secondary">
+              <button onClick={() => window.history.back()} className="btn-secondary">
                 Cancel
-              </Link>
+              </button>
               <button className="btn-primary" type="submit" disabled={loading}>
                 {loading ? "Saving..." : "Save Employee record"}
               </button>

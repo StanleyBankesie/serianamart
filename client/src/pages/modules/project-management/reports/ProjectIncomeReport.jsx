@@ -24,51 +24,70 @@ const statusStyles = {
  * @returns {JSX.Element} The rendered component
  */
 export default function ProjectIncomeReport() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState({ count: 0, total: 0 });
   const [projects, setProjects] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
 
-  const fetchProjects = async () => {
-    try {
-      const res = await api.get("/projects/reports/project-income");
-      setProjects(res.data?.projects || []);
-    } catch { toast.error("Failed to load projects"); }
-  };
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  const fetchReport = async (projectId) => {
-    if (!projectId) { setItems([]); setSummary({ count: 0, total: 0 }); setLoading(false); return; }
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/projects/reports/project-income?project_id=${projectId}`);
+      let url = `/projects/reports/project-income?`;
+      if (selectedProjectId) url += `project_id=${selectedProjectId}&`;
+      if (dateFrom) url += `from=${dateFrom}&`;
+      if (dateTo) url += `to=${dateTo}&`;
+      
+      const res = await api.get(url);
+      setProjects(res.data?.projects || []);
       setItems(res.data?.items || []);
       setSummary(res.data?.summary || { count: 0, total: 0 });
     } catch { toast.error("Failed to load report"); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { fetchProjects(); }, []);
+  useEffect(() => { fetchData(); }, [selectedProjectId, dateFrom, dateTo]);
 
   const handleProjectChange = (e) => {
-    const pid = e.target.value;
-    setSelectedProjectId(pid);
-    fetchReport(pid);
+    setSelectedProjectId(e.target.value);
   };
 
-  const exportCsv = () => {
+  const exportExcel = () => {
     const headers = ["Voucher No", "Date", "Description", "Amount", "Status"];
     const rows = items.map(v => [
-      v.voucher_no, v.voucher_date, `"${(v.description || "").replace(/"/g, '""')}"`,
+      v.voucher_no, v.voucher_date, (v.description || ""),
       Number(v.amount || 0).toFixed(2), v.status
     ]);
-    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `project-income-${selectedProjectId}-${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
+    XLSX.writeFile(wb, `project-income-${new Date().toISOString().split("T")[0]}.xlsx`);
+  };
+
+  const exportPdf = () => {
+    const headers = ["Voucher No", "Date", "Description", "Amount", "Status"];
+    const rows = items.map(v => [
+      v.voucher_no, v.voucher_date, (v.description || ""),
+      Number(v.amount || 0).toFixed(2), v.status
+    ]);
+    const doc = new jsPDF();
+    doc.autoTable({
+      head: [headers],
+      body: rows,
+      theme: 'grid',
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [41, 128, 185] }
+    });
+    doc.save(`project-income-${new Date().toISOString().split("T")[0]}.pdf`);
   };
 
   const selectedProject = projects.find(p => String(p.id) === String(selectedProjectId));
@@ -77,27 +96,39 @@ export default function ProjectIncomeReport() {
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link to="/project-management" className="btn btn-secondary p-2"><ArrowLeft size={20} /></Link>
+          <Link to="/project-management?section=Reports%20%26%20Analytics" className="btn btn-secondary p-2"><ArrowLeft size={20} /></Link>
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Project Income Report</h1>
             <p className="text-slate-500 dark:text-slate-400 text-sm">View all receipt vouchers linked to a project</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => fetchReport(selectedProjectId)} className="btn btn-secondary p-2" title="Refresh"><RefreshCw size={18} /></button>
-          {items.length > 0 && <button onClick={exportCsv} className="btn-success flex items-center gap-2"><Download size={18} /> Export CSV</button>}
+          <button onClick={fetchData} className="btn btn-secondary p-2" title="Refresh"><RefreshCw size={18} /></button>
+          {items.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button onClick={exportExcel} className="btn-success flex items-center gap-2"><Download size={18} /> Excel</button>
+              <button onClick={exportPdf} className="btn-error flex items-center gap-2 text-white bg-rose-600 hover:bg-rose-700"><Download size={18} /> PDF</button>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/40 rounded-2xl p-5 border border-emerald-100 dark:border-emerald-900/50 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-sm">
-            <Search size={18} className="text-emerald-600 dark:text-emerald-400" />
+        <div className="flex flex-col md:flex-row items-center gap-4">
+          <div className="flex items-center gap-3 w-full md:flex-1">
+            <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800 shadow-sm">
+              <Search size={18} className="text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <select value={selectedProjectId} onChange={handleProjectChange} className="input w-full bg-white dark:bg-slate-800 border-emerald-200 dark:border-emerald-900/50 focus:border-emerald-400 dark:focus:border-emerald-600">
+              <option value="">All Projects</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.project_name}</option>)}
+            </select>
           </div>
-          <select value={selectedProjectId} onChange={handleProjectChange} className="input w-full bg-white dark:bg-slate-800 border-emerald-200 dark:border-emerald-900/50 focus:border-emerald-400 dark:focus:border-emerald-600">
-            <option value="">Select a project...</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} - {p.project_name}</option>)}
-          </select>
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input bg-white dark:bg-slate-800 border-emerald-200 dark:border-emerald-900/50 focus:border-emerald-400 dark:focus:border-emerald-600" />
+            <span className="text-slate-500 font-medium">to</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="input bg-white dark:bg-slate-800 border-emerald-200 dark:border-emerald-900/50 focus:border-emerald-400 dark:focus:border-emerald-600" />
+          </div>
         </div>
       </div>
 
@@ -142,15 +173,16 @@ export default function ProjectIncomeReport() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
-              {!selectedProjectId ? (
-                <tr><td colSpan="7" className="px-6 py-20 text-center text-slate-400 dark:text-slate-500 italic">Select a project to view income</td></tr>
-              ) : loading ? (
+              {loading ? (
                 <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse text-slate-400 dark:text-slate-500 font-semibold">Loading...</td></tr>
               ) : items.length > 0 ? items.map(v => (
                 <tr key={v.id} className="hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 transition-all duration-200">
                   <td className="px-6 py-4 font-bold text-sm text-emerald-700 dark:text-emerald-400">{v.voucher_no}</td>
                   <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{v.voucher_date ? new Date(v.voucher_date).toLocaleDateString() : "-"}</td>
-                  <td className="px-6 py-4 text-slate-700 dark:text-slate-300 max-w-xs truncate">{v.description || "-"}</td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-white truncate max-w-xs">{v.description || "—"}</div>
+                    <div className="text-xs text-slate-500 truncate max-w-xs">{v.project_name || "—"}</div>
+                  </td>
                   <td className="px-6 py-4">
                     <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/50 px-2.5 py-1 rounded-lg">{v.voucher_type_name || "-"}</span>
                   </td>

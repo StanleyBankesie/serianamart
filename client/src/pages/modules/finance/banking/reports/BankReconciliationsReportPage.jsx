@@ -61,9 +61,9 @@ export default function BankReconciliationsReportPage() {
         <div className="card-header bg-brand text-white rounded-t-lg">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold">Reconciled Bank Accounts</h1>
-            <Link to="/finance" className="btn btn-sm btn-outline text-white border-white hover:bg-white hover:text-brand">
+            <button onClick={() => window.history.back()} className="btn btn-sm btn-outline text-white border-white hover:bg-white hover:text-brand">
               Back to Menu
-            </Link>
+            </button>
           </div>
         </div>
       </div>

@@ -512,6 +512,7 @@ export const createBranch = async (req, res, next) => {
       telephone,
       email,
       remarks,
+      stock_upload_user_id,
     } = req.body || {};
 
     if (!company_id)
@@ -522,11 +523,11 @@ export const createBranch = async (req, res, next) => {
     const result = await query(`INSERT INTO adm_branches (
           company_id, name, code, is_active, is_superbranch, parent_branch_id,
           address, city, state, postal_code, country,
-          location, telephone, email, remarks
+          location, telephone, email, remarks, stock_upload_user_id
         ) VALUES (
           :company_id, :name, :code, :is_active, :is_superbranch, :parent_branch_id,
           :address, :city, :state, :postal_code, :country,
-          :location, :telephone, :email, :remarks
+          :location, :telephone, :email, :remarks, :stock_upload_user_id
         )`,
       {
         company_id,
@@ -544,6 +545,7 @@ export const createBranch = async (req, res, next) => {
         telephone: telephone || null,
         email: email || null,
         remarks: remarks || null,
+        stock_upload_user_id: stock_upload_user_id ? Number(stock_upload_user_id) : null,
       },
     );
     res.status(201).json({ id: result.insertId });
@@ -575,6 +577,7 @@ export const updateBranch = async (req, res, next) => {
       telephone,
       email,
       remarks,
+      stock_upload_user_id,
     } = req.body || {};
 
     if (!company_id)
@@ -597,7 +600,8 @@ export const updateBranch = async (req, res, next) => {
              location = :location,
              telephone = :telephone,
              email = :email,
-             remarks = :remarks
+             remarks = :remarks,
+             stock_upload_user_id = :stock_upload_user_id
          WHERE id = :id`,
       {
         id,
@@ -616,6 +620,7 @@ export const updateBranch = async (req, res, next) => {
         telephone: telephone || null,
         email: email || null,
         remarks: remarks || null,
+        stock_upload_user_id: stock_upload_user_id ? Number(stock_upload_user_id) : null,
       },
     );
     res.json({ affectedRows: result.affectedRows });

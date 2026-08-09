@@ -4,6 +4,10 @@
  */
 
 import React, { useEffect, useState } from "react";
+import { Download, Printer } from "lucide-react";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import * as XLSX from "xlsx";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { Link } from "react-router-dom";
@@ -15,6 +19,12 @@ import { api } from "api/client";
  * @returns {JSX.Element} The rendered component
  */
 export default function MaterialReturnReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -59,31 +69,75 @@ export default function MaterialReturnReportPage() {
   useEffect(() => {
     loadFilters();
     run();
-  }, []);
+  }, [pollingCounter]);
 
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, warehouseId, departmentId]);
+  }, [from, to, warehouseId, departmentId, pollingCounter]);
 
 
   const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
+
+  function exportExcel() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
+    XLSX.writeFile(wb, "inventory-report.xlsx");
+  }
+
+  function exportPDF() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const doc = new jsPDF("p", "mm", "a4");
+    doc.setFontSize(16);
+    doc.text("Inventory Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Generated on ${new Date().toLocaleDateString()}`, 14, 22);
+    
+    // Fallback simple PDF generation
+    const headers = Object.keys(rows[0] || {}).slice(0, 8);
+    const data = rows.map(r => headers.map(h => String(r[h] || "")));
+    
+    try {
+      doc.autoTable({
+        startY: 30,
+        head: [headers],
+        body: data,
+        styles: { fontSize: 8 }
+      });
+    } catch (e) {
+      doc.text("Data table (see Excel for full details)", 14, 30);
+    }
+    doc.save("inventory-report.pdf");
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/inventory"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Inventory
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Material Return Report
           </h1>
           <p className="text-sm mt-1">Returns recorded in Return to Stores</p>
         </div>
+        <div className="flex gap-2">
+          <button onClick={exportExcel} className="btn btn-outline btn-sm border-brand text-brand hover:bg-brand hover:text-white flex items-center gap-1.5 text-xs">
+            <Download size={14} /> Excel
+          </button>
+          <button onClick={exportPDF} className="btn btn-outline btn-sm border-brand text-brand hover:bg-brand hover:text-white flex items-center gap-1.5 text-xs">
+            <Download size={14} /> PDF
+          </button>
+          
+        </div>
+
       </div>
 
       <div className="card">
@@ -140,28 +194,10 @@ export default function MaterialReturnReportPage() {
                 ))}
               </select>
             </div>
-            <div className="md:col-span-2 flex items-end gap-2">
-              <button type="button" className="btn-success" onClick={run} disabled={loading}>
-                {loading ? "Running..." : "Run Report"}
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                  setWarehouseId("");
-                  setDepartmentId("");
-                }}
-                disabled={loading}
-              >
-                Clear
-              </button>
             </div>
-          </div>
 
           <div className="overflow-x-auto">
-            <table className="table">
+            <table className="table table-fixed">
               <thead>
                 <tr>
                   <SortableHeader label="RTS No" sortKey="rts_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

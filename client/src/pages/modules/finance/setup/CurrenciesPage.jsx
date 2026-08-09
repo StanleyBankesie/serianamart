@@ -1,6 +1,6 @@
 /**
  * @fileoverview CurrenciesPage component.
- * Provides functionality for CurrenciesPage.
+ * Standard Modern UI Currencies & Exchange Rates Setup for finance module.
  */
 
 import React, { useEffect, useState } from "react";
@@ -8,12 +8,19 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
+import {
+  DollarSign,
+  ArrowLeft,
+  Plus,
+  RefreshCw,
+  Save,
+  Globe,
+  TrendingUp,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
+} from "lucide-react";
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
 export default function CurrenciesPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +30,7 @@ export default function CurrenciesPage() {
   const [symbol, setSymbol] = useState("");
   const [isBase, setIsBase] = useState(false);
   const [isActive, setIsActive] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const { getAvailableCurrencies, loading: apiLoading } = useExchangeRate();
 
   async function load() {
@@ -48,26 +56,40 @@ export default function CurrenciesPage() {
         code: code.trim().toUpperCase(),
         name: name.trim(),
         symbol: symbol.trim() || null,
-        isBase,
-        isActive,
+        isBase: Boolean(isBase),
+        isActive: Boolean(isActive),
       });
-      toast.success("Currency created");
+      toast.success("Currency created successfully");
       setCode("");
       setName("");
       setSymbol("");
       setIsBase(false);
       setIsActive(true);
+      setShowCreateModal(false);
       load();
     } catch (e2) {
       toast.error(e2?.response?.data?.message || "Failed to create currency");
     }
   }
 
+  async function saveRow(r) {
+    try {
+      await api.put(`/finance/currencies/${r.id}`, {
+        name: (r._name ?? r.name ?? "").trim(),
+        symbol: (r._symbol ?? r.symbol ?? "").trim() || null,
+        isBase: Boolean(r.is_base),
+        isActive: Boolean(r.is_active),
+      });
+      toast.success("Currency updated");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to update currency");
+    }
+  }
+
   async function setBase(id) {
     try {
-      await api.put(`/finance/currencies/${id}`, {
-        isBase: 1,
-      });
+      await api.post(`/finance/currencies/${id}/set-base`);
       toast.success("Base currency updated");
       load();
     } catch (e) {
@@ -78,61 +100,49 @@ export default function CurrenciesPage() {
   async function toggleActive(r) {
     try {
       await api.put(`/finance/currencies/${r.id}`, {
-        isActive: r.is_active ? 0 : 1,
+        name: r.name,
+        symbol: r.symbol,
+        isBase: Boolean(r.is_base),
+        isActive: !r.is_active,
       });
+      toast.success("Status updated");
       load();
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to toggle status");
     }
   }
 
-  async function saveRow(r) {
-    try {
-      await api.put(`/finance/currencies/${r.id}`, {
-        name: r._name ?? r.name,
-        symbol: r._symbol ?? r.symbol,
-      });
-      toast.success("Currency updated");
-      load();
-    } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to update currency");
-    }
-  }
-
   async function fetchFromApi() {
     try {
-      const available = await getAvailableCurrencies();
-      if (!available || available.length === 0) {
-        toast.error("Could not fetch currencies from API");
+      const liveCurrencies = await getAvailableCurrencies();
+      if (!liveCurrencies || !liveCurrencies.length) {
+        toast.error("No currencies returned from API");
         return;
       }
-
-      const existingCodes = new Set(items.map((it) => it.code.toUpperCase()));
-      const toAdd = available.filter((c) => !existingCodes.has(c.code.toUpperCase()));
-
+      const existingCodes = items.map((c) => c.code.toUpperCase());
+      const toAdd = liveCurrencies.filter(
+        (c) => !existingCodes.includes(c.code.toUpperCase()),
+      );
       if (toAdd.length === 0) {
-        toast.info("All currencies from API already exist in your list");
+        toast.info("All available currencies are already added");
         return;
       }
-
-      if (window.confirm(`Found ${toAdd.length} new currencies. Add them to your list?`)) {
-        let added = 0;
-        for (const c of toAdd) {
-          try {
-            await api.post("/finance/currencies", {
-              code: c.code,
-              name: c.name,
-              isActive: true,
-              isBase: false
-            });
-            added++;
-          } catch (err) {
-            console.error(`Failed to add ${c.code}:`, err);
-          }
+      let added = 0;
+      for (const c of toAdd) {
+        try {
+          await api.post("/finance/currencies", {
+            code: c.code,
+            name: c.name,
+            isActive: true,
+            isBase: false,
+          });
+          added++;
+        } catch (err) {
+          console.error(`Failed to add ${c.code}:`, err);
         }
-        toast.success(`Successfully added ${added} currencies`);
-        load();
       }
+      toast.success(`Successfully added ${added} currencies`);
+      load();
     } catch (e) {
       toast.error("Failed to fetch from API");
     }
@@ -145,192 +155,268 @@ export default function CurrenciesPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">
-              Currencies
-            </h1>
-            <p className="text-sm mt-1">
-              Manage currencies and base currency for the company
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link to="/finance" className="font-sans btn btn-secondary">
-              Return to Menu
-            </Link>
-            <button
-              className="btn btn-secondary"
-              onClick={fetchFromApi}
-              disabled={loading || apiLoading}
-            >
-              {apiLoading ? "Fetching..." : "Fetch from API"}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={load}
-              disabled={loading}
-            >
-              Refresh
-            </button>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header Banner */}
+      <div className="card shadow-md">
+        <div className="card-header bg-brand text-white rounded-t-lg p-5">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <Link
+                to="/finance?section=Accounting%20Setup"
+                className="inline-flex items-center gap-1.5 text-xs text-white/80 hover:text-white transition-colors mb-2"
+              >
+                <ArrowLeft size={14} /> Back to Accounting Setup
+              </Link>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                Currencies Setup
+              </h1>
+              <p className="text-sm mt-0.5 opacity-90">
+                Manage operational currencies, base reporting currency &
+                exchange rate feeds
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="px-3.5 py-2 text-xs font-semibold bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                onClick={fetchFromApi}
+                disabled={loading || apiLoading}
+              >
+                <Globe size={14} className={apiLoading ? "animate-spin" : ""} />
+                {apiLoading ? "Fetching..." : "Fetch from Live API"}
+              </button>
+              <button
+                type="button"
+                className="btn-success text-xs px-3.5 py-2 flex items-center gap-1.5 font-bold"
+                onClick={() => setShowCreateModal(true)}
+              >
+                <Plus size={15} /> Create Currency
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-body">
-          <form
-            onSubmit={create}
-            className="grid grid-cols-1 md:grid-cols-6 gap-3"
-          >
-            <div>
-              <label className="label">Code *</label>
-              <input
-                className="input"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                required
-              />
+      {/* Create Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-brand" /> Create New Currency
+              </h2>
+              <button
+                type="button"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-bold"
+                onClick={() => setShowCreateModal(false)}
+              >
+                ✕
+              </button>
             </div>
-            <div className="md:col-span-2">
-              <label className="label">Name *</label>
-              <input
-                className="input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Symbol</label>
-              <input
-                className="input"
-                value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={isBase}
-                  onChange={(e) => setIsBase(e.target.checked)}
-                />
-                Set as Base
-              </label>
-            </div>
-            <div className="flex items-end">
-              <label className="inline-flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={isActive}
-                  onChange={(e) => setIsActive(e.target.checked)}
-                />
-                Active
-              </label>
-            </div>
-            <div className="flex items-end">
-              <button className="btn-success">Create</button>
-            </div>
-          </form>
-        </div>
-      </div>
 
-      <div className="card">
-        <div className="card-body">
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead>
+            <form onSubmit={create} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">
+                    ISO Code *
+                  </label>
+                  <input
+                    className="input w-full text-sm font-mono uppercase"
+                    placeholder="e.g. USD"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">
+                    Symbol
+                  </label>
+                  <input
+                    className="input w-full text-sm font-mono"
+                    placeholder="e.g. $"
+                    value={symbol}
+                    onChange={(e) => setSymbol(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">
+                  Currency Name *
+                </label>
+                <input
+                  className="input w-full text-sm"
+                  placeholder="e.g. US Dollar"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="flex items-center gap-6 pt-2">
+                <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    className="checkbox rounded border-slate-300 text-brand"
+                    checked={isBase}
+                    onChange={(e) => setIsBase(e.target.checked)}
+                  />
+                  Set as Base Currency
+                </label>
+
+                <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    className="checkbox rounded border-slate-300 text-brand"
+                    checked={isActive}
+                    onChange={(e) => setIsActive(e.target.checked)}
+                  />
+                  Active Currency
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  className="btn btn-secondary text-xs px-4 py-2"
+                  onClick={() => setShowCreateModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-success text-xs px-4 py-2 flex items-center gap-1"
+                >
+                  <Plus size={14} /> Create Currency
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Main Currencies Table */}
+      <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="table w-full">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                <th className="py-3 px-4 text-left">Code</th>
+                <th className="py-3 px-4 text-left">Currency Name</th>
+                <th className="py-3 px-4 text-left">Symbol</th>
+                <th className="py-3 px-4 text-left">Base Role</th>
+                <th className="py-3 px-4 text-left">Status</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+              {loading ? (
                 <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Symbol</th>
-                  <th>Base</th>
-                  <th>Status</th>
-                  <th />
+                  <td colSpan="6" className="text-center py-10 text-slate-400">
+                    <RefreshCw className="animate-spin w-6 h-6 mx-auto mb-2" />
+                    Loading currencies...
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((r) => (
-                  <tr key={r.id}>
-                    <td className="font-medium">{r.code}</td>
-                    <td>
+              ) : items.length > 0 ? (
+                items.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                  >
+                    <td className="py-3 px-4 font-mono font-bold text-brand dark:text-brand-300">
+                      {r.code}
+                    </td>
+                    <td className="py-3 px-4">
                       <input
-                        className="input"
+                        className="input text-xs w-full max-w-xs"
                         value={r._name ?? r.name ?? ""}
                         onChange={(e) =>
                           setRowDraft(r.id, "_name", e.target.value)
                         }
                       />
                     </td>
-                    <td>
+                    <td className="py-3 px-4">
                       <input
-                        className="input"
+                        className="input text-xs font-mono w-20"
                         value={r._symbol ?? r.symbol ?? ""}
                         onChange={(e) =>
                           setRowDraft(r.id, "_symbol", e.target.value)
                         }
                       />
                     </td>
-                    <td>
+                    <td className="py-3 px-4">
                       {r.is_base ? (
-                        <span className="badge badge-success">Base</span>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                          BASE CURRENCY
+                        </span>
                       ) : (
-                        <button className="btn" onClick={() => setBase(r.id)}>
-                          Set Base
+                        <button
+                          type="button"
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 rounded-lg transition-colors"
+                          onClick={() => setBase(r.id)}
+                        >
+                          Set as Base
                         </button>
                       )}
                     </td>
-                    <td>
+                    <td className="py-3 px-4">
                       {r.is_active ? (
-                        <span className="badge badge-success">Active</span>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          <CheckCircle2 size={12} /> Active
+                        </span>
                       ) : (
-                        <span className="badge badge-error">Inactive</span>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                          <XCircle size={12} /> Inactive
+                        </span>
                       )}
                     </td>
-                    <td className="text-right">
-                      <div className="flex justify-end gap-2">
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex justify-end gap-1.5">
                         <button
-                          className="btn-success"
+                          type="button"
+                          className="btn-success text-xs px-2.5 py-1 flex items-center gap-1"
                           onClick={() => saveRow(r)}
                         >
-                          Save
+                          <Save size={12} /> Save
                         </button>
-                        <button className="btn" onClick={() => toggleActive(r)}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary text-xs px-2.5 py-1"
+                          onClick={() => toggleActive(r)}
+                        >
                           {r.is_active ? "Disable" : "Enable"}
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="6" className="text-center py-10 text-slate-400">
+                    No currencies configured.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-header bg-slate-50 rounded-t-lg">
-          <div className="flex justify-between items-center">
-            <div>
-              <h2 className="text-xl font-semibold">Currency Rates</h2>
-              <p className="text-sm text-amber-600 font-medium">
-                Historical records only. Live rates are fetched directly from the exchange API for all transactions.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                className="btn btn-secondary"
-                disabled={false}
-                onClick={() => {}}
-              >
-                Help
-              </button>
-            </div>
-          </div>
+      {/* Currency Rates Section */}
+      <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+        <div className="p-5 border-b border-slate-200 dark:border-slate-800">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-brand" /> Historical Currency
+            Exchange Rates
+          </h2>
+          <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-1">
+            Historical records only. Live rates are fetched directly from the
+            exchange API for all transactions.
+          </p>
         </div>
-        <div className="card-body space-y-4">
+        <div className="p-5">
           <RatesSection items={items} />
         </div>
       </div>
@@ -349,7 +435,6 @@ function RatesSection({ items }) {
   const [newToId, setNewToId] = useState("");
   const [newRate, setNewRate] = useState("");
   const [newDate, setNewDate] = useState("");
-  const [rateEditing, setRateEditing] = useState({});
 
   async function loadRates() {
     try {
@@ -377,12 +462,12 @@ function RatesSection({ items }) {
   }, [fltFromId, fltToId, fltFromDate, fltToDate]);
 
   return (
-    <>
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div>
-          <label className="label">From Currency</label>
+          <label className="label text-xs font-semibold">From Currency</label>
           <select
-            className="input"
+            className="input w-full text-xs"
             value={fltFromId}
             onChange={(e) => setFltFromId(e.target.value)}
           >
@@ -395,9 +480,9 @@ function RatesSection({ items }) {
           </select>
         </div>
         <div>
-          <label className="label">To Currency</label>
+          <label className="label text-xs font-semibold">To Currency</label>
           <select
-            className="input"
+            className="input w-full text-xs"
             value={fltToId}
             onChange={(e) => setFltToId(e.target.value)}
           >
@@ -410,31 +495,22 @@ function RatesSection({ items }) {
           </select>
         </div>
         <div>
-          <label className="label">From Date</label>
+          <label className="label text-xs font-semibold">From Date</label>
           <input
-            className="input"
+            className="input w-full text-xs"
             type="date"
             value={fltFromDate}
             onChange={(e) => setFltFromDate(e.target.value)}
           />
         </div>
         <div>
-          <label className="label">To Date</label>
+          <label className="label text-xs font-semibold">To Date</label>
           <input
-            className="input"
+            className="input w-full text-xs"
             type="date"
             value={fltToDate}
             onChange={(e) => setFltToDate(e.target.value)}
           />
-        </div>
-        <div className="flex items-end">
-          <button
-            className="btn btn-secondary"
-            onClick={loadRates}
-            disabled={loading}
-          >
-            Refresh
-          </button>
         </div>
       </div>
 
@@ -454,228 +530,116 @@ function RatesSection({ items }) {
             setNewRate("");
             setNewDate("");
             loadRates();
-          } catch (e2) {
-            toast.error(
-              e2?.response?.data?.message || "Failed to add currency rate",
-            );
+          } catch (err) {
+            toast.error(err?.response?.data?.message || "Failed to add rate");
           }
         }}
-        className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-2"
+        className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
       >
         <div>
-          <label className="label">From *</label>
+          <label className="label text-xs font-semibold">From *</label>
           <select
-            className="input"
+            className="input w-full text-xs"
             value={newFromId}
             onChange={(e) => setNewFromId(e.target.value)}
             required
           >
             <option value="">Select</option>
             {items.map((c) => (
-              <option key={`n-f-${c.id}`} value={c.id}>
-                {c.code} - {c.name}
+              <option key={`nf-${c.id}`} value={c.id}>
+                {c.code}
               </option>
             ))}
           </select>
         </div>
         <div>
-          <label className="label">To *</label>
+          <label className="label text-xs font-semibold">To *</label>
           <select
-            className="input"
+            className="input w-full text-xs"
             value={newToId}
             onChange={(e) => setNewToId(e.target.value)}
             required
           >
             <option value="">Select</option>
             {items.map((c) => (
-              <option key={`n-t-${c.id}`} value={c.id}>
-                {c.code} - {c.name}
+              <option key={`nt-${c.id}`} value={c.id}>
+                {c.code}
               </option>
             ))}
           </select>
         </div>
         <div>
-          <label className="label">Rate *</label>
+          <label className="label text-xs font-semibold">Rate *</label>
           <input
-            className="input"
+            className="input w-full text-xs font-mono"
             type="number"
-            step="0.000001"
-            min="0"
+            step="0.0001"
+            placeholder="1.0000"
             value={newRate}
             onChange={(e) => setNewRate(e.target.value)}
             required
           />
         </div>
         <div>
-          <label className="label">Effective Date</label>
+          <label className="label text-xs font-semibold">Rate Date</label>
           <input
-            className="input"
+            className="input w-full text-xs"
             type="date"
             value={newDate}
             onChange={(e) => setNewDate(e.target.value)}
           />
         </div>
-        <div className="flex items-end">
-          <button className="btn-success">Add Rate</button>
-        </div>
+        <button type="submit" className="btn-success text-xs py-2 px-3">
+          + Add Rate
+        </button>
       </form>
 
       <div className="overflow-x-auto">
-        <table className="table">
+        <table className="table w-full">
           <thead>
-            <tr>
-              <th>From</th>
-              <th>To</th>
-              <th>Rate</th>
-              <th>Date</th>
-              <th />
+            <tr className="text-xs uppercase bg-slate-100 dark:bg-slate-800">
+              <th className="py-2 px-3 text-left">From</th>
+              <th className="py-2 px-3 text-left">To</th>
+              <th className="py-2 px-3 text-right">Exchange Rate</th>
+              <th className="py-2 px-3 text-left">Rate Date</th>
             </tr>
           </thead>
-          <tbody>
-            {rates.map((r) => {
-              const d = rateEditing[r.id] || {};
-              const isEdit = !!rateEditing[r.id];
-              return (
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+            {loading ? (
+              <tr>
+                <td colSpan="4" className="text-center py-6 text-slate-400">
+                  Loading rates...
+                </td>
+              </tr>
+            ) : rates.length > 0 ? (
+              rates.map((r) => (
                 <tr key={r.id}>
-                  <td className="font-medium">{r.from_code}</td>
-                  <td>{r.to_code}</td>
-                  <td>
-                    {isEdit ? (
-                      <input
-                        className="input"
-                        type="number"
-                        step="0.000001"
-                        min="0"
-                        value={d.rate === undefined ? r.rate : d.rate}
-                        onChange={(e) =>
-                          setRateEditing((p) => ({
-                            ...p,
-                            [r.id]: {
-                              ...(p[r.id] || {}),
-                              rate: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    ) : (
-                      Number(r.rate).toFixed(6)
-                    )}
+                  <td className="py-2.5 px-3 font-bold font-mono text-brand dark:text-brand-300">
+                    {r.from_currency_code || r.from_code}
                   </td>
-                  <td>
-                    {isEdit ? (
-                      <input
-                        className="input"
-                        type="date"
-                        value={
-                          d.rate_date === undefined
-                            ? r.rate_date
-                              ? String(r.rate_date).slice(0, 10)
-                              : ""
-                            : d.rate_date
-                        }
-                        onChange={(e) =>
-                          setRateEditing((p) => ({
-                            ...p,
-                            [r.id]: {
-                              ...(p[r.id] || {}),
-                              rate_date: e.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    ) : r.rate_date ? (
-                      String(r.rate_date).slice(0, 10)
-                    ) : (
-                      ""
-                    )}
+                  <td className="py-2.5 px-3 font-bold font-mono text-slate-800 dark:text-slate-200">
+                    {r.to_currency_code || r.to_code}
                   </td>
-                  <td className="text-right">
-                    {!isEdit ? (
-                      <div className="flex justify-end gap-2">
-                        <button
-                          className="btn"
-                          onClick={async () => {
-                            if (!window.confirm("Delete this rate?")) return;
-                            try {
-                              await api.delete(
-                                `/finance/currency-rates/${r.id}`,
-                              );
-                              toast.success("Rate deleted");
-                              setRateEditing((p) => {
-                                const n = { ...p };
-                                delete n[r.id];
-                                return n;
-                              });
-                              loadRates();
-                            } catch (e) {
-                              toast.error(
-                                e?.response?.data?.message ||
-                                  "Failed to delete rate",
-                              );
-                            }
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex justify-end gap-2">
-                        <button
-                          className="btn-success"
-                          onClick={async () => {
-                            try {
-                              await api.put(`/finance/currency-rates/${r.id}`, {
-                                rate:
-                                  d.rate === "" || d.rate === null
-                                    ? undefined
-                                    : Number(d.rate),
-                                rateDate: d.rate_date || undefined,
-                              });
-                              toast.success("Rate updated");
-                              setRateEditing((p) => {
-                                const n = { ...p };
-                                delete n[r.id];
-                                return n;
-                              });
-                              loadRates();
-                            } catch (e) {
-                              toast.error(
-                                e?.response?.data?.message ||
-                                  "Failed to update rate",
-                              );
-                            }
-                          }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={() =>
-                            setRateEditing((p) => {
-                              const n = { ...p };
-                              delete n[r.id];
-                              return n;
-                            })
-                          }
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )}
+                  <td className="py-2.5 px-3 text-right font-mono font-bold">
+                    {Number(r.rate || 0).toFixed(4)}
+                  </td>
+                  <td className="py-2.5 px-3 font-mono text-slate-500">
+                    {r.rate_date
+                      ? new Date(r.rate_date).toLocaleDateString()
+                      : "—"}
                   </td>
                 </tr>
-              );
-            })}
-            {rates.length === 0 && !loading && (
+              ))
+            ) : (
               <tr>
-                <td colSpan={4} className="text-center py-6 text-slate-600">
-                  No rates found
+                <td colSpan="4" className="text-center py-6 text-slate-400">
+                  No historical rate records found.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-    </>
+    </div>
   );
 }

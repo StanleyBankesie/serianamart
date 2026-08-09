@@ -16,6 +16,7 @@ import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -23,6 +24,7 @@ import { filterByPrefix } from "@/utils/searchUtils.js";
  * @returns {JSX.Element} The rendered component
  */
 export default function StockAdjustmentForm() {
+  const { hasExceptional } = usePermission();
   const { uoms, loading: uomsLoading } = useUoms();
   const { id } = useParams();
   const navigate = useNavigate();
@@ -391,12 +393,10 @@ export default function StockAdjustmentForm() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link
-                to="/inventory/stock-adjustments"
-                className="btn-success bg-green-600 text-white hover:bg-green-700 px-6 py-2 rounded shadow-sm font-medium"
+              <button onClick={() => window.history.back()} className="btn-success bg-green-600 text-white hover:bg-green-700 px-6 py-2 rounded shadow-sm font-medium"
               >
                 ← Back to List
-              </Link>
+              </button>
             </div>
           </div>
         </div>
@@ -509,11 +509,13 @@ export default function StockAdjustmentForm() {
                         })
                       }
                       required
+                    
+                      disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                     />
                   </div>
                   <div>
                     <label className="label">Warehouse</label>
-                    <select
+                    <select required
                       className="input"
                       value={formData.warehouseId}
                       onChange={(e) =>
@@ -960,12 +962,10 @@ export default function StockAdjustmentForm() {
             </fieldset>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-              <Link
-                to="/inventory/stock-adjustments"
-                className="btn-light bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded"
+              <button onClick={() => window.history.back()} className="btn-light bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded"
               >
                 Cancel
-              </Link>
+              </button>
               {!isView ? (
                 <button
                   type="submit"

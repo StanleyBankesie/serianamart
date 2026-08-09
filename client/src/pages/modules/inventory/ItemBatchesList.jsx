@@ -6,6 +6,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -13,6 +15,7 @@ import { Link } from "react-router-dom";
  * @returns {JSX.Element} The rendered component
  */
 export default function ItemBatchesList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -66,13 +69,16 @@ export default function ItemBatchesList() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/inventory" className="text-sm text-brand hover:text-brand-600">
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600">
             ← Back to Inventory
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold mt-2">Item Batches</h1>
           <p className="text-sm text-slate-600">
             Track item batches, costs, quantities and expiry dates. Soon-to-expire: {soonToExpire}
           </p>
+        </div>
+        <div className="flex gap-2 items-center">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
         </div>
       </div>
 
@@ -130,7 +136,7 @@ export default function ItemBatchesList() {
           ) : error ? (
             <div className="py-10 text-center text-red-600">{error}</div>
           ) : (
-            <table className="table">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th>Date Entered</th>

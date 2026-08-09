@@ -3,12 +3,79 @@
  * Provides functionality for MaintenanceSetupPage.
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Save, Plus, X } from "lucide-react";
+import { ArrowLeft, Save, Plus, X, Pencil, Trash2, Building2 } from "lucide-react";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import HierarchyEditor from "./HierarchyEditor";
+import PhoneInput from "../../../../components/PhoneInput.jsx";
+
+function GenericModal({ open, onClose, title, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b">
+          <h3 className="font-semibold">{title}</h3>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600"><X size={18} /></button>
+        </div>
+        <div className="p-4 space-y-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function CrudSection({ title, icon, emptyMsg, columns, rows, loading, onAdd, onEdit, onDelete, renderRow }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {icon}
+          <h3 className="font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+        </div>
+        <button onClick={onAdd} className="btn-primary flex items-center gap-1.5 text-xs py-1.5 px-3">
+          <Plus size={14} /> Add
+        </button>
+      </div>
+      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden border border-slate-100 dark:border-slate-700">
+        <table className="min-w-full">
+          <thead className="bg-slate-50 dark:bg-slate-900/50">
+            <tr className="text-left text-xs font-bold text-slate-500 uppercase tracking-wider">
+              {columns.map(c => <th key={c} className="px-4 py-3">{c}</th>)}
+              <th className="px-4 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={columns.length + 1} className="px-4 py-8 text-center text-slate-400">Loading...</td></tr>
+            ) : rows.length > 0 ? rows.map(row => (
+              <tr key={row.id} className="border-t hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                {renderRow(row)}
+                <td className="px-4 py-3 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    {onEdit && (
+                      <button onClick={() => onEdit(row)} className="p-1.5 text-brand hover:text-brand-700 rounded hover:bg-brand-50 transition-colors">
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button onClick={() => onDelete(row.id)} className="p-1.5 text-red-500 hover:text-red-700 rounded hover:bg-red-50 transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            )) : (
+              <tr><td colSpan={columns.length + 1} className="px-4 py-8 text-center text-slate-400">{emptyMsg}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 const DEFAULT_PARAMS = {
   default_currency: "GHS",
@@ -299,16 +366,62 @@ export default function MaintenanceSetupPage() {
     assign_work: true,
   });
   const [saving, setSaving] = useState(false);
-  const [supplierNameOptions, setSupplierNameOptions] = useState([]);
+  const [serviceProviders, setServiceProviders] = useState([]);
+  const [providerModal, setProviderModal] = useState(false);
+  const [editingProvider, setEditingProvider] = useState(null);
+  const [providerForm, setProviderForm] = useState({
+    supplier_name: "", contact_person: "", email: "", phone: "", address: "",
+    tax_id: "", supplier_type: "LOCAL",
+  });
+
+  const loadServiceProviders = useCallback(async () => {
+    try {
+      const res = await api.get("/purchase/suppliers?contractor=Y");
+      setServiceProviders(res.data?.data?.items || res.data?.items || []);
+    } catch { toast.error("Failed to load service providers"); }
+  }, []);
 
   useEffect(() => {
-    let m = true;
-    api.get("/purchase/suppliers?contractor=Y").then((r) => {
-      const items = Array.isArray(r.data?.items) ? r.data.items : [];
-      if (m) setSupplierNameOptions(items.map((s) => ({ id: s.id, name: s.supplier_name, email: s.email, currency_id: s.currency_id })));
-    }).catch(() => {});
-    return () => { m = false; };
-  }, []);
+    loadServiceProviders();
+  }, [loadServiceProviders]);
+
+  const openProviderAdd = () => {
+    setEditingProvider(null);
+    setProviderForm({ supplier_name: "", contact_person: "", email: "", phone: "", address: "", tax_id: "", supplier_type: "LOCAL" });
+    setProviderModal(true);
+  };
+  const openProviderEdit = (p) => {
+    setEditingProvider(p);
+    setProviderForm({
+      supplier_name: p.supplier_name || "", contact_person: p.contact_person || "",
+      email: p.email || "", phone: p.phone || "", address: p.address || "",
+      tax_id: p.tax_id || "", supplier_type: p.supplier_type || "LOCAL"
+    });
+    setProviderModal(true);
+  };
+  const saveProvider = async () => {
+    if (!providerForm.supplier_name.trim()) { toast.error("Name is required"); return; }
+    try {
+      const payload = { ...providerForm, service_contractor: true };
+      if (editingProvider) {
+        await api.put(`/purchase/suppliers/${editingProvider.id}`, payload);
+        toast.success("Service Provider updated");
+      } else {
+        await api.post("/purchase/suppliers", payload);
+        toast.success("Service Provider created");
+      }
+      setProviderModal(false);
+      loadServiceProviders();
+    } catch (e) { toast.error(e?.response?.data?.message || "Failed to save"); }
+  };
+  const deleteProvider = async (id) => {
+    if (!confirm("Delete this service provider?")) return;
+    try {
+      await api.delete(`/purchase/suppliers/${id}`);
+      toast.success("Service Provider deleted");
+      loadServiceProviders();
+    } catch (e) { toast.error("Failed to delete"); }
+  };
 
   async function loadSetup() {
     const [catalogRes, paramRes, curRes] = await Promise.all([
@@ -517,7 +630,7 @@ export default function MaintenanceSetupPage() {
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 overflow-x-hidden">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          <Link to="/maintenance" className="btn btn-secondary p-2">
+          <Link to="/maintenance?section=Reports %26 Setup" className="btn btn-secondary p-2">
             <ArrowLeft size={20} />
           </Link>
           <div>
@@ -783,23 +896,71 @@ export default function MaintenanceSetupPage() {
           )}
           {tab === "service-providers" && (
             <div className="space-y-8">
-              <SetupItemsEditor
+              <CrudSection
                 title="Service Providers"
-                description="Configure service provider names for work orders."
-                kind="service-providers"
-                items={catalogs.serviceProviders}
-                draft={drafts["service-providers"]}
-                onDraftChange={setDraft}
-                onCreate={createItem}
-                onSave={saveItem}
-                onSaveAndReload={saveItemAndReload}
-                onDelete={deleteItem}
-                hideDescription
-                showEmail
-                showCurrency
-                currencies={currencies}
-                onOpenModal={openModal}
+                icon={<Building2 size={18} className="text-brand" />}
+                emptyMsg="No service providers defined yet."
+                columns={["Name", "Contact Person", "Phone", "Status"]}
+                rows={serviceProviders}
+                loading={false}
+                onAdd={openProviderAdd}
+                onEdit={openProviderEdit}
+                onDelete={deleteProvider}
+                renderRow={(p) => (
+                  <>
+                    <td className="px-4 py-3 text-sm font-medium text-slate-700">{p.supplier_name}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{p.contact_person || "-"}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600">{p.phone || "-"}</td>
+                    <td className="px-4 py-3 text-sm">
+                      {p.is_active ? (
+                        <span className="badge badge-success badge-sm">Active</span>
+                      ) : (
+                        <span className="badge badge-neutral badge-sm">Inactive</span>
+                      )}
+                    </td>
+                  </>
+                )}
               />
+
+              <GenericModal open={providerModal} onClose={() => setProviderModal(false)} title={editingProvider ? "Edit Service Provider" : "New Service Provider"}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Provider Name *</label>
+                    <input type="text" className="input w-full" placeholder="Company Name" value={providerForm.supplier_name} onChange={e => setProviderForm(p => ({ ...p, supplier_name: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Provider Type</label>
+                    <select className="select w-full" value={providerForm.supplier_type} onChange={e => setProviderForm(p => ({ ...p, supplier_type: e.target.value }))}>
+                      <option value="LOCAL">LOCAL</option>
+                      <option value="FOREIGN">FOREIGN</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Contact Person</label>
+                    <input type="text" className="input w-full" placeholder="John Doe" value={providerForm.contact_person} onChange={e => setProviderForm(p => ({ ...p, contact_person: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Email</label>
+                    <input type="email" className="input w-full" placeholder="contact@example.com" value={providerForm.email} onChange={e => setProviderForm(p => ({ ...p, email: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Phone</label>
+                    <PhoneInput value={providerForm.phone} onChange={v => setProviderForm(p => ({ ...p, phone: v }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Tax ID / TIN</label>
+                    <input type="text" className="input w-full" placeholder="Tax ID" value={providerForm.tax_id} onChange={e => setProviderForm(p => ({ ...p, tax_id: e.target.value }))} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">Address</label>
+                    <input type="text" className="input w-full" placeholder="123 Street Name" value={providerForm.address} onChange={e => setProviderForm(p => ({ ...p, address: e.target.value }))} />
+                  </div>
+                  <div className="sm:col-span-2 pt-2 border-t flex justify-end gap-2 mt-4">
+                    <button type="button" className="btn-secondary" onClick={() => setProviderModal(false)}>Cancel</button>
+                    <button type="button" className="btn-primary" onClick={saveProvider}>Save Provider</button>
+                  </div>
+                </div>
+              </GenericModal>
             </div>
           )}
 
@@ -928,7 +1089,7 @@ export default function MaintenanceSetupPage() {
         onDraftChange={setModalField}
         onClose={closeModal}
         onSubmit={submitModal}
-        nameOptions={modalKind === "service-providers" ? supplierNameOptions : undefined}
+        nameOptions={undefined}
       />
     </div>
   );

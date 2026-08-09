@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
@@ -22,6 +22,7 @@ import html2canvas from "html2canvas";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 // Ghana Regions and Countries data
 const GHANA_REGIONS = [
@@ -85,9 +86,13 @@ const COUNTRIES = [
 export default function QuotationForm() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const modeParam = searchParams.get("mode");
+  const readOnly = modeParam === "view";
   const isEditMode = !!id;
   const { user } = useAuth();
   const { getExchangeRate } = useExchangeRate();
+  const { hasExceptional } = usePermission();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1328,6 +1333,7 @@ export default function QuotationForm() {
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
                 required
+                disabled={isEditMode && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
             <div>
@@ -1458,6 +1464,8 @@ export default function QuotationForm() {
                 value={formData.valid_until}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
                 readOnly
+              
+                disabled={readOnly || (isEditMode && !hasExceptional("DOCUMENT.EDIT_DATE"))}
               />
             </div>
             <div className="hidden">
@@ -1834,12 +1842,10 @@ export default function QuotationForm() {
             )}
           </div>
           <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200 print:hidden">
-            <Link
-              to="/sales/quotations"
-              className="px-6 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            <button onClick={() => window.history.back()} className="px-6 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancel
-            </Link>
+            </button>
             <button
               type="submit"
               className="flex items-center gap-2 px-6 py-2 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"

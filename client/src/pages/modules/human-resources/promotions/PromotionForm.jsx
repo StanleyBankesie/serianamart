@@ -7,6 +7,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -14,6 +15,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function PromotionForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
@@ -41,10 +43,10 @@ export default function PromotionForm() {
     async function loadData() {
       try {
         const [empRes, posRes, deptRes, locRes] = await Promise.all([
-          api.get("/hr/employees"),
-          api.get("/hr/positions"),
-          api.get("/admin/departments"),
-          api.get("/hr/setup/locations"),
+          api.get("/hr/employees").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/positions").catch(() => ({ data: { items: [] } })),
+          api.get("/admin/departments").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/setup/locations").catch(() => ({ data: { items: [] } })),
         ]);
         setEmployees(empRes?.data?.items || []);
         setPositions(posRes?.data?.items || []);
@@ -124,9 +126,9 @@ export default function PromotionForm() {
         <h1 className="text-2xl font-bold">
           {isEdit ? "Edit Promotion" : "New Assignment/Promotion"}
         </h1>
-        <Link to="/human-resources/promotions" className="btn-secondary">
+        <button onClick={() => window.history.back()} className="btn-secondary">
           Back
-        </Link>
+        </button>
       </div>
 
       <form onSubmit={submit} className="space-y-6">
@@ -160,6 +162,8 @@ export default function PromotionForm() {
                 value={form.promotion_date}
                 onChange={(e) => update("promotion_date", e.target.value)}
                 required
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
           </div>
@@ -289,9 +293,9 @@ export default function PromotionForm() {
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <Link to="/human-resources/promotions" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             Cancel
-          </Link>
+          </button>
           <button className="btn-primary px-12" disabled={loading}>
             {loading ? "Saving..." : "Process Assignment"}
           </button>

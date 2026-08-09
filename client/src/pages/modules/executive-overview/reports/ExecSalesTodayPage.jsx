@@ -17,6 +17,12 @@ const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDig
  * @returns {JSX.Element} The rendered component
  */
 export default function ExecSalesTodayPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, []);
+
   const [items, setItems] = useState([]);
   const [cards, setCards] = useState({});
   const [loading, setLoading] = useState(false);
@@ -37,13 +43,13 @@ export default function ExecSalesTodayPage() {
     }
     load();
     return () => { mounted = false; };
-  }, []);
+  }, [pollingCounter]);
 
   return (
     <div className="space-y-6 p-4">
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
-          <Link to="/executive-overview" className="text-xs font-bold text-brand uppercase tracking-wider">← Back to Executive Overview</Link>
+          <button onClick={() => window.history.back()} className="text-xs font-bold text-brand uppercase tracking-wider">← Back to Executive Overview</button>
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-2">📅 Today's Sales</h1>
           <p className="text-slate-500 text-sm mt-1">{new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
         </div>

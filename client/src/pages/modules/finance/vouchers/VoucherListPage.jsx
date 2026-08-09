@@ -52,6 +52,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [firstApprover, setFirstApprover] = useState(null);
@@ -93,22 +94,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
 
   // Helper to format voucher numbers with correct prefixes
   function formatVoucherNoDisplay(voucherNo, typeCode) {
-    const raw = String(voucherNo || "");
-    const code = String(typeCode || "").toUpperCase();
-
-    // Extract numeric part
-    const numMatch = raw.match(/(\d+)$/);
-    const num = numMatch ? numMatch[1] : raw.replace(/[^\d]/g, "");
-
-    if (!num) return raw;
-
-    // Format based on voucher type
-    if (code === "PAYV") {
-      return `PV${String(num).padStart(6, "0")}`;
-    } else if (code === "PV" || code === "PUV") {
-      return `PB${String(num).padStart(6, "0")}`;
-    }
-    return raw;
+    return String(voucherNo || "");
   }
 
   function initDefaultDates() {
@@ -948,6 +934,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
     setSelectedVoucher(v);
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     if (!workflowsCache) {
       try {
         setWfLoading(true);
@@ -971,6 +958,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       setFirstApprover(null);
       setWorkflowSteps([]);
       setWfError("");
+                    setForwardComments("");
       return;
     }
     const route = isPV
@@ -1064,6 +1052,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
       setFirstApprover(null);
       setWorkflowSteps([]);
       setWfError("");
+                    setForwardComments("");
       return;
     }
     const route = isPV
@@ -1208,6 +1197,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
           amount,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
+        comments: forwardComments,
         },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
@@ -1481,7 +1471,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                                       </ReverseApprovalButton>
                                     )}
                                   </div>
-                                ) : v.forwarded_to_username ? (
+                                ) : v.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(v.status || "").toUpperCase()) ? (
                                   <span className="list-approval-forwarded-pill">
                                     Forwarded to {v.forwarded_to_username}
                                   </span>
@@ -1524,6 +1514,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                   setTargetApproverId(null);
                   setWorkflowSteps([]);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white hover:text-slate-200 text-xl font-bold"
               >
@@ -1616,7 +1607,18 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                 })()}
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
               <button
                 type="button"
                 className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
@@ -1628,6 +1630,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                   setTargetApproverId(null);
                   setWorkflowSteps([]);
                   setWfError("");
+                    setForwardComments("");
                 }}
               >
                 Cancel

@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function FilterableSelect({
   value,
@@ -42,6 +43,7 @@ function FilterableSelect({
  * @returns {JSX.Element} The rendered component
  */
 export default function PosReturnForm() {
+  const { hasExceptional } = usePermission();
   const [now, setNow] = useState(new Date());
   const [searchSaleId, setSearchSaleId] = useState("");
   const [searchDate, setSearchDate] = useState(
@@ -684,12 +686,10 @@ export default function PosReturnForm() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/pos"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to POS
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Sales Return & Refund
           </h1>

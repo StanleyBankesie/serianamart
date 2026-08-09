@@ -406,9 +406,9 @@ export default function DashboardForm() {
       {/* Workspace Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div className="space-y-1.5 flex-1 max-w-xl">
-          <Link to="/business-intelligence/dashboards" className="text-xs text-brand font-bold hover:underline">
+          <button onClick={() => window.history.back()} className="text-xs text-brand font-bold hover:underline">
             ← Back to Dashboards
-          </Link>
+          </button>
           <div className="flex gap-2 items-center">
             <input
               type="text"

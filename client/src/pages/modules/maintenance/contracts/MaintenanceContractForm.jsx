@@ -8,6 +8,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
 import { Upload, FileText, X } from "lucide-react";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 const STATUSES = ["ACTIVE", "PENDING", "EXPIRED", "CANCELLED"];
 
@@ -17,6 +18,7 @@ const STATUSES = ["ACTIVE", "PENDING", "EXPIRED", "CANCELLED"];
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceContractForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = !!id;
@@ -144,9 +146,9 @@ export default function MaintenanceContractForm() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link to="/maintenance/contracts" className="btn-secondary">
+        <button onClick={() => window.history.back()} className="btn-secondary">
           ← Back
-        </Link>
+        </button>
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
             {isEdit ? "Edit" : "New"} Maintenance Contract
@@ -194,6 +196,8 @@ export default function MaintenanceContractForm() {
                 type="date"
                 value={form.start_date}
                 onChange={(e) => update("start_date", e.target.value)}
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
             <div>
@@ -203,6 +207,8 @@ export default function MaintenanceContractForm() {
                 type="date"
                 value={form.end_date}
                 onChange={(e) => update("end_date", e.target.value)}
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
             <div>
@@ -337,9 +343,9 @@ export default function MaintenanceContractForm() {
           </div>
         </div>
         <div className="flex justify-end gap-2">
-          <Link to="/maintenance/contracts" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             Cancel
-          </Link>
+          </button>
           <button type="submit" className="btn-primary" disabled={saving}>
             {saving ? "Saving..." : "Save Contract"}
           </button>

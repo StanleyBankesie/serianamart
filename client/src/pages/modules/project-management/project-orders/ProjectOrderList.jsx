@@ -12,6 +12,8 @@ import { filterAndSort } from "../../../../utils/searchUtils.js";
 import useSort from "../../../../hooks/useSort.js";
 import SortableHeader from "../../../../components/SortableHeader.jsx";
 import { Plus } from "lucide-react";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -24,7 +26,6 @@ const STATUS_CONFIG = {
   POSTED: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
   REJECTED: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
   CANCELLED: "bg-slate-800 text-white dark:bg-slate-900 dark:text-slate-300",
-  CONFIRMED: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
 };
 
 function StatusBadge({ status }) {
@@ -43,6 +44,7 @@ function StatusBadge({ status }) {
  * @returns {JSX.Element} The rendered component
  */
 export default function ProjectOrderList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const { canCreateOnPage } = usePermission();
   const [orders, setOrders] = useState([]);
@@ -175,7 +177,7 @@ export default function ProjectOrderList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/project-management" className="btn btn-secondary">
+              <Link to="/project-management?section=Reports%20%26%20Analytics" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link
@@ -213,8 +215,12 @@ export default function ProjectOrderList() {
             </div>
           )}
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead>
                   <tr>
                     <SortableHeader

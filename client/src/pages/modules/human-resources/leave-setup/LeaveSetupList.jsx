@@ -7,6 +7,8 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -14,6 +16,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function LeaveSetupList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -37,9 +40,9 @@ export default function LeaveSetupList() {
     <div className="space-y-4 p-4">
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2">
-          <Link to="/human-resources" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             Back
-          </Link>
+          </button>
           <h2 className="text-lg font-semibold">Leave Setup</h2>
         </div>
         <Link to="/human-resources/leave-setup/new" className="btn-primary">
@@ -48,14 +51,17 @@ export default function LeaveSetupList() {
       </div>
 
       <div className="bg-white dark:bg-slate-800 p-4 rounded shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
+        
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+          <table className={ "min-w-full " + (viewMode === 'grid' ? 'table-grid-mode' : '') }>
             <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
               <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Type Name</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Per Year</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Paid</th>
-                <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Carry Forward</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created By</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Created Date</th>
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-right">Actions</th>
@@ -65,12 +71,9 @@ export default function LeaveSetupList() {
               {items.map((r) => (
                 <tr key={r.id} className="border-t hover:bg-slate-50 dark:hover:bg-slate-700/50">
                   <td className="px-4 py-2 font-medium">{r.type_name}</td>
-                  <td className="px-4 py-2">{r.days_per_year}</td>
+                  <td className="px-4 py-2">{r.max_days}</td>
                   <td className="px-4 py-2">
                     {r.is_paid ? <span className="text-green-600">Yes</span> : <span className="text-red-600">No</span>}
-                  </td>
-                  <td className="px-4 py-2">
-                    {r.carry_forward ? <span className="text-green-600">Yes</span> : <span className="text-slate-400">No</span>}
                   </td>
                   <td className="px-4 py-2">{r.created_by_name || "-"}</td>
                   <td className="px-4 py-2">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
@@ -81,7 +84,7 @@ export default function LeaveSetupList() {
               ))}
               {items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-500">No leave types configured</td>
+                  <td colSpan={6} className="text-center py-10 text-slate-500">No leave types configured</td>
                 </tr>
               )}
             </tbody>

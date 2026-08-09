@@ -117,9 +117,9 @@ export default function QuotationAnalysis() {
             <p className="text-sm text-slate-600 mb-4">
               You do not have permission to view quotation analysis.
             </p>
-            <Link to="/purchase" className="btn btn-secondary">
+            <button onClick={() => window.history.back()} className="btn btn-secondary">
               Back to Purchase
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -455,9 +455,9 @@ export default function QuotationAnalysis() {
             >
               {loadingAnalysis ? "Loading..." : "📈 Generate Report"}
             </button>
-            <Link to="/purchase" className="btn btn-secondary">
+            <button onClick={() => window.history.back()} className="btn btn-secondary">
               Back to Purchase
-            </Link>
+            </button>
           </div>
         </div>
 

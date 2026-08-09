@@ -12,6 +12,8 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -19,6 +21,7 @@ import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmen
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceMaterialRequisitionList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -98,7 +101,7 @@ export default function MaintenanceMaterialRequisitionList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => (window.location.href = "/maintenance")} className="btn btn-secondary">Return to Menu</button>
+              <button onClick={() => (window.location.href = "/maintenance?section=Procurement %26 Materials")} className="btn btn-secondary">Back</button>
               <button onClick={() => (window.location.href = "/maintenance/material-requisitions/new")} className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700">+ New Requisition</button>
             </div>
           </div>
@@ -118,8 +121,12 @@ export default function MaintenanceMaterialRequisitionList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader
@@ -143,8 +150,8 @@ export default function MaintenanceMaterialRequisitionList() {
                     direction={sortDir}
                     onToggle={toggle}
                   />
-                  <th className="text-left w-full">Warehouse</th>
-                  <th className="text-left">Department</th>
+                  <th className="text-left w-full whitespace-nowrap">Warehouse</th>
+                  <th className="text-left whitespace-nowrap">Department</th>
                   <SortableHeader
                     label="Status"
                     sortKey="status"
@@ -152,7 +159,7 @@ export default function MaintenanceMaterialRequisitionList() {
                     direction={sortDir}
                     onToggle={toggle}
                   />
-                  <th className="text-left w-24">Actions</th>
+                  <th className="text-left w-24 whitespace-nowrap">Actions</th>
                   <SortableHeader
                     label="Created By"
                     sortKey="created_by_username"
@@ -172,23 +179,23 @@ export default function MaintenanceMaterialRequisitionList() {
               <tbody>
                 {sorted.map((r) => (
                   <tr key={r.id}>
-                    <td className="font-medium text-brand-700 dark:text-brand-300">
+                    <td className="font-medium text-brand-700 dark:text-brand-300 whitespace-nowrap">
                       {r.requisition_no}
                     </td>
-                    <td>
+                    <td className="whitespace-nowrap">
                       {r.requisition_date
                         ? new Date(r.requisition_date).toLocaleDateString()
                         : "-"}
                     </td>
-                    <td>{r.requested_by || "-"}</td>
-                    <td>{r.warehouse_name || "-"}</td>
-                    <td>{r.department_name || "-"}</td>
-                    <td>
+                    <td className="whitespace-nowrap">{r.requested_by || "-"}</td>
+                    <td className="whitespace-nowrap">{r.warehouse_name || "-"}</td>
+                    <td className="whitespace-nowrap">{r.department_name || "-"}</td>
+                    <td className="whitespace-nowrap">
                       <span className={`badge ${getStatusBadge(r.status)}`}>
                         {r.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-left">
+                    <td className="px-6 py-4 text-left whitespace-nowrap">
                       <div className="flex items-center justify-start gap-2">
                         {r.status === "DRAFT" ? (
                           <>
@@ -240,8 +247,8 @@ export default function MaintenanceMaterialRequisitionList() {
                         </button>
                       </div>
                     </td>
-                    <td>{r.created_by_username || r.created_by_name || "-"}</td>
-                    <td>
+                    <td className="whitespace-nowrap">{r.created_by_username || r.created_by_name || "-"}</td>
+                    <td className="whitespace-nowrap">
                       {r.created_at
                         ? new Date(r.created_at).toLocaleDateString()
                         : "-"}
@@ -250,7 +257,7 @@ export default function MaintenanceMaterialRequisitionList() {
                 ))}
                 {!sorted.length && !loading && (
                   <tr>
-                    <td colSpan="9" className="text-center py-8 text-slate-500">
+                    <td colSpan="9" className="text-center py-8 text-slate-500 whitespace-nowrap">
                       No requisitions found.
                     </td>
                   </tr>

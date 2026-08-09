@@ -160,7 +160,8 @@ export async function ensureSystemLogsTable() {
 }
 
 // Track tables that have already been verified to avoid redundant checks
-const verifiedTables = new Set();
+// Exported so other modules can share this singleton cache and skip DDL queries
+export const verifiedTables = new Set();
 
 /**
  * Ensure the adm_branches table has all expected columns.
@@ -233,6 +234,9 @@ export async function ensureUserColumns() {
   if (!(await hasColumn(table, "valid_from"))) {
     await query(`ALTER TABLE ${table} ADD COLUMN valid_from DATETIME NULL`);
   }
+  if (!(await hasColumn(table, "telephone"))) {
+    await query(`ALTER TABLE ${table} ADD COLUMN telephone VARCHAR(20) NULL`);
+  }
   if (!(await hasColumn(table, "valid_to"))) {
     await query(`ALTER TABLE ${table} ADD COLUMN valid_to DATETIME NULL`);
   }
@@ -262,7 +266,11 @@ export async function ensureUserColumns() {
  * @returns {Promise<void>}
  */
 export async function ensurePagesTable() {
-  if (verifiedTables.has("adm_pages")) return;
+  const table = "adm_pages";
+  if (verifiedTables.has(table)) return;
+  if (pendingEnsures.has(table)) return pendingEnsures.get(table);
+  const promise = (async () => {
+    try {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_pages (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -332,7 +340,13 @@ export async function ensurePagesTable() {
       },
     );
   }
-  verifiedTables.add("adm_pages");
+    verifiedTables.add(table);
+    } finally {
+      pendingEnsures.delete(table);
+    }
+  })();
+  pendingEnsures.set(table, promise);
+  return promise;
 }
 
 /**
@@ -1397,84 +1411,110 @@ export async function ensureRolePagesTable() {
 }
 
 export async function ensureUserPermissionsTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS adm_user_permissions (
-      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-      user_id BIGINT UNSIGNED NOT NULL,
-      page_id BIGINT UNSIGNED NOT NULL,
-      can_view TINYINT(1) DEFAULT 0,
-      can_create TINYINT(1) DEFAULT 0,
-      can_edit TINYINT(1) DEFAULT 0,
-      can_delete TINYINT(1) DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uq_user_page (user_id, page_id),
-      FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE,
-      FOREIGN KEY (page_id) REFERENCES adm_pages(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+  const table = "adm_user_permissions";
+  if (verifiedTables.has(table)) return;
+  if (pendingEnsures.has(table)) return pendingEnsures.get(table);
+  const promise = (async () => {
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS adm_user_permissions (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          user_id BIGINT UNSIGNED NOT NULL,
+          page_id BIGINT UNSIGNED NOT NULL,
+          can_view TINYINT(1) DEFAULT 0,
+          can_create TINYINT(1) DEFAULT 0,
+          can_edit TINYINT(1) DEFAULT 0,
+          can_delete TINYINT(1) DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_user_page (user_id, page_id),
+          FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE,
+          FOREIGN KEY (page_id) REFERENCES adm_pages(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      verifiedTables.add(table);
+    } finally {
+      pendingEnsures.delete(table);
+    }
+  })();
+  pendingEnsures.set(table, promise);
+  return promise;
 }
 
+export const pendingEnsures = new Map();
+
 export async function ensureUserPermissionCacheAndTriggers() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS adm_page_permission_effective (
-      user_id BIGINT UNSIGNED NOT NULL,
-      page_id BIGINT UNSIGNED NOT NULL,
-      can_view TINYINT(1) NOT NULL DEFAULT 0,
-      can_create TINYINT(1) NOT NULL DEFAULT 0,
-      can_edit TINYINT(1) NOT NULL DEFAULT 0,
-      can_delete TINYINT(1) NOT NULL DEFAULT 0,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (user_id, page_id),
-      KEY idx_page (page_id),
-      CONSTRAINT fk_e_user FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE,
-      CONSTRAINT fk_e_page FOREIGN KEY (page_id) REFERENCES adm_pages(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-  // Recreate triggers idempotently
-  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_ai`);
-  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_au`);
-  await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_ad`);
-  await query(`
-    CREATE TRIGGER trg_adm_user_permissions_ai
-    AFTER INSERT ON adm_user_permissions
-    FOR EACH ROW
-    BEGIN
-      INSERT INTO adm_page_permission_effective (user_id, page_id, can_view, can_create, can_edit, can_delete, updated_at)
-      VALUES (NEW.user_id, NEW.page_id, NEW.can_view, NEW.can_create, NEW.can_edit, NEW.can_delete, NOW())
-      ON DUPLICATE KEY UPDATE
-        can_view = VALUES(can_view),
-        can_create = VALUES(can_create),
-        can_edit = VALUES(can_edit),
-        can_delete = VALUES(can_delete),
-        updated_at = NOW();
-    END
-  `);
-  await query(`
-    CREATE TRIGGER trg_adm_user_permissions_au
-    AFTER UPDATE ON adm_user_permissions
-    FOR EACH ROW
-    BEGIN
-      INSERT INTO adm_page_permission_effective (user_id, page_id, can_view, can_create, can_edit, can_delete, updated_at)
-      VALUES (NEW.user_id, NEW.page_id, NEW.can_view, NEW.can_create, NEW.can_edit, NEW.can_delete, NOW())
-      ON DUPLICATE KEY UPDATE
-        can_view = VALUES(can_view),
-        can_create = VALUES(can_create),
-        can_edit = VALUES(can_edit),
-        can_delete = VALUES(can_delete),
-        updated_at = NOW();
-    END
-  `);
-  await query(`
-    CREATE TRIGGER trg_adm_user_permissions_ad
-    AFTER DELETE ON adm_user_permissions
-    FOR EACH ROW
-    BEGIN
-      DELETE FROM adm_page_permission_effective
-      WHERE user_id = OLD.user_id AND page_id = OLD.page_id;
-    END
-  `);
+  const table = "adm_page_permission_effective_triggers";
+  if (verifiedTables.has(table)) return;
+  if (pendingEnsures.has(table)) return pendingEnsures.get(table);
+  const promise = (async () => {
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS adm_page_permission_effective (
+          user_id BIGINT UNSIGNED NOT NULL,
+          page_id BIGINT UNSIGNED NOT NULL,
+          can_view TINYINT(1) NOT NULL DEFAULT 0,
+          can_create TINYINT(1) NOT NULL DEFAULT 0,
+          can_edit TINYINT(1) NOT NULL DEFAULT 0,
+          can_delete TINYINT(1) NOT NULL DEFAULT 0,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id, page_id),
+          KEY idx_page (page_id),
+          CONSTRAINT fk_e_user FOREIGN KEY (user_id) REFERENCES adm_users(id) ON DELETE CASCADE,
+          CONSTRAINT fk_e_page FOREIGN KEY (page_id) REFERENCES adm_pages(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      // Recreate triggers idempotently
+      await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_ai`);
+      await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_au`);
+      await query(`DROP TRIGGER IF EXISTS trg_adm_user_permissions_ad`);
+      await query(`
+        CREATE TRIGGER trg_adm_user_permissions_ai
+        AFTER INSERT ON adm_user_permissions
+        FOR EACH ROW
+        BEGIN
+          INSERT INTO adm_page_permission_effective (user_id, page_id, can_view, can_create, can_edit, can_delete, updated_at)
+          VALUES (NEW.user_id, NEW.page_id, NEW.can_view, NEW.can_create, NEW.can_edit, NEW.can_delete, NOW())
+          ON DUPLICATE KEY UPDATE
+            can_view = VALUES(can_view),
+            can_create = VALUES(can_create),
+            can_edit = VALUES(can_edit),
+            can_delete = VALUES(can_delete),
+            updated_at = NOW();
+        END
+      `);
+      await query(`
+        CREATE TRIGGER trg_adm_user_permissions_au
+        AFTER UPDATE ON adm_user_permissions
+        FOR EACH ROW
+        BEGIN
+          INSERT INTO adm_page_permission_effective (user_id, page_id, can_view, can_create, can_edit, can_delete, updated_at)
+          VALUES (NEW.user_id, NEW.page_id, NEW.can_view, NEW.can_create, NEW.can_edit, NEW.can_delete, NOW())
+          ON DUPLICATE KEY UPDATE
+            can_view = VALUES(can_view),
+            can_create = VALUES(can_create),
+            can_edit = VALUES(can_edit),
+            can_delete = VALUES(can_delete),
+            updated_at = NOW();
+        END
+      `);
+      await query(`
+        CREATE TRIGGER trg_adm_user_permissions_ad
+        AFTER DELETE ON adm_user_permissions
+        FOR EACH ROW
+        BEGIN
+          DELETE FROM adm_page_permission_effective
+          WHERE user_id = OLD.user_id AND page_id = OLD.page_id;
+        END
+      `);
+      verifiedTables.add(table);
+    } finally {
+      pendingEnsures.delete(table);
+    }
+  })();
+  pendingEnsures.set(table, promise);
+  return promise;
 }
 
 export async function ensureErrorLogsTable() {
@@ -1517,6 +1557,7 @@ export async function ensureExceptionalPermissionsTable() {
 }
 
 export async function ensureUserBranchMapping() {
+  if (verifiedTables.has("adm_user_branches")) return;
   await query(`
     CREATE TABLE IF NOT EXISTS adm_user_branches (
       user_id BIGINT UNSIGNED NOT NULL,
@@ -1530,6 +1571,7 @@ export async function ensureUserBranchMapping() {
       CONSTRAINT fk_ub_branch FOREIGN KEY (branch_id) REFERENCES adm_branches(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  verifiedTables.add("adm_user_branches");
 }
 
 export async function logError({
@@ -3339,6 +3381,374 @@ export async function ensurePMPurchaseRequisitionTables() {
         PRIMARY KEY (id),
         KEY idx_pm_pri_req (requisition_id),
         CONSTRAINT fk_pm_pri_req FOREIGN KEY (requisition_id) REFERENCES ${t}(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+}
+
+export async function ensurePMQuotationTables() {
+  const t = "prj_quotations";
+  if (!(await hasTable(t))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS ${t} (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NOT NULL,
+        quotation_no VARCHAR(50) NOT NULL,
+        quotation_date DATE NOT NULL,
+        project_id BIGINT UNSIGNED NULL,
+        project_name VARCHAR(255) NULL,
+        customer_id BIGINT UNSIGNED NULL,
+        customer_name VARCHAR(255) NULL,
+        customer_address VARCHAR(255) NULL,
+        customer_city VARCHAR(100) NULL,
+        customer_state VARCHAR(100) NULL,
+        customer_country VARCHAR(100) NULL,
+        valid_days INT NULL,
+        valid_until DATE NULL,
+        total_amount DECIMAL(18,2) DEFAULT 0,
+        net_amount DECIMAL(18,2) DEFAULT 0,
+        tax_amount DECIMAL(18,2) DEFAULT 0,
+        status VARCHAR(30) DEFAULT 'DRAFT',
+        price_type ENUM('WHOLESALE','RETAIL') DEFAULT 'RETAIL',
+        payment_type ENUM('CASH','CHEQUE','CREDIT') DEFAULT 'CASH',
+        currency_id BIGINT UNSIGNED DEFAULT 4,
+        exchange_rate DECIMAL(18,6) DEFAULT 1,
+        remarks TEXT NULL,
+        terms_and_conditions TEXT NULL,
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_prj_quotation_scope_no (company_id, branch_id, quotation_no),
+        KEY idx_prj_quotation_scope (company_id, branch_id),
+        KEY idx_prj_quotation_project (project_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+
+  const ensureCol = async (col, ddl) => {
+    if (!(await hasColumn(t, col))) {
+      await query(`ALTER TABLE ${t} ADD COLUMN ${ddl}`).catch(() => null);
+    }
+  };
+  await ensureCol("project_id", "BIGINT UNSIGNED NULL");
+  await ensureCol("project_name", "VARCHAR(255) NULL");
+
+  const ti = "prj_quotation_details";
+  if (!(await hasTable(ti))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS ${ti} (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        quotation_id BIGINT UNSIGNED NOT NULL,
+        item_id BIGINT UNSIGNED NOT NULL,
+        qty DECIMAL(18,4) NOT NULL DEFAULT 0,
+        unit_price DECIMAL(18,4) NOT NULL DEFAULT 0,
+        discount_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
+        total_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+        net_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+        tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+        tax_type BIGINT UNSIGNED NULL,
+        uom VARCHAR(20) NULL,
+        PRIMARY KEY (id),
+        KEY idx_prj_qd_q (quotation_id),
+        KEY idx_prj_qd_item (item_id),
+        CONSTRAINT fk_prj_qd_q FOREIGN KEY (quotation_id) REFERENCES ${t}(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+}
+
+export async function ensurePMInvoiceTables() {
+  const t = "prj_invoices";
+  if (!(await hasTable(t))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS ${t} (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NOT NULL,
+        invoice_no VARCHAR(50) NOT NULL,
+        invoice_date DATE NOT NULL,
+        due_date DATE NULL,
+        project_id BIGINT UNSIGNED NULL,
+        project_name VARCHAR(255) NULL,
+        customer_id BIGINT UNSIGNED NULL,
+        customer_name VARCHAR(255) NULL,
+        customer_address VARCHAR(255) NULL,
+        customer_city VARCHAR(100) NULL,
+        customer_state VARCHAR(100) NULL,
+        customer_country VARCHAR(100) NULL,
+        total_amount DECIMAL(18,2) DEFAULT 0,
+        net_amount DECIMAL(18,2) DEFAULT 0,
+        tax_amount DECIMAL(18,2) DEFAULT 0,
+        amount_paid DECIMAL(18,2) DEFAULT 0,
+        balance DECIMAL(18,2) DEFAULT 0,
+        status VARCHAR(30) DEFAULT 'DRAFT',
+        payment_status ENUM('UNPAID','PARTIAL','PAID') DEFAULT 'UNPAID',
+        currency_id BIGINT UNSIGNED DEFAULT 4,
+        exchange_rate DECIMAL(18,6) DEFAULT 1,
+        remarks TEXT NULL,
+        terms_and_conditions TEXT NULL,
+        created_by BIGINT UNSIGNED NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_prj_inv_scope_no (company_id, branch_id, invoice_no),
+        KEY idx_prj_inv_scope (company_id, branch_id),
+        KEY idx_prj_inv_project (project_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+  
+  const ensureCol = async (col, ddl) => {
+    if (!(await hasColumn(t, col))) {
+      await query(`ALTER TABLE ${t} ADD COLUMN ${ddl}`).catch(() => null);
+    }
+  };
+  await ensureCol("project_id", "BIGINT UNSIGNED NULL");
+  await ensureCol("project_name", "VARCHAR(255) NULL");
+
+  const ti = "prj_invoice_details";
+  if (!(await hasTable(ti))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS ${ti} (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        invoice_id BIGINT UNSIGNED NOT NULL,
+        item_id BIGINT UNSIGNED NOT NULL,
+        qty DECIMAL(18,4) NOT NULL DEFAULT 0,
+        unit_price DECIMAL(18,4) NOT NULL DEFAULT 0,
+        discount_percent DECIMAL(5,2) NOT NULL DEFAULT 0,
+        total_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+        net_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+        tax_amount DECIMAL(18,2) NOT NULL DEFAULT 0,
+        tax_type BIGINT UNSIGNED NULL,
+        uom VARCHAR(20) NULL,
+        PRIMARY KEY (id),
+        KEY idx_prj_id_i (invoice_id),
+        KEY idx_prj_id_item (item_id),
+        CONSTRAINT fk_prj_id_i FOREIGN KEY (invoice_id) REFERENCES ${t}(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+}
+
+/**
+ * Ensure social feed tables exist with correct schema.
+ * Handles the warehouse_id → branch_id migration automatically.
+ */
+export async function ensureSocialFeedTables() {
+  // 1. posts table
+  if (!(await hasTable("posts"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS posts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        content LONGTEXT NOT NULL,
+        image_url VARCHAR(500),
+        visibility_type ENUM('company', 'branch', 'warehouse') NOT NULL DEFAULT 'company',
+        branch_id INT DEFAULT NULL,
+        warehouse_id INT DEFAULT NULL,
+        like_count INT DEFAULT 0,
+        comment_count INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_posts_visibility (visibility_type),
+        INDEX idx_posts_branch (branch_id),
+        INDEX idx_posts_user (user_id),
+        INDEX idx_posts_created_at (created_at DESC)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  } else {
+    // Add branch_id if missing (older schema only has warehouse_id)
+    if (!(await hasColumn("posts", "branch_id"))) {
+      await query("ALTER TABLE posts ADD COLUMN branch_id INT DEFAULT NULL").catch(() => null);
+    }
+    // Add warehouse_id if missing
+    if (!(await hasColumn("posts", "warehouse_id"))) {
+      await query("ALTER TABLE posts ADD COLUMN warehouse_id INT DEFAULT NULL").catch(() => null);
+    }
+    // Expand visibility_type enum to include 'branch' and 'warehouse'
+    await query(`
+      ALTER TABLE posts MODIFY COLUMN visibility_type ENUM('company', 'branch', 'warehouse') NOT NULL DEFAULT 'company'
+    `).catch(() => null);
+  }
+
+  // 2. post_likes table
+  if (!(await hasTable("post_likes"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS post_likes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        post_id INT NOT NULL,
+        user_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY unique_post_like (post_id, user_id),
+        INDEX idx_likes_post (post_id),
+        INDEX idx_likes_user (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+
+  // 3. post_comments table
+  if (!(await hasTable("post_comments"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS post_comments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        post_id INT NOT NULL,
+        user_id INT NOT NULL,
+        comment_text LONGTEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_comments_post (post_id),
+        INDEX idx_comments_user (user_id),
+        INDEX idx_comments_created (created_at DESC)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+}
+
+/**
+ * Ensure core transport module tables exist with all required columns.
+ * Creates tables from scratch if missing, then adds any missing columns.
+ */
+export async function ensureTransportTables() {
+  const ec = async (table, col, ddl) => {
+    if (!(await hasColumn(table, col))) {
+      await query(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`).catch(() => null);
+    }
+  };
+
+  // trans_vehicles
+  if (!(await hasTable("trans_vehicles"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS trans_vehicles (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NOT NULL,
+        reg_number VARCHAR(50) NOT NULL,
+        vehicle_type VARCHAR(100) NOT NULL,
+        make VARCHAR(100) NULL,
+        model VARCHAR(100) NULL,
+        year_of_manufacture INT NULL,
+        capacity DECIMAL(15,2) NULL,
+        capacity_unit VARCHAR(20) NULL,
+        current_odometer DECIMAL(15,2) NOT NULL DEFAULT 0,
+        status ENUM('AVAILABLE','ON_TRIP','MAINTENANCE','RETIRED') NOT NULL DEFAULT 'AVAILABLE',
+        insurance_expiry DATE NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_by BIGINT UNSIGNED NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_vehicle_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+
+  // trans_drivers – also needs employee_name for JOIN-free queries
+  if (!(await hasTable("trans_drivers"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS trans_drivers (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NOT NULL,
+        employee_id BIGINT UNSIGNED NOT NULL,
+        employee_name VARCHAR(255) NULL,
+        license_number VARCHAR(100) NOT NULL,
+        license_type VARCHAR(50) NOT NULL,
+        license_expiry DATE NOT NULL,
+        status ENUM('AVAILABLE','ON_TRIP','ON_LEAVE','SUSPENDED') NOT NULL DEFAULT 'AVAILABLE',
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_by BIGINT UNSIGNED NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  } else {
+    await ec("trans_drivers", "employee_name", "VARCHAR(255) NULL");
+  }
+
+  // trans_trips
+  if (!(await hasTable("trans_trips"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS trans_trips (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NOT NULL,
+        trip_number VARCHAR(50) NOT NULL,
+        request_id BIGINT UNSIGNED NULL,
+        route_id BIGINT UNSIGNED NULL,
+        vehicle_id BIGINT UNSIGNED NOT NULL,
+        driver_id BIGINT UNSIGNED NOT NULL,
+        start_time DATETIME NULL,
+        end_time DATETIME NULL,
+        start_odometer DECIMAL(15,2) NULL,
+        end_odometer DECIMAL(15,2) NULL,
+        origin_name VARCHAR(255) NULL,
+        origin_lat DECIMAL(10,8) NULL,
+        origin_lng DECIMAL(11,8) NULL,
+        destination_name VARCHAR(255) NULL,
+        destination_lat DECIMAL(10,8) NULL,
+        destination_lng DECIMAL(11,8) NULL,
+        status ENUM('SCHEDULED','STARTED','IN_TRANSIT','COMPLETED','CANCELLED','DELAYED') NOT NULL DEFAULT 'SCHEDULED',
+        tracking_status VARCHAR(50) DEFAULT 'PENDING',
+        pod_signature_url VARCHAR(255) DEFAULT NULL,
+        pod_photo_url VARCHAR(255) DEFAULT NULL,
+        pod_notes TEXT DEFAULT NULL,
+        pod_timestamp DATETIME DEFAULT NULL,
+        remarks TEXT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_by BIGINT UNSIGNED NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_trip_vehicle (vehicle_id),
+        KEY idx_trip_driver (driver_id),
+        KEY idx_trip_status (status),
+        KEY idx_trip_company (company_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  } else {
+    // Add columns added by later migrations
+    await ec("trans_trips", "tracking_status", "VARCHAR(50) DEFAULT 'PENDING' AFTER status");
+    await ec("trans_trips", "origin_name", "VARCHAR(255) NULL");
+    await ec("trans_trips", "origin_lat", "DECIMAL(10,8) NULL");
+    await ec("trans_trips", "origin_lng", "DECIMAL(11,8) NULL");
+    await ec("trans_trips", "destination_name", "VARCHAR(255) NULL");
+    await ec("trans_trips", "destination_lat", "DECIMAL(10,8) NULL");
+    await ec("trans_trips", "destination_lng", "DECIMAL(11,8) NULL");
+    await ec("trans_trips", "pod_signature_url", "VARCHAR(255) DEFAULT NULL");
+    await ec("trans_trips", "pod_photo_url", "VARCHAR(255) DEFAULT NULL");
+    await ec("trans_trips", "pod_notes", "TEXT DEFAULT NULL");
+    await ec("trans_trips", "pod_timestamp", "DATETIME DEFAULT NULL");
+    await ec("trans_trips", "trip_date", "DATE NULL");
+    // Expand status enum to include STARTED and DELAYED
+    await query(`
+      ALTER TABLE trans_trips 
+      MODIFY COLUMN status ENUM('SCHEDULED','STARTED','IN_TRANSIT','COMPLETED','CANCELLED','DELAYED') NOT NULL DEFAULT 'SCHEDULED'
+    `).catch(() => null);
+  }
+
+  // trans_trip_locations
+  if (!(await hasTable("trans_trip_locations"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS trans_trip_locations (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        trip_id BIGINT UNSIGNED NOT NULL,
+        vehicle_id BIGINT UNSIGNED NULL,
+        driver_id BIGINT UNSIGNED NULL,
+        latitude DECIMAL(10,8) NOT NULL,
+        longitude DECIMAL(11,8) NOT NULL,
+        heading DECIMAL(5,2) DEFAULT 0,
+        speed DECIMAL(5,2) DEFAULT 0,
+        accuracy DECIMAL(8,2) DEFAULT NULL,
+        altitude DECIMAL(8,2) DEFAULT NULL,
+        battery_level DECIMAL(5,2) DEFAULT NULL,
+        is_offline_point BOOLEAN DEFAULT FALSE,
+        recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_loc_trip (trip_id),
+        KEY idx_loc_recorded (recorded_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `).catch(() => null);
   }

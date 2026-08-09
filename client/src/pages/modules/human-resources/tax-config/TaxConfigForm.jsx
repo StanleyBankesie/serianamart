@@ -96,7 +96,7 @@ export default function TaxConfigForm() {
       <div className="p-4 space-y-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">{isEdit ? 'Edit Statutory Configuration' : 'New Statutory Configuration'}</h1>
-          <Link to="/human-resources/tax-config" className="btn-secondary">Back</Link>
+          <button onClick={() => window.history.back()} className="btn-secondary">Back</button>
         </div>
 
         <form onSubmit={submit} className="space-y-6">
@@ -264,7 +264,7 @@ export default function TaxConfigForm() {
           )}
 
           <div className="flex justify-end gap-3 pt-4">
-            <Link to="/human-resources/tax-config" className="btn-secondary">Cancel</Link>
+            <button onClick={() => window.history.back()} className="btn-secondary">Cancel</button>
             <button className="btn-primary px-8" disabled={loading}>
               {loading ? 'Saving...' : 'Save Configuration'}
             </button>

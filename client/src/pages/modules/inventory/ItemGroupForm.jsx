@@ -415,13 +415,11 @@ const ItemGroupForm = () => {
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
           <div className="mb-2">
-            <Link
-              to="/inventory/item-groups"
-              className="inline-flex items-center gap-2 text-sm text-brand hover:text-brand-700"
+            <button onClick={() => window.history.back()} className="inline-flex items-center gap-2 text-sm text-brand hover:text-brand-700"
               data-rbac-exempt="true"
             >
               ← Back to Item Groups
-            </Link>
+            </button>
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Item Setup Management

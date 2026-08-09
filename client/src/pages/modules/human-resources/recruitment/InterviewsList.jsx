@@ -7,6 +7,8 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -14,6 +16,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function InterviewsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [items, setItems] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
 
@@ -40,9 +43,9 @@ export default function InterviewsList() {
     <div className="p-4">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Link to="/human-resources" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             Back to Menu
-          </Link>
+          </button>
           <h2 className="text-lg font-semibold">Interviews</h2>
         </div>
         <Link to="/human-resources/interviews/new" className="btn-primary text-sm">
@@ -50,7 +53,10 @@ export default function InterviewsList() {
         </Link>
       </div>
       <div className="bg-white dark:bg-slate-800 rounded shadow-sm">
-        <table className="min-w-full">
+        <div className="flex justify-end mb-4">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+        </div>
+        <table className={"min-w-full " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
           <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
             <tr className="text-left">
               <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Candidate</th>

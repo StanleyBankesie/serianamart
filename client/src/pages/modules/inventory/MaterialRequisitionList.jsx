@@ -13,6 +13,8 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -25,6 +27,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function MaterialRequisitionList() {
+  const [viewMode, setViewMode] = useViewMode();
   const location = useLocation();
   const { canReverseApproval, hasExceptional } = usePermission();
   const [exCancelAllowed, setExCancelAllowed] = useState(false);
@@ -40,6 +43,7 @@ export default function MaterialRequisitionList() {
   const [selectedReq, setSelectedReq] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
   const [firstApprover, setFirstApprover] = useState(null);
@@ -182,6 +186,7 @@ export default function MaterialRequisitionList() {
     setSelectedReq(req);
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     if (!workflowsCache) {
       try {
         setWfLoading(true);
@@ -205,6 +210,7 @@ export default function MaterialRequisitionList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       setHasInactiveWorkflow(false);
       return;
     }
@@ -277,6 +283,7 @@ export default function MaterialRequisitionList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       setHasInactiveWorkflow(false);
       return;
     }
@@ -382,6 +389,7 @@ export default function MaterialRequisitionList() {
           amount: null,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
+        comments: forwardComments,
         },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
@@ -453,7 +461,7 @@ export default function MaterialRequisitionList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link
@@ -480,14 +488,18 @@ export default function MaterialRequisitionList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader label="Requisition No" sortKey="requisition_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Date" sortKey="requisition_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Requested By" sortKey="requested_by" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Department" sortKey="department_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Department" sortKey="department_id" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Warehouse" sortKey="warehouse_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <th className="text-right">Actions</th>
@@ -507,7 +519,7 @@ export default function MaterialRequisitionList() {
                     </td>
                     <td>{String(req.requisition_date || "").slice(0, 10)}</td>
                     <td>{req.requested_by || "-"}</td>
-                    <td>{req.department_name || "-"}</td>
+                    <td>{req.department_id || "-"}</td>
                     <td>{req.warehouse_name || "-"}</td>
                     <td>
                       <span className={`badge ${getStatusBadge(displayStatus)}`}>
@@ -600,7 +612,7 @@ export default function MaterialRequisitionList() {
                                   </button>
                                 )}
                               </div>
-                            ) : req.forwarded_to_username ? (
+                            ) : req.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(req.status || "").toUpperCase()) ? (
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {req.forwarded_to_username}
                               </span>
@@ -656,9 +668,9 @@ export default function MaterialRequisitionList() {
         </div>
       </div>
       {showForwardModal && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-erp w/full max-w-md overflow-hidden">
-            <div className="p-4 bg-brand text-white flex justify-between items-center">
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-erp w-full max-w-4xl overflow-hidden">
+              <div className="p-4 bg-brand text-white flex justify-between items-center">
               <h2 className="text-lg font-bold">Forward for Approval</h2>
               <button
                 onClick={() => {
@@ -667,6 +679,7 @@ export default function MaterialRequisitionList() {
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white hover:text-slate-200 text-xl font-bold"
               >
@@ -761,7 +774,18 @@ export default function MaterialRequisitionList() {
                 })()}
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
               <button
                 type="button"
                 className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
@@ -772,6 +796,7 @@ export default function MaterialRequisitionList() {
                   setFirstApprover(null);
                   setTargetApproverId(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
               >
                 Cancel

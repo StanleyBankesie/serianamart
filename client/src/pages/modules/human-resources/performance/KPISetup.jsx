@@ -175,11 +175,11 @@ export default function KPISetup() {
     setLoading(true);
     try {
       const [kRes, cRes, aRes, eRes, dRes] = await Promise.all([
-        api.get("/hr/performance/kpis"),
-        api.get("/hr/performance/kpi-categories"),
-        api.get("/hr/performance/kpi-assignments"),
-        api.get("/hr/employees?status=ACTIVE"),
-        api.get("/admin/departments"),
+        api.get("/hr/performance/kpis").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/performance/kpi-categories").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/performance/kpi-assignments").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/employees?status=ACTIVE").catch(() => ({ data: { items: [] } })),
+        api.get("/admin/departments").catch(() => ({ data: { items: [] } })),
       ]);
       setKpis(kRes?.data?.items || []);
       setCategories(cRes?.data?.items || []);

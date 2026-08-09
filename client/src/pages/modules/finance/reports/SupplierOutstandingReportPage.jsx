@@ -9,6 +9,12 @@ const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDig
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : "—";
 
 export default function SupplierOutstandingReportPage({ backPath = "/finance", backLabel = "Back to Finance" }) {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [asOf, setAsOf] = useState("");
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState([]);
@@ -43,7 +49,7 @@ export default function SupplierOutstandingReportPage({ backPath = "/finance", b
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asOf]);
+  }, [asOf, pollingCounter]);
 
   const filteredSummary = summary.filter((s) =>
     !supplierQuery || String(s.supplier_name || "").toLowerCase().includes(supplierQuery.toLowerCase())

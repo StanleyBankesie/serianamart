@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function toISODate(v) {
   if (!v) return "";
@@ -23,6 +24,7 @@ function toISODate(v) {
  * @returns {JSX.Element} The rendered component
  */
 export default function ServiceConfirmationForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = id === "new";
@@ -194,12 +196,10 @@ export default function ServiceConfirmationForm() {
                 Confirm service receipts
               </p>
             </div>
-            <Link
-              to="/purchase/service-confirmation"
-              className="btn-success"
+            <button onClick={() => window.history.back()} className="btn-success"
             >
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -235,6 +235,8 @@ export default function ServiceConfirmationForm() {
                     setFormData({ ...formData, sc_date: e.target.value })
                   }
                   required
+                
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
               <div>
@@ -401,12 +403,10 @@ export default function ServiceConfirmationForm() {
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-              <Link
-                to="/purchase/service-confirmation"
-                className="btn-success"
+              <button onClick={() => window.history.back()} className="btn-success"
               >
                 Cancel
-              </Link>
+              </button>
               <button type="submit" className="btn-success" disabled={saving}>
                 {saving ? "Saving..." : "Save"}
               </button>

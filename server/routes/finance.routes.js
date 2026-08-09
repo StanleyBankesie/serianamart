@@ -462,6 +462,14 @@ router.post(
   financeController.createCostCenter,
 );
 
+router.put(
+  "/cost-centers/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.updateCostCenter,
+);
+
 // Opening Balances
 router.get(
   "/opening-balances",
@@ -722,6 +730,14 @@ router.delete(
   requireCompanyScope,
   requireBranchScope,
   financeController.deleteBankReconciliationLine,
+);
+
+router.post(
+  "/bank-reconciliations/:id/confirm",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.confirmBankReconciliation,
 );
 
 router.get(

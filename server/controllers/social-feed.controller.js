@@ -25,10 +25,10 @@ export const getPosts = async (req, res) => {
       Number(req.user?.sub) ||
       Number(req.headers["x-user-id"]) ||
       null;
-    const warehouseId =
-      Number(req.user?.warehouse_id) ||
+    const branchId =
+      Number(req.user?.branch_id) ||
       Number(req.scope?.branchId) ||
-      Number(req.query?.warehouseId) ||
+      Number(req.query?.branchId) ||
       null;
     const limit = parseInt(req.query.limit) || 20;
     const offset = parseInt(req.query.offset) || 0;
@@ -45,7 +45,7 @@ export const getPosts = async (req, res) => {
           p.content,
           p.image_url,
           p.visibility_type,
-          p.warehouse_id,
+          COALESCE(p.branch_id, p.warehouse_id) AS branch_id,
           p.like_count,
           p.comment_count,
           p.created_at,
@@ -59,11 +59,11 @@ export const getPosts = async (req, res) => {
         WHERE 
           (p.visibility_type = 'company')
           OR
-          (p.visibility_type = 'warehouse' AND p.warehouse_id = ?)
+          (p.visibility_type IN ('branch', 'warehouse') AND COALESCE(p.branch_id, p.warehouse_id) = ?)
         ORDER BY p.created_at DESC
         LIMIT ? OFFSET ?
         `,
-        [userId, warehouseId, limit, offset],
+        [userId, branchId, limit, offset],
       );
 
       // Get latest comments for each post
@@ -103,11 +103,9 @@ export const getPosts = async (req, res) => {
               pc.comment_text,
               pc.created_at,
               u.full_name,
-              u.profile_picture AS profile_picture,
-              uc.username AS created_by_name
+              u.profile_picture AS profile_picture
             FROM post_comments pc
             JOIN adm_users u ON pc.user_id = u.id
-            LEFT JOIN adm_users uc ON uc.id = pc.created_by
             WHERE pc.post_id = ?
             ORDER BY pc.created_at DESC
             LIMIT 3
@@ -178,8 +176,8 @@ export const getPosts = async (req, res) => {
       await connection.release();
     }
   } catch (error) {
-    console.error("Error fetching posts:", error);
-    res.status(500).json({ success: false, message: error.message });
+    console.error("Error fetching posts:", error?.message, error?.sqlMessage, error?.code, error?.stack);
+    res.status(500).json({ success: false, message: error.message, sqlMessage: error?.sqlMessage, code: error?.code });
   }
 };
 
@@ -211,7 +209,7 @@ export const getPostById = async (req, res) => {
           p.content,
           p.image_url,
           p.visibility_type,
-          p.warehouse_id,
+          p.branch_id,
           p.like_count,
           p.comment_count,
           p.created_at,
@@ -355,10 +353,10 @@ export const createPost = async (req, res) => {
       Number(req.user?.sub) ||
       Number(req.headers["x-user-id"]) ||
       null;
-    const warehouseId =
-      Number(req.user?.warehouse_id) ||
+    const branchId =
+      Number(req.user?.branch_id) ||
       Number(req.scope?.branchId) ||
-      Number(req.body?.warehouse_id) ||
+      Number(req.body?.branch_id) ||
       null;
     const companyId = Number(req.scope?.companyId) || 1;
     const { content, image_url, visibility_type } = req.body;
@@ -370,13 +368,13 @@ export const createPost = async (req, res) => {
         .json({ success: false, message: "Content is required" });
     }
 
-    if (!["company", "warehouse"].includes(visibility_type)) {
+    if (!["company", "branch"].includes(visibility_type)) {
       return res.status(400).json({
         success: false,
         message: "Invalid visibility type",
       });
     }
-    if (visibility_type === "warehouse" && !Number.isFinite(warehouseId)) {
+    if (visibility_type === "branch" && !Number.isFinite(branchId)) {
       return res.status(400).json({
         success: false,
         message: "Warehouse ID required for warehouse visibility",
@@ -391,7 +389,7 @@ export const createPost = async (req, res) => {
       // Create post
       const [postResult] = await connection.query(
         `
-        INSERT INTO posts (user_id, content, image_url, visibility_type, warehouse_id)
+        INSERT INTO posts (user_id, content, image_url, visibility_type, branch_id)
         VALUES (?, ?, ?, ?, ?)
         `,
         [
@@ -399,7 +397,7 @@ export const createPost = async (req, res) => {
           content,
           image_url || null,
           visibility_type,
-          visibility_type === "warehouse" ? warehouseId : null,
+          visibility_type === "branch" ? branchId : null,
         ],
       );
 
@@ -465,7 +463,7 @@ export const createPost = async (req, res) => {
       };
 
       try {
-        broadcastNewPost(createdPost, visibility_type, warehouseId);
+        broadcastNewPost(createdPost, visibility_type, branchId);
       } catch {}
 
       try {
@@ -474,7 +472,7 @@ export const createPost = async (req, res) => {
           userId,
           "post_created",
           visibility_type,
-          warehouseId,
+          branchId,
           companyId,
         );
       } catch {}
@@ -774,7 +772,7 @@ export const likePost = async (req, res) => {
 
       // Get post info for notifications
       const [postRows] = await connection.query(
-        `SELECT user_id, visibility_type, warehouse_id,
+        `SELECT user_id, visibility_type, branch_id,
           created_at,
           u.username AS created_by_name
          FROM posts
@@ -1089,17 +1087,17 @@ export const addComment = async (req, res) => {
  * Broadcasts a new post event to connected clients in the appropriate room (company or warehouse).
  *
  * @param {object} post - The newly created post object.
- * @param {string} visibility_type - The visibility scope ('company' or 'warehouse').
- * @param {number|null} warehouseId - The warehouse ID if visibility is 'warehouse'.
+ * @param {string} visibility_type - The visibility scope ('company' or 'branch').
+ * @param {number|null} branchId - The warehouse ID if visibility is 'branch'.
  */
-const broadcastNewPost = (post, visibility_type, warehouseId) => {
+const broadcastNewPost = (post, visibility_type, branchId) => {
   try {
     const io = getIO();
 
     if (visibility_type === "company") {
       io.to("company").emit("new_post", post);
-    } else if (visibility_type === "warehouse") {
-      io.to(`warehouse_${warehouseId}`).emit("new_post", post);
+    } else if (visibility_type === "branch") {
+      io.to(`warehouse_${branchId}`).emit("new_post", post);
     }
   } catch (error) {
     console.error("Error broadcasting new post:", error);
@@ -1153,8 +1151,8 @@ const broadcastComment = (postId, comment) => {
  * @param {number|string} postId - The ID of the new post.
  * @param {number} userId - The ID of the user who created the post.
  * @param {string} type - The type of notification (e.g., 'post_created').
- * @param {string} visibility_type - The visibility scope ('company' or 'warehouse').
- * @param {number|null} warehouseId - The warehouse ID if visibility is 'warehouse'.
+ * @param {string} visibility_type - The visibility scope ('company' or 'branch').
+ * @param {number|null} branchId - The warehouse ID if visibility is 'branch'.
  * @param {number} companyId - The company ID.
  */
 const triggerPostNotifications = async (
@@ -1162,7 +1160,7 @@ const triggerPostNotifications = async (
   userId,
   type,
   visibility_type,
-  warehouseId,
+  branchId,
   companyId = 1,
 ) => {
   const connection = await pool.getConnection();
@@ -1193,7 +1191,7 @@ const triggerPostNotifications = async (
         [userId],
       );
       targetUsers = allUsers.map((u) => u.id);
-    } else if (visibility_type === "warehouse") {
+    } else if (visibility_type === "branch") {
       // Notify warehouse users except poster
       const [warehouseUsers] = await connection.query(
         `SELECT id,
@@ -1201,8 +1199,8 @@ const triggerPostNotifications = async (
           u.username AS created_by_name
          FROM adm_users
         LEFT JOIN adm_users u ON u.id = created_by
-         WHERE warehouse_id = ? AND id != ?`,
-        [warehouseId, userId],
+         WHERE branch_id = ? AND id != ?`,
+        [branchId, userId],
       );
       targetUsers = warehouseUsers.map((u) => u.id);
     }

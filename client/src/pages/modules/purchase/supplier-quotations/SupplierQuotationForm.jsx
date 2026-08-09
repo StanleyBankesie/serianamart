@@ -4,11 +4,12 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "api/client";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -16,10 +17,13 @@ import { filterByPrefix } from "@/utils/searchUtils.js";
  * @returns {JSX.Element} The rendered component
  */
 export default function SupplierQuotationForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { getExchangeRate } = useExchangeRate();
-  const isEdit = Boolean(id) && id !== "new";
+  const isEdit = Boolean(id) && id !== "new" && (location.pathname.endsWith("/edit") || new URLSearchParams(location.search).get("mode") === "edit");
+  const isView = Boolean(id) && id !== "new" && !isEdit;
 
   const [formData, setFormData] = useState({
     quotation_no: "",
@@ -653,9 +657,9 @@ export default function SupplierQuotationForm() {
                 : "Record a new supplier quotation"}
             </p>
           </div>
-          <Link to="/purchase/supplier-quotations" className="px-3 py-1.5 rounded bg-white text-brand hover:bg-slate-100 text-sm font-semibold">
+          <button onClick={() => window.history.back()} className="px-3 py-1.5 rounded bg-white text-brand hover:bg-slate-100 text-sm font-semibold">
             ← Back to List
-          </Link>
+          </button>
         </div>
 
       <form onSubmit={handleSubmit}>
@@ -686,6 +690,8 @@ export default function SupplierQuotationForm() {
                   value={formData.quotation_date}
                   onChange={handleInputChange}
                   required
+                
+                  disabled={isView || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                 />
               </div>
               <div>
@@ -763,6 +769,8 @@ export default function SupplierQuotationForm() {
                   value={formData.valid_until}
                   onChange={handleInputChange}
                   required
+                
+                  disabled={isView || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                 />
               </div>
               <div className="hidden">
@@ -780,7 +788,7 @@ export default function SupplierQuotationForm() {
             </div>
           </div>
         <div className="card">
-          <div className="card-header bg-slate-50 text-slate-800 rounded-t-lg border-b border-slate-200">
+          <div className="card-header bg-brand text-white text-slate-800 rounded-t-lg border-b border-slate-200">
             <h2 className="text-lg font-semibold text-slate-800">
               Terms
             </h2>
@@ -1054,6 +1062,8 @@ export default function SupplierQuotationForm() {
                             e.target.value,
                           )
                         }
+                      
+                        disabled={isView || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                       />
                     </td>
                     <td>
@@ -1085,7 +1095,7 @@ export default function SupplierQuotationForm() {
         </div>
 
         <div className="card">
-          <div className="card-header bg-slate-50 text-slate-800 rounded-t-lg border-b border-slate-200">
+          <div className="card-header bg-brand text-white text-slate-800 rounded-t-lg border-b border-slate-200">
             <h2 className="text-lg font-semibold text-slate-800">
               Summary
             </h2>
@@ -1169,7 +1179,7 @@ export default function SupplierQuotationForm() {
         </div>
 
         <div className="card">
-          <div className="card-header bg-slate-50 text-slate-800 rounded-t-lg border-b border-slate-200">
+          <div className="card-header bg-brand text-white text-slate-800 rounded-t-lg border-b border-slate-200">
             <h2 className="text-lg font-semibold text-slate-800">
               Supporting Documents
             </h2>
@@ -1259,9 +1269,9 @@ export default function SupplierQuotationForm() {
         </div>
 
         <div className="flex gap-4 justify-end p-6 border-t mt-4">
-          <Link to="/purchase/supplier-quotations" className="btn-success">
+          <button onClick={() => window.history.back()} className="btn-success">
             Cancel
-          </Link>
+          </button>
           <button type="submit" className="btn-success">
             {saving ? "Saving..." : isEdit ? "Update" : "Create"} Quotation
           </button>
@@ -1271,3 +1281,4 @@ export default function SupplierQuotationForm() {
     </div>
   );
 }
+

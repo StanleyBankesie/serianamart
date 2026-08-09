@@ -13,6 +13,8 @@ import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
 import { Trash2 } from "lucide-react";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -20,6 +22,7 @@ import { Trash2 } from "lucide-react";
  * @returns {JSX.Element} The rendered component
  */
 export default function ShippingAdviceList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [searchTerm, setSearchTerm] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -153,8 +156,9 @@ export default function ShippingAdviceList() {
           </h1>
           <p className="text-sm mt-1">Track shipments and vessel information</p>
         </div>
-        <div className="flex gap-2">
-          <Link to="/purchase" className="btn btn-secondary">
+        <div className="flex gap-2 items-center">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          <Link to="/purchase?section=Procurement" className="btn btn-secondary">
             Return to Menu
           </Link>
           <Link to="/purchase/shipping-advice/new" className="btn-success">
@@ -179,7 +183,7 @@ export default function ShippingAdviceList() {
         </div>
 
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <SortableHeader label="Advice No" sortKey="advice_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

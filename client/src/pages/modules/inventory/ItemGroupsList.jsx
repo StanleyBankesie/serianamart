@@ -8,6 +8,8 @@ import { Link } from "react-router-dom";
 
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -15,6 +17,7 @@ import { filterAndSort } from "@/utils/searchUtils.js";
  * @returns {JSX.Element} The rendered component
  */
 export default function ItemGroupsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -95,7 +98,7 @@ export default function ItemGroupsList() {
               <p className="text-sm mt-1">Organize items by categories</p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link
@@ -124,8 +127,12 @@ export default function ItemGroupsList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th>Code</th>
@@ -210,7 +217,7 @@ export default function ItemGroupsList() {
           ) : null}
 
           <div className="overflow-x-auto">
-            <table className="table">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th>Code</th>

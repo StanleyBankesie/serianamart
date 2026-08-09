@@ -29,7 +29,8 @@ export default function SalesSetupPage() {
     setLoading(true);
     try {
       let endpoint = "";
-      if (activeTab === "zones") endpoint = "/sales/zones";
+      if (activeTab === "salespersons") endpoint = "/sales/sales-persons";
+      else if (activeTab === "zones") endpoint = "/sales/zones";
       else if (activeTab === "reasons") endpoint = "/sales/return-reasons";
       else if (activeTab === "price-types") endpoint = "/sales/price-types";
 
@@ -54,7 +55,8 @@ export default function SalesSetupPage() {
     e.preventDefault();
     try {
       let endpoint = "";
-      if (activeTab === "zones") endpoint = "/sales/zones";
+      if (activeTab === "salespersons") endpoint = "/sales/sales-persons";
+      else if (activeTab === "zones") endpoint = "/sales/zones";
       else if (activeTab === "reasons") endpoint = "/sales/return-reasons";
       else if (activeTab === "price-types") endpoint = "/sales/price-types";
 
@@ -65,7 +67,15 @@ export default function SalesSetupPage() {
       // But let's check the endpoints. `/sales/zones` accepts `{ zones: [...] }`.
       
       let payload = {};
-      if (activeTab === "zones") {
+      if (activeTab === "salespersons") {
+        let updatedItems = [...items];
+        if (isEditing) {
+          updatedItems = updatedItems.map((it) => (it.id === form.id ? form : it));
+        } else {
+          updatedItems.push(form);
+        }
+        payload = { salespersons: updatedItems };
+      } else if (activeTab === "zones") {
         let updatedItems = [...items];
         if (isEditing) {
           updatedItems = updatedItems.map((it) => (it.id === form.id ? form : it));
@@ -126,14 +136,14 @@ export default function SalesSetupPage() {
     <Guard moduleKey="sales">
       <div className="p-4">
         <div className="flex items-center gap-2 mb-4">
-          <Link to="/sales" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             Back to Menu
-          </Link>
+          </button>
           <h2 className="text-lg font-semibold">Sales Setup & Parameters</h2>
         </div>
 
         <div className="flex border-b mb-6 overflow-x-auto">
-          {["zones", "reasons", "price-types"].map((tab) => (
+          {["zones", "reasons", "price-types", "salespersons"].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -157,7 +167,20 @@ export default function SalesSetupPage() {
               </h3>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                {activeTab === "zones" && (
+                {activeTab === "salespersons" && (
+                  <>
+                    <div>
+                      <label className="label">Name</label>
+                      <input type="text" className="input" required value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="label">Email</label>
+                      <input type="email" className="input" value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                    </div>
+                  </>
+                )}
+
+                        {activeTab === "zones" && (
                   <>
                     <div>
                       <label className="block text-sm mb-1">Zone Name *</label>
@@ -289,6 +312,12 @@ export default function SalesSetupPage() {
                         <th className="px-4 py-3">Description</th>
                       </>
                     )}
+                    {activeTab === "salespersons" && (
+                      <>
+                        <th className="px-4 py-3">Name</th>
+                        <th className="px-4 py-3">Email</th>
+                      </>
+                    )}
                     {activeTab === "price-types" && (
                       <>
                         <th className="px-4 py-3">Price Type Name</th>
@@ -330,6 +359,12 @@ export default function SalesSetupPage() {
                             <td className="px-4 py-3 text-slate-500">{item.reason_name}</td>
                           </>
                         )}
+                        {activeTab === "salespersons" && (
+                          <>
+                            <td className="px-4 py-3 font-medium">{item.name}</td>
+                            <td className="px-4 py-3 text-slate-500">{item.email}</td>
+                          </>
+                        )}
                         {activeTab === "price-types" && (
                           <>
                             <td className="px-4 py-3 font-medium">{item.name}</td>
@@ -354,12 +389,7 @@ export default function SalesSetupPage() {
                           >
                             Edit
                           </button>
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="text-red-600 hover:text-red-800 text-sm font-medium"
-                          >
-                            Delete
-                          </button>
+
                         </td>
                       </tr>
                     ))

@@ -16,9 +16,10 @@ import {
   Info,
   Package
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -26,6 +27,8 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function MaterialRequisitionForm() {
+  const { id } = useParams();
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -156,6 +159,8 @@ export default function MaterialRequisitionForm() {
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
               value={formData.requisition_date}
               onChange={e => setFormData({...formData, requisition_date: e.target.value})}
+            
+              disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
             />
           </div>
           <div className="space-y-2">

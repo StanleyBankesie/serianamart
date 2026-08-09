@@ -12,6 +12,8 @@ import { useDispatch, useSelector } from "react-redux";
 import { useAfterSaveRefresh } from "../../../../hooks/useAfterSaveRefresh.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -19,6 +21,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function PotentialCustomerList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const [loading, setLoading] = useState(false);
@@ -159,8 +162,12 @@ export default function PotentialCustomerList() {
             </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader label="Code" sortKey="customer_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

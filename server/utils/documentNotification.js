@@ -1,6 +1,7 @@
 import { query } from "../db/pool.js";
 import { isMailerConfigured, sendMail } from "./mailer.js";
 import { sendPushToUser } from "../routes/push.routes.js";
+import { isWhatsAppConfigured, sendWhatsApp } from "./whatsapp.js";
 
 /**
  * Sends both email and push notifications when a document is forwarded to a user
@@ -67,7 +68,7 @@ export async function sendDocumentForwardNotification(options) {
       `[DocumentNotification] Fetching user ${userId} for company ${companyId}`,
     );
     const userRows = await query(
-      `SELECT id, email, username, is_active FROM adm_users WHERE id = :userId AND company_id = :companyId AND is_active = 1 LIMIT 1`,
+      `SELECT id, email, username, telephone, is_active FROM adm_users WHERE id = :userId AND company_id = :companyId AND is_active = 1 LIMIT 1`,
       { userId, companyId },
     );
 
@@ -94,18 +95,21 @@ export async function sendDocumentForwardNotification(options) {
     const user = userRows[0];
     const userEmail = user.email;
     const userName = user.username;
+    const userPhone = user.telephone;
 
     console.log(
-      `[DocumentNotification] User found: ${userName}, Email: ${userEmail || "NOT SET"}`,
+      `[DocumentNotification] User found: ${userName}, Email: ${userEmail || "NOT SET"}, Phone: ${userPhone || "NOT SET"}`,
     );
 
-    // Retrieve specific notification preferences (email/push) for the targeted user
+    // Retrieve specific notification preferences (email/push/whatsapp) for the targeted user
     let userEmailEnabled = 1;
     let userPushEnabled = 1;
+    let userWhatsappEnabled = 1;
+    let userSmsEnabled = 1;
     try {
       const prefRows = await query(
         `
-        SELECT email_enabled, push_enabled
+        SELECT email_enabled, push_enabled, whatsapp_enabled, sms_enabled
         FROM adm_notification_prefs 
         WHERE user_id = :userId AND pref_key IN ('workflow-approvals','workflow','document-forward')
         ORDER BY CASE pref_key WHEN 'workflow-approvals' THEN 0 WHEN 'document-forward' THEN 1 ELSE 2 END
@@ -116,8 +120,10 @@ export async function sendDocumentForwardNotification(options) {
       if (prefRows.length) {
         userEmailEnabled = Number(prefRows[0].email_enabled) === 1 ? 1 : 0;
         userPushEnabled = Number(prefRows[0].push_enabled) === 1 ? 1 : 0;
+        userWhatsappEnabled = Number(prefRows[0].whatsapp_enabled) === 1 ? 1 : 0;
+        userSmsEnabled = Number(prefRows[0].sms_enabled) === 1 ? 1 : 0;
         console.log(
-          `[DocumentNotification] Notification prefs loaded: email=${userEmailEnabled}, push=${userPushEnabled}`,
+          `[DocumentNotification] Notification prefs loaded: email=${userEmailEnabled}, push=${userPushEnabled}, whatsapp=${userWhatsappEnabled}, sms=${userSmsEnabled}`,
         );
       } else {
         console.log(
@@ -141,33 +147,25 @@ export async function sendDocumentForwardNotification(options) {
 
     // Process and send EMAIL notification if enabled by preference or forced globally
     if ((userEmailEnabled || forceEmail) && userEmail) {
-      console.log(`[DocumentNotification] ✓ Sending email to ${userEmail}`);
-      await sendDocumentForwardEmail({
-        to: userEmail,
-        userName,
-        documentType,
-        documentRef,
-        documentId,
-        title,
-        message,
-        actionType,
-        senderName,
-        workflowInstanceId,
-        req,
-        companyId,
-        userId,
-      });
-    } else {
-      // Handle skipped email notification scenarios and log them appropriately
-      let skipMsg = null;
-      if (!userEmail) {
-        skipMsg = "User has no email address";
-        console.log(`[DocumentNotification] ✗ Email NOT sent: ${skipMsg}`);
-      } else if (!userEmailEnabled && !forceEmail) {
-        skipMsg = "Email disabled by user preference";
-        console.log(`[DocumentNotification] ✗ Email NOT sent: ${skipMsg}`);
-      }
-      if (skipMsg) {
+      if (isMailerConfigured()) {
+        console.log(`[DocumentNotification] ✓ Sending email notification to ${userEmail}`);
+        await sendDocumentForwardEmail({
+          to: userEmail,
+          userName,
+          documentType,
+          documentRef,
+          documentId,
+          title,
+          message,
+          actionType,
+          senderName,
+          workflowInstanceId,
+          req,
+        });
+      } else {
+        console.log(
+          `[DocumentNotification] ✗ Email NOT sent: Mailer is not configured`,
+        );
         try {
           await query(
             `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
@@ -175,13 +173,35 @@ export async function sendDocumentForwardNotification(options) {
             {
               companyId,
               userId,
-              message: skipMsg,
+              message: `Mailer not configured; email skipped for user ${userId}`,
               url: `/notifications`,
             },
           );
         } catch {}
       }
+    } else {
+      if (!userEmail) {
+        console.log(
+          `[DocumentNotification] ✗ Email NOT sent: User has no email address configured`,
+        );
+      } else if (!userEmailEnabled && !forceEmail) {
+        console.log(
+          `[DocumentNotification] ✗ Email NOT sent: User has email notifications disabled`,
+        );
+        try {
+          await query(
+            `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
+             VALUES (:companyId, :userId, 'DocumentForward', 'EMAIL_SKIPPED', :message, :url)`,
+          {
+            companyId,
+            userId,
+            message: `User explicitly disabled emails; email skipped`,
+            url: `/notifications`,
+          },
+        );
+      } catch {}
     }
+  }
 
     // Process and send PUSH notification if enabled by preference or forced globally
     if ((userPushEnabled || forcePush) && userId) {
@@ -201,6 +221,68 @@ export async function sendDocumentForwardNotification(options) {
       if (!userPushEnabled && !forcePush) {
         console.log(
           `[DocumentNotification] ✗ Push NOT sent: User has push notifications disabled`,
+        );
+      }
+    }
+    // Process and send WhatsApp notification if enabled
+    if (userWhatsappEnabled && userPhone && isWhatsAppConfigured()) {
+      console.log(`[DocumentNotification] ✓ Sending WhatsApp notification`);
+      await sendDocumentForwardWhatsApp({
+        phone: userPhone,
+        documentType,
+        documentRef,
+        documentId,
+        title,
+        message,
+        actionType,
+        senderName,
+        workflowInstanceId,
+        req,
+      });
+    } else {
+      if (!userPhone) {
+        console.log(
+          `[DocumentNotification] ✗ WhatsApp NOT sent: User has no phone number`,
+        );
+      } else if (!userWhatsappEnabled) {
+        console.log(
+          `[DocumentNotification] ✗ WhatsApp NOT sent: User has WhatsApp notifications disabled`,
+        );
+      } else if (!isWhatsAppConfigured()) {
+        console.log(
+          `[DocumentNotification] ✗ WhatsApp NOT sent: WhatsApp API not configured`,
+        );
+      }
+    }
+
+    const { isSMSConfigured, sendSMS } = await import("./sms.js");
+    // Process and send SMS notification if enabled
+    if (userSmsEnabled && userPhone && isSMSConfigured()) {
+      console.log(`[DocumentNotification] ✓ Sending SMS notification`);
+      await sendDocumentForwardSMS({
+        phone: userPhone,
+        documentType,
+        documentRef,
+        documentId,
+        title,
+        message,
+        actionType,
+        senderName,
+        workflowInstanceId,
+        req,
+      });
+    } else {
+      if (!userPhone) {
+        console.log(
+          `[DocumentNotification] ✗ SMS NOT sent: User has no phone number`,
+        );
+      } else if (!userSmsEnabled) {
+        console.log(
+          `[DocumentNotification] ✗ SMS NOT sent: User has SMS notifications disabled`,
+        );
+      } else if (!isSMSConfigured()) {
+        console.log(
+          `[DocumentNotification] ✗ SMS NOT sent: SMS API not configured`,
         );
       }
     }
@@ -277,13 +359,18 @@ async function sendDocumentForwardEmail(options) {
 
     // Safely construct the absolute URL link for the document to include in the email body
     let linkAbs = `/administration/workflows/approvals/${workflowInstanceId}`;
-    if (req && req.protocol && req.headers?.host) {
-      linkAbs = `${req.protocol}://${req.headers.host}${linkAbs}`;
-    } else if (process.env.APP_URL) {
-      linkAbs = `${process.env.APP_URL}${linkAbs}`;
-    } else {
-      linkAbs = `http://localhost:3000${linkAbs}`;
+    let baseUrl = process.env.APP_URL;
+    if (!baseUrl && req) {
+      if (req.headers?.origin) {
+        baseUrl = req.headers.origin;
+      } else if (req.headers?.referer) {
+        try {
+          baseUrl = new URL(req.headers.referer).origin;
+        } catch {}
+      }
     }
+    if (!baseUrl) baseUrl = "http://localhost:3000";
+    linkAbs = `${baseUrl}${linkAbs}`;
 
     // Prepare email subject and capture current timestamp for the message
     const subject = title || "Document Forwarded for Your Action";
@@ -451,4 +538,112 @@ export async function broadcastDocumentForwardNotification(options) {
   );
 
   await Promise.all(promises);
+}
+
+/**
+ * Sends WhatsApp notification for document forwarding
+ * @private
+ */
+async function sendDocumentForwardWhatsApp(options) {
+  const {
+    phone,
+    documentType,
+    documentRef,
+    documentId,
+    title,
+    message,
+    actionType,
+    senderName,
+    workflowInstanceId,
+    req,
+  } = options;
+
+  try {
+    let linkAbs = `/administration/workflows/approvals/${workflowInstanceId}`;
+    let baseUrl = process.env.APP_URL;
+    if (!baseUrl && req) {
+      if (req.headers?.origin) {
+        baseUrl = req.headers.origin;
+      } else if (req.headers?.referer) {
+        try {
+          baseUrl = new URL(req.headers.referer).origin;
+        } catch {}
+      }
+    }
+    if (!baseUrl) baseUrl = "http://localhost:3000";
+    linkAbs = `${baseUrl}${linkAbs}`;
+
+    const docName = documentType || "Document";
+    const refNo = documentRef || documentId || "-";
+    const actionLabel = actionType || "Action Required";
+
+    const waText = [
+      `*${title || "Document Forwarded"}*`,
+      message || `A document has been forwarded to you by ${senderName}.`,
+      ``,
+      `*Type:* ${docName}`,
+      `*Reference No:* ${refNo}`,
+      `*Action Required:* ${actionLabel}`,
+      ``,
+      `*View Document:*`,
+      linkAbs,
+    ].join("\n");
+
+    await sendWhatsApp({ to: phone, message: waText });
+    console.log(`[sendDocumentForwardWhatsApp] ✓ WhatsApp sent successfully to ${phone}`);
+  } catch (err) {
+    console.error("Error sending document forward WhatsApp:", err);
+  }
+}
+
+/**
+ * Sends SMS notification for document forwarding
+ * @private
+ */
+async function sendDocumentForwardSMS(options) {
+  const {
+    phone,
+    documentType,
+    documentRef,
+    documentId,
+    title,
+    message,
+    actionType,
+    senderName,
+    workflowInstanceId,
+    req,
+  } = options;
+
+  try {
+    let linkAbs = `/administration/workflows/approvals/${workflowInstanceId}`;
+    let baseUrl = process.env.APP_URL;
+    if (!baseUrl && req) {
+      if (req.headers?.origin) {
+        baseUrl = req.headers.origin;
+      } else if (req.headers?.referer) {
+        try {
+          baseUrl = new URL(req.headers.referer).origin;
+        } catch {}
+      }
+    }
+    if (!baseUrl) baseUrl = "http://localhost:3000";
+    linkAbs = `${baseUrl}${linkAbs}`;
+
+    const docName = documentType || "Document";
+    const refNo = documentRef || documentId || "-";
+    const actionLabel = actionType || "Action Required";
+
+    const smsText = [
+      `${title || "Document Forwarded"}`,
+      `${docName} Ref: ${refNo}`,
+      `Action: ${actionLabel}`,
+      `Link: ${linkAbs}`,
+    ].join(" - ");
+
+    const { sendSMS } = await import("./sms.js");
+    await sendSMS({ to: phone, message: smsText });
+    console.log(`[sendDocumentForwardSMS] ✓ SMS sent successfully to ${phone}`);
+  } catch (err) {
+    console.error("Error sending document forward SMS:", err);
+  }
 }

@@ -3,7 +3,7 @@
  * Provides functionality for HRSetup.
  */
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../api/client.js";
 import { toast } from "react-toastify";
@@ -16,9 +16,25 @@ import { Guard } from "../../../hooks/usePermissions.jsx";
  */
 export default function HRSetup() {
   const location = useLocation();
-  const searchParams = new URLSearchParams(location.search);
-  const initialTab = searchParams.get("tab") || "departments";
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  
+  const getTabFromLocation = useCallback(() => {
+    const tabParam = searchParams.get("tab");
+    if (tabParam) return tabParam;
+    const path = location.pathname.toLowerCase();
+    if (path.includes("/departments")) return "departments";
+    if (path.includes("/designations") || path.includes("/job-roles")) return "positions";
+    if (path.includes("/branches") || path.includes("/locations")) return "locations";
+    if (path.includes("/shifts")) return "shifts";
+    if (path.includes("/leave-types") || path.includes("/leave-setup")) return "leave-types";
+    return "departments";
+  }, [location.pathname, searchParams]);
+
+  const [activeTab, setActiveTab] = useState(getTabFromLocation());
+
+  useEffect(() => {
+    setActiveTab(getTabFromLocation());
+  }, [location.pathname, location.search, getTabFromLocation]);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -55,11 +71,20 @@ export default function HRSetup() {
     });
   }, [accounts, accountSearch]);
 
+  const extractItems = (res) => {
+    if (!res) return [];
+    if (Array.isArray(res?.data)) return res.data;
+    if (Array.isArray(res?.data?.items)) return res.data.items;
+    if (Array.isArray(res?.data?.data)) return res.data.data;
+    if (Array.isArray(res?.data?.data?.items)) return res.data.data.items;
+    return [];
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
       let endpoint = "";
-      if (activeTab === "departments") endpoint = "/admin/departments";
+      if (activeTab === "departments") endpoint = "/hr/departments";
       else if (activeTab === "positions") endpoint = "/hr/positions";
       else if (activeTab === "locations") endpoint = "/hr/setup/locations";
       else if (activeTab === "leave-types") endpoint = "/hr/leave/types";
@@ -77,25 +102,36 @@ export default function HRSetup() {
       else if (activeTab === "salary-mapping")
         endpoint = "/hr/salary-components";
 
-      const res = await api.get(endpoint);
+      let res = null;
+      try {
+        res = await api.get(endpoint);
+      } catch {
+        if (activeTab === "departments") {
+          res = await api.get("/admin/departments").catch(() => null);
+        }
+      }
+
       if (activeTab === "parameters") {
         setItems([]);
-        const params = res?.data?.items || [];
+        const params = extractItems(res);
         const formObj = {};
-        params.forEach((p) => (formObj[p.param_key] = p.param_value));
+        params.forEach((p) => {
+          if (p?.param_key) formObj[p.param_key] = p.param_value;
+        });
         setForm(formObj);
       } else if (activeTab === "salary-mapping") {
-        setItems(res?.data?.items || []);
-        // Also fetch chart of accounts if not already loaded
+        setItems(extractItems(res));
         if (accounts.length === 0) {
-          const accRes = await api.get("/finance/reports/chart-of-accounts");
-          setAccounts(accRes?.data?.items || []);
+          try {
+            const accRes = await api.get("/finance/reports/chart-of-accounts");
+            setAccounts(extractItems(accRes));
+          } catch {}
         }
       } else {
-        setItems(res?.data?.items || []);
+        setItems(extractItems(res));
       }
-    } catch {
-      toast.error("Failed to load data");
+    } catch (err) {
+      setItems([]);
     } finally {
       setLoading(false);
     }
@@ -111,7 +147,7 @@ export default function HRSetup() {
     e.preventDefault();
     try {
       let endpoint = "";
-      if (activeTab === "departments") endpoint = "/admin/departments";
+      if (activeTab === "departments") endpoint = "/hr/departments";
       else if (activeTab === "positions") endpoint = "/hr/positions";
       else if (activeTab === "locations") endpoint = "/hr/setup/locations";
       else if (activeTab === "leave-types") endpoint = "/hr/leave/types";
@@ -126,11 +162,25 @@ export default function HRSetup() {
       else if (activeTab === "loan-types") endpoint = "/hr/loan-types";
       else if (activeTab === "shifts") endpoint = "/hr/shifts";
 
+      const payload = {
+        ...form,
+        dept_name: form.dept_name || form.name,
+        dept_code: form.dept_code || form.code,
+        name: form.name || form.dept_name || form.pos_name || form.location_name || form.type_name,
+        code: form.code || form.dept_code || form.pos_code,
+        pos_name: form.pos_name || form.name,
+        pos_code: form.pos_code || form.code,
+        location_name: form.location_name || form.name,
+        type_name: form.type_name || form.name,
+        days_per_year: form.days_per_year || form.max_days,
+        max_days: form.max_days || form.days_per_year,
+      };
+
       if (activeTab === "departments" || activeTab === "shifts") {
         if (isEditing && form.id) {
-          await api.put(`${endpoint}/${form.id}`, form);
+          await api.put(`${endpoint}/${form.id}`, payload);
         } else {
-          await api.post(endpoint, form);
+          await api.post(endpoint, payload);
         }
       } else if (activeTab === "parameters") {
         endpoint = "/hr/setup/parameters";
@@ -139,7 +189,7 @@ export default function HRSetup() {
         loadData();
         return;
       } else {
-        await api.post(endpoint, form);
+        await api.post(endpoint, payload);
       }
 
       toast.success("Saved successfully");
@@ -160,37 +210,37 @@ export default function HRSetup() {
     <Guard moduleKey="human-resources">
       <div className="p-4">
         <div className="flex items-center gap-2 mb-4">
-          <Link to="/human-resources" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             Back to Menu
-          </Link>
+          </button>
           <h2 className="text-lg font-semibold">HR Setup & Parameters</h2>
         </div>
 
         <div className="flex border-b mb-6 overflow-x-auto">
           {[
-            "locations",
-            "departments",
-            "positions",
-            "shifts",
-            "leave-types",
-            "payroll-periods",
-            "employment-types",
-            "employee-categories",
-            "allowance-types",
-            "loan-types",
-            "parameters",
-            "salary-mapping",
+            { id: "locations", label: "Branches" },
+            { id: "departments", label: "Departments" },
+            { id: "positions", label: "Job Roles Setup" },
+            { id: "shifts", label: "Shifts" },
+            { id: "leave-types", label: "Leave Types" },
+            { id: "payroll-periods", label: "Payroll Periods" },
+            { id: "employment-types", label: "Employment Types" },
+            { id: "employee-categories", label: "Employee Categories" },
+            { id: "allowance-types", label: "Allowance Types" },
+            { id: "loan-types", label: "Loan Types" },
+            { id: "parameters", label: "Parameters" },
+            { id: "salary-mapping", label: "Salary Mapping" },
           ].map((tab) => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 text-sm font-medium capitalize whitespace-nowrap ${
-                activeTab === tab
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 text-sm font-medium whitespace-nowrap ${
+                activeTab === tab.id
                   ? "border-b-2 border-brand text-brand"
                   : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              {tab.replace("-", " ")}
+              {tab.label}
             </button>
           ))}
         </div>
@@ -454,9 +504,9 @@ export default function HRSetup() {
                         <input
                           className="input"
                           type="number"
-                          value={form.days_per_year || ""}
+                          value={form.max_days || ""}
                           onChange={(e) =>
-                            setForm({ ...form, days_per_year: e.target.value })
+                            setForm({ ...form, max_days: Number(e.target.value) })
                           }
                           required
                         />
@@ -871,49 +921,52 @@ export default function HRSetup() {
                             {activeTab === "locations" && (
                               <div>
                                 <div className="font-medium">
-                                  {item.location_name}
+                                  {item.location_name || item.name || item.title || "Unnamed Location"}
                                 </div>
                                 <div className="text-xs text-slate-500">
-                                  {item.address}
+                                  {item.address || "No address specified"}
                                 </div>
                               </div>
                             )}
                             {activeTab === "departments" && (
                               <div>
-                                <div className="font-medium">{item.name}</div>
+                                <div className="font-medium">{item.dept_name || item.name || item.title || "Unnamed Department"}</div>
                                 <div className="text-xs text-slate-500">
-                                  {item.code}
+                                  {item.dept_code || item.code || "—"}
                                 </div>
                               </div>
                             )}
                             {activeTab === "positions" && (
                               <div>
                                 <div className="font-medium">
-                                  {item.pos_name}
+                                  {item.pos_name || item.name || item.title || "Unnamed Position"}
                                 </div>
                                 <div className="text-xs text-slate-500">
-                                  {item.pos_code}
+                                  Code: {item.pos_code || item.code || "—"} {item.parent_pos_name ? `• Reports to: ${item.parent_pos_name}` : ""} {item.dept_name ? `• Dept: ${item.dept_name}` : ""}
                                 </div>
                               </div>
                             )}
                             {activeTab === "leave-types" && (
                               <div>
                                 <div className="font-medium">
-                                  {item.type_name}
+                                  {item.type_name || item.name || item.leave_type || "Unnamed Leave Type"}
                                 </div>
                                 <div className="text-xs text-slate-500">
-                                  {item.days_per_year} days/year
+                                  {item.days_per_year ?? item.max_days ?? 0} days/year
                                 </div>
                               </div>
                             )}
                             {activeTab === "payroll-periods" && (
                               <div>
                                 <div className="font-medium">
-                                  {item.period_name}
+                                  {item.period_name || item.name || "Unnamed Period"}
                                 </div>
-                                <div className="text-xs text-slate-500">
-                                  {item.start_date} to {item.end_date}
-                                </div>
+                                {(item.start_date || item.end_date) && (
+                                  <div className="text-xs text-slate-500">
+                                    {item.start_date ? String(item.start_date).split("T")[0] : "—"} to{" "}
+                                    {item.end_date ? String(item.end_date).split("T")[0] : "—"}
+                                  </div>
+                                )}
                               </div>
                             )}
                             {(activeTab === "employment-types" ||
@@ -921,23 +974,26 @@ export default function HRSetup() {
                               activeTab === "allowance-types" ||
                               activeTab === "loan-types") && (
                               <div>
-                                <div className="font-medium">{item.name}</div>
+                                <div className="font-medium">{item.name || item.type_name || item.category_name || item.allowance_name || item.loan_type_name || "Unnamed Record"}</div>
+                                {(item.code || item.type_code) && (
+                                  <div className="text-xs text-slate-500">{item.code || item.type_code}</div>
+                                )}
                               </div>
                             )}
                             {activeTab === "shifts" && (
                               <div>
                                 <div className="font-medium">
-                                  {item.name}{" "}
+                                  {item.name || item.shift_name || "Unnamed Shift"}{" "}
                                   <span className="font-mono text-xs text-slate-500">
-                                    ({item.code})
+                                    ({item.code || item.shift_code || "—"})
                                   </span>
                                 </div>
                                 <div className="text-xs text-slate-500">
-                                  {item.start_time} – {item.end_time}{" "}
-                                  &nbsp;|&nbsp; Break: {item.break_minutes}min
+                                  {item.start_time || "08:00"} – {item.end_time || "17:00"}{" "}
+                                  &nbsp;|&nbsp; Break: {item.break_minutes ?? 60}min
                                   &nbsp;|&nbsp;{" "}
-                                  {item.is_active ? (
-                                    <span className="text-emerald-600">
+                                  {item.is_active !== false && item.is_active !== 0 ? (
+                                    <span className="text-emerald-600 font-medium">
                                       Active
                                     </span>
                                   ) : (
@@ -945,7 +1001,7 @@ export default function HRSetup() {
                                       Inactive
                                     </span>
                                   )}
-                                </div>
+                                 </div>
                               </div>
                             )}
                           </td>

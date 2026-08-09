@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Activity, Briefcase, TrendingUp, TrendingDown } from "lucide-react";
 import { api } from "../../../api/client.js";
 import {
   DashboardPageShell,
@@ -13,20 +15,21 @@ import {
   groupCounts,
   sumBy,
 } from "../../../components/dashboard/ModuleDashboardWidgets.jsx";
+import TaskExecutionReportPage from "./reports/TaskExecutionReportPage.jsx";
 
 function badgeTone(status) {
   const value = String(status || "").toUpperCase();
   if (value === "COMPLETED" || value === "APPROVED" || value === "POSTED") {
-    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300";
+    return "bg-secondary-50 text-secondary dark:bg-green-900/30 dark:text-green-300";
   }
   if (value === "IN_PROGRESS" || value === "OPEN" || value === "PENDING") {
-    return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300";
+    return "bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300";
   }
   if (value === "BLOCKED" || value === "ON_HOLD") {
-    return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300";
+    return "bg-primary-50 text-primary dark:bg-orange-900/30 dark:text-orange-300";
   }
   if (value === "CANCELLED" || value === "REJECTED") {
-    return "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300";
+    return "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300";
   }
   return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
 }
@@ -172,32 +175,6 @@ export default function ProjectManagementDashboardPage() {
       title="Project Management Dashboard"
       subtitle="Portfolio health, budget control, task execution, and live activity across current projects, timesheets, and expenses."
       backTo="/project-management"
-      actions={[
-        {
-          label: "Projects",
-          path: "/project-management/projects",
-          icon: "📁",
-          description: "Review active and planning-stage projects.",
-        },
-        {
-          label: "Task Board",
-          path: "/project-management/tasks",
-          icon: "✅",
-          description: "Open the live task backlog and execution board.",
-        },
-        {
-          label: "Status Report",
-          path: "/project-management/reports/project-status",
-          icon: "📊",
-          description: "Check full completion and task breakdown analytics.",
-        },
-        {
-          label: "Expenses",
-          path: "/project-management/expenses",
-          icon: "💵",
-          description: "Track project spending and recorded expenses.",
-        },
-      ]}
     >
       {error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
@@ -211,21 +188,21 @@ export default function ProjectManagementDashboardPage() {
           value={formatNumber(data.detail?.projects?.total)}
           helper={`${formatNumber(data.detail?.projects?.active)} currently active.`}
           icon="📁"
-          tone="indigo"
+          tone="brand"
         />
         <MetricCard
           title="Open Tasks"
           value={formatNumber(data.detail?.tasks?.open)}
           helper={`${formatNumber(data.detail?.tasks?.blocked)} tasks are blocked.`}
           icon="✅"
-          tone="amber"
+          tone="primary"
         />
         <MetricCard
           title="Portfolio Budget"
           value={formatCurrency(insights.totalBudget)}
           helper={`${insights.budgetUtilization.toFixed(1)}% consumed so far.`}
           icon="💰"
-          tone="emerald"
+          tone="secondary"
         />
         <MetricCard
           title="Total Logged Hours"
@@ -239,7 +216,7 @@ export default function ProjectManagementDashboardPage() {
           value={`${insights.averageCompletion.toFixed(1)}%`}
           helper="Calculated from current project status reporting."
           icon="🎯"
-          tone="teal"
+          tone="brand"
         />
         <MetricCard
           title="Projects Completed"
@@ -253,14 +230,14 @@ export default function ProjectManagementDashboardPage() {
           value={formatCurrency(insights.totalSpent)}
           helper="Combined expense and labor spend from project financial tracking."
           icon="📉"
-          tone="amber"
+          tone="primary"
         />
         <MetricCard
           title="Planning Projects"
           value={formatNumber(data.detail?.projects?.planning)}
           helper="Projects still in planning before full execution."
           icon="🗂️"
-          tone="indigo"
+          tone="brand"
         />
       </div>
 
@@ -278,12 +255,12 @@ export default function ProjectManagementDashboardPage() {
               <div className="grid gap-6 lg:grid-cols-2">
                 <HorizontalBarList
                   items={insights.projectStatus}
-                  tone="indigo"
+                  tone="brand"
                   emptyText="No project status data available."
                 />
                 <HorizontalBarList
                   items={insights.priorityMix}
-                  tone="amber"
+                  tone="primary"
                   emptyText="No priority data available."
                 />
               </div>
@@ -295,7 +272,7 @@ export default function ProjectManagementDashboardPage() {
             >
               <HorizontalBarList
                 items={insights.taskStatus}
-                tone="emerald"
+                tone="secondary"
                 emptyText="No tasks available."
               />
             </SectionCard>
@@ -348,116 +325,19 @@ export default function ProjectManagementDashboardPage() {
             >
               <HorizontalBarList
                 items={insights.spendLeaderboard}
-                tone="rose"
+                tone="primary"
                 valueFormatter={(value) => formatCurrency(value)}
                 emptyText="No spending data available."
               />
             </SectionCard>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-2">
-            <SectionCard
-              title="Recent Time Logs"
-              subtitle="Latest timesheets captured against project tasks."
-            >
-              <RecordsTable
-                rows={insights.recentTimesheets}
-                columns={[
-                  { key: "project_name", label: "Project" },
-                  { key: "task_title", label: "Task" },
-                  { key: "user_name", label: "User" },
-                  {
-                    key: "hours",
-                    label: "Hours",
-                    align: "right",
-                    render: (row) => `${Number(row.hours || 0).toFixed(1)}h`,
-                  },
-                  {
-                    key: "log_date",
-                    label: "Date",
-                    render: (row) => formatDate(row.log_date),
-                  },
-                ]}
-                emptyText="No timesheet activity recorded."
-              />
-            </SectionCard>
-
-            <SectionCard
-              title="Recent Expenses"
-              subtitle="Latest project expenses posted into the project cost register."
-            >
-              <RecordsTable
-                rows={insights.recentExpenses}
-                columns={[
-                  { key: "project_name", label: "Project" },
-                  { key: "category", label: "Category" },
-                  {
-                    key: "amount",
-                    label: "Amount",
-                    align: "right",
-                    render: (row) => formatCurrency(row.amount || 0, row.currency || "GHS"),
-                  },
-                  {
-                    key: "status",
-                    label: "Status",
-                    render: (row) => badge(row.status),
-                  },
-                  {
-                    key: "expense_date",
-                    label: "Date",
-                    render: (row) => formatDate(row.expense_date),
-                  },
-                ]}
-                emptyText="No project expenses recorded."
-              />
-            </SectionCard>
+          <div className="mt-12 border-t border-slate-200 dark:border-slate-800 pt-8">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white px-6">Task Execution & Analytics</h2>
+            <div className="-mx-6">
+              <TaskExecutionReportPage isEmbedded={true} />
+            </div>
           </div>
-
-          <SectionCard
-            title="Project Shortcuts"
-            subtitle="Move quickly from the portfolio dashboard into the key project operations and reports."
-          >
-            <ShortcutGrid
-              items={[
-                {
-                  label: "Projects",
-                  path: "/project-management/projects",
-                  description: "Open the full project register.",
-                  icon: "📁",
-                },
-                {
-                  label: "Tasks",
-                  path: "/project-management/tasks",
-                  description: "Inspect task backlog and assignments.",
-                  icon: "✅",
-                },
-                {
-                  label: "Timesheets",
-                  path: "/project-management/timesheets",
-                  description: "Review logged hours by task and project.",
-                  icon: "⏱️",
-                },
-                {
-                  label: "Project Status Report",
-                  path: "/project-management/reports/project-status",
-                  description: "Detailed portfolio completion and task metrics.",
-                  icon: "📊",
-                },
-                {
-                  label: "Project Income Report",
-                  path: "/project-management/reports/project-income",
-                  description: "Receipt vouchers linked to projects.",
-                  icon: "📈",
-                },
-                {
-                  label: "Project Expense Report",
-                  path: "/project-management/reports/project-expense",
-                  description: "Payment vouchers and expense visibility.",
-                  icon: "📉",
-                },
-              ]}
-            />
-          </SectionCard>
         </>
       )}
     </DashboardPageShell>

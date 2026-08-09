@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v6";
+const CACHE_VERSION = "v7";
 const ASSET_CACHE = "omnisuite-assets-" + CACHE_VERSION;
 const API_CACHE = "omnisuite-api-" + CACHE_VERSION;
 const DEV_MODE =
@@ -9,6 +9,7 @@ const DEV_MODE =
 
 if (!DEV_MODE) {
   self.addEventListener("install", (event) => {
+    self.skipWaiting();
     event.waitUntil(
       (async () => {
         const cache = await caches.open(ASSET_CACHE);
@@ -19,13 +20,8 @@ if (!DEV_MODE) {
           "/pwa-192x192.png",
           "/pwa-512x512.png",
           "/apple-touch-icon.png",
-          "/OMNISUITE_ICON_CLEAR.png",
+          "/OMNISUITE_ICON_BLUE.png",
         ]);
-        // NOTE: Do NOT call self.skipWaiting() here.
-        // skipWaiting causes the new SW to immediately take over ALL open tabs
-        // mid-session, which restarts their fetch lifecycles and looks like a
-        // random page reload or logout. The new SW will activate naturally once
-        // all tabs are closed and re-opened.
       })(),
     );
   });
@@ -42,11 +38,7 @@ self.addEventListener("activate", (event) => {
             .map((k) => caches.delete(k)),
         );
       } catch {}
-      // Do NOT call clients.claim() here.
-      // Even a "conditional" claim still takes over every open tab in scope,
-      // which can interrupt active POS sessions and look like a page reload.
-      // Let currently open tabs remain on their existing controller until the
-      // user naturally reloads or reopens the app.
+      await self.clients.claim();
     })(),
   );
 });
@@ -98,11 +90,12 @@ async function staleWhileRevalidate(cacheName, request) {
       if (resp && resp.ok) {
         const t = resp.type;
         const canCache =
-          t === "basic" ||
+          request.method === "GET" &&
+          (t === "basic" ||
           t === "default" ||
           (t === "opaque" &&
             typeof request.url === "string" &&
-            request.url.startsWith(self.location.origin));
+            request.url.startsWith(self.location.origin)));
         if (canCache) {
           try {
             await cache.put(request, resp.clone());
@@ -121,10 +114,21 @@ async function staleWhileRevalidate(cacheName, request) {
 async function cacheFirstWithNetworkFallback(cacheName, request) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
-  if (cached) return cached;
+  if (cached) {
+    const contentType = cached.headers.get("content-type") || "";
+    if (request.destination === "script" && contentType.includes("text/html")) {
+      await cache.delete(request);
+    } else {
+      return cached;
+    }
+  }
   try {
     const resp = await fetch(request);
-    if (resp && resp.ok) {
+    if (resp && resp.ok && request.method === "GET") {
+      const contentType = resp.headers.get("content-type") || "";
+      if (request.destination === "script" && contentType.includes("text/html")) {
+        return Response.error();
+      }
       try {
         await cache.put(request, resp.clone());
       } catch (e) {}

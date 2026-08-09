@@ -17,16 +17,17 @@ import { Guard } from "../../../../hooks/usePermissions.jsx";
 export default function BulkAttendance() {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
-  const [periods, setPeriods] = useState([]);
-  const [periodId, setPeriodId] = useState("");
+  const [attendanceDate, setAttendanceDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
   const [departments, setDepartments] = useState([]);
   const [locations, setLocations] = useState([]);
   const [filter, setFilter] = useState({
     employee_id: "",
     dept_id: "",
     location_id: "",
-  }); // search by employee/filters
-  const [rows, setRows] = useState([]); // [{ employee_id, name, code, attendance_date, status, remarks }]
+  });
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -34,14 +35,12 @@ export default function BulkAttendance() {
     async function load() {
       setLoading(true);
       try {
-        const [resEmps, resPeriods, resDepts, resLocs] = await Promise.all([
+        const [resEmps, resDepts, resLocs] = await Promise.all([
           api.get("/hr/employees").catch(() => ({ data: { items: [] } })),
-          api.get("/hr/payroll/periods").catch(() => ({ data: { items: [] } })),
           api.get("/admin/departments").catch(() => ({ data: { items: [] } })),
           api.get("/hr/setup/locations").catch(() => ({ data: { items: [] } })),
         ]);
         setEmployees(resEmps?.data?.items || []);
-        setPeriods(resPeriods?.data?.items || []);
         setDepartments(resDepts?.data?.items || []);
         setLocations(resLocs?.data?.items || []);
       } catch (err) {
@@ -53,17 +52,11 @@ export default function BulkAttendance() {
     load();
   }, []);
 
-  const selectedPeriod = useMemo(
-    () => periods.find((p) => String(p.id) === String(periodId)),
-    [periods, periodId],
-  );
-
   useEffect(() => {
-    if (!selectedPeriod || !employees.length) {
+    if (!employees.length) {
       setRows([]);
       return;
     }
-    // Filter employees by department/location if selected
     const base = employees.filter((e) => {
       if (filter.dept_id && String(e.dept_id || "") !== String(filter.dept_id))
         return false;
@@ -74,71 +67,17 @@ export default function BulkAttendance() {
         return false;
       return true;
     });
-    primeRangeStatuses(
-      base,
-      selectedPeriod.start_date,
-      selectedPeriod.end_date,
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodId, employees, filter.dept_id, filter.location_id]);
 
-  function buildDateRange(start, end) {
-    const out = [];
-    const s = new Date(start);
-    const e = new Date(end);
-    for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
-      out.push(new Date(d).toISOString().slice(0, 10));
-    }
-    return out;
-  }
-
-  async function primeRangeStatuses(empList, from, to) {
-    try {
-      const dates = buildDateRange(from, to);
-      const ts = await api.get(
-        `/hr/timesheets?from_date=${from}&to_date=${to}`,
-      );
-      const shortSet = new Set(
-        (ts.data?.items || [])
-          .filter((t) => Number(t.short_hours || 0) > 0)
-          .map((t) => `${t.employee_id}|${t.work_date}`),
-      );
-      const next = [];
-      empList.forEach((e) => {
-        const name = `${e.first_name} ${e.last_name}`.trim();
-        dates.forEach((d) => {
-          const key = `${e.id}|${d}`;
-          const isShort = shortSet.has(key);
-          next.push({
-            employee_id: e.id,
-            name,
-            code: e.emp_code,
-            attendance_date: d,
-            status: isShort ? "ABSENT" : "PRESENT",
-            remarks: isShort ? "Auto-marked (short hours)" : "",
-          });
-        });
-      });
-      setRows(next);
-    } catch {
-      const dates = buildDateRange(from, to);
-      const next = [];
-      empList.forEach((e) => {
-        const name = `${e.first_name} ${e.last_name}`.trim();
-        dates.forEach((d) => {
-          next.push({
-            employee_id: e.id,
-            name,
-            code: e.emp_code,
-            attendance_date: d,
-            status: "PRESENT",
-            remarks: "",
-          });
-        });
-      });
-      setRows(next);
-    }
-  }
+    const next = base.map((e) => ({
+      employee_id: e.id,
+      name: `${e.first_name} ${e.last_name}`.trim(),
+      code: e.emp_code,
+      attendance_date: attendanceDate,
+      status: "PRESENT",
+      remarks: "",
+    }));
+    setRows(next);
+  }, [attendanceDate, employees, filter.dept_id, filter.location_id]);
 
   const filteredRows = useMemo(() => {
     let r = rows;
@@ -167,9 +106,10 @@ export default function BulkAttendance() {
     setSubmitting(true);
     try {
       const payload = {
+        date: attendanceDate,
         attendance: rows.map((r) => ({
           employee_id: r.employee_id,
-          attendance_date: r.attendance_date,
+          attendance_date: r.attendance_date || attendanceDate,
           status: r.status,
           remarks: r.remarks || "",
         })),
@@ -187,82 +127,76 @@ export default function BulkAttendance() {
   return (
     <Guard moduleKey="human-resources">
       <div className="p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Link
-              to="/human-resources/attendance"
-              className="btn-secondary text-sm"
-            >
-              Back to Dashboard
-            </Link>
-            <h2 className="text-lg font-semibold">Mark Bulk Attendance</h2>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2">
-              <select
-                className="input w-72"
-                value={filter.employee_id}
-                onChange={(e) =>
-                  setFilter((f) => ({ ...f, employee_id: e.target.value }))
-                }
+        <div className="flex flex-col gap-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button onClick={() => window.history.back()} className="btn-secondary text-sm whitespace-nowrap"
               >
-                <option value="">All Employees</option>
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.first_name} {e.last_name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input w-60"
-                value={filter.dept_id}
-                onChange={(e) =>
-                  setFilter((f) => ({ ...f, dept_id: e.target.value }))
-                }
-                title="Filter by Department"
-              >
-                <option value="">All Departments</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.dept_name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input w-60"
-                value={filter.location_id}
-                onChange={(e) =>
-                  setFilter((f) => ({ ...f, location_id: e.target.value }))
-                }
-                title="Filter by Location"
-              >
-                <option value="">All Locations</option>
-                {locations.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.location_name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input w-80"
-                value={periodId}
-                onChange={(e) => setPeriodId(e.target.value)}
-              >
-                <option value="">Select Month</option>
-                {periods.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.period_name}
-                  </option>
-                ))}
-              </select>
+                Back to Dashboard
+              </button>
+              <h2 className="text-lg font-semibold whitespace-nowrap">Mark Bulk Attendance</h2>
             </div>
             <button
-              className="btn-primary"
+              className="btn-primary px-6 whitespace-nowrap shrink-0"
               onClick={handleSubmit}
               disabled={submitting}
             >
               {submitting ? "Saving..." : "Save All"}
             </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+            <select
+              className="input flex-1 min-w-[160px] text-sm"
+              value={filter.employee_id}
+              onChange={(e) =>
+                setFilter((f) => ({ ...f, employee_id: e.target.value }))
+              }
+            >
+              <option value="">All Employees</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.first_name} {e.last_name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="input flex-1 min-w-[140px] text-sm"
+              value={filter.dept_id}
+              onChange={(e) =>
+                setFilter((f) => ({ ...f, dept_id: e.target.value }))
+              }
+              title="Filter by Department"
+            >
+              <option value="">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.dept_name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="input flex-1 min-w-[140px] text-sm"
+              value={filter.location_id}
+              onChange={(e) =>
+                setFilter((f) => ({ ...f, location_id: e.target.value }))
+              }
+              title="Filter by Location"
+            >
+              <option value="">All Locations</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.location_name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              className="input w-40 text-sm"
+              value={attendanceDate}
+              onChange={(e) => setAttendanceDate(e.target.value)}
+              required
+            />
           </div>
         </div>
 
@@ -319,21 +253,36 @@ export default function BulkAttendance() {
                   <td className="px-4 py-2 text-sm text-slate-500">{r.code}</td>
                   <td className="px-4 py-2 text-sm">{r.attendance_date}</td>
                   <td className="px-4 py-2">
-                    <select
-                      className="input py-1"
-                      value={r.status}
-                      onChange={(e) =>
-                        updateRow(r.employee_id, r.attendance_date, {
-                          status: e.target.value,
-                        })
-                      }
-                    >
-                      <option value="PRESENT">Present</option>
-                      <option value="ABSENT">Absent</option>
-                      <option value="LATE">Late</option>
-                      <option value="HALF_DAY">Half Day</option>
-                      <option value="ON_LEAVE">On Leave</option>
-                    </select>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {[
+                        { label: "Present", value: "PRESENT" },
+                        { label: "Absent", value: "ABSENT" },
+                        { label: "Late", value: "LATE" },
+                        { label: "On Leave", value: "ON_LEAVE" },
+                        { label: "Half Day", value: "HALF_DAY" },
+                      ].map((st) => (
+                        <label
+                          key={st.value}
+                          className="inline-flex items-center gap-1 text-xs cursor-pointer select-none"
+                        >
+                          <input
+                            type="radio"
+                            name={`status-${r.employee_id}-${r.attendance_date}`}
+                            value={st.value}
+                            checked={r.status === st.value}
+                            onChange={() =>
+                              updateRow(r.employee_id, r.attendance_date, {
+                                status: st.value,
+                              })
+                            }
+                            className="text-brand focus:ring-brand h-3.5 w-3.5"
+                          />
+                          <span className="text-slate-700 dark:text-slate-300 font-medium">
+                            {st.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
                   </td>
                   <td className="px-4 py-2">
                     <input

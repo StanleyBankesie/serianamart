@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from "react";
+import PendingApprovalTooltip from "@/components/PendingApprovalTooltip.jsx";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
@@ -20,6 +21,9 @@ import {
   ListPdfIconButton,
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
+import NotificationModal from "../../../../components/NotificationModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -27,6 +31,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function PurchaseOrdersLocalList() {
+  const [viewMode, setViewMode] = useViewMode();
   const location = useLocation();
   const navigate = useNavigate();
   const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
@@ -40,6 +45,7 @@ export default function PurchaseOrdersLocalList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardComments, setForwardComments] = useState("");
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -53,6 +59,8 @@ export default function PurchaseOrdersLocalList() {
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
   const [activeDocId, setActiveDocId] = useState(null);
+  const [sendingEmailId, setSendingEmailId] = useState(null);
+
   const { canPerformAction, hasExceptional } = usePermission();
   const [cancelDenied, setCancelDenied] = useState(false);
 
@@ -296,6 +304,19 @@ export default function PurchaseOrdersLocalList() {
     }
   };
 
+  const sendEmail = async (id) => {
+    if (sendingEmailId) return;
+    setSendingEmailId(id);
+    try {
+      await api.post(`/api/purchase/orders/${id}/send-notification`, { type: 'email' });
+      toast.success("Email sent successfully!");
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to send email");
+    } finally {
+      setSendingEmailId(null);
+    }
+  };
+
   const computeCandidate = async () => {
     if (!workflowsCache || !workflowsCache.length) {
       setCandidateWorkflow(null);
@@ -510,7 +531,8 @@ export default function PurchaseOrdersLocalList() {
             : Number(selectedPO.total_amount || 0),
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
-      });
+        comments: forwardComments,
+        });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       let approverName = null;
       try {
@@ -561,11 +583,12 @@ export default function PurchaseOrdersLocalList() {
           selectedPO.total_amount === null
             ? null
             : Number(selectedPO.total_amount || 0);
-        const wfRes = await api.post("/workflows/forward-by-document", {
+        const wfRes = await api.post("/workflows/start", {
           document_type: "PURCHASE_ORDER",
           document_id: selectedPO.id,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
+        comments: forwardComments,
           amount,
         });
         const newStatus = wfRes?.data?.status || "PENDING_APPROVAL";
@@ -606,8 +629,9 @@ export default function PurchaseOrdersLocalList() {
           </h1>
           <p className="text-sm mt-1">Manage local purchase orders</p>
         </div>
-        <div className="flex gap-2">
-          <Link to="/purchase" className="btn btn-secondary">
+        <div className="flex gap-2 items-center">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          <Link to="/purchase?section=Procurement" className="btn btn-secondary">
             Return to Menu
           </Link>
           <Link
@@ -649,7 +673,7 @@ export default function PurchaseOrdersLocalList() {
           </div>
         </div>
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <SortableHeader label="PO No" sortKey="po_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -666,7 +690,7 @@ export default function PurchaseOrdersLocalList() {
               {loading ? (
                 <tr>
                   <td
-                    colSpan="8"
+                    colSpan="9"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     Loading...
@@ -674,7 +698,7 @@ export default function PurchaseOrdersLocalList() {
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan="8" className="text-center py-8 text-red-600">
+                  <td colSpan="9" className="text-center py-8 text-red-600">
                     {error}
                   </td>
                 </tr>
@@ -682,7 +706,7 @@ export default function PurchaseOrdersLocalList() {
               {!loading && filteredOrders.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="8"
+                    colSpan="9"
                     className="text-center py-8 text-slate-500 dark:text-slate-400"
                   >
                     No purchase orders found
@@ -794,9 +818,9 @@ export default function PurchaseOrdersLocalList() {
                                 )}
                               </div>
                             ) : po.status === "PENDING_APPROVAL" || po.forwarded_to_username || forwardedTo[po.id] ? (
-                              <span className="list-approval-forwarded-pill">
+                              <PendingApprovalTooltip documentType="PURCHASE_ORDER" documentId={po.id}><span className="list-approval-forwarded-pill">
                                 Forwarded to {po.forwarded_to_username || forwardedTo[po.id] || "Approver"}
-                              </span>
+                              </span></PendingApprovalTooltip>
                             ) : (
                               <button
                                 type="button"
@@ -807,6 +831,18 @@ export default function PurchaseOrdersLocalList() {
                               </button>
                             )}
                           </div>
+                        </div>
+
+                        {/* Slot 7: Send Email */}
+                        <div className="min-w-[80px]">
+                          <button
+                            type="button"
+                            disabled={sendingEmailId === po.id}
+                            className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors h-9 disabled:opacity-50"
+                            onClick={() => sendEmail(po.id)}
+                          >
+                            {sendingEmailId === po.id ? 'Sending...' : 'Send Email'}
+                          </button>
                         </div>
                       </div>
                     </td>
@@ -1005,13 +1041,10 @@ export default function PurchaseOrdersLocalList() {
         </div>
       ) : null}
       <DocumentAttachmentsModal
-        open={showAttach}
-        onClose={() => {
-          setShowAttach(false);
-          setActiveDocId(null);
-        }}
-        docType="purchase-order-local"
-        docId={activeDocId}
+        open={!!activeDocId}
+        documentId={activeDocId}
+        documentType="PURCHASE_ORDER"
+        onClose={() => setActiveDocId(null)}
       />
     </div>
   );

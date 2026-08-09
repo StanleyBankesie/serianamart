@@ -4,9 +4,10 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -14,6 +15,8 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function LeaveApplicationForm() {
+  const { id } = useParams();
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const [types, setTypes] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -30,8 +33,8 @@ export default function LeaveApplicationForm() {
     const load = async () => {
       try {
         const [t, e] = await Promise.all([
-          api.get("/hr/leave/types"),
-          api.get("/hr/employees?status=ACTIVE"),
+          api.get("/hr/leave/types").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/employees?status=ACTIVE").catch(() => ({ data: { items: [] } })),
         ]);
         setTypes(t.data?.items || []);
         setEmployees(e.data?.items || []);
@@ -67,9 +70,9 @@ export default function LeaveApplicationForm() {
   return (
     <div className="p-4 space-y-6">
       <div className="flex items-center gap-2">
-        <Link to="/human-resources/leave/applications" className="btn-secondary text-sm">
+        <button onClick={() => window.history.back()} className="btn-secondary text-sm">
           ← Back
-        </Link>
+        </button>
         <h1 className="text-xl font-semibold">New Leave Application</h1>
       </div>
 
@@ -116,6 +119,8 @@ export default function LeaveApplicationForm() {
                 value={form.start_date}
                 onChange={(e) => setForm({ ...form, start_date: e.target.value })}
                 required
+              
+                disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
             <div>
@@ -126,6 +131,8 @@ export default function LeaveApplicationForm() {
                 value={form.end_date}
                 onChange={(e) => setForm({ ...form, end_date: e.target.value })}
                 required
+              
+                disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
           </div>

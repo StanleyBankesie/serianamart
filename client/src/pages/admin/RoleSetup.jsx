@@ -18,7 +18,7 @@ import { toast } from "react-toastify";
  */
 export default function RoleSetup() {
   const navigate = useNavigate();
-  const { refreshPermissions } = usePermission();
+  const { refreshPermissions, licensedModules: allowedModules } = usePermission();
   const [roles, setRoles] = useState([]);
   const [selectedRole, setSelectedRole] = useState(null);
   const [roleModules, setRoleModules] = useState([]);
@@ -88,32 +88,42 @@ export default function RoleSetup() {
   async function createRole() {
     try {
       if (!newRole.name || !newRole.code) {
-        setError("Name and code are required");
+        const msg = "Name and code are required";
+        setError(msg);
+        toast.error(msg);
         return;
       }
       await api.post("/admin/roles", newRole);
       setShowCreate(false);
       setNewRole({ name: "", code: "", is_active: true });
       setSuccess("Role created successfully");
+      toast.success("Role created successfully");
       loadRoles();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to create role");
+      const msg = err.response?.data?.message || "Failed to create role";
+      setError(msg);
+      toast.error(msg);
     }
   }
 
   async function updateRole() {
     try {
       if (!editRole.name || !editRole.code) {
-        setError("Name and code are required");
+        const msg = "Name and code are required";
+        setError(msg);
+        toast.error(msg);
         return;
       }
       await api.put(`/admin/roles/${selectedRole.id}`, editRole);
       setSuccess("Role updated successfully");
+      toast.success("Role updated successfully");
       loadRoles();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to update role");
+      const msg = err.response?.data?.message || "Failed to update role";
+      setError(msg);
+      toast.error(msg);
     }
   }
 
@@ -301,33 +311,35 @@ export default function RoleSetup() {
         ]),
       );
 
-      await Promise.all([
-        api.post("/admin/role-features", {
-          role_id: roleId,
-          features: featureKeys,
-        }),
-        api.post("/admin/role-permissions", {
-          role_id: roleId,
-          feature_keys: featureKeys,
-        }),
-      ]);
+      // Save features AFTER modules (sequential, not parallel) to guarantee
+      // that the role-features endpoint overrides the auto-inserted features from role-modules.
+      await api.post("/admin/role-features", {
+        role_id: roleId,
+        features: featureKeys,
+      });
+      await api.post("/admin/role-permissions", {
+        role_id: roleId,
+        feature_keys: featureKeys,
+      });
 
       setSuccess("Role saved successfully");
-      toast.success("Role saved successfully");
+      toast.success("Role permissions saved successfully");
       setTimeout(() => setSuccess(""), 2000);
-      navigate("/administration/access/roles");
       try {
         window.dispatchEvent(new Event("rbac:changed"));
       } catch {}
       try {
+        // Refresh permissions BEFORE navigating so new perms are active immediately
         await refreshPermissions();
       } catch {}
+      navigate("/administration/access/roles");
     } catch (err) {
       const errorMessage =
         err.response?.data?.message ||
         err.message ||
         "Failed to save assignments";
       setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -483,22 +495,30 @@ export default function RoleSetup() {
 
             {/* Module Hierarchy */}
             <div className="space-y-6">
-              {Object.entries(moduleHierarchy).map(([moduleKey, module]) => {
-                const isModuleSelected = selectedModules.has(moduleKey);
-                const allFeatureKeys = (module.features || []).map(
-                  (f) => `${moduleKey}:${f.key}`,
-                );
-                const allDashboardKeys = (module.dashboards || []).map(
-                  (d) => `${moduleKey}:${d.key}`,
-                );
-                const totalCount =
-                  allFeatureKeys.length + allDashboardKeys.length;
-                const selectedCount =
-                  allFeatureKeys.filter((k) => selectedFeatures.has(k)).length +
-                  allDashboardKeys.filter((k) => selectedDashboards.has(k))
-                    .length;
-                const isAllSelected =
-                  totalCount > 0 && selectedCount === totalCount;
+              {Object.entries(moduleHierarchy)
+                .filter(
+                  ([moduleKey]) =>
+                    allowedModules.has(moduleKey) ||
+                    moduleKey === "administration" ||
+                    moduleKey === "dashboard"
+                )
+                .map(([moduleKey, module]) => {
+                  const isModuleSelected = selectedModules.has(moduleKey);
+                  const totalCount =
+                    (module.features?.length || 0) + (module.dashboards?.length || 0);
+                  let selectedCount = 0;
+
+                  (module.features || []).forEach((f) => {
+                    if (selectedFeatures.has(`${moduleKey}:${f.key}`))
+                      selectedCount++;
+                  });
+                  (module.dashboards || []).forEach((d) => {
+                    if (selectedDashboards.has(`${moduleKey}:${d.key}`))
+                      selectedCount++;
+                  });
+
+                  const isAllSelected =
+                    totalCount > 0 && selectedCount === totalCount;
 
                 return (
                   <div key={moduleKey} className="border rounded-lg">

@@ -1,30 +1,33 @@
 /**
  * @fileoverview ExecOutstandingReceivablesPage component.
- * Provides functionality for ExecOutstandingReceivablesPage.
+ * Modernized Executive report for Outstanding Customer Receivables.
  */
 
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "api/client";
+import { CreditCard, AlertCircle, Download, Printer, RefreshCw, Calendar, Search } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
 export default function ExecOutstandingReceivablesPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
   const totalOutstanding = items.reduce((s, r) => s + Number(r.outstanding || 0), 0);
-  const totalOverdue = items.filter(r => r.status === "OVERDUE").reduce((s, r) => s + Number(r.outstanding || 0), 0);
+  const totalOverdue = items.filter((r) => String(r.status || "").toUpperCase() === "OVERDUE").reduce((s, r) => s + Number(r.outstanding || 0), 0);
 
   async function run() {
     try {
@@ -47,10 +50,22 @@ export default function ExecOutstandingReceivablesPage() {
     setTo(today.toISOString().slice(0, 10));
   }, []);
 
-  useEffect(() => { run(); }, [from, to]); // eslint-disable-line
+  useEffect(() => {
+    if (from || to) run();
+  }, [from, to, pollingCounter]);
+
+  const filteredItems = items.filter((r) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      (r.party_name || "").toLowerCase().includes(term) ||
+      (r.ref_no || "").toLowerCase().includes(term) ||
+      (r.status || "").toLowerCase().includes(term)
+    );
+  });
 
   function exportExcel() {
-    const data = items.map(r => ({
+    const data = filteredItems.map((r) => ({
       "Due Date": r.due_date ? new Date(r.due_date).toLocaleDateString() : "—",
       Reference: r.ref_no || "—",
       Party: r.party_name || "—",
@@ -59,6 +74,7 @@ export default function ExecOutstandingReceivablesPage() {
       Status: r.status || "—",
     }));
     const ws = XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = [{ wch: 14 }, { wch: 18 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 12 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Outstanding Receivables");
     XLSX.writeFile(wb, "outstanding-receivables.xlsx");
@@ -66,95 +82,180 @@ export default function ExecOutstandingReceivablesPage() {
 
   function exportPDF() {
     const doc = new jsPDF("p", "mm", "a4");
-    const m = 14, w = 210; let y = m;
-    doc.setFillColor(4, 120, 87); doc.rect(0, 0, w, 26, "F");
-    doc.setTextColor(255, 255, 255); doc.setFontSize(14); doc.setFont("helvetica", "bold");
-    doc.text("OUTSTANDING RECEIVABLES", w / 2, 11, { align: "center" });
-    doc.setFontSize(8); doc.setFont("helvetica", "normal");
-    doc.text(`Period: ${from} to ${to}  |  Total: ₵${fmt(totalOutstanding)}`, w / 2, 20, { align: "center" });
-    y = 32; doc.setTextColor(15, 23, 42);
-    doc.setFontSize(8); doc.setFont("helvetica", "bold");
-    doc.text("Due Date", m, y); doc.text("Reference", m + 25, y); doc.text("Party", m + 50, y);
-    doc.text("Amount", m + 130, y); doc.text("Outstanding", m + 157, y); doc.text("Status", w - m, y, { align: "right" });
-    y += 4; doc.line(m, y, w - m, y); y += 3;
+    doc.setFontSize(16);
+    doc.text("Executive Outstanding Receivables Report", 14, 15);
+    doc.setFontSize(9);
+    doc.text(`Period: ${from} to ${to} | Total Outstanding: ₵${fmt(totalOutstanding)}`, 14, 22);
+
+    let y = 30;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.text("Due Date", 14, y);
+    doc.text("Reference", 45, y);
+    doc.text("Party / Customer", 80, y);
+    doc.text("Amount", 145, y);
+    doc.text("Outstanding", 175, y);
+    doc.line(14, y + 2, 196, y + 2);
+    y += 7;
+
     doc.setFont("helvetica", "normal");
-    items.forEach(r => {
-      if (y > 270) { doc.addPage(); y = m; }
-      doc.text(r.due_date ? new Date(r.due_date).toLocaleDateString() : "—", m, y);
-      doc.text(String(r.ref_no || "—").slice(0, 18), m + 25, y);
-      doc.text(String(r.party_name || "—").slice(0, 38), m + 50, y);
-      doc.text(fmt(r.amount), m + 130, y); doc.text(fmt(r.outstanding), m + 157, y);
-      doc.text(String(r.status || "—"), w - m, y, { align: "right" });
-      y += 5;
+    filteredItems.slice(0, 45).forEach((r) => {
+      doc.text(r.due_date ? new Date(r.due_date).toLocaleDateString() : "—", 14, y);
+      doc.text(String(r.ref_no || "—").slice(0, 15), 45, y);
+      doc.text(String(r.party_name || "—").slice(0, 30), 80, y);
+      doc.text(fmt(r.amount), 145, y);
+      doc.text(fmt(r.outstanding), 175, y);
+      y += 6;
     });
+
     doc.save("outstanding-receivables.pdf");
   }
 
   return (
-    <div className="space-y-6 p-4">
-      <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-        <div>
-          <Link to="/executive-overview" className="text-xs font-bold text-brand uppercase tracking-wider">← Back to Executive Overview</Link>
-          <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-2">Outstanding Receivables</h1>
-          <p className="text-slate-500 text-sm mt-1">Customer payments due and overdue</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="btn btn-outline btn-sm" onClick={exportExcel} disabled={!items.length}>📊 Excel</button>
-          <button className="btn btn-primary btn-sm" onClick={exportPDF} disabled={!items.length}>📄 PDF</button>
+    <div className="space-y-6 max-w-7xl mx-auto p-4 sm:p-6">
+      {/* Header Banner */}
+      <div className="card shadow-md">
+        <div className="card-header bg-brand text-white rounded-t-lg p-5">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <CreditCard className="w-7 h-7" /> Outstanding Receivables Executive Summary
+              </h1>
+              <p className="text-sm mt-1 opacity-90">
+                Customer accounts receivable tracking, due balances, and overdue invoices
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Link to="/executive-overview" className="btn btn-secondary text-xs">
+                Return to Overview
+              </Link>
+              <button onClick={exportExcel} disabled={!filteredItems.length} className="btn btn-outline btn-sm text-white border-white/30 hover:bg-white/10 flex items-center gap-1.5 text-xs">
+                <Download size={14} /> Excel
+              </button>
+              <button onClick={exportPDF} disabled={!filteredItems.length} className="btn btn-outline btn-sm text-white border-white/30 hover:bg-white/10 flex items-center gap-1.5 text-xs">
+                <Download size={14} /> PDF
+              </button>
+              <button onClick={() => window.print()} className="btn btn-secondary text-xs flex items-center gap-1.5">
+                <Printer size={14} /> Print
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border-l-4 border-emerald-500 border-y border-r border-slate-200 dark:border-slate-700 shadow-sm">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Outstanding</p>
-          <h3 className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">₵{fmt(totalOutstanding)}</h3>
+
+      {/* KPI Overview Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="card p-4 border-l-4 border-emerald-500 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Outstanding</p>
+            <h3 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">₵{fmt(totalOutstanding)}</h3>
+          </div>
+          <CreditCard className="w-8 h-8 text-emerald-500 opacity-80" />
         </div>
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border-l-4 border-rose-500 border-y border-r border-slate-200 dark:border-slate-700 shadow-sm">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Overdue</p>
-          <h3 className="text-2xl font-black text-rose-600 mt-1">₵{fmt(totalOverdue)}</h3>
+
+        <div className="card p-4 border-l-4 border-rose-500 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Overdue</p>
+            <h3 className="text-2xl font-extrabold text-rose-600 dark:text-rose-400 mt-1">₵{fmt(totalOverdue)}</h3>
+          </div>
+          <AlertCircle className="w-8 h-8 text-rose-500 opacity-80" />
         </div>
-        <div className="bg-white dark:bg-slate-800 p-5 rounded-xl border-l-4 border-blue-500 border-y border-r border-slate-200 dark:border-slate-700 shadow-sm">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Transactions</p>
-          <h3 className="text-2xl font-black text-slate-900 dark:text-slate-100 mt-1">{items.length}</h3>
+
+        <div className="card p-4 border-l-4 border-blue-500 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Active Receivable Invoices</p>
+            <h3 className="text-2xl font-extrabold text-blue-600 dark:text-blue-400 mt-1">{filteredItems.length}</h3>
+          </div>
+          <Calendar className="w-8 h-8 text-blue-500 opacity-80" />
         </div>
       </div>
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-4 bg-slate-50 dark:bg-slate-800/50">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-600 dark:text-slate-400">From:</span>
-            <input className="input input-bordered input-sm" type="date" value={from} onChange={e => setFrom(e.target.value)} />
+
+      {/* Filter Toolbar */}
+      <div className="card p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm">
+        <div className="flex flex-col md:flex-row gap-4 items-end">
+          <div className="flex-1">
+            <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Search Party or Ref No.</label>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search party name or ref number..."
+                className="input w-full text-xs pl-8"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-600 dark:text-slate-400">To:</span>
-            <input className="input input-bordered input-sm" type="date" value={to} onChange={e => setTo(e.target.value)} />
+          <div>
+            <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">From Date</label>
+            <input className="input w-full text-xs" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </div>
-          {loading && <span className="loading loading-spinner loading-sm text-brand"></span>}
+          <div>
+            <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">To Date</label>
+            <input className="input w-full text-xs" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary text-xs flex items-center justify-center gap-1 py-2 px-4 shrink-0"
+            onClick={() => { setSearchTerm(""); setFrom(""); setTo(""); }}
+          >
+            <RefreshCw size={13} /> Reset
+          </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="table table-sm w-full text-sm">
-            <thead className="bg-emerald-700 text-white">
-              <tr>
-                <th className="py-3 text-xs uppercase">Due Date</th>
-                <th className="py-3 text-xs uppercase">Reference</th>
-                <th className="py-3 text-xs uppercase">Party</th>
-                <th className="text-right py-3 text-xs uppercase">Amount</th>
-                <th className="text-right py-3 text-xs uppercase">Outstanding</th>
-                <th className="py-3 text-xs uppercase">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 && !loading && <tr><td colSpan={6} className="text-center py-10 text-slate-400">No records found</td></tr>}
-              {items.map((r, i) => (
-                <tr key={i} className={`border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/20 ${r.status === "OVERDUE" ? "bg-rose-50/30 dark:bg-rose-900/10" : ""}`}>
-                  <td className="text-xs text-slate-500">{r.due_date ? new Date(r.due_date).toLocaleDateString() : "—"}</td>
-                  <td className="font-mono text-xs text-brand">{r.ref_no || "—"}</td>
-                  <td className="font-medium text-slate-700 dark:text-slate-200">{r.party_name || "—"}</td>
-                  <td className="text-right font-mono">₵{fmt(r.amount)}</td>
-                  <td className="text-right font-black font-mono text-slate-900 dark:text-slate-100">₵{fmt(r.outstanding)}</td>
-                  <td><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${r.status === "OVERDUE" ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>{r.status || "—"}</span></td>
+      </div>
+
+      {/* Data Table */}
+      <div className="card">
+        <div className="card-body p-0">
+          <div className="overflow-x-auto">
+            <table className="table w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
+                  <th className="py-3.5 px-4 font-bold text-xs uppercase text-slate-600 dark:text-slate-300">Due Date</th>
+                  <th className="py-3.5 px-4 font-bold text-xs uppercase text-slate-600 dark:text-slate-300">Reference</th>
+                  <th className="py-3.5 px-4 font-bold text-xs uppercase text-slate-600 dark:text-slate-300">Customer / Party</th>
+                  <th className="py-3.5 px-4 font-bold text-xs uppercase text-slate-600 dark:text-slate-300 text-right">Amount (₵)</th>
+                  <th className="py-3.5 px-4 font-bold text-xs uppercase text-slate-600 dark:text-slate-300 text-right">Outstanding (₵)</th>
+                  <th className="py-3.5 px-4 font-bold text-xs uppercase text-slate-600 dark:text-slate-300">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={6} className="text-center py-8 text-slate-400">Loading receivables data...</td></tr>
+                ) : filteredItems.length > 0 ? (
+                  filteredItems.map((r, i) => {
+                    const isOverdue = String(r.status || "").toUpperCase() === "OVERDUE";
+                    return (
+                      <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 transition-colors">
+                        <td className="py-3 px-4 text-xs font-medium text-slate-600 dark:text-slate-400">
+                          {r.due_date ? new Date(r.due_date).toLocaleDateString() : "—"}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs font-bold text-brand">{r.ref_no || "—"}</td>
+                        <td className="py-3 px-4 text-xs font-semibold text-slate-800 dark:text-slate-200">{r.party_name || "—"}</td>
+                        <td className="py-3 px-4 text-xs font-mono font-medium text-right text-slate-700 dark:text-slate-300">
+                          ₵{fmt(r.amount)}
+                        </td>
+                        <td className="py-3 px-4 text-xs font-mono font-bold text-right text-slate-900 dark:text-slate-100">
+                          ₵{fmt(r.outstanding)}
+                        </td>
+                        <td className="py-3 px-4 text-xs">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            isOverdue
+                              ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                          }`}>
+                            {r.status || "PENDING"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr><td colSpan={6} className="text-center py-10 text-slate-400">No outstanding receivable records found</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

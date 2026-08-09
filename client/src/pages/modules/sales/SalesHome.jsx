@@ -7,6 +7,7 @@ import React from "react";
 import { Routes, Route, Link } from "react-router-dom";
 import { usePermission } from "../../../auth/PermissionContext";
 import ModuleDashboard from "../../../components/ModuleDashboard";
+import ModuleLayout from "../../../components/ModuleLayout.jsx";
 import { api } from "../../../api/client.js";
 
 // Import list pages
@@ -71,6 +72,151 @@ const ActionButton = ({ label, path, type, featureKey, action }) => {
   );
 };
 
+export const salesFeatures = [
+  {
+    module_key: "sales",
+    label: "Quotations",
+    path: "/sales/quotations",
+        actions: [
+          { label: "View", path: "/sales/quotations", type: "outline" },
+          { label: "New", path: "/sales/quotations/new", type: "primary" }
+        ],
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Orders",
+    path: "/sales/sales-orders",
+        actions: [
+          { label: "View", path: "/sales/sales-orders", type: "outline" },
+          { label: "New", path: "/sales/sales-orders/new", type: "primary" }
+        ],
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Invoices",
+    path: "/sales/invoices",
+        actions: [
+          { label: "View", path: "/sales/invoices", type: "outline" },
+          { label: "New", path: "/sales/invoices/new", type: "primary" }
+        ],
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Delivery Notes",
+    path: "/sales/delivery",
+        actions: [
+          { label: "View", path: "/sales/delivery", type: "outline" },
+          { label: "New", path: "/sales/delivery/new", type: "primary" }
+        ],
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Price Setup",
+    path: "/sales/price-setup",
+        actions: [
+          { label: "View", path: "/sales/price-setup", type: "outline" }
+        ],
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Promotional Campaigns",
+    path: "/sales/discount-schemes",
+        actions: [
+          { label: "View", path: "/sales/discount-schemes", type: "outline" },
+          { label: "New", path: "/sales/discount-schemes/new", type: "primary" }
+        ],
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Setup",
+    path: "/sales/setup",
+        actions: [
+          { label: "View", path: "/sales/setup", type: "outline" }
+        ],
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Customer Setup",
+    path: "/sales/customers",
+        actions: [
+          { label: "View", path: "/sales/customers", type: "outline" },
+          { label: "New", path: "/sales/customers/new", type: "primary" }
+        ],
+    type: "feature",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Register",
+    path: "/sales/reports/sales-register",
+        actions: [
+          { label: "View", path: "/sales/reports/sales-register", type: "outline" }
+        ],
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Delivery Register",
+    path: "/sales/reports/delivery-register",
+        actions: [
+          { label: "View", path: "/sales/reports/delivery-register", type: "outline" }
+        ],
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Return Report",
+    path: "/sales/reports/sales-return",
+        actions: [
+          { label: "View", path: "/sales/reports/sales-return", type: "outline" }
+        ],
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Debtors Balance",
+    path: "/sales/reports/debtors-balance",
+        actions: [
+          { label: "View", path: "/sales/reports/debtors-balance", type: "outline" }
+        ],
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Profitability",
+    path: "/sales/reports/sales-profitability",
+        actions: [
+          { label: "View", path: "/sales/reports/sales-profitability", type: "outline" }
+        ],
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Tracking",
+    path: "/sales/reports/sales-tracking",
+        actions: [
+          { label: "View", path: "/sales/reports/sales-tracking", type: "outline" }
+        ],
+    type: "dashboard",
+  },
+  {
+    module_key: "sales",
+    label: "Sales Returns",
+    path: "/sales/returns",
+        actions: [
+          { label: "View", path: "/sales/returns", type: "outline" },
+          { label: "New", path: "/sales/returns/new", type: "primary" }
+        ],
+    type: "feature",
+  },
+];
+
 /**
  * SalesModuleHome component
  * Displays the main sales dashboard, including key statistics and module navigation sections.
@@ -88,6 +234,9 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/invoice-summary",
+        actions: [
+          { label: "View", path: "/sales/reports/invoice-summary", type: "outline" }
+        ],
     },
     {
       rbac_key: "open-quotations",
@@ -97,6 +246,9 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/quotation-summary",
+        actions: [
+          { label: "View", path: "/sales/reports/quotation-summary", type: "outline" }
+        ],
     },
     {
       rbac_key: "pending-deliveries",
@@ -106,6 +258,9 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/delivery-register",
+        actions: [
+          { label: "View", path: "/sales/reports/delivery-register", type: "outline" }
+        ],
     },
     {
       rbac_key: "overdue-invoices",
@@ -115,6 +270,9 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/ar-aging",
+        actions: [
+          { label: "View", path: "/sales/reports/ar-aging", type: "outline" }
+        ],
     },
     {
       rbac_key: "total-revenue",
@@ -124,6 +282,9 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/invoice-summary",
+        actions: [
+          { label: "View", path: "/sales/reports/invoice-summary", type: "outline" }
+        ],
     },
     {
       rbac_key: "sales-growth",
@@ -133,6 +294,9 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/monthly-sales-trend",
+        actions: [
+          { label: "View", path: "/sales/reports/monthly-sales-trend", type: "outline" }
+        ],
     },
   ]);
 
@@ -244,14 +408,33 @@ const SalesModuleHome = () => {
     };
   }, []);
 
-  const sections = [
-    {
-      title: "Sales Transactions",
-      badge: "Operations",
+  return (
+    <ModuleDashboard
+      useSectionNavigation={true}
+      title="Sales Module"
+      description="Customer orders, quotations, invoicing, and sales analytics"
+      stats={stats}
+      headerActions={[
+        { label: "Dashboard", path: "/sales/dashboard",
+         icon: "📊" },
+      ]}
+      sections={salesModuleSections}
+      features={salesFeatures}
+    />
+  );
+};
+
+export const salesModuleSections = [
+  {
+    icon: "💳",
+    title: "Sales Transactions",
+    badge: "Operations",
       items: [
         {
           title: "Quotations",
           path: "/sales/quotations",
+        
+          feature_key: "quotations",
           description: "Create and manage customer quotations",
           icon: "📋",
           actions: [
@@ -276,6 +459,8 @@ const SalesModuleHome = () => {
         {
           title: "Sales Orders",
           path: "/sales/sales-orders",
+        
+          feature_key: "sales-orders",
           description: "Process customer orders and track fulfillment",
           icon: "🛒",
           actions: [
@@ -300,6 +485,8 @@ const SalesModuleHome = () => {
         {
           title: "Invoices",
           path: "/sales/invoices",
+        
+          feature_key: "invoices",
           description: "Generate and manage sales invoices",
           icon: "🧾",
           actions: [
@@ -322,8 +509,36 @@ const SalesModuleHome = () => {
           ],
         },
         {
+          title: "Sales Returns",
+          path: "/sales/returns",
+        
+          feature_key: "returns",
+          description: "Manage returned products and credit notes",
+          icon: "🔙",
+          actions: [
+            <ActionButton
+              key="view"
+              label="View"
+              path="/sales/returns"
+              type="outline"
+              featureKey="sales:returns"
+              action="view"
+            />,
+            <ActionButton
+              key="new"
+              label="New"
+              path="/sales/returns/new"
+              type="primary"
+              featureKey="sales:returns"
+              action="create"
+            />,
+          ],
+        },
+        {
           title: "Delivery Notes",
           path: "/sales/delivery",
+        
+          feature_key: "delivery",
           description: "Track product deliveries to customers",
           icon: "🚚",
           actions: [
@@ -354,23 +569,53 @@ const SalesModuleHome = () => {
         {
           title: "Price Setup",
           path: "/sales/price-setup",
+        
           description: "Manage standard and customer pricing",
           icon: "💰",
-          actions: [],
+          actions: [
+          { label: "View", path: "/sales/quotations",
+        actions: [
+          { label: "View", path: "/sales/quotations", type: "outline" },
+          { label: "New", path: "/sales/quotations/new", type: "primary" }
+        ], type: "outline" },
+          { label: "New", path: "/sales/quotations/new",
+        actions: [
+          { label: "View", path: "/sales/quotations/new", type: "outline" },
+          { label: "New", path: "/sales/quotations/new/new", type: "primary" }
+        ], type: "primary" }
+        ],
         },
         {
           title: "Promotional Campaigns",
           path: "/sales/discount-schemes",
+        
           description: "Discount campaigns, purchase reward schemes, and promotions",
           icon: "🏷️",
-          actions: [],
+          actions: [
+          { label: "View", path: "/sales/discount-schemes",
+        actions: [
+          { label: "View", path: "/sales/discount-schemes", type: "outline" },
+          { label: "New", path: "/sales/discount-schemes/new", type: "primary" }
+        ], type: "outline" },
+          { label: "New", path: "/sales/discount-schemes/new",
+        actions: [
+          { label: "View", path: "/sales/discount-schemes/new", type: "outline" },
+          { label: "New", path: "/sales/discount-schemes/new/new", type: "primary" }
+        ], type: "primary" }
+        ],
         },
         {
           title: "Sales Setup",
           path: "/sales/setup",
+        
           description: "Configure sales return reasons and return workflows",
           icon: "⚙️",
-          actions: [],
+          actions: [
+          { label: "View", path: "/sales/setup",
+        actions: [
+          { label: "View", path: "/sales/setup", type: "outline" }
+        ], type: "outline" }
+        ],
         },
       ],
     },
@@ -380,6 +625,8 @@ const SalesModuleHome = () => {
         {
           title: "Customers",
           path: "/sales/customers",
+        
+          feature_key: "customers",
           description: "Manage customer information and credit limits",
           icon: "👥",
           actions: [
@@ -404,6 +651,8 @@ const SalesModuleHome = () => {
         {
           title: "Prospective Customers",
           path: "/sales/prospect-customers",
+        
+          feature_key: "prospect-customers",
           description: "Manage prospective customer (leads) information",
           icon: "🔮",
           actions: [
@@ -428,6 +677,8 @@ const SalesModuleHome = () => {
         {
           title: "Prospect Conversion",
           path: "/sales/prospect-conversion",
+        
+          feature_key: "prospect-conversion",
           description:
             "Convert prospective customers into full customer accounts",
           icon: "🔄",
@@ -450,120 +701,140 @@ const SalesModuleHome = () => {
         {
           title: "Sales Register",
           path: "/sales/reports/sales-register",
+        
           description: "Invoices within the selected period",
           icon: "🧾",
         },
         {
           title: "Delivery Register",
           path: "/sales/reports/delivery-register",
+        
           description: "Deliveries made to customers",
           icon: "🚚",
         },
         {
           title: "Sales Return Report",
           path: "/sales/reports/sales-return",
+        
           description: "Items returned by customers",
           icon: "↩️",
         },
         {
           title: "Debtors Balance",
           path: "/sales/reports/debtors-balance",
+        
           description: "Customer balances and outstanding",
           icon: "👤",
         },
         {
           title: "Sales Profitability",
           path: "/sales/reports/sales-profitability",
+        
           description: "Margins and profitability by invoice",
           icon: "💹",
         },
         {
           title: "Sales Tracking",
           path: "/sales/reports/sales-tracking",
+        
           description: "Track quotations → orders → deliveries → invoices",
           icon: "🔎",
         },
         {
           title: "Customer List",
           path: "/sales/reports/customer-list",
+        
           description: "Export all active customers to Excel",
           icon: "👥",
         },
         {
           title: "Prospective Customer List",
           path: "/sales/reports/prospect-customer-list",
+        
           description: "Export all prospective customers to Excel",
           icon: "🔮",
         },
         {
           title: "Quotation Summary",
           path: "/sales/reports/quotation-summary",
+        
           description: "Track quotes",
           icon: "📋",
         },
         {
           title: "Quotation Conversion",
           path: "/sales/reports/quotation-conversion",
+        
           description: "Sales effectiveness",
           icon: "✅",
         },
         {
           title: "Sales Order Status",
           path: "/sales/reports/sales-order-status",
+        
           description: "Monitor active orders",
           icon: "📦",
         },
         {
           title: "Invoice Summary",
           path: "/sales/reports/invoice-summary",
+        
           description: "Revenue tracking",
           icon: "🧾",
         },
         {
           title: "A/R Aging",
           path: "/sales/reports/ar-aging",
+        
           description: "Overdue payments",
           icon: "⏱️",
         },
         {
           title: "Revenue by Customer",
           path: "/sales/reports/revenue-by-customer",
+        
           description: "Top customers",
           icon: "👥",
         },
         {
           title: "Revenue by Product",
           path: "/sales/reports/revenue-by-product",
+        
           description: "Best sellers",
           icon: "📦",
         },
         {
           title: "Discount Utilization",
           path: "/sales/reports/discount-utilization",
+        
           description: "Discount control",
           icon: "🏷️",
         },
         {
           title: "Price List",
           path: "/sales/reports/price-list",
+        
           description: "Monitor pricing",
           icon: "💰",
         },
         {
           title: "Monthly Sales Trend",
           path: "/sales/reports/monthly-sales-trend",
+        
           description: "Executive overview",
           icon: "📈",
         },
         {
           title: "Customer Order History",
           path: "/sales/reports/customer-order-history",
+        
           description: "Per-customer timeline",
           icon: "🗂️",
         },
         {
           title: "Customer Accounts",
           path: "/sales/reports/customer-history",
+        
           description:
             "Complete customer transaction history including returns",
           icon: "📋",
@@ -571,26 +842,13 @@ const SalesModuleHome = () => {
         {
           title: "Cancelled / Rejected Orders",
           path: "/sales/reports/cancelled-orders",
+        
           description: "Identify revenue loss",
           icon: "🛑",
         },
       ],
     },
   ];
-
-  return (
-    <ModuleDashboard
-      title="Sales Module"
-      description="Customer orders, quotations, invoicing, and sales analytics"
-      stats={stats}
-      headerActions={[
-        { label: "Dashboard", path: "/sales/dashboard", icon: "📊" },
-      ]}
-      sections={sections}
-      features={salesFeatures}
-    />
-  );
-};
 
 /**
  * SalesHome component
@@ -600,71 +858,54 @@ const SalesModuleHome = () => {
  */
 export default function SalesHome() {
   return (
-    <Routes>
-      <Route path="/" element={<SalesModuleHome />} />
-      <Route
-        path="/dashboard"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(() => import("./SalesDashboardPage.jsx")),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route path="/quotations" element={<QuotationList />} />
-      <Route path="/quotations/new" element={<QuotationForm />} />
-      <Route path="/quotations/:id" element={<QuotationForm />} />
-      <Route path="/sales-orders" element={<SalesOrderList />} />
-      <Route path="/sales-orders/new" element={<SalesOrderForm />} />
-      <Route path="/sales-orders/:id" element={<SalesOrderForm />} />
-      <Route path="/invoices" element={<InvoiceList />} />
-      <Route path="/invoices/new" element={<InvoiceForm />} />
-      <Route path="/invoices/:id" element={<InvoiceForm />} />
-      <Route path="delivery" element={<DeliveryList />} />
-      <Route path="delivery/new" element={<DeliveryForm />} />
-      <Route path="delivery/:id" element={<DeliveryForm />} />
-      <Route path="/price-setup" element={<PriceSetup />} />
-      <Route path="/discount-schemes" element={<CampaignHub />} />
-      <Route path="/discount-schemes/discount" element={<DiscountSchemeList />} />
-      <Route path="/discount-schemes/discount/new" element={<CampaignForm />} />
-      <Route path="/discount-schemes/discount/:id" element={<CampaignForm />} />
-      <Route path="/discount-schemes/purchase-reward" element={<PurchaseRewardCampaignList />} />
-      <Route path="/discount-schemes/purchase-reward/new" element={<PurchaseRewardCampaignForm />} />
-      <Route path="/discount-schemes/purchase-reward/:id" element={<PurchaseRewardCampaignForm />} />
-      <Route path="/setup" element={<SalesSetupPage />} />
-      <Route path="/customer-credit" element={<CustomerCreditList />} />
-      <Route path="/customer-credit/:id" element={<CustomerCreditForm />} />
-      <Route path="/customers" element={<CustomerList />} />
-      <Route path="/customers/new" element={<CustomerForm />} />
-      <Route path="/customers/:id" element={<CustomerForm />} />
-      <Route path="/prospect-customers" element={<PotentialCustomerList />} />
-      <Route
-        path="/prospect-customers/new"
-        element={<PotentialCustomerForm />}
-      />
-      <Route
-        path="/prospect-customers/:id"
-        element={<PotentialCustomerForm />}
-      />
-      <Route path="/prospect-conversion" element={<ProspectConversion />} />
-      <Route path="/bulk-upload" element={<BulkCustomerUpload />} />
-      {/* Additional sales report routes */}
-      <Route
-        path="/reports/prospect-customer-list"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/ProspectiveCustomerListReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/customer-list"
-        element={
+    <ModuleLayout sections={salesModuleSections} moduleKey="sales">
+      <Routes>
+        <Route path="/" element={<SalesModuleHome />} />
+        <Route
+          path="/dashboard"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(() => import("./SalesDashboardPage.jsx")),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route path="/quotations" element={<QuotationList />} />
+        <Route path="/quotations/new" element={<QuotationForm />} />
+        <Route path="/quotations/:id" element={<QuotationForm />} />
+        <Route path="/sales-orders" element={<SalesOrderList />} />
+        <Route path="/sales-orders/new" element={<SalesOrderForm />} />
+        <Route path="/sales-orders/:id" element={<SalesOrderForm />} />
+        <Route path="/invoices" element={<InvoiceList />} />
+        <Route path="/invoices/new" element={<InvoiceForm />} />
+        <Route path="/invoices/:id" element={<InvoiceForm />} />
+        <Route path="/delivery" element={<DeliveryList />} />
+        <Route path="/delivery/new" element={<DeliveryForm />} />
+        <Route path="/delivery/:id" element={<DeliveryForm />} />
+        <Route path="/price-setup" element={<PriceSetup />} />
+        <Route path="/discount-schemes" element={<CampaignHub />} />
+        <Route path="/discount-schemes/list" element={<DiscountSchemeList />} />
+        <Route path="/discount-schemes/new" element={<CampaignForm />} />
+        <Route path="/discount-schemes/edit/:id" element={<CampaignForm />} />
+        <Route path="/discount-schemes/purchase-rewards" element={<PurchaseRewardCampaignList />} />
+        <Route path="/discount-schemes/purchase-rewards/new" element={<PurchaseRewardCampaignForm />} />
+        <Route path="/discount-schemes/purchase-rewards/edit/:id" element={<PurchaseRewardCampaignForm />} />
+        <Route path="/customer-credit" element={<CustomerCreditList />} />
+        <Route path="/customer-credit/new" element={<CustomerCreditForm />} />
+        <Route path="/customer-credit/:id" element={<CustomerCreditForm />} />
+        <Route path="/customers" element={<CustomerList />} />
+        <Route path="/customers/new" element={<CustomerForm />} />
+        <Route path="/customers/:id" element={<CustomerForm />} />
+        <Route path="/prospect-customers" element={<PotentialCustomerList />} />
+        <Route path="/prospect-customers/new" element={<PotentialCustomerForm />} />
+        <Route path="/prospect-customers/:id" element={<PotentialCustomerForm />} />
+        <Route path="/prospect-conversion" element={<ProspectConversion />} />
+        <Route path="/bulk-upload" element={<BulkCustomerUpload />} />
+        <Route path="/setup" element={<SalesSetupPage />} />
+        <Route
+          path="/reports/prospect-customer-list"
+          element={
           <React.Suspense fallback={<div className="p-4">Loading...</div>}>
             {React.createElement(
               React.lazy(() => import("./reports/CustomerListReportPage.jsx")),
@@ -850,99 +1091,7 @@ export default function SalesHome() {
       <Route path="/returns" element={<SalesReturnList />} />
       <Route path="/returns/new" element={<SalesReturnForm />} />
       <Route path="/returns/:id" element={<SalesReturnForm />} />
-    </Routes>
+      </Routes>
+    </ModuleLayout>
   );
 }
-
-export const salesFeatures = [
-  {
-    module_key: "sales",
-    label: "Quotations",
-    path: "/sales/quotations",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Sales Orders",
-    path: "/sales/sales-orders",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Invoices",
-    path: "/sales/invoices",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Delivery Notes",
-    path: "/sales/delivery",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Price Setup",
-    path: "/sales/price-setup",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Promotional Campaigns",
-    path: "/sales/discount-schemes",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Sales Setup",
-    path: "/sales/setup",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Customer Setup",
-    path: "/sales/customers",
-    type: "feature",
-  },
-  {
-    module_key: "sales",
-    label: "Sales Register",
-    path: "/sales/reports/sales-register",
-    type: "dashboard",
-  },
-  {
-    module_key: "sales",
-    label: "Delivery Register",
-    path: "/sales/reports/delivery-register",
-    type: "dashboard",
-  },
-  {
-    module_key: "sales",
-    label: "Sales Return Report",
-    path: "/sales/reports/sales-return",
-    type: "dashboard",
-  },
-  {
-    module_key: "sales",
-    label: "Debtors Balance",
-    path: "/sales/reports/debtors-balance",
-    type: "dashboard",
-  },
-  {
-    module_key: "sales",
-    label: "Sales Profitability",
-    path: "/sales/reports/sales-profitability",
-    type: "dashboard",
-  },
-  {
-    module_key: "sales",
-    label: "Sales Tracking",
-    path: "/sales/reports/sales-tracking",
-    type: "dashboard",
-  },
-  {
-    module_key: "sales",
-    label: "Sales Returns",
-    path: "/sales/returns",
-    type: "feature",
-  },
-];

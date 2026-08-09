@@ -70,8 +70,15 @@ export default function AllowanceForm() {
   async function submit(e) {
     e.preventDefault();
     setLoading(true);
+    
+    // Auto-generate code if empty
+    const payload = { ...form };
+    if (!payload.allowance_code) {
+      payload.allowance_code = `ALW-${Date.now()}`;
+    }
+    
     try {
-      await api.post('/hr/allowances', form);
+      await api.post('/hr/allowances', payload);
       toast.success(isEdit ? "Updated successfully" : "Created successfully");
       navigate('/human-resources/allowances');
     } catch (err) {
@@ -86,21 +93,12 @@ export default function AllowanceForm() {
       <div className="p-4 space-y-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">{isEdit ? 'Edit Allowance' : 'New Allowance'}</h1>
-          <Link to="/human-resources/allowances" className="btn-secondary">Back</Link>
+          <button onClick={() => window.history.back()} className="btn-secondary">Back</button>
         </div>
 
         <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="label">Allowance Code *</label>
-              <input 
-                className="input" 
-                value={form.allowance_code} 
-                onChange={(e) => update('allowance_code', e.target.value)} 
-                required 
-                placeholder="e.g. TRA-001"
-              />
-            </div>
+            
             <div>
               <label className="label">Allowance Name *</label>
               <select 
@@ -179,7 +177,7 @@ export default function AllowanceForm() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
-            <Link to="/human-resources/allowances" className="btn-secondary">Cancel</Link>
+            <button onClick={() => window.history.back()} className="btn-secondary">Cancel</button>
             <button className="btn-primary" disabled={loading}>
               {loading ? 'Saving...' : 'Save Allowance'}
             </button>

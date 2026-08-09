@@ -7,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 const FREQUENCIES = [
   "Daily",
@@ -34,6 +35,7 @@ const STATUSES = ["ACTIVE", "INACTIVE", "SUSPENDED"];
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceScheduleForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = !!id;
@@ -209,9 +211,9 @@ export default function MaintenanceScheduleForm() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link to="/maintenance/schedules" className="btn-secondary">
+        <button onClick={() => window.history.back()} className="btn-secondary">
           ← Back
-        </Link>
+        </button>
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
             {isEdit ? "Edit" : "New"} Maintenance Schedule
@@ -396,6 +398,8 @@ export default function MaintenanceScheduleForm() {
                 type="date"
                 value={form.start_date}
                 onChange={(e) => update("start_date", e.target.value)}
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
             <div>
@@ -405,6 +409,8 @@ export default function MaintenanceScheduleForm() {
                 type="date"
                 value={form.end_date}
                 onChange={(e) => update("end_date", e.target.value)}
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
             <div>
@@ -550,9 +556,9 @@ export default function MaintenanceScheduleForm() {
           </div>
         </div>
         <div className="flex justify-end gap-2">
-          <Link to="/maintenance/schedules" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             Cancel
-          </Link>
+          </button>
           <button type="submit" className="btn-primary" disabled={saving}>
             {saving ? "Saving..." : "Save Schedule"}
           </button>

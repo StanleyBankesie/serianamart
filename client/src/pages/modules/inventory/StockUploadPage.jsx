@@ -18,7 +18,8 @@ import { useAuth } from "../../../auth/AuthContext.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function StockUploadPage() {
-  const { scope } = useAuth();
+  const { scope, user } = useAuth();
+  const [accessAllowed, setAccessAllowed] = useState(null); // null = loading, true/false = decided
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [branches, setBranches] = useState([]);
@@ -34,6 +35,30 @@ export default function StockUploadPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope?.branchId]);
 
+  // Check if the current user is allowed to access this page based on branch setup
+  useEffect(() => {
+    async function checkAccess() {
+      const bid = scope?.branchId;
+      if (!bid) { setAccessAllowed(true); return; } // no branch scope => allow
+      try {
+        const res = await api.get(`/admin/branches/${bid}`);
+        const branchData = res.data?.item || res.data;
+        const allowedUserId = branchData?.stock_upload_user_id;
+        const currentUserId = Number(user?.id);
+        // Allow if: no restriction set, user is system admin (id=1), or user matches the allowed user
+        if (!allowedUserId || currentUserId === 1 || currentUserId === Number(allowedUserId)) {
+          setAccessAllowed(true);
+        } else {
+          setAccessAllowed(false);
+        }
+      } catch {
+        setAccessAllowed(true); // on error, allow by default
+      }
+    }
+    if (user?.id) checkAccess();
+  }, [scope?.branchId, user?.id]);
+
+
   useEffect(() => {
     let mounted = true;
     async function load() {
@@ -41,12 +66,12 @@ export default function StockUploadPage() {
         const [itRes, whRes, brRes] = await Promise.all([
           api.get("/inventory/items"),
           api.get("/inventory/warehouses"),
-          api.get("/admin/branches")
+          api.get("/auth/user-branches")
         ]);
         if (!mounted) return;
         setItems(Array.isArray(itRes.data?.items) ? itRes.data.items : []);
         setWarehouses(Array.isArray(whRes.data?.items) ? whRes.data.items : []);
-        setBranches(Array.isArray(brRes.data?.items) ? brRes.data.items : []);
+        setBranches(Array.isArray(brRes.data) ? brRes.data : Array.isArray(brRes.data?.items) ? brRes.data.items : []);
       } catch (e) {
         toast.error(e?.response?.data?.message || "Failed to load data");
       }
@@ -58,6 +83,14 @@ export default function StockUploadPage() {
   }, []);
 
   const downloadTemplate = () => {
+    if (!branchId) {
+      toast.error("Please select a Branch first");
+      return;
+    }
+    if (!warehouseId) {
+      toast.error("Please select a Warehouse first");
+      return;
+    }
     try {
       const header = ["ITEM_CODE", "ITEM_NAME", "GROUP_NAME", "NEW_QTY"];
       const data = items.map((it) => ({
@@ -77,10 +110,28 @@ export default function StockUploadPage() {
   };
 
   const handleChooseFile = () => {
+    if (!branchId) {
+      toast.error("Please select a Branch first");
+      return;
+    }
+    if (!warehouseId) {
+      toast.error("Please select a Warehouse first");
+      return;
+    }
     fileRef.current?.click();
   };
 
   const handleFile = async (e) => {
+    if (!branchId) {
+      toast.error("Please select a Branch first");
+      e.target.value = "";
+      return;
+    }
+    if (!warehouseId) {
+      toast.error("Please select a Warehouse first");
+      e.target.value = "";
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
@@ -123,16 +174,27 @@ export default function StockUploadPage() {
     }
   };
 
+  if (accessAllowed === false) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h2>
+        <p className="text-slate-600 dark:text-slate-400">
+          You do not have permission to access the Stock Upload page.
+          Please contact your system administrator.
+        </p>
+        <button onClick={() => window.history.back()} className="btn btn-secondary mt-4 inline-block">← Back to Inventory</button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/inventory"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Inventory
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Stock Upload
           </h1>

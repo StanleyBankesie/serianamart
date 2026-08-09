@@ -27,7 +27,7 @@ export default function PMPurchaseRequisitionForm() {
   const [searchParams] = useSearchParams();
   const isNew = !id || id === "new";
   const isViewMode = !isNew && !searchParams.has("edit");
-  const { canEditDiscount } = usePermission();
+  const { canEditDiscount, hasExceptional } = usePermission();
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -67,21 +67,22 @@ export default function PMPurchaseRequisitionForm() {
 
   useEffect(() => {
     let mounted = true;
+    const getItems = (r) => (Array.isArray(r.data?.data?.items) ? r.data.data.items : (Array.isArray(r.data?.items) ? r.data.items : []));
     api.get("/projects/projects").then(res => {
       if (!mounted) return;
-      setProjects(Array.isArray(res.data?.items) ? res.data.items : []);
+      setProjects(getItems(res));
     }).catch(() => {});
     api.get("/admin/departments").then(res => {
       if (!mounted) return;
-      setDepartments(Array.isArray(res.data?.items) ? res.data.items : []);
+      setDepartments(getItems(res));
     }).catch(() => {});
     api.get("/admin/users", { params: { active: 1 } }).then(res => {
       if (!mounted) return;
-      setUsers(Array.isArray(res.data?.items) ? res.data.items : []);
+      setUsers(getItems(res));
     }).catch(() => {});
     api.get("/inventory/items").then(res => {
       if (!mounted) return;
-      setAvailableItems(Array.isArray(res.data?.items) ? res.data.items : []);
+      setAvailableItems(getItems(res));
     }).catch(() => {});
     return () => { mounted = false; };
   }, []);
@@ -152,7 +153,7 @@ export default function PMPurchaseRequisitionForm() {
     const newId = Date.now();
     setItems([...items, {
       id: newId, item_id: "", itemCode: "", itemName: "", description: "",
-      qty: 1, uom: "PCS", estimatedUnitCost: 0, estimatedTotal: 0,
+      qty: 1, uom: "PCS", estimatedUnitCost: "", estimatedTotal: 0,
     }]);
     setItemQueries(prev => ({ ...prev, [newId]: "" }));
   };
@@ -266,7 +267,7 @@ export default function PMPurchaseRequisitionForm() {
                 <button type="button" onClick={handlePdf}
                   className="btn btn-secondary text-xs px-3 py-1">PDF</button>
               )}
-              <Link to="/project-management/purchase-requisitions" className="btn-success">Back to List</Link>
+              <button onClick={() => window.history.back()} className="btn-success">Back</button>
             </div>
           </div>
         </div>
@@ -281,7 +282,7 @@ export default function PMPurchaseRequisitionForm() {
                 <input type="date" className="input" value={formData.requisitionDate}
                   onChange={e => setFormData({ ...formData, requisitionDate: e.target.value })} required disabled={readOnly} />
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="label">Project</label>
                 <select className="input" value={formData.projectId}
                   onChange={e => setFormData({ ...formData, projectId: e.target.value })} disabled={readOnly}>
@@ -362,8 +363,8 @@ export default function PMPurchaseRequisitionForm() {
                     <tr>
                       <th className="w-1/3 min-w-[250px]">Item Name</th>
                       <th className="w-48 min-w-[180px]">Description</th>
-                      <th className="w-20 text-right">Qty</th>
-                      <th className="w-20">UOM</th>
+                      <th className="w-32 min-w-[120px] text-right">Qty</th>
+                      <th className="w-32 min-w-[120px]">UOM</th>
                       <th className="w-24 text-right">Unit Cost</th>
                       <th className="w-24 text-right">Total</th>
                       {!readOnly && <th className="w-20">Action</th>}
@@ -461,7 +462,7 @@ export default function PMPurchaseRequisitionForm() {
                               <span className="text-sm block text-right">{Number(item.estimatedUnitCost).toFixed(2)}</span>
                             ) : (
                               <input type="number" step="0.01" className="input w-full text-right" value={item.estimatedUnitCost}
-                                onChange={e => updateItemField(item.id, "estimatedUnitCost", Number(e.target.value) || 0)} />
+                                onChange={e => updateItemField(item.id, "estimatedUnitCost", e.target.value === "" ? "" : Number(e.target.value))} />
                             )}
                           </td>
                           <td className="text-right font-semibold text-sm">
@@ -495,7 +496,7 @@ export default function PMPurchaseRequisitionForm() {
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
               <Link to="/project-management/purchase-requisitions"
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</Link>
+                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Close</Link>
               {!readOnly && (formData.status === "DRAFT" || formData.status === "REJECTED") && (
                 <>
                   <button type="submit" className="btn-success" disabled={saving}>
@@ -507,7 +508,7 @@ export default function PMPurchaseRequisitionForm() {
                   </button>
                 </>
               )}
-              {!isNew && formData.status === "PENDING_APPROVAL" && (
+              {!isNew && formData.status === "PENDING_APPROVAL" && hasExceptional("PM.PR.CANCEL") && (
                 <button type="button" onClick={handleCancel}
                   className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors">Cancel Requisition</button>
               )}

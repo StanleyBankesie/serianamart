@@ -91,7 +91,7 @@ export default function LeaveCalendar() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link to="/human-resources" className="btn-secondary text-sm">← Back</Link>
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">← Back</button>
           <div>
             <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Leave Calendar</h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">Only ACTIVE leave records are displayed</p>

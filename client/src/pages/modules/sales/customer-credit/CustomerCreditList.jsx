@@ -7,6 +7,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -14,6 +16,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function CustomerCreditList() {
+  const [viewMode, setViewMode] = useViewMode();
   const items = [{ id: 1, customer: 'ABC Corporation', creditLimit: 50000, currency: 'GHS' }];
   const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "customer", "asc");
 
@@ -21,11 +24,11 @@ export default function CustomerCreditList() {
     <div className="space-y-4">
       <div className="card"><div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
         <div><h1 className="text-2xl font-bold dark:text-brand-300">Customer Credit Limits</h1><p className="text-sm mt-1">Credit limit setup (placeholder)</p></div>
-        <Link to="/sales" className="btn btn-secondary">Return to Menu</Link>
+        <button onClick={() => window.history.back()} className="btn btn-secondary">Back</button>
       </div></div>
 
       <div className="card"><div className="card-body overflow-x-auto">
-        <table className="table"><thead><tr><SortableHeader label="Customer" sortKey="customer" currentKey={sortKey} direction={sortDir} onToggle={toggle} /><SortableHeader label="Credit Limit" sortKey="creditLimit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" /><SortableHeader label="Currency" sortKey="currency" currentKey={sortKey} direction={sortDir} onToggle={toggle} /><th />                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+        <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}><thead><tr><SortableHeader label="Customer" sortKey="customer" currentKey={sortKey} direction={sortDir} onToggle={toggle} /><SortableHeader label="Credit Limit" sortKey="creditLimit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" /><SortableHeader label="Currency" sortKey="currency" currentKey={sortKey} direction={sortDir} onToggle={toggle} /><th />                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     </tr></thead>
           <tbody>

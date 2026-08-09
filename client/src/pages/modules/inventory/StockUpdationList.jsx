@@ -13,6 +13,8 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -25,6 +27,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function StockUpdationList() {
+  const [viewMode, setViewMode] = useViewMode();
   const location = useLocation();
   const { canReverseApproval } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
@@ -170,7 +173,7 @@ export default function StockUpdationList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link to="/inventory/stock-updation/new" className="btn-success">
@@ -190,8 +193,12 @@ export default function StockUpdationList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader label="Document No" sortKey="updation_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -325,7 +332,7 @@ export default function StockUpdationList() {
                                   </button>
                                 )}
                               </div>
-                            ) : adj.forwarded_to_username ? (
+                            ) : adj.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(adj.status || "").toUpperCase()) ? (
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {adj.forwarded_to_username}
                               </span>

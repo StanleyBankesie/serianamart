@@ -21,10 +21,49 @@ let lowStockWorker = null;
  * @returns {Queue|null}
  */
 export function getLowStockQueue(jobHandler) {
-  // Disable BullMQ to avoid max request limit errors on Upstash Redis
-  // This forces the caller to use the setInterval fallback
-  console.log("[JobQueue] BullMQ disabled, will use setInterval fallback");
-  return null;
+  try {
+    const redis = getRawRedis();
+    if (!redis) return null;
+
+    // Upstash Redis charges 1 request per blocking command (BLPOP/BZPOPMIN).
+    // BullMQ relies heavily on these for polling, which rapidly consumes the 
+    // Upstash request limits. We fall back to setInterval if Upstash is detected.
+    if (redis.options && redis.options.host && redis.options.host.includes('upstash.io')) {
+      console.warn("[JobQueue] Upstash Redis detected. BullMQ disabled to save request limits. Using setInterval fallback.");
+      return null;
+    }
+
+    if (!lowStockQueue) {
+      const connection = redis;
+
+      lowStockQueue = new Queue(QUEUE_NAME, {
+        connection,
+        defaultJobOptions: {
+          removeOnComplete: 50,
+          removeOnFail: 20,
+        },
+      });
+
+      lowStockWorker = new Worker(
+        QUEUE_NAME,
+        async () => {
+          await jobHandler();
+        },
+        { connection }
+      );
+
+      lowStockWorker.on("failed", (job, err) => {
+        console.error(`[JobQueue] Job ${job?.id} failed:`, err.message);
+      });
+
+      console.log("[JobQueue] BullMQ low-stock queue initialised");
+    }
+
+    return lowStockQueue;
+  } catch (err) {
+    console.warn("[JobQueue] BullMQ unavailable, will use setInterval fallback:", err.message);
+    return null;
+  }
 }
 
 /**

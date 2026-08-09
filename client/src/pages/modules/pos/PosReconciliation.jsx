@@ -175,7 +175,7 @@ export default function PosReconciliation() {
           <p className="text-sm text-slate-600">Manage offline sales that haven't synced to the server</p>
         </div>
         <div className="flex gap-2">
-          <Link to="/pos" className="btn btn-secondary">Back to POS</Link>
+          <button onClick={() => window.history.back()} className="btn btn-secondary">Back to POS</button>
         </div>
       </div>
 

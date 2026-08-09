@@ -4,10 +4,13 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import "../../../../styles/BranchSetup.css";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { useAuth } from "@/auth/AuthContext.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 // Sub-component for User Assignment
 function UserAssignmentTab({ branches, companies, onUpdate }) {
@@ -111,7 +114,11 @@ function UserAssignmentTab({ branches, companies, onUpdate }) {
         {loading ? (
           <div className="p-8 text-center">Loading users...</div>
         ) : (
-          <table className="branch-table">
+          <>
+          <div className="flex justify-end mb-4">
+            <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          </div>
+          <table className={"branch-table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <th>User</th>
@@ -149,6 +156,7 @@ function UserAssignmentTab({ branches, companies, onUpdate }) {
               )}
             </tbody>
           </table>
+          </>
         )}
       </div>
 
@@ -261,6 +269,11 @@ function UserAssignmentTab({ branches, companies, onUpdate }) {
  * @returns {JSX.Element} The rendered component
  */
 export default function BranchList() {
+  const [viewMode, setViewMode] = useViewMode();
+  const { user } = useAuth();
+  const location = useLocation();
+  const isSystemConfig = location.pathname.startsWith("/system-configuration");
+  const moduleHome = isSystemConfig ? "/system-configuration" : "/administration";
   const [activeTab, setActiveTab] = useState("branches"); // Default to branches as requested by sync task
   const [branches, setBranches] = useState([]);
   const [companies, setCompanies] = useState([]); // Store companies for dropdown
@@ -430,6 +443,17 @@ export default function BranchList() {
     }
   };
 
+  if (Number(user?.id) !== 1) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h2>
+        <p className="text-slate-600 dark:text-slate-400">
+          You do not have permission to view the Branch Setup page.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="branch-setup-container">
       <div className="branch-header">
@@ -437,7 +461,7 @@ export default function BranchList() {
           <h1>🏢 Branch Management System</h1>
         </div>
         <div className="header-actions">
-          <Link to="/administration" className="btn btn-secondary">
+          <Link to={moduleHome} className="btn btn-secondary">
             Return to Menu
           </Link>
           <button
@@ -450,48 +474,8 @@ export default function BranchList() {
       </div>
 
       <div className="branch-content">
-        {/* Stats Section */}
-        <div className="branch-stats">
-          <div className="branch-stat-card">
-            <h3>Total Branches</h3>
-            <div className="value">{stats.totalBranches}</div>
-          </div>
-          <div className="branch-stat-card">
-            <h3>Active Branches</h3>
-            <div className="value">{stats.activeBranches}</div>
-          </div>
-          <div className="branch-stat-card">
-            <h3>Assignments</h3>
-            <div className="value">{stats.assignments}</div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="branch-tabs">
-          <button
-            className={`branch-tab ${activeTab === "users" ? "active" : ""}`}
-            onClick={() => setActiveTab("users")}
-          >
-            👥 User Branch Assignment
-          </button>
-          <button
-            className={`branch-tab ${activeTab === "branches" ? "active" : ""}`}
-            onClick={() => setActiveTab("branches")}
-          >
-            🏢 Branch Management
-          </button>
-          <button
-            className={`branch-tab ${activeTab === "history" ? "active" : ""}`}
-            onClick={() => setActiveTab("history")}
-          >
-            📊 Assignment History
-          </button>
-        </div>
-
         {/* Branch Management Tab */}
-        <div
-          className={`tab-content ${activeTab === "branches" ? "active" : ""}`}
-        >
+        <div className="tab-content active">
           <div className="search-bar">
             <input
               type="text"
@@ -509,7 +493,7 @@ export default function BranchList() {
             ) : error ? (
               <div className="p-8 text-center text-red-500">{error}</div>
             ) : (
-              <table className="branch-table">
+              <table className={"branch-table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead>
                   <tr>
                     <th>Code</th>
@@ -517,36 +501,31 @@ export default function BranchList() {
                     <th>Company</th>
                     <th>Status</th>
                     <th>Actions</th>
-                                    <th>Created By</th>
-                  <th>Created Date</th>
+                    <th>Created By</th>
+                    <th>Created At</th>
                   </tr>
                 </thead>
                 <tbody>
                   {branches.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan="5"
-                        className="text-center py-4 text-gray-500"
-                      >
-                        No branches found
+                      <td colSpan="7" className="text-center">
+                        No branches found.
                       </td>
                     </tr>
                   ) : (
                     branches.map((b) => (
                       <tr key={b.id}>
-                        <td className="font-medium">{b.code}</td>
+                        <td>{b.code}</td>
                         <td>{b.name}</td>
-                        <td>{b.company_name || "N/A"}</td>
+                        <td>{b.company_name}</td>
                         <td>
-                          {b.is_active ? (
-                            <span className="branch-badge branch-badge-success">
-                              Active
-                            </span>
-                          ) : (
-                            <span className="branch-badge branch-badge-danger">
-                              Inactive
-                            </span>
-                          )}
+                          <span
+                            className={`badge ${
+                              b.is_active ? "badge-success" : "badge-danger"
+                            }`}
+                          >
+                            {b.is_active ? "Active" : "Inactive"}
+                          </span>
                         </td>
                         <td>
                           <button
@@ -564,24 +543,6 @@ export default function BranchList() {
                 </tbody>
               </table>
             )}
-          </div>
-        </div>
-
-        {/* User Assignment Tab */}
-        <div className={`tab-content ${activeTab === "users" ? "active" : ""}`}>
-          <UserAssignmentTab
-            branches={branches}
-            companies={companies}
-            onUpdate={fetchData}
-          />
-        </div>
-
-        {/* History Tab (Placeholder) */}
-        <div
-          className={`tab-content ${activeTab === "history" ? "active" : ""}`}
-        >
-          <div className="p-8 text-center text-gray-500">
-            <p>History log coming soon.</p>
           </div>
         </div>
       </div>

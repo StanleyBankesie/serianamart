@@ -11,6 +11,7 @@ import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function emptyLine() {
   return {
@@ -41,6 +42,7 @@ export default function JournalVoucherForm() {
   const mode = new URLSearchParams(search).get("mode");
   const readOnly = mode === "view";
   const isEdit = Boolean(id);
+  const { hasExceptional } = usePermission();
   const voucherTypeCode = "JV";
   const title = "Journal Entry";
   const isJV = true;
@@ -1820,6 +1822,17 @@ export default function JournalVoucherForm() {
       if (isEdit) {
         const res = await api.put(`/finance/vouchers/${id}`, payload);
         toast.success(res.data?.message || "Updated voucher");
+        navigate("/finance/journal-voucher", {
+          state: {
+            refresh: true,
+            highlightId: id ? Number(id) : undefined,
+            highlightRef:
+              voucherNoPreview && String(voucherNoPreview).trim()
+                ? String(voucherNoPreview)
+                : undefined,
+          },
+        });
+        return;
       } else {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
@@ -2990,9 +3003,9 @@ export default function JournalVoucherForm() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -3044,21 +3057,9 @@ export default function JournalVoucherForm() {
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
                     required
-                    disabled={readOnly}
+                    disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                   />
                 </div>
-                {isJV && (
-                  <div className="md:col-span-3">
-                    <label className="label">Narration</label>
-                    <input
-                      className="input"
-                      value={narration}
-                      onChange={(e) => setNarration(e.target.value)}
-                      placeholder="Optional narration"
-                      disabled={readOnly}
-                    />
-                  </div>
-                )}
                 {(isPAYV || isRV || isCV || isSV || isPV) && (
                   <div className="md:col-span-3">
                     <label className="label font-bold text-brand">
@@ -3256,6 +3257,9 @@ export default function JournalVoucherForm() {
                           <tr>
                             <th>Account</th>
                             <th>Description</th>
+                            {isJV ? (
+                              <th className="w-24">Pmt. Method</th>
+                            ) : null}
                             {isCN || isDN ? (
                               <th className="text-right w-32">Currency</th>
                             ) : null}
@@ -3307,18 +3311,22 @@ export default function JournalVoucherForm() {
                                     <select
                                       className="input"
                                       value={l.accountId}
-                                        onChange={(e) => {
-                                          const accId = e.target.value;
-                                          const acc = accounts.find(
-                                            (a) => String(a.id) === String(accId),
-                                          );
-                                          const newCId = acc?.currency_id || "";
-                                          updateLine(idx, {
-                                            accountId: accId,
-                                            currencyId: newCId,
-                                          });
-                                          autoFetchLineRate(newCId, idx);
-                                        }}
+                                      onChange={(e) => {
+                                        const accId = e.target.value;
+                                        const acc = accounts.find(
+                                          (a) => String(a.id) === String(accId),
+                                        );
+                                        const newCId = acc?.currency_id || "";
+                                        const grpCode = String(acc?.group_code || "").toUpperCase();
+                                        const grpName = String(acc?.group_name || acc?.name || "").toUpperCase();
+                                        const isBankAccount = grpCode.includes("BANK") || grpName.includes("BANK");
+                                        updateLine(idx, {
+                                          accountId: accId,
+                                          currencyId: newCId,
+                                          paymentMethod: isBankAccount ? "Journal" : (l.paymentMethod || ""),
+                                        });
+                                        autoFetchLineRate(newCId, idx);
+                                      }}
                                       required
                                       disabled={readOnly}
                                     >
@@ -3352,6 +3360,17 @@ export default function JournalVoucherForm() {
                                     />
                                   )}
                                 </td>
+                                {isJV ? (
+                                  <td>
+                                    {l.paymentMethod ? (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                        {l.paymentMethod}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 text-xs">—</span>
+                                    )}
+                                  </td>
+                                ) : null}
                                 {isCN || isDN ? (
                                   <td className="text-right">
                                     {(() => {
@@ -3532,9 +3551,9 @@ export default function JournalVoucherForm() {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"

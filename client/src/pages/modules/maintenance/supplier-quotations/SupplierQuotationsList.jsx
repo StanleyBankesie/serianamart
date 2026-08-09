@@ -13,6 +13,8 @@ import SortableHeader from "../../../../components/SortableHeader.jsx";
 import { X, Eye } from "lucide-react";
 import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 const statusColors = { DRAFT:"bg-slate-100 text-slate-600", UNDER_REVIEW:"bg-amber-100 text-amber-700", APPROVED:"bg-green-100 text-green-700", REJECTED:"bg-red-100 text-red-600", PENDING_APPROVAL:"bg-amber-100 text-amber-700" };
 function Badge({ value, colorMap }) {
@@ -26,6 +28,7 @@ function Badge({ value, colorMap }) {
  * @returns {JSX.Element} The rendered component
  */
 export default function SupplierQuotationsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   const { canPerformAction } = usePermission();
@@ -38,6 +41,7 @@ export default function SupplierQuotationsList() {
   const [selectedQuot, setSelectedQuot] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
   const [firstApprover, setFirstApprover] = useState(null);
@@ -120,6 +124,7 @@ export default function SupplierQuotationsList() {
     setSelectedQuot(quot);
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     setTargetApproverId("");
     if (!workflowsCache) {
       try {
@@ -139,7 +144,8 @@ export default function SupplierQuotationsList() {
 
   const computeCandidate = async () => {
     if (!workflowsCache || !workflowsCache.length) {
-      setCandidateWorkflow(null); setFirstApprover(null); setWfError(""); setHasInactiveWorkflow(false);
+      setCandidateWorkflow(null); setFirstApprover(null); setWfError("");
+                    setForwardComments(""); setHasInactiveWorkflow(false);
       return;
     }
     const route = "/maintenance/supplier-quotations";
@@ -171,7 +177,8 @@ export default function SupplierQuotationsList() {
   };
 
   const computeCandidateFromList = async (items) => {
-    if (!items || !items.length) { setCandidateWorkflow(null); setFirstApprover(null); setWfError(""); setHasInactiveWorkflow(false); return; }
+    if (!items || !items.length) { setCandidateWorkflow(null); setFirstApprover(null); setWfError("");
+                    setForwardComments(""); setHasInactiveWorkflow(false); return; }
     const route = "/maintenance/supplier-quotations";
     const normalize = (s) => String(s || "").trim().toUpperCase().replace(/\s+/g, "_");
     const matching = items.filter((w) => String(w.document_route) === route || normalize(w.document_type) === "SUPPLIER_QUOTATION");
@@ -212,7 +219,8 @@ export default function SupplierQuotationsList() {
     } catch {}
     setItems((prev) => prev.map((r) => Number(r.id) === Number(selectedQuot.id) ? { ...r, status: "PENDING_APPROVAL", forwarded_to_username: optimisticApprover || r.forwarded_to_username || "Approver" } : r));
     try {
-      const resp = await api.post(`/maintenance/supplier-quotations/${selectedQuot.id}/submit`, { amount: null, workflow_id: candidateWorkflow ? candidateWorkflow.id : null, target_user_id: targetApproverId || null });
+      const resp = await api.post(`/maintenance/supplier-quotations/${selectedQuot.id}/submit`, { amount: null, workflow_id: candidateWorkflow ? candidateWorkflow.id : null, target_user_id: targetApproverId || null,   comments: forwardComments,
+        });
       toast.success(resp.data?.message || "Forwarded for approval");
       const newStatus = resp.data?.status || "PENDING_APPROVAL";
       let approverName = null;
@@ -237,7 +245,7 @@ export default function SupplierQuotationsList() {
           <div className="flex justify-between items-center">
             <div className="font-semibold">Supplier Quotations</div>
             <div className="flex gap-2">
-              <button onClick={() => (window.location.href = "/maintenance")} className="btn btn-secondary">Return to Menu</button>
+              <button onClick={() => (window.location.href = "/maintenance?section=Procurement %26 Materials")} className="btn btn-secondary">Back</button>
               <button onClick={() => (window.location.href = "/maintenance/supplier-quotations/new")} className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700">+ New Quotation</button>
             </div>
           </div>
@@ -246,8 +254,12 @@ export default function SupplierQuotationsList() {
           <div className="mb-4">
             <input className="input max-w-md" placeholder="Search by no, supplier, status..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader label="Quotation No" sortKey="quotation_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -257,23 +269,23 @@ export default function SupplierQuotationsList() {
                   <SortableHeader label="Total" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                   <SortableHeader label="Currency" sortKey="currency" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <th className="text-right">Actions</th>
+                  <th className="text-right whitespace-nowrap">Actions</th>
                   <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan="11" className="text-center py-8 text-slate-500">Loading...</td></tr>}
-                {!loading && !filtered.length && <tr><td colSpan="11" className="text-center py-8 text-slate-500">No quotations found</td></tr>}
+                {loading && <tr><td colSpan="11" className="text-center py-8 text-slate-500 whitespace-nowrap">Loading...</td></tr>}
+                {!loading && !filtered.length && <tr><td colSpan="11" className="text-center py-8 text-slate-500 whitespace-nowrap">No quotations found</td></tr>}
                 {!loading && filtered.map(r => (
                   <tr key={r.id}>
-                    <td className="font-mono text-sm">{r.quotation_no}</td>
-                    <td>{r.quotation_date}</td>
-                    <td>{r.rfq_id}</td>
-                    <td>{r.supplier_name}</td>
-                    <td className="text-right">{Number(r.total_amount || 0).toFixed(2)}</td>
-                    <td>{r.currency}</td>
-                    <td><Badge value={r.status} colorMap={statusColors} /></td>
+                    <td className="font-mono text-sm whitespace-nowrap">{r.quotation_no}</td>
+                    <td className="whitespace-nowrap">{r.quotation_date}</td>
+                    <td className="whitespace-nowrap">{r.rfq_id}</td>
+                    <td className="whitespace-nowrap">{r.supplier_name}</td>
+                    <td className="text-right whitespace-nowrap">{Number(r.total_amount || 0).toFixed(2)}</td>
+                    <td className="whitespace-nowrap">{r.currency}</td>
+                    <td className="whitespace-nowrap"><Badge value={r.status} colorMap={statusColors} /></td>
                     <td className="whitespace-nowrap">
                       <div className="flex items-center justify-end gap-2">
                         <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/supplier-quotations/${r.id}?mode=view`)}><Eye size={15} /></button>
@@ -296,7 +308,7 @@ export default function SupplierQuotationsList() {
                                   {r.status === "APPROVED" ? "Approved" : "Accepted"}
                                 </span>
                               </div>
-                            ) : r.forwarded_to_username ? (
+                            ) : r.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(r.status || "").toUpperCase()) ? (
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {r.forwarded_to_username}
                               </span>
@@ -311,8 +323,8 @@ export default function SupplierQuotationsList() {
                         </div>
                       </div>
                     </td>
-                    <td>{r.created_by_name || "-"}</td>
-                    <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="whitespace-nowrap">{r.created_by_name || "-"}</td>
+                    <td className="whitespace-nowrap">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -335,7 +347,8 @@ export default function SupplierQuotationsList() {
           <div className="bg-white rounded-lg shadow-erp w-full max-w-md overflow-hidden">
             <div className="p-4 bg-brand text-white flex justify-between items-center">
               <h2 className="text-lg font-bold">Forward for Approval</h2>
-              <button onClick={() => { setShowForwardModal(false); setSelectedQuot(null); setWfError(""); }} className="text-white/80 hover:text-white">
+              <button onClick={() => { setShowForwardModal(false); setSelectedQuot(null); setWfError("");
+                    setForwardComments(""); }} className="text-white/80 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -375,9 +388,21 @@ export default function SupplierQuotationsList() {
                 </>
               )}
             </div>
-            <div className="p-4 border-t flex justify-end gap-2">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2">
               <button type="button" className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-                onClick={() => { setShowForwardModal(false); setSelectedQuot(null); setWfError(""); }}>Cancel</button>
+                onClick={() => { setShowForwardModal(false); setSelectedQuot(null); setWfError("");
+                    setForwardComments(""); }}>Cancel</button>
               <button type="button" className="px-4 py-2 text-white rounded-lg hover:opacity-90" style={{ backgroundColor: "#0E3646" }}
                 onClick={submitForward} disabled={!candidateWorkflow || submittingForward}>
                 {submittingForward ? "Forwarding..." : "Forward"}

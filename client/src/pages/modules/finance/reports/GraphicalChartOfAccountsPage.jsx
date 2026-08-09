@@ -95,6 +95,12 @@ const getLayoutedElements = (nodes, edges, direction = "TB") => {
  * @returns {JSX.Element} The rendered component
  */
 export default function GraphicalChartOfAccountsPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(false);
@@ -201,7 +207,7 @@ export default function GraphicalChartOfAccountsPage() {
 
   useEffect(() => {
     load();
-  }, [direction]);
+  }, [direction, pollingCounter]);
 
   const onSearch = (e) => {
     const val = e.target.value;
@@ -216,7 +222,7 @@ export default function GraphicalChartOfAccountsPage() {
         <div className="px-8 py-5 bg-white border-b border-slate-200 flex items-center justify-between shadow-sm z-30">
           <div className="flex items-center gap-6">
             <Link
-              to="/finance"
+              to="/finance?section=Reports%20%26%20Analysis"
               className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:text-indigo-600 transition-all border border-slate-100 hover:border-indigo-100 shadow-inner"
             >
               <LeftOutlined />

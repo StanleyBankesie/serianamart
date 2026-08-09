@@ -9,6 +9,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function normalizeDate(v) {
   if (!v) return new Date().toISOString().split("T")[0];
@@ -22,6 +23,7 @@ function normalizeDate(v) {
  * @returns {JSX.Element} The rendered component
  */
 export default function MaterialRequisitionForm() {
+  const { hasExceptional } = usePermission();
   const { uoms, loading: uomsLoading } = useUoms();
   const { id } = useParams();
   const navigate = useNavigate();
@@ -236,7 +238,7 @@ export default function MaterialRequisitionForm() {
               </h1>
               <p className="text-sm mt-1">Request materials for your project</p>
             </div>
-            <Link to="/project-management/material-requisitions" className="btn-success">Back to List</Link>
+            <button onClick={() => window.history.back()} className="btn-success">Back</button>
           </div>
         </div>
         <div className="card-body">
@@ -248,7 +250,9 @@ export default function MaterialRequisitionForm() {
               <div>
                 <label className="label">Requisition Date *</label>
                 <input type="date" className="input" value={formData.requisitionDate}
-                  onChange={e => setFormData({ ...formData, requisitionDate: e.target.value })} required />
+                  onChange={e => setFormData({ ...formData, requisitionDate: e.target.value })} required 
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
+                />
               </div>
               <div>
                 <label className="label">Project *</label>
@@ -418,8 +422,7 @@ export default function MaterialRequisitionForm() {
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-              <Link to="/project-management/material-requisitions"
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</Link>
+              <button onClick={() => window.history.back()} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</button>
               <button type="submit" className="btn-success" disabled={saving}>
                 {saving ? "Saving..." : "Save"}
               </button>

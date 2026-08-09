@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { Trash2 } from "lucide-react";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function toISODate(v) {
   if (!v) return "";
@@ -34,6 +35,7 @@ function parseLegacyRemarks(remarks) {
 }
 
 export default function ServiceConfirmationForm() {
+  const { hasExceptional } = usePermission();
   const { id: routeId } = useParams();
   const location = useLocation();
   const { search } = location;

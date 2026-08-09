@@ -29,7 +29,7 @@ export default function PurchaseOrdersLocalForm() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const socket = useSocket();
-  const { canEditDiscount } = usePermission();
+  const { canEditDiscount, hasExceptional } = usePermission();
   const { getExchangeRate } = useExchangeRate();
 
   const isNew = !id || id === "new";
@@ -56,6 +56,7 @@ export default function PurchaseOrdersLocalForm() {
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [firstApprover, setFirstApprover] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
@@ -495,14 +496,14 @@ export default function PurchaseOrdersLocalForm() {
         if (!po) return;
         setFormData({
           po_no: po.po_no || "",
-          po_date: po.po_date || new Date().toISOString().split("T")[0],
+          po_date: po.po_date ? String(po.po_date).split("T")[0] : new Date().toISOString().split("T")[0],
           supplier_id: po.supplier_id ? String(po.supplier_id) : "",
           po_type: po.po_type || "LOCAL",
           status: po.status || "DRAFT",
           warehouse_id: po.warehouse_id ? String(po.warehouse_id) : "",
           currency: po.currency || "GHS",
           exchange_rate: Number(po.exchange_rate) || 1,
-          delivery_date: po.delivery_date || "",
+          delivery_date: po.delivery_date ? String(po.delivery_date).split("T")[0] : "",
           payment_type: po.payment_type || "CASH",
           payment_terms: po.payment_terms || 30,
           remarks: po.remarks || "",
@@ -521,32 +522,34 @@ export default function PurchaseOrdersLocalForm() {
         });
         // Mark data as loaded so the exchange rate effect no longer skips
         dataLoadedRef.current = true;
-        setItems(
-          details.length
-            ? details
-                .filter((d) => d)
-                .map((d) => ({
-                  item_id: d.item_id ? String(d.item_id) : "",
-                  qty: Number(d.qty) || 0,
-                  uom: d.uom || "",
-                  unit_price: Number(d.unit_price) || 0,
-                  discount_percent: Number(d.discount_percent) || 0,
-                  tax_code_id: d.tax_code_id ? String(d.tax_code_id) : "",
-                  tax_percent: Number(d.tax_percent) || 0,
-                  line_total: Number(d.line_total) || 0,
-                }))
-            : [
-                {
-                  item_id: "",
-                  qty: 0,
-                  uom: "",
-                  unit_price: 0,
-                  discount_percent: 0,
-                  tax_percent: 0,
-                  line_total: 0,
-                },
-              ],
-        );
+        const newQueries = {};
+        const parsedDetails = details.length
+          ? details.filter((d) => d).map((d, i) => {
+              newQueries[i] = d.item_name || d.name || d.item_code || "";
+              return {
+                item_id: d.item_id ? String(d.item_id) : "",
+                qty: Number(d.qty) || 0,
+                uom: d.uom || "",
+                unit_price: Number(d.unit_price) || 0,
+                discount_percent: Number(d.discount_percent) || 0,
+                tax_code_id: d.tax_code_id ? String(d.tax_code_id) : "",
+                tax_percent: Number(d.tax_percent) || 0,
+                line_total: Number(d.line_total) || 0,
+              };
+            })
+          : [
+              {
+                item_id: "",
+                qty: 0,
+                uom: "",
+                unit_price: 0,
+                discount_percent: 0,
+                tax_percent: 0,
+                line_total: 0,
+              },
+            ];
+        setItemQueries(newQueries);
+        setItems(parsedDetails);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -1001,7 +1004,8 @@ export default function PurchaseOrdersLocalForm() {
             amount: summary.grandTotal ?? null,
             workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
             target_user_id: targetApproverId || null,
-          });
+        comments: forwardComments,
+        });
         } else {
           const resp = await api.post("/purchase/orders", payload);
           const createdId = resp?.data?.id;
@@ -1010,7 +1014,8 @@ export default function PurchaseOrdersLocalForm() {
               amount: summary.grandTotal ?? null,
               workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
               target_user_id: targetApproverId || null,
-            });
+        comments: forwardComments,
+        });
           }
         }
         navigate("/purchase/purchase-orders-local");
@@ -1063,6 +1068,7 @@ export default function PurchaseOrdersLocalForm() {
   const openForwardModal = async () => {
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     if (!workflowsCache) {
       try {
         setWfLoading(true);
@@ -1085,6 +1091,7 @@ export default function PurchaseOrdersLocalForm() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       return;
     }
     const route = "/purchase/purchase-orders-local";
@@ -1147,6 +1154,7 @@ export default function PurchaseOrdersLocalForm() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       return;
     }
     const route = "/purchase/purchase-orders-local";
@@ -1213,7 +1221,8 @@ export default function PurchaseOrdersLocalForm() {
         amount: summary.grandTotal ?? null,
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
-      });
+        comments: forwardComments,
+        });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setFormData((prev) => ({ ...prev, status: newStatus }));
       try {
@@ -1467,12 +1476,10 @@ export default function PurchaseOrdersLocalForm() {
             </button>
           </div>
           <div className="flex gap-3">
-            <Link
-              to="/purchase/purchase-orders-local"
-              className=" font-medium flex items-center gap-2 btn-success"
+            <button onClick={() => window.history.back()} className=" font-medium flex items-center gap-2 btn-success"
             >
               Back
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -1494,7 +1501,7 @@ export default function PurchaseOrdersLocalForm() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5 required">
+                  <label className="label required">
                     PO Date
                   </label>
                   <input
@@ -1502,22 +1509,23 @@ export default function PurchaseOrdersLocalForm() {
                     name="po_date"
                     value={formData.po_date}
                     onChange={handleInputChange}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                     required
+                    disabled={isView || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5 required">
+                  <label className="label required">
                     Supplier
                   </label>
                   <select
                     name="supplier_id"
                     value={formData.supplier_id}
                     onChange={handleInputChange}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                     required
                   >
                     <option value="">Select Supplier</option>
@@ -1533,14 +1541,14 @@ export default function PurchaseOrdersLocalForm() {
                   </select>
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                  <label className="label">
                     Reference Quotation
                   </label>
                   <select
                     name="quotation_id"
                     value={formData.quotation_id}
                     onChange={handleInputChange}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                   >
                     <option value="">Select Quotation</option>
                     {Array.isArray(quotations) &&
@@ -1555,7 +1563,7 @@ export default function PurchaseOrdersLocalForm() {
                   </select>
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                  <label className="label">
                     Requisition
                   </label>
                   <select
@@ -1594,7 +1602,7 @@ export default function PurchaseOrdersLocalForm() {
                         } catch {}
                       }
                     }}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                   >
                     <option value="">Select Approved Requisition</option>
                     {approvedItemRequisitions.map((r) => (
@@ -1606,14 +1614,14 @@ export default function PurchaseOrdersLocalForm() {
                   </select>
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5 required">
+                  <label className="label required">
                     Warehouse
                   </label>
                   <select
                     name="warehouse_id"
                     value={formData.warehouse_id}
                     onChange={handleInputChange}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                   >
                     <option value="">Select Warehouse</option>
                     {Array.isArray(warehouses) &&
@@ -1630,14 +1638,14 @@ export default function PurchaseOrdersLocalForm() {
                   </select>
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5 required">
+                  <label className="label required">
                     Currency
                   </label>
                   <select
                     name="currency"
                     value={formData.currency}
                     onChange={handleInputChange}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                   >
                     {currencies.map((c) => (
                       <option key={c.id} value={c.code || c.currency_code}>
@@ -1648,7 +1656,7 @@ export default function PurchaseOrdersLocalForm() {
                   </select>
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                  <label className="label">
                     Exchange Rate
                   </label>
                   <input
@@ -1657,19 +1665,19 @@ export default function PurchaseOrdersLocalForm() {
                     value={formData.exchange_rate}
                     onChange={handleInputChange}
                     step="0.0001"
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                     readOnly
                   />
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                  <label className="label">
                     Project
                   </label>
                   <select
                     name="project_id"
                     value={formData.project_id}
                     onChange={handleInputChange}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                   >
                     <option value="">-- Select Project --</option>
                     {projects.map((p) => (
@@ -1683,7 +1691,7 @@ export default function PurchaseOrdersLocalForm() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5 required">
+                  <label className="label required">
                     Expected Delivery Date
                   </label>
                   <input
@@ -1691,11 +1699,13 @@ export default function PurchaseOrdersLocalForm() {
                     name="delivery_date"
                     value={formData.delivery_date}
                     onChange={handleInputChange}
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
+                  
+                    disabled={isView || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                   />
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                  <label className="label">
                     Payment Type
                   </label>
                   <div className="flex items-center gap-6">
@@ -1722,7 +1732,7 @@ export default function PurchaseOrdersLocalForm() {
                   </div>
                 </div>
                 <div className="flex flex-col">
-                  <label className="text-[13px] font-bold text-[#0E3646] mb-1.5">
+                  <label className="label">
                     Payment Terms (Days)
                   </label>
                   <input
@@ -1733,7 +1743,7 @@ export default function PurchaseOrdersLocalForm() {
                     disabled={
                       String(formData.payment_type || "CASH") === "CASH"
                     }
-                    className="p-2.5 border border-[#dee2e6] rounded-md text-sm focus:outline-none focus:border-[#0E3646] focus:ring-2 focus:ring-[#0E3646]/10"
+                    className="input"
                   />
                 </div>
               </div>
@@ -1846,7 +1856,7 @@ export default function PurchaseOrdersLocalForm() {
                                               );
                                               setItemQueries((prev) => ({
                                                 ...prev,
-                                                [idx]: results[0].item_name,
+                                                [idx]: results[0].item_name || results[0].name || results[0].item_code || "",
                                               }));
                                             }
                                           }}
@@ -1897,7 +1907,7 @@ export default function PurchaseOrdersLocalForm() {
                                                     );
                                                     setItemQueries((prev) => ({
                                                       ...prev,
-                                                      [idx]: o.item_name,
+                                                      [idx]: o.item_name || o.name || o.item_code || "",
                                                     }));
                                                   }}
                                                 >
@@ -1922,7 +1932,7 @@ export default function PurchaseOrdersLocalForm() {
                                   }
                                   className="w-full p-2 border border-[#dee2e6] rounded text-sm text-right focus:outline-none focus:border-[#0E3646]"
                                   min="0"
-                                  step="any"
+                                  step="1"
                                 />
                               </td>
                               <td className="p-3">
@@ -2009,7 +2019,7 @@ export default function PurchaseOrdersLocalForm() {
                                   }
                                   className="w-full p-2 border border-[#dee2e6] rounded text-sm text-right focus:outline-none focus:border-[#0E3646]"
                                   min="0"
-                                  step="any"
+                                  step="1"
                                 />
                               </td>
                               <td className="p-3">
@@ -2254,6 +2264,7 @@ export default function PurchaseOrdersLocalForm() {
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white hover:text-slate-200 text-xl font-bold"
               >
@@ -2348,7 +2359,18 @@ export default function PurchaseOrdersLocalForm() {
                 })()}
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
               <button
                 type="button"
                 className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
@@ -2357,6 +2379,7 @@ export default function PurchaseOrdersLocalForm() {
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
               >
                 Cancel
@@ -2424,3 +2447,4 @@ export default function PurchaseOrdersLocalForm() {
     </div>
   );
 }
+

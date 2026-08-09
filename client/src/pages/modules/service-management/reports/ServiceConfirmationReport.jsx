@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "api/client";
+import { api } from "../../../../api/client.js";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
@@ -15,6 +15,12 @@ import jsPDF from "jspdf";
  * @returns {JSX.Element} The rendered component
  */
 export default function ServiceConfirmationReport() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -32,33 +38,7 @@ export default function ServiceConfirmationReport() {
     }
   }
 
-  function exportCSV() {
-    if (!items.length) return;
-    const headers = [
-      "Service Order No",
-      "Confirmation Date",
-      "Customer Name",
-      "Confirmation Status",
-      "Remarks",
-      "Rating",
-    ];
-    const rows = items.map((r) => [
-      r.order_no || "-",
-      r.confirmation_date || "-",
-      r.customer_name || "-",
-      r.confirmation_status || "-",
-      r.remarks || "-",
-      r.rating || "-",
-    ]);
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "service-confirmation.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  
   function exportExcel() {
     if (!items.length) return;
     const ws = XLSX.utils.json_to_sheet(
@@ -108,7 +88,7 @@ export default function ServiceConfirmationReport() {
 
   useEffect(() => {
     run();
-  }, []);
+  }, [pollingCounter]);
 
   return (
     <div className="space-y-4">
@@ -121,16 +101,8 @@ export default function ServiceConfirmationReport() {
             <p className="text-sm mt-1">Confirm customer acceptance</p>
           </div>
           <div className="flex gap-2">
-            <Link to="/service-management" className="btn btn-secondary">
-              Return to Menu
-            </Link>
-            <button
-              className="btn-success"
-              onClick={exportCSV}
-              disabled={loading || items.length === 0}
-            >
-              Export CSV
-            </button>
+            <div className="flex items-center gap-3"><div className="flex items-center gap-2" title="Live Auto-Refresh Active"><span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span><span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Live</span></div><button onClick={() => window.history.back()} className="btn btn-secondary">Back</button></div>
+            
             <button
               className="btn-secondary"
               onClick={exportExcel}

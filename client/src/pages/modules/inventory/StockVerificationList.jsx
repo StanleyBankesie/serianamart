@@ -12,6 +12,8 @@ import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { usePermission } from "../../../auth/PermissionContext.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -19,6 +21,7 @@ import { usePermission } from "../../../auth/PermissionContext.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function StockVerificationList() {
+  const [viewMode, setViewMode] = useViewMode();
   const { canReverseApproval } = usePermission();
   const [searchTerm, setSearchTerm] = useState("");
   const [verifications, setVerifications] = useState([]);
@@ -152,25 +155,25 @@ export default function StockVerificationList() {
   const { sorted: sortedVerifications, sortKey, sortDir, toggle } = useSort(filteredVerifications, "created_at", "desc");
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 dark:bg-slate-900 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6 flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-slate-100 dark:text-white mb-2">
               Stock Verification
             </h1>
-            <p className="text-gray-600">
+            <p className="text-gray-600 dark:text-slate-400">
               Manage and track warehouse stock verification activities
             </p>
           </div>
-          <Link to="/inventory" className="btn btn-secondary">
+          <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
             Return to Menu
           </Link>
         </div>
 
         {/* Filters and Actions */}
-        <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow mb-6">
           <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
             <div className="flex-1 w-full md:w-auto">
               <div className="relative">
@@ -178,7 +181,7 @@ export default function StockVerificationList() {
                 <input
                   type="text"
                   placeholder="Search by verification number..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -187,7 +190,7 @@ export default function StockVerificationList() {
 
             <div className="flex gap-3 w-full md:w-auto">
               <select
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="px-4 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
               >
@@ -212,9 +215,13 @@ export default function StockVerificationList() {
         </div>
 
         {/* Verifications Table */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow overflow-hidden">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={ "w-full " + (viewMode === 'grid' ? 'table-grid-mode' : '') }>
                <thead className="bg-[#0E3646] text-white">
                 <tr>
                   <SortableHeader label="Verification #" sortKey="verification_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -228,7 +235,7 @@ export default function StockVerificationList() {
                   <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
                 {loading ? (
                   <tr>
                     <td
@@ -249,9 +256,9 @@ export default function StockVerificationList() {
                   </tr>
                 ) : (
                   sortedVerifications.map((verification) => (
-                    <tr key={verification.id} className="hover:bg-gray-50">
+                    <tr key={verification.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
+                        <div className="text-sm font-medium text-gray-900 dark:text-slate-100">
                           {verification.verification_no}
                         </div>
                       </td>
@@ -266,17 +273,17 @@ export default function StockVerificationList() {
                             return str.includes("T") ? str.split("T")[0] : str;
                           })()}
                           readOnly
-                          className="text-sm text-gray-900 bg-transparent border-0 p-0"
+                          className="text-sm text-gray-900 dark:text-slate-100 bg-transparent border-0 p-0"
                         />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                        <div className="text-sm text-gray-900 dark:text-slate-100">
                           {verification.warehouse_name ||
                             getWarehouseName(verification.warehouse_id)}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                        <div className="text-sm text-gray-900 dark:text-slate-100">
                           {getTypeLabel(verification.verification_type)}
                         </div>
                       </td>
@@ -334,7 +341,7 @@ export default function StockVerificationList() {
                                   </button>
                                 )}
                               </div>
-                            ) : verification.forwarded_to_username ? (
+                            ) : verification.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(verification.status || "").toUpperCase()) ? (
                               <span
                                 className="list-approval-forwarded-pill"
                                 title="Assigned approver"
@@ -380,12 +387,12 @@ export default function StockVerificationList() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                        <div className="text-sm text-gray-900 dark:text-slate-100">
                           {verification.created_by_username || verification.created_by_name || "-"}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
+                        <div className="text-sm text-gray-900 dark:text-slate-100">
                           {verification.created_at ? new Date(verification.created_at).toLocaleDateString() : "-"}
                         </div>
                       </td>

@@ -290,7 +290,7 @@ export default function TrainingHistory() {
           <nav className="text-xs text-slate-500 dark:text-slate-400 mb-1">
             <Link to="/" className="hover:text-slate-700 dark:hover:text-slate-200">Home</Link>
             <span className="mx-1">/</span>
-            <Link to="/human-resources" className="hover:text-slate-700 dark:hover:text-slate-200">Human Resources</Link>
+            <Link to="/human-resources?section=Training%20%26%20Development" className="hover:text-slate-700 dark:hover:text-slate-200">Human Resources</Link>
             <span className="mx-1">/</span>
             <span className="text-slate-800 dark:text-slate-100 font-medium">Training History</span>
           </nav>

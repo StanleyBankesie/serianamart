@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
+import PendingApprovalTooltip from "@/components/PendingApprovalTooltip.jsx";
 import { Link, useLocation } from "react-router-dom";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import {
@@ -20,6 +21,8 @@ import SortableHeader from "@/components/SortableHeader.jsx";
 import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { usePermission } from "@/auth/PermissionContext.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -27,6 +30,7 @@ import { usePermission } from "@/auth/PermissionContext.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function GRNLocalList() {
+  const [viewMode, setViewMode] = useViewMode();
   const location = useLocation();
   const { canReverseApproval, exceptionalPerms, hasExceptional } =
     usePermission();
@@ -40,6 +44,7 @@ export default function GRNLocalList() {
   const [showAttach, setShowAttach] = useState(false);
   const [activeDocId, setActiveDocId] = useState(null);
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardComments, setForwardComments] = useState("");
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [workflowsCache, setWorkflowsCache] = useState(null);
@@ -378,7 +383,8 @@ export default function GRNLocalList() {
         amount: selectedDoc.invoice_amount,
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
-      });
+        comments: forwardComments,
+        });
       let approverName = null;
       try {
         const first =
@@ -474,7 +480,7 @@ export default function GRNLocalList() {
               <p className="text-sm mt-1">Receive local purchase deliveries</p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link to="/inventory/grn-local/new" className="btn-success">
@@ -499,8 +505,12 @@ export default function GRNLocalList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader
@@ -711,10 +721,10 @@ export default function GRNLocalList() {
                                     </button>
                                   )}
                               </div>
-                            ) : g.forwarded_to_username ? (
-                              <span className="list-approval-forwarded-pill">
+                            ) : g.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(g.status || "").toUpperCase()) ? (
+                              <PendingApprovalTooltip documentType="GOODS_RECEIPT" documentId={g.id}><span className="list-approval-forwarded-pill">
                                 Forwarded to {g.forwarded_to_username}
-                              </span>
+                              </span></PendingApprovalTooltip>
                             ) : (
                               <button
                                 type="button"
@@ -981,7 +991,7 @@ export default function GRNLocalList() {
                 </div>
               ) : null}
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                   <thead>
                     <tr>
                       <th>Item Code</th>

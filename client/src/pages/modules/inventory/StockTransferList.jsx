@@ -12,6 +12,8 @@ import { api } from "api/client";
 import FloatingCreateButton from "@/components/FloatingCreateButton.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { toast } from "react-toastify";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -19,6 +21,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function StockTransferList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [searchTerm, setSearchTerm] = useState("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -119,7 +122,7 @@ export default function StockTransferList() {
         target_user_id: targetApproverId || null,
         notes: forwardNotes || "",
       };
-      const wfRes = await api.post("/workflows/forward-by-document", payload);
+      const wfRes = await api.post("/workflows/start", payload);
       const assigned = wfRes.data?.data?.assigned_user_id;
       let newForwardedToUser = null;
       if (assigned) {
@@ -240,7 +243,7 @@ export default function StockTransferList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
+              <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link to="/inventory/stock-transfers/new" className="btn-success">
@@ -260,8 +263,12 @@ export default function StockTransferList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th>Transfer No</th>

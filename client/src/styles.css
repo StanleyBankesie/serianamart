@@ -38,11 +38,11 @@
 @layer components {
   /* ── ERP Button Styles ─────────────────────────────── */
   .btn-primary {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-white bg-brand-600 hover:bg-brand-700 active:bg-brand-800 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-white bg-brand-900 hover:bg-brand-800 active:bg-brand-950 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed;
     min-height: 38px;
   }
   .btn-primary:focus-visible {
-    @apply outline-none ring-2 ring-brand-500/40 ring-offset-2 ring-offset-white dark:ring-offset-slate-800;
+    @apply outline-none ring-2 ring-brand-900/40 ring-offset-2 ring-offset-white dark:ring-offset-slate-800;
   }
 
   .btn-secondary {
@@ -50,11 +50,11 @@
     min-height: 38px;
   }
   .btn-secondary:focus-visible {
-    @apply outline-none ring-2 ring-brand-500/30 ring-offset-2 ring-offset-white dark:ring-offset-slate-800;
+    @apply outline-none ring-2 ring-brand-900/30 ring-offset-2 ring-offset-white dark:ring-offset-slate-800;
   }
 
   .btn-outline {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-brand-600 dark:text-brand-400 border border-brand-600 dark:border-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium text-brand-900 dark:text-brand-400 border border-brand-900 dark:border-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
     min-height: 38px;
   }
   .btn-outline:focus-visible {
@@ -148,11 +148,22 @@
   }
 
   .table th {
-    @apply px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider;
+    @apply px-4 py-3 text-left text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider;
   }
 
   .table td {
-    @apply px-4 py-3 border-b border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300;
+    @apply px-4 py-3 border-b border-slate-200 dark:border-slate-700 text-sm text-slate-900 dark:text-slate-100;
+  }
+
+  /* Global override to ensure all table headings in the application match the invoice list in dark mode */
+  .dark thead {
+    background-color: rgba(30, 41, 59, 0.5) !important;
+    border-bottom: 1px solid #334155 !important;
+  }
+
+  .dark thead th, .dark thead th * {
+    color: #f1f5f9 !important;
+    background-color: transparent !important;
   }
 
   /* Voucher Posting Lines shared widths */
@@ -279,25 +290,22 @@
   .list-approval-reverse-btn {
     @apply inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg transition-colors h-9 shrink-0 disabled:opacity-50;
     @apply text-red-700 bg-white border border-red-600 hover:bg-red-50;
+    position: static !important;
+    float: none !important;
+    margin: 0 !important;
+    transform: none !important;
   }
 
   /* Attachments button style (list pages, legacy) */
   .list-attachment-btn {
     @apply inline-flex items-center justify-center rounded-xl border border-brand bg-white px-3 py-1 text-xs font-medium text-brand hover:bg-brand-50;
   }
-  /* Keep reverse-approval at the end of action rows */
+  /* Keep reverse-approval neatly aligned without floating or negative margins */
   .list-action-reverse {
-    order: 99 !important;
-  }
-  /*
-    Make Forward / Forwarded / Approved appear in one static slot.
-    These classes are used consistently by approval state actions.
-  */
-  .table td:last-child > .flex > .w-40.bg-amber-500 {
-    margin-left: calc(-10rem - 0.5rem);
-  }
-  .table td:last-child > .flex > .w-40.btn-success {
-    margin-left: calc(-20rem - 1rem);
+    position: static !important;
+    float: none !important;
+    margin: 0 !important;
+    transform: none !important;
   }
 
   /* ERP Status Badges */
@@ -626,12 +634,10 @@
     }
 
     /* -- Grid: force single column -- */
-    .grid.grid-cols-2,
     .grid.grid-cols-3,
     .grid.grid-cols-4,
     .grid.grid-cols-5,
     .grid.grid-cols-6,
-    div.grid.grid-cols-2,
     div.grid.grid-cols-3,
     div.grid.grid-cols-4,
     div.grid.grid-cols-5,
@@ -804,4 +810,328 @@
       width: auto;
     }
   }
+}
+
+.swal2-actions-row { flex-direction: row !important; justify-content: flex-start !important; gap: 8px !important; margin-top: 10px !important; width: 100% !important; } .swal2-actions-row button { width: auto !important; margin: 0 !important; }
+
+.colored-toast .swal2-icon { transform: scale(0.5); margin: 0 auto; }
+
+.colored-toast { padding: 0.5em !important; min-height: auto !important; } .colored-toast .swal2-title { font-size: 1rem !important; margin: 0.25em 0 !important; } .colored-toast .swal2-html-container { font-size: 0.8rem !important; margin: 0.25em 0 !important; } .colored-toast .swal2-actions { margin-top: 0.5em !important; }
+
+.colored-toast .swal2-icon { margin-bottom: 0 !important; } .colored-toast .swal2-title { color: #1e293b !important; } .colored-toast .swal2-html-container { color: #334155 !important; margin-top: 0.1em !important; } .colored-toast .swal2-actions { flex-direction: row !important; flex-wrap: nowrap !important; gap: 4px !important; } .colored-toast .swal2-actions button { font-size: 0.75rem !important; padding: 0.4em 0.8em !important; width: auto !important; flex: 1; }
+
+.colored-toast { z-index: 999999 !important; }
+
+.colored-toast .swal2-actions button { white-space: nowrap !important; }
+
+
+.btn-brand-solid {
+  @apply inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium rounded-lg text-white transition-colors whitespace-nowrap h-9 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm;
+  background-color: #0E3646;
+}
+.btn-brand-solid:hover:not(:disabled) {
+  background-color: #215876;
+}
+
+/* Table Grid Mode Engine */
+/* ========================================================================
+   Universal, responsive grid layout engine for all List pages.
+   Grid Columns:
+   - Large & XL devices (>=1024px): 4 Columns
+   - Medium devices (768px - 1023px): 3 Columns
+   - Small & Mobile devices (<768px): 2 Columns
+   ======================================================================== */
+
+/* ── Core Grid Breakpoints ── */
+.table-grid-mode {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  grid-auto-rows: 1fr !important; /* Force all cards in every row to have identical height */
+  align-items: stretch !important;
+  gap: 1rem !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 0.5rem 0 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+@media (min-width: 768px) {
+  .table-grid-mode {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-auto-rows: 1fr !important;
+    gap: 1.25rem !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .table-grid-mode {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    grid-auto-rows: 1fr !important;
+    gap: 1.25rem !important;
+  }
+}
+
+/* ── Hide Table Structure ── */
+.table-grid-mode thead { display: none !important; }
+.table-grid-mode tbody { display: contents !important; }
+.table-grid-mode tfoot { display: none !important; }
+
+/* ── Card (each <tr>) ── */
+.table-grid-mode tr {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 0.875rem !important;
+  padding: 1rem 1.125rem !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03), 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease !important;
+  aspect-ratio: 1 / 1 !important; /* Card height takes the exact same length as width */
+  overflow: hidden !important; /* Prevents any child button from bleeding out */
+  position: relative !important;
+  box-sizing: border-box !important;
+  max-width: 100% !important;
+}
+.dark .table-grid-mode tr {
+  background: #0f172a !important;
+  border-color: #1e293b !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+.table-grid-mode tr:hover {
+  transform: translateY(-3px) !important;
+  box-shadow: 0 12px 20px -5px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04) !important;
+  border-color: #3b82f6 !important;
+}
+.dark .table-grid-mode tr:hover {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 12px 20px -5px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* ── Data Cells ── */
+.table-grid-mode td {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0.35rem 0 !important;
+  border: none !important;
+  font-size: 0.85rem !important;
+  width: 100% !important;
+  color: #334155 !important;
+  line-height: 1.5 !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.dark .table-grid-mode td {
+  color: #cbd5e1 !important;
+}
+
+/* First cell = card title header */
+.table-grid-mode td:first-child {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  padding-bottom: 0.5rem !important;
+  margin-bottom: 0.4rem !important;
+  border-bottom: 1.5px solid #f1f5f9 !important;
+}
+.dark .table-grid-mode td:first-child {
+  color: #f8fafc !important;
+  border-bottom-color: #1e293b !important;
+}
+
+/* ── Completely Hide Secondary Cells in grid mode (matching Sales Order grid card layout) ── */
+.table-grid-mode td.grid-created-by-cell,
+.table-grid-mode td.grid-created-date-cell,
+.table-grid-mode td.grid-price-type-cell,
+.table-grid-mode td.grid-payment-status-cell,
+.table-grid-mode td.grid-payment-type-cell,
+.table-grid-mode td.grid-warehouse-cell,
+.table-grid-mode td.grid-balance-cell,
+.table-grid-mode td.grid-remarks-cell,
+.table-grid-mode tr > td:nth-last-child(2),
+.table-grid-mode tr > td:last-child:not(:has(button)):not(:has(a)) {
+  display: none !important;
+}
+
+/* ── Actions Cell (Card Bottom Action Container) ── */
+.table-grid-mode td:has(button),
+.table-grid-mode td:has(a),
+.table-grid-mode td:nth-last-child(3),
+.table-grid-mode td.actions-cell,
+.table-grid-mode td:last-child {
+  display: flex !important;
+  flex-direction: column !important;
+  order: 99 !important;
+  margin-top: auto !important;
+  padding-top: 0.625rem !important;
+  border-top: 1px solid #f1f5f9 !important;
+  gap: 0.375rem !important;
+  align-items: stretch !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  clear: both !important;
+}
+.dark .table-grid-mode td:has(button),
+.dark .table-grid-mode td:has(a),
+.dark .table-grid-mode td:nth-last-child(3),
+.dark .table-grid-mode td.actions-cell,
+.dark .table-grid-mode td:last-child {
+  border-top-color: #1e293b !important;
+}
+
+/* Row Wrapper inside Actions Cell: Organizes actions into Row 1 (Doc actions) and Row 2 (Workflow & Cancel) */
+.table-grid-mode td > div,
+.table-grid-mode td > div[class*="flex"] {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.25rem !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  box-sizing: border-box !important;
+}
+
+/* Hide empty placeholder divs and reset fixed min-widths */
+.table-grid-mode td div[class*="min-w-"] {
+  min-width: 0 !important;
+  width: auto !important;
+  flex: 0 0 auto !important;
+}
+
+.table-grid-mode td div[aria-hidden="true"],
+.table-grid-mode td div:empty,
+.table-grid-mode td div:has(> div:only-child:empty) {
+  display: none !important;
+}
+
+/* ── ROW 1: Document Action Buttons (View, Edit, Print, PDF, Attachments) ALWAYS STAY ON ROW 1 ── */
+.table-grid-mode td .list-doc-action-btn,
+.table-grid-mode td .list-attachment-btn,
+.table-grid-mode td button[title="Attachments"],
+.table-grid-mode td button[title="Print"],
+.table-grid-mode td button[title="Download PDF"],
+.table-grid-mode td div:has(> .list-doc-action-btn),
+.table-grid-mode td div:has(> .list-attachment-btn),
+.table-grid-mode td div:has(> button[title="Attachments"]),
+.table-grid-mode td a:not(.list-approval-forward-btn):not(.list-approval-reverse-btn),
+.table-grid-mode td button:not(.list-approval-forward-btn):not(.list-approval-reverse-btn):not(.bg-\[\#990000\]):not([class*="bg-[#990000]"]) {
+  order: 1 !important;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: none !important;
+  flex-basis: auto !important;
+}
+
+/* ── ROW 2: ALL Workflow, Status & Cancel Buttons (ORDER 50: ALL TOGETHER ON ROW 2 BELOW ROW 1) ── */
+.table-grid-mode td .list-approval-slot,
+.table-grid-mode td .list-approval-forward-btn,
+.table-grid-mode td .list-approval-forwarded-pill,
+.table-grid-mode td .list-approval-approved-pill,
+.table-grid-mode td .list-approval-reverse-btn,
+.table-grid-mode td .list-action-reverse,
+.table-grid-mode td button.bg-\[\#990000\],
+.table-grid-mode td button[class*="bg-[#990000]"],
+.table-grid-mode td div:has(> button.bg-\[\#990000\]),
+.table-grid-mode td div:has(> .list-approval-reverse-btn),
+.table-grid-mode td div:has(> .list-approval-slot),
+.table-grid-mode td div:has(> .list-approval-forward-btn),
+.table-grid-mode td div:has(> .list-approval-forwarded-pill),
+.table-grid-mode td div:has(> .list-approval-approved-pill) {
+  flex-basis: auto !important; /* DO NOT force 100% width on workflow elements */
+  width: auto !important;
+  max-width: max-content !important;
+  order: 50 !important;
+  display: inline-flex !important;
+  flex-wrap: nowrap !important;
+  gap: 0.15rem !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Row 2 Line-Break & Spacing (Dashed border line completely removed) */
+.table-grid-mode td div:has(> .list-approval-slot),
+.table-grid-mode td div:has(> .list-approval-forward-btn),
+.table-grid-mode td div:has(> .list-approval-forwarded-pill),
+.table-grid-mode td div:has(> .list-approval-approved-pill),
+.table-grid-mode td > .list-approval-slot,
+.table-grid-mode td > .list-approval-forward-btn,
+.table-grid-mode td > .list-approval-forwarded-pill,
+.table-grid-mode td > .list-approval-approved-pill {
+  margin-top: 0.35rem !important;
+  padding-top: 0.15rem !important;
+  border-top: none !important;
+}
+.dark .table-grid-mode td div:has(> .list-approval-slot),
+.dark .table-grid-mode td div:has(> .list-approval-forward-btn),
+.dark .table-grid-mode td div:has(> .list-approval-forwarded-pill),
+.dark .table-grid-mode td div:has(> .list-approval-approved-pill),
+.dark .table-grid-mode td > .list-approval-slot,
+.dark .table-grid-mode td > .list-approval-forward-btn,
+.dark .table-grid-mode td > .list-approval-forwarded-pill,
+.dark .table-grid-mode td > .list-approval-approved-pill {
+  border-top: none !important;
+}
+
+/* ── Cancel Button Vertical Alignment (Dashed border line completely removed) ── */
+.table-grid-mode td button.bg-\[\#990000\],
+.table-grid-mode td button[class*="bg-[#990000]"],
+.table-grid-mode td div:has(> button.bg-\[\#990000\]),
+.table-grid-mode td div:has(> .list-approval-reverse-btn) {
+  margin-top: 0.35rem !important;
+  padding-top: 0.15rem !important;
+  border-top: none !important;
+  align-self: flex-end !important;
+}
+
+/* ── Ultra-Compact Sizing for Row 2 Workflow & Cancel Buttons ── */
+.table-grid-mode td .list-approval-forward-btn,
+.table-grid-mode td .list-approval-forwarded-pill,
+.table-grid-mode td .list-approval-approved-pill,
+.table-grid-mode td .list-approval-reverse-btn,
+.table-grid-mode td button.bg-\[\#990000\],
+.table-grid-mode td button[class*="bg-[#990000]"],
+.table-grid-mode td button,
+.table-grid-mode td a,
+.table-grid-mode td .btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.15rem !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  padding: 0 0.35rem !important;
+  width: auto !important;
+  min-width: max-content !important;
+  max-width: max-content !important;
+  font-size: 0.675rem !important;
+  font-weight: 600 !important;
+  border-radius: 0.35rem !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  position: static !important;
+  float: none !important;
+  transform: none !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Icon-only action buttons */
+.table-grid-mode td button:empty,
+.table-grid-mode td a:empty,
+.table-grid-mode td .list-doc-action-btn,
+.table-grid-mode td .list-attachment-btn {
+  width: 26px !important;
+  min-width: 26px !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
 }

@@ -19,6 +19,8 @@ import {
 import { useAfterSaveRefresh } from "../../../../hooks/useAfterSaveRefresh.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -26,6 +28,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function CustomerList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   const fileInputRef = React.useRef(null);
@@ -158,7 +161,7 @@ export default function CustomerList() {
               accept=".xlsx, .xls"
               onChange={handleImport}
             />
-            <Link to="/sales" className="btn btn-secondary">
+            <Link to="/sales?section=Customer%20Management" className="btn btn-secondary">
               Return to Menu
             </Link>
             <Link to="/sales/customers/new" className="btn-success">
@@ -218,8 +221,12 @@ export default function CustomerList() {
             </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader label="Code" sortKey="customer_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

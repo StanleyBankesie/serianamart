@@ -10,6 +10,7 @@ import { saveLocalSale } from "../../../../offline/posStore.js";
 import { uuid } from "../../../../offline/uuid.js";
 import { toast } from "react-toastify";
 import QRCode from "qrcode";
+import Swal from "sweetalert2";
 import {
   getPosDatum,
   cachePosDatum,
@@ -662,6 +663,7 @@ export default function PosSalesEntry() {
     };
   }, []);
   const [headerDiscount, setHeaderDiscount] = useState("");
+  const [globalDiscountInfo, setGlobalDiscountInfo] = useState({ type: null, value: 0, amount: 0 });
 
   useEffect(() => {
     let mounted = true;
@@ -814,7 +816,7 @@ export default function PosSalesEntry() {
               id: it.id,
               name: it.item_name || "",
               code: it.item_code || "",
-              price: Number(it.selling_price) || Number(it.cost_price) || 0,
+              price: Number(it.selling_price ?? 0),
               availQty: Number(it.stock_level ?? 0),
               image_url: it.image_url || "",
               barcode: it.barcode || "",
@@ -857,9 +859,7 @@ export default function PosSalesEntry() {
       .get("/sales/purchase-reward-campaigns/active")
       .then((res) => {
         if (!mounted) return;
-        setPurchaseRewardCampaigns(
-          Array.isArray(res.data?.items) ? res.data.items : [],
-        );
+        setPurchaseRewardCampaigns(Array.isArray(res.data?.items) ? res.data.items : []);
       })
       .catch(() => {});
     return () => {
@@ -896,15 +896,27 @@ export default function PosSalesEntry() {
       return sum + qty * price;
     }, 0);
   }, [cart]);
+  const lineDiscountsTotal = useMemo(() => {
+    return cart.reduce((sum, i) => sum + Number(i.discount || 0), 0);
+  }, [cart]);
+  const globalDiscountAmount = useMemo(() => {
+    if (!globalDiscountInfo || !globalDiscountInfo.value) return 0;
+    const base = Math.max(0, gross - lineDiscountsTotal);
+    if (globalDiscountInfo.type === "percent") {
+      return (base * Number(globalDiscountInfo.value)) / 100;
+    }
+    return Math.min(base, Number(globalDiscountInfo.amount || globalDiscountInfo.value || 0));
+  }, [globalDiscountInfo, gross, lineDiscountsTotal]);
   const subtotal = useMemo(() => {
-    return cart.reduce((sum, i) => {
+    const rawSub = cart.reduce((sum, i) => {
       const qty = Number(i.quantity || 0);
       const price = Number(i.price || 0);
       const disc = Number(i.discount || 0);
       const lineTotal = Math.max(0, qty * price - disc);
       return sum + lineTotal;
     }, 0);
-  }, [cart]);
+    return Math.max(0, rawSub - globalDiscountAmount);
+  }, [cart, globalDiscountAmount]);
   const discountTotal = useMemo(() => {
     const diff = gross - subtotal;
     if (!Number.isFinite(diff) || diff < 0) return 0;
@@ -955,14 +967,106 @@ export default function PosSalesEntry() {
     setTimeout(run, 0);
   }
 
+  const handleGlobalDiscountClick = async () => {
+    if (!canEditDiscount() || generalSettings.allowDiscounts === false) return;
+    if (cart.length === 0) {
+      Swal.fire(
+        "Empty Cart",
+        "Please add items to the cart before applying a discount.",
+        "warning",
+      );
+      return;
+    }
+
+    const result = await Swal.fire({
+      title: "Select Discount Type",
+      showDenyButton: true,
+      showCancelButton: true,
+      confirmButtonText: "Amount",
+      denyButtonText: "Percentage",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#296d8f",
+      denyButtonColor: "#2E8B1F",
+      cancelButtonColor: "#dc2626",
+    });
+
+    if (result.isConfirmed) {
+      // Amount
+      const { value: amount } = await Swal.fire({
+        title: "Enter Discount Amount",
+        input: "number",
+        inputAttributes: { min: 0, step: 0.01 },
+        showCancelButton: true,
+        confirmButtonColor: "#296d8f",
+        cancelButtonColor: "#6b7280",
+        inputValidator: (value) => {
+          if (!value || isNaN(value) || Number(value) < 0) {
+            return "Please enter a valid positive amount";
+          }
+        },
+      });
+
+      if (amount) {
+        const amt = Number(amount);
+        const rawSub = cart.reduce((sum, item) => sum + Math.max(0, Number(item.price || 0) * Number(item.quantity || 0) - Number(item.discount || 0)), 0);
+        if (amt > rawSub) {
+          Swal.fire("Error", "Discount cannot exceed subtotal", "error");
+          return;
+        }
+        setGlobalDiscountInfo({ type: "amount", value: amt, amount: amt });
+        setHeaderDiscount(amt.toFixed(2));
+      }
+    } else if (result.isDenied) {
+      // Percentage
+      const { value: percent } = await Swal.fire({
+        title: "Enter Discount Percentage",
+        input: "number",
+        inputAttributes: { min: 0, max: 100, step: 0.1 },
+        showCancelButton: true,
+        confirmButtonColor: "#296d8f",
+        cancelButtonColor: "#6b7280",
+        inputValidator: (value) => {
+          if (
+            !value ||
+            isNaN(value) ||
+            Number(value) < 0 ||
+            Number(value) > 100
+          ) {
+            return "Please enter a valid percentage between 0 and 100";
+          }
+        },
+      });
+
+      if (percent) {
+        const pct = Number(percent);
+        const rawSub = cart.reduce((sum, item) => sum + Math.max(0, Number(item.price || 0) * Number(item.quantity || 0) - Number(item.discount || 0)), 0);
+        const calcAmt = (pct / 100) * rawSub;
+        if (calcAmt > rawSub) {
+          Swal.fire("Error", "Discount cannot exceed subtotal", "error");
+          return;
+        }
+        setGlobalDiscountInfo({ type: "percent", value: pct, amount: calcAmt });
+        setHeaderDiscount(`${pct}%`);
+      }
+    }
+  };
+
+  const applyGlobalDiscount = (totalDiscountAmt) => {
+    const rawSub = cart.reduce((sum, item) => sum + Math.max(0, Number(item.price || 0) * Number(item.quantity || 0) - Number(item.discount || 0)), 0);
+    if (rawSub === 0) return;
+    if (totalDiscountAmt > rawSub) {
+      Swal.fire("Error", "Discount cannot exceed subtotal", "error");
+      return;
+    }
+    setGlobalDiscountInfo({ type: "amount", value: Number(totalDiscountAmt), amount: Number(totalDiscountAmt) });
+    setHeaderDiscount(Number(totalDiscountAmt).toFixed(2));
+  };
+
   function getDefaultPaymentModeId() {
     const activeModes = Array.isArray(paymentModes) ? paymentModes : [];
     const defaultMode =
       activeModes.find(
-        (m) =>
-          String(m.type || "")
-            .trim()
-            .toLowerCase() === "cash",
+        (m) => String(m.type || "").trim().toLowerCase() === "cash",
       ) || activeModes[0];
     return defaultMode?.id ? String(defaultMode.id) : "";
   }
@@ -988,10 +1092,13 @@ export default function PosSalesEntry() {
 
   function resolvePaymentMethodForSale(mode) {
     const t = String(mode?.type || "").toLowerCase();
+    const n = String(mode?.name || "").toLowerCase();
+    if (["credit", "on account", "account"].some((k) => n.includes(k)) || t === "credit") {
+      return "CREDIT";
+    }
     if (t === "cash") return "CASH";
     if (t === "card" || t === "bank") return "CARD";
     if (t === "mobile") return "MOBILE";
-    if (t === "credit") return "CREDIT";
     return "CASH";
   }
 
@@ -1083,7 +1190,7 @@ export default function PosSalesEntry() {
           code: prod.code,
           price: unitPrice,
           quantity: qty,
-          discount: canEditDiscount() ? Number(headerDiscount || 0) : 0,
+          discount: 0,
         },
       ];
     });
@@ -1107,9 +1214,7 @@ export default function PosSalesEntry() {
         if (Number.isFinite(realPrice) && realPrice !== unitPrice) {
           setCart((prev) =>
             prev.map((p) =>
-              p.id === prod.id
-                ? { ...p, price: realPrice > 0 ? realPrice : p.price }
-                : p,
+              p.id === prod.id ? { ...p, price: realPrice } : p,
             ),
           );
         }
@@ -1162,7 +1267,7 @@ export default function PosSalesEntry() {
             code: prod.code,
             price: unitPrice,
             quantity: qty,
-            discount: canEditDiscount() ? Number(headerDiscount || 0) : 0,
+            discount: 0,
           });
           lastVfdItemRef.current = {
             id: prod.id,
@@ -1200,9 +1305,7 @@ export default function PosSalesEntry() {
           if (Number.isFinite(realPrice) && realPrice !== prod.price) {
             setCart((prev) =>
               prev.map((p) =>
-                p.id === prod.id
-                  ? { ...p, price: realPrice > 0 ? realPrice : p.price }
-                  : p,
+                p.id === prod.id ? { ...p, price: realPrice } : p,
               ),
             );
           }
@@ -1380,24 +1483,60 @@ export default function PosSalesEntry() {
   }
 
   function clearCart() {
-    if (!cart.length) return;
+    if (!cart.length && !headerDiscount) return;
     setCart([]);
     setSelectedItems([]);
     lastVfdItemRef.current = null;
+    setHeaderDiscount("");
+    setGlobalDiscountInfo({ type: null, value: 0, amount: 0 });
   }
 
-  async function handleHold() {
-    if (!cart.length || saving) return;
-    setSaving(true);
-    try {
-      const saleCart = cart;
-      const lines = saleCart.map((it) => ({
+  const getEffectiveSaleLines = (sourceCart) => {
+    if (!globalDiscountAmount || globalDiscountAmount <= 0 || !sourceCart.length) {
+      return sourceCart.map((it) => ({
         item_id: it.id,
         name: it.name,
         quantity: Number(it.quantity || 0),
         price: Number(it.price || 0),
         discount: Number(it.discount || 0),
       }));
+    }
+    const baseTotal = sourceCart.reduce((sum, it) => sum + Math.max(0, Number(it.quantity || 0) * Number(it.price || 0) - Number(it.discount || 0)), 0);
+    if (baseTotal <= 0) {
+      return sourceCart.map((it) => ({
+        item_id: it.id,
+        name: it.name,
+        quantity: Number(it.quantity || 0),
+        price: Number(it.price || 0),
+        discount: Number(it.discount || 0),
+      }));
+    }
+    let remainingGlobal = globalDiscountAmount;
+    return sourceCart.map((it, idx) => {
+      const lineBase = Math.max(0, Number(it.quantity || 0) * Number(it.price || 0) - Number(it.discount || 0));
+      let addDisc = 0;
+      if (idx === sourceCart.length - 1) {
+        addDisc = Number(remainingGlobal.toFixed(2));
+      } else {
+        addDisc = Number(((lineBase / baseTotal) * globalDiscountAmount).toFixed(2));
+        remainingGlobal -= addDisc;
+      }
+      return {
+        item_id: it.id,
+        name: it.name,
+        quantity: Number(it.quantity || 0),
+        price: Number(it.price || 0),
+        discount: Number((Number(it.discount || 0) + addDisc).toFixed(2)),
+      };
+    });
+  };
+
+  async function handleHold() {
+    if (!cart.length || saving) return;
+    setSaving(true);
+    try {
+      const saleCart = cart;
+      const lines = getEffectiveSaleLines(saleCart);
       const payload = {
         payment_method: "CASH",
         payment_mode_id: selectedPaymentModeId || "",
@@ -1460,6 +1599,16 @@ export default function PosSalesEntry() {
     };
   }, [entryBarcode, products]);
 
+    useEffect(() => {
+      if (cartRef.current) {
+        cartRef.current.scrollTop = cartRef.current.scrollHeight;
+      }
+      if (typeof window !== "undefined") {
+        window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+      }
+    }, [cart]);
+
+
   const [searchParams, setSearchParams] = useSearchParams();
   const resumeId = searchParams.get("resume");
   const resumeLoadedRef = useRef(false);
@@ -1503,8 +1652,9 @@ export default function PosSalesEntry() {
           if (sale.paid_amount) {
             setAmountPaid(String(sale.paid_amount));
           }
-          if (sale.discount_amount) {
+          if (sale.discount_amount && Number(sale.discount_amount) > 0) {
             setHeaderDiscount(String(sale.discount_amount));
+            setGlobalDiscountInfo({ type: "amount", value: Number(sale.discount_amount), amount: Number(sale.discount_amount) });
           }
           api.put(`/pos/holds/${resumeId}/cancel`).catch(() => {});
           toast.success("On-hold sale loaded — review and complete");
@@ -1595,41 +1745,20 @@ export default function PosSalesEntry() {
         return;
       }
 
-      const lines = saleCart.map((it) => ({
-        item_id: it.id,
-        name: it.name,
-        quantity: Number(it.quantity || 0),
-        price: Number(it.price || 0),
-        discount: Number(it.discount || 0),
-      }));
+      const lines = getEffectiveSaleLines(saleCart);
       // Purchase reward: add free items from active campaigns
       let consumedReward = [];
-      if (
-        Array.isArray(purchaseRewardCampaigns) &&
-        purchaseRewardCampaigns.length
-      ) {
+      if (Array.isArray(purchaseRewardCampaigns) && purchaseRewardCampaigns.length) {
         for (const campaign of purchaseRewardCampaigns) {
           const rows = Array.isArray(campaign.rows) ? campaign.rows : [];
           for (const rule of rows) {
-            const purchaseIds = (rule.item_ids || "")
-              .split(",")
-              .map((s) => Number(s.trim()))
-              .filter((n) => n > 0);
-            const freeIds = (rule.free_item_ids || "")
-              .split(",")
-              .map((s) => Number(s.trim()))
-              .filter((n) => n > 0);
+            const purchaseIds = (rule.item_ids || "").split(",").map(s => Number(s.trim())).filter(n => n > 0);
+            const freeIds = (rule.free_item_ids || "").split(",").map(s => Number(s.trim())).filter(n => n > 0);
             const purchaseQtyNeeded = Number(rule.item_qty || 0);
             const freeQtyPer = Number(rule.free_qty || 0);
-            if (
-              !purchaseIds.length ||
-              !freeIds.length ||
-              !purchaseQtyNeeded ||
-              !freeQtyPer
-            )
-              continue;
-            const cartItem = saleCart.find((c) =>
-              purchaseIds.includes(Number(c.id)),
+            if (!purchaseIds.length || !freeIds.length || !purchaseQtyNeeded || !freeQtyPer) continue;
+            const cartItem = saleCart.find(
+              (c) => purchaseIds.includes(Number(c.id)),
             );
             if (!cartItem) continue;
             const cartQty = Number(cartItem.quantity || 0);
@@ -1637,7 +1766,9 @@ export default function PosSalesEntry() {
             const times = Math.floor(cartQty / purchaseQtyNeeded);
             const totalFreeQty = times * freeQtyPer;
             for (const freeId of freeIds) {
-              const freeProduct = products.find((p) => Number(p.id) === freeId);
+              const freeProduct = products.find(
+                (p) => Number(p.id) === freeId,
+              );
               lines.push({
                 item_id: freeId,
                 name: freeProduct ? freeProduct.name : "Free Item",
@@ -1867,6 +1998,8 @@ export default function PosSalesEntry() {
     setSearchParams({});
     setShowSplitPaymentModal(false);
     setCart([]);
+    setHeaderDiscount("");
+    setGlobalDiscountInfo({ type: null, value: 0, amount: 0 });
     setSelectedItems([]);
     setReceiptNo("");
     setAmountPaid("");
@@ -1999,7 +2132,8 @@ export default function PosSalesEntry() {
             "",
         )
       : "";
-    const itemsArr = cart.map((it) => ({
+    const effectiveCart = getEffectiveSaleLines(cart);
+    const itemsArr = effectiveCart.map((it) => ({
       name: it.name || "",
       qty: Number(it.quantity || 0),
       price: Number(it.price || 0),
@@ -2157,12 +2291,10 @@ export default function PosSalesEntry() {
     <div className="space-y-3 pos-sales-entry pr-1">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/pos"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to POS
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             POS Sales Entry
           </h1>
@@ -2387,48 +2519,42 @@ export default function PosSalesEntry() {
                   <label className="label">Discount</label>
                   <input
                     name="discount"
-                    type="number"
-                    className={`input w-full ${!canEditDiscount() || generalSettings.allowDiscounts === false ? "disabled-light-blue" : ""}`}
-                    min={0}
-                    step="0.01"
+                    type="text"
+                    readOnly
+                    className={`input w-full cursor-pointer ${!canEditDiscount() || generalSettings.allowDiscounts === false ? "disabled-light-blue" : ""}`}
                     value={headerDiscount}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setHeaderDiscount(v);
-                      if (
-                        selectedItems.length === 1 &&
-                        canEditDiscount() &&
-                        generalSettings.allowDiscounts !== false
-                      ) {
-                        updateCartField(selectedItems[0].id, "discount", v);
-                      }
-                    }}
-                    disabled={!canEditDiscount()}
+                    onClick={handleGlobalDiscountClick}
+                    disabled={!canEditDiscount() || generalSettings.allowDiscounts === false}
                     placeholder="0.00"
                   />
                 </div>
               </div>
-              <div>
-                <div className="text-lg font-semibold text-slate-900 mb-2">
-                  Item Information
-                </div>
+            </div>
+          </div>
+
+          <div className="card flex-1 min-h-[400px] flex flex-col">
+            <div className="card-body flex flex-col space-y-4 h-full">
+              <div className="text-lg font-semibold text-slate-900 shrink-0">
+                Item Information
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto">
                 {selectedItems.length ? (
-                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                  <div className="overflow-x-auto overflow-y-auto max-h-[400px] rounded-lg border border-slate-200 bg-white">
                     <table className="min-w-full text-sm font-bold">
                       <thead>
                         <tr className="bg-slate-50 text-slate-700">
-                          <th className="px-3 py-2 text-left">Item Code</th>
-                          <th className="px-3 py-2 text-left">Item Name</th>
-
-                          <th className="px-3 py-2 text-right">Price</th>
-                          <th className="px-3 py-2 text-right">QTY</th>
-                          <th className="px-3 py-2 text-right">Discount</th>
-                          <th className="px-3 py-2 text-right">Total</th>
-                          <th className="px-3 py-2 text-right">Actions</th>
+                          <th className="px-3 py-2 text-left sticky top-0 bg-slate-50 shadow-sm z-10">Item Code</th>
+                          <th className="px-3 py-2 text-left sticky top-0 bg-slate-50 shadow-sm z-10">Item Name</th>
+                          
+                          <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">Price</th>
+                          <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">QTY</th>
+                          <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">Discount</th>
+                          <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">Total</th>
+                          <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedItems.map((it) => {
+                        {[...selectedItems].reverse().map((it) => {
                           const cartItem =
                             cart.find((c) => c.id === it.id) || null;
                           const qty = Number(cartItem?.quantity || 0);
@@ -2442,7 +2568,7 @@ export default function PosSalesEntry() {
                             <tr key={it.id}>
                               <td className="px-3 py-2">{it.code}</td>
                               <td className="px-3 py-2">{it.name}</td>
-
+                              
                               <td className="px-3 py-2 text-right">
                                 {`GH₵ ${unitPrice.toFixed(2)}`}
                               </td>
@@ -2545,12 +2671,12 @@ export default function PosSalesEntry() {
               {/* Selected items list hidden per requirement */}
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <div>Discount</div>
-                  <div>{`GH₵ ${discountTotal.toFixed(2)}`}</div>
-                </div>
-                <div className="flex justify-between">
                   <div>Subtotal</div>
                   <div>{`GH₵ ${subtotal.toFixed(2)}`}</div>
+                </div>
+                <div className="flex justify-between">
+                  <div>{`Discount${globalDiscountInfo.type === "percent" && globalDiscountInfo.value ? ` (${globalDiscountInfo.value}%)` : ""}`}</div>
+                  <div>{`GH₵ ${discountTotal.toFixed(2)}`}</div>
                 </div>
                 {taxActive ? (
                   <div className="flex justify-between">
@@ -2631,13 +2757,7 @@ export default function PosSalesEntry() {
                             : "btn-secondary"
                         }`}
                         onClick={() => {
-                          if (
-                            ["credit", "on account", "account"].some((s) =>
-                              String(m.name || "")
-                                .toLowerCase()
-                                .includes(s),
-                            )
-                          ) {
+                          if (["credit","on account","account"].some(s => String(m.name || "").toLowerCase().includes(s))) {
                             setCreditPendingModeId(String(m.id));
                             setShowCreditCustomerModal(true);
                             return;
@@ -2672,21 +2792,12 @@ export default function PosSalesEntry() {
                   type="button"
                   className="btn-success w-full text-base"
                   onClick={() => {
-                    const isCredit =
-                      selectedPaymentMode &&
-                      ["credit", "on account", "account"].some((s) =>
-                        String(selectedPaymentMode.name || "")
-                          .toLowerCase()
-                          .includes(s),
-                      );
+                    const isCredit = selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s));
                     if (isCredit && paymentStatus === "PAID") {
                       setShowCreditPaymentModal(true);
                     } else if (isCredit && paymentStatus === "UNPAID") {
                       checkout();
-                    } else if (
-                      tendered < total &&
-                      !additionalPaymentModeIds.length
-                    ) {
+                    } else if (tendered < total && !additionalPaymentModeIds.length) {
                       setSplitPrimaryAmount(tendered);
                       setShowSplitPaymentModal(true);
                     } else {
@@ -2699,13 +2810,7 @@ export default function PosSalesEntry() {
                     paymentModesLoading ||
                     !paymentModes.length ||
                     !selectedPaymentModeId ||
-                    (selectedPaymentMode &&
-                      ["credit", "on account", "account"].some((s) =>
-                        String(selectedPaymentMode.name || "")
-                          .toLowerCase()
-                          .includes(s),
-                      ) &&
-                      !selectedCustomerId)
+                    (selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s)) && !selectedCustomerId)
                   }
                 >
                   {tendered < total && !additionalPaymentModeIds.length
@@ -2973,30 +3078,21 @@ export default function PosSalesEntry() {
               Choose the payment method for this credit sale.
             </p>
             <div className="grid grid-cols-2 gap-2">
-              {paymentModes
-                .filter(
-                  (m) =>
-                    !["credit", "on account", "account"].some((s) =>
-                      String(m.name || "")
-                        .toLowerCase()
-                        .includes(s),
-                    ),
-                )
-                .map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className="btn btn-secondary text-base"
-                    onClick={() => {
-                      setSelectedPaymentModeId(String(m.id));
-                      setAdditionalPaymentModeIds([]);
-                      setShowCreditPaymentModal(false);
-                      focusBarcodeField();
-                    }}
-                  >
-                    {m.name}
-                  </button>
-                ))}
+              {paymentModes.filter((m) => !["credit","on account","account"].some(s => String(m.name || "").toLowerCase().includes(s))).map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className="btn btn-secondary text-base"
+                  onClick={() => {
+                    setSelectedPaymentModeId(String(m.id));
+                    setAdditionalPaymentModeIds([]);
+                    setShowCreditPaymentModal(false);
+                    focusBarcodeField();
+                  }}
+                >
+                  {m.name}
+                </button>
+              ))}
             </div>
             <button
               type="button"

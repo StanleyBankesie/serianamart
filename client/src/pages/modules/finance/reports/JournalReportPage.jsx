@@ -1,9 +1,9 @@
 /**
  * @fileoverview JournalReportPage component.
- * Provides functionality for JournalReportPage.
+ * Standard Modern UI Journal Report for tracking journal transactions.
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
@@ -11,13 +11,26 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { 
+  ArrowLeft, 
+  FileSpreadsheet, 
+  FileText, 
+  Printer, 
+  RefreshCw, 
+  BookOpen,
+  TrendingUp,
+  TrendingDown,
+  Layers,
+  Filter
+} from "lucide-react";
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
 export default function JournalReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [items, setItems] = useState([]);
@@ -45,69 +58,53 @@ export default function JournalReportPage() {
     setTo(today.toISOString().slice(0, 10));
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pollingCounter]);
+
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
+  }, [from, to, pollingCounter]);
 
   const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "voucher_date", "desc");
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <Link
-            to="/finance"
-            className="font-sans text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
-          >
-            ← Back to Finance
-          </Link>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
-            Journals
-          </h1>
-          <p className="text-sm mt-1">
-            Journal entries for the selected period
-          </p>
-        </div>
-      </div>
+  // Summaries
+  const totals = useMemo(() => {
+    return items.reduce(
+      (acc, r) => {
+        acc.debit += Number(r.debit || 0);
+        acc.credit += Number(r.credit || 0);
+        return acc;
+      },
+      { debit: 0, credit: 0 }
+    );
+  }, [items]);
 
-      <div className="card">
-        <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header Banner */}
+      <div className="card shadow-md">
+        <div className="card-header bg-brand text-white rounded-t-lg p-5">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <label className="label">From</label>
-              <input
-                className="input"
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="label">To</label>
-              <input
-                className="input"
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-              />
-            </div>
-            <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                }}
-                disabled={loading}
+              <Link
+                to="/finance?section=Reports%20%26%20Analysis"
+                className="inline-flex items-center gap-1.5 text-xs text-white/80 hover:text-white transition-colors mb-2"
               >
-                Clear
-              </button>
+                <ArrowLeft size={14} /> Back to Finance
+              </Link>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <BookOpen className="w-6 h-6" /> Journals Report
+              </h1>
+              <p className="text-sm mt-0.5 opacity-90">
+                General journal transactions and line entry details for selected period
+              </p>
+            </div>
+
+            {/* Export Toolbar */}
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                className="btn-secondary"
+                className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
                 onClick={() => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
@@ -118,18 +115,18 @@ export default function JournalReportPage() {
                 }}
                 disabled={!items.length}
               >
-                Export Excel
+                <FileSpreadsheet size={14} /> Excel
               </button>
               <button
                 type="button"
-                className="btn-primary"
+                className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
                 onClick={() => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
                   const doc = new jsPDF("p", "mm", "a4");
                   let y = 15;
                   doc.setFontSize(14);
-                  doc.text("Journals", 10, y);
+                  doc.text("Journals Report", 10, y);
                   y += 8;
                   doc.setFontSize(10);
                   doc.text("Date", 10, y);
@@ -167,55 +164,158 @@ export default function JournalReportPage() {
                 }}
                 disabled={!items.length}
               >
-                Export PDF
+                <FileText size={14} /> PDF
               </button>
               <button
                 type="button"
-                className="btn-primary"
+                className="px-3 py-1.5 text-xs font-semibold bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors flex items-center gap-1.5"
                 onClick={() => window.print()}
               >
-                Print
+                <Printer size={14} /> Print
               </button>
             </div>
           </div>
+        </div>
+      </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
-              <thead className="sticky top-0 z-10">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="card p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+          <div className="p-3 bg-blue-50 dark:bg-blue-950/40 text-blue-600 rounded-xl">
+            <TrendingUp size={20} />
+          </div>
+          <div>
+            <span className="text-xs text-slate-500 font-semibold block">Total Debits</span>
+            <span className="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono">
+              GHS {totals.debit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
+
+        <div className="card p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+          <div className="p-3 bg-purple-50 dark:bg-purple-950/40 text-purple-600 rounded-xl">
+            <TrendingDown size={20} />
+          </div>
+          <div>
+            <span className="text-xs text-slate-500 font-semibold block">Total Credits</span>
+            <span className="text-lg font-bold text-slate-900 dark:text-slate-100 font-mono">
+              GHS {totals.credit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
+
+        <div className="card p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center gap-3">
+          <div className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl">
+            <Layers size={20} />
+          </div>
+          <div>
+            <span className="text-xs text-slate-500 font-semibold block">Total Journal Entries</span>
+            <span className="text-lg font-bold text-slate-900 dark:text-slate-100">
+              {items.length} Lines
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="card p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+        <div className="flex flex-col sm:flex-row items-end justify-between gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full sm:w-auto">
+            <div>
+              <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">From Date</label>
+              <input
+                className="input w-full text-sm"
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">To Date</label>
+              <input
+                className="input w-full text-sm"
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </div>
+          </div>
+          <button
+            type="button"
+            className="px-3.5 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 rounded-lg transition-colors flex items-center gap-1.5"
+            onClick={() => { setFrom(""); setTo(""); }}
+            disabled={loading}
+          >
+            <Filter size={14} /> Clear Filter
+          </button>
+        </div>
+      </div>
+
+      {/* Main Table */}
+      <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="table w-full">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                <SortableHeader label="Date" sortKey="voucher_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Voucher Type" sortKey="voucher_type_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Line" sortKey="line_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Account" sortKey="account_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Description" sortKey="description" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Debit (GHS)" sortKey="debit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                <SortableHeader label="Credit (GHS)" sortKey="credit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+              {loading ? (
                 <tr>
-                  <SortableHeader label="Date" sortKey="voucher_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Voucher Type" sortKey="voucher_type_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Line" sortKey="line_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Account" sortKey="account_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Description" sortKey="description" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                  <SortableHeader label="Debit" sortKey="debit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
-                  <SortableHeader label="Credit" sortKey="credit" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                  <td colSpan="8" className="text-center py-10 text-slate-400">
+                    <RefreshCw className="animate-spin w-6 h-6 mx-auto mb-2" />
+                    Loading journal report...
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {sortedItems.map((r, idx) => (
-                  <tr key={`${r.id}-${idx}`}>
-                    <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
-                    <td>{r.voucher_type_name || r.voucher_type_code || "-"}</td>
-                    <td className="font-medium">{r.voucher_no}</td>
-                    <td>{r.line_no}</td>
-                    <td>
-                      <div className="font-medium">{r.account_code}</div>
-                      <div className="text-sm">{r.account_name}</div>
+              ) : sortedItems.length > 0 ? (
+                sortedItems.map((r, idx) => (
+                  <tr key={`${r.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <td className="py-3 px-4 whitespace-nowrap text-slate-600 dark:text-slate-400">
+                      {r.voucher_date ? new Date(r.voucher_date).toLocaleDateString() : "—"}
                     </td>
-                    <td>{r.description || "-"}</td>
-                    <td className="text-right">
-                      {Number(r.debit || 0).toLocaleString()}
+                    <td className="py-3 px-4 whitespace-nowrap text-slate-700 dark:text-slate-300 font-medium">
+                      {r.voucher_type_name || r.voucher_type_code || "—"}
                     </td>
-                    <td className="text-right">
-                      {Number(r.credit || 0).toLocaleString()}
+                    <td className="py-3 px-4 whitespace-nowrap font-mono font-semibold text-brand dark:text-brand-300">
+                      {r.voucher_no || "—"}
+                    </td>
+                    <td className="py-3 px-4 whitespace-nowrap text-slate-500 font-mono">
+                      #{r.line_no}
+                    </td>
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <span className="font-mono text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-slate-800 dark:text-slate-200">
+                        {r.account_code}
+                      </span>
+                      <span className="ml-2 text-xs text-slate-600 dark:text-slate-400">{r.account_name}</span>
+                    </td>
+                    <td className="py-3 px-4 text-slate-800 dark:text-slate-200">
+                      {r.description || "—"}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-900 dark:text-slate-100">
+                      {Number(r.debit || 0) > 0 ? Number(r.debit).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-900 dark:text-slate-100">
+                      {Number(r.credit || 0) > 0 ? Number(r.credit).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="8" className="text-center py-10 text-slate-400">
+                    No journal entries found for selected period.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

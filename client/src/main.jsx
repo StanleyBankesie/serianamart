@@ -27,6 +27,41 @@ async function clearPwaCachesOnce() {
   }
 }
 
+// Dynamic Vite chunk loading error handler:
+// If a deployment replaces static JS bundle hashes (resulting in 404 for stale chunks),
+// automatically reload the window once to fetch the latest index.html and current bundle assets.
+window.addEventListener("vite:preloadError", (event) => {
+  console.warn("Vite preload error detected (stale bundle). Reloading page...");
+  const lastReload = Number(sessionStorage.getItem("chunk_reload_time") || 0);
+  if (Date.now() - lastReload > 10000) {
+    sessionStorage.setItem("chunk_reload_time", String(Date.now()));
+    window.location.reload();
+  }
+});
+
+window.addEventListener(
+  "error",
+  (event) => {
+    const msg = event?.message || "";
+    const targetSrc = event?.target?.src || "";
+    const isChunkError =
+      msg.includes("Failed to fetch dynamically imported module") ||
+      msg.includes("Importing a module script failed") ||
+      msg.includes("error loading dynamically imported module") ||
+      (event?.target?.tagName === "SCRIPT" && targetSrc.includes("/assets/"));
+
+    if (isChunkError) {
+      console.warn("Chunk load error detected:", msg || targetSrc);
+      const lastReload = Number(sessionStorage.getItem("chunk_reload_time") || 0);
+      if (Date.now() - lastReload > 10000) {
+        sessionStorage.setItem("chunk_reload_time", String(Date.now()));
+        window.location.reload();
+      }
+    }
+  },
+  true
+);
+
 if (import.meta.env.DEV) {
   clearPwaCachesOnce();
 }
@@ -92,6 +127,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js");
+    navigator.serviceWorker.register("/sw.js").catch((err) => {
+      console.warn("Service Worker registration skipped/failed:", err);
+    });
   });
 }

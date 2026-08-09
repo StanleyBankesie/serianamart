@@ -11,6 +11,7 @@ import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function emptyLine() {
   return {
@@ -41,6 +42,7 @@ export default function SalesVoucherForm() {
   const mode = new URLSearchParams(search).get("mode");
   const readOnly = mode === "view";
   const isEdit = Boolean(id);
+  const { hasExceptional } = usePermission();
   const voucherTypeCode = "SV";
   const title = "Sales Voucher";
   const isJV = false;
@@ -1820,6 +1822,17 @@ export default function SalesVoucherForm() {
       if (isEdit) {
         const res = await api.put(`/finance/vouchers/${id}`, payload);
         toast.success(res.data?.message || "Updated voucher");
+        navigate("/finance/sales-voucher", {
+          state: {
+            refresh: true,
+            highlightId: id ? Number(id) : undefined,
+            highlightRef:
+              voucherNoPreview && String(voucherNoPreview).trim()
+                ? String(voucherNoPreview)
+                : undefined,
+          },
+        });
+        return;
       } else {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
@@ -2990,9 +3003,9 @@ export default function SalesVoucherForm() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -3044,7 +3057,7 @@ export default function SalesVoucherForm() {
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
                     required
-                    disabled={readOnly}
+                    disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                   />
                 </div>
                 {isJV && (
@@ -3532,9 +3545,9 @@ export default function SalesVoucherForm() {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"

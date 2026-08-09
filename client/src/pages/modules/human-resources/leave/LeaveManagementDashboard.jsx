@@ -69,9 +69,9 @@ export default function LeaveManagementDashboard() {
             Strict Priority Hierarchy: APPLICATION {">"} SCHEDULE {">"} ROSTER
           </p>
         </div>
-        <Link to="/human-resources" className="btn-secondary shrink-0">
+        <button onClick={() => window.history.back()} className="btn-secondary shrink-0">
           ← Back
-        </Link>
+        </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">

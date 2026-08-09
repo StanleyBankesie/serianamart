@@ -374,8 +374,13 @@ export default function PosPostToFinance() {
         : [];
 
       const sales = allSales.filter((s) => {
-        const paid = String(s.payment_status || "").toUpperCase() === "PAID";
-        return paid;
+        const status = String(s.payment_status || "").toUpperCase();
+        const paid = status === "PAID";
+        const isCredit = String(s.payment_method || "").toUpperCase() === "CREDIT";
+        const unpaidCredit = status === "UNPAID" && isCredit;
+        // Include split payments that might have partial credit
+        const isSplit = String(s.payment_method || "").toUpperCase() === "SPLIT";
+        return paid || unpaidCredit || (status === "UNPAID" && isSplit) || isCredit;
       });
 
       const returns = allReturns.slice();
@@ -569,7 +574,14 @@ export default function PosPostToFinance() {
       for (const pm of paymentModes) {
         if (Number(pm.is_active) === 0) continue;
         const t = String(pm.type || "").toLowerCase();
+        const n = String(pm.name || "").toLowerCase();
+        
         if (!paymentModeByType.has(t)) paymentModeByType.set(t, pm);
+        
+        // Ensure "credit" maps to a credit payment mode even if its type is "cash"
+        if (["credit", "on account", "account"].some((k) => n.includes(k))) {
+          paymentModeByType.set("credit", pm);
+        }
       }
 
       for (const [method, amt] of paymentTotals.entries()) {
@@ -581,7 +593,10 @@ export default function PosPostToFinance() {
           accountsById,
           pm?.account,
         );
-        if (!payLabel) continue;
+        if (!payLabel) {
+          console.warn(`Missing account mapping for payment method: ${method}`);
+          continue;
+        }
         next.push({
           account: payLabel,
           credit: amt < 0 ? Math.abs(amt) : 0,
@@ -657,12 +672,10 @@ export default function PosPostToFinance() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to="/pos"
-          className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+        <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
         >
           ← Back to POS
-        </Link>
+        </button>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
           POS Finance Posting
         </h1>

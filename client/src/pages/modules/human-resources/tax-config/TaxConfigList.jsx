@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /* ─── Ghana PAYE default bands ─── */
 const GRA_DEFAULT_BANDS = [
@@ -194,6 +196,7 @@ function PAYECalculator({ bands }) {
 }
 
 export default function TaxConfigList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -244,8 +247,8 @@ export default function TaxConfigList() {
     setLoading(true);
     try {
       const [taxRes, alwRes] = await Promise.all([
-        api.get("/hr/tax-configs"),
-        api.get("/hr/allowances"),
+        api.get("/hr/tax-configs").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/allowances").catch(() => ({ data: { items: [] } })),
       ]);
       const items = taxRes.data.items || [];
       setAllowances(alwRes.data.items || []);
@@ -408,9 +411,9 @@ export default function TaxConfigList() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link to="/human-resources" className="btn-secondary">
+            <button onClick={() => window.history.back()} className="btn-secondary">
               Back to Menu
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -959,8 +962,12 @@ export default function TaxConfigList() {
                   </button>
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full">
+              
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+                <table className={ "min-w-full " + (viewMode === 'grid' ? 'table-grid-mode' : '') }>
                   <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
                     <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       <th className="px-4 py-3">Tier Name</th>

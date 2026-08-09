@@ -18,6 +18,8 @@ import {
 import useSort from "../../../../hooks/useSort.js";
 import SortableHeader from "../../../../components/SortableHeader.jsx";
 import { X } from "lucide-react";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -25,6 +27,7 @@ import { X } from "lucide-react";
  * @returns {JSX.Element} The rendered component
  */
 export default function SupplierQuotationsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -43,6 +46,7 @@ export default function SupplierQuotationsList() {
   const [selectedQuot, setSelectedQuot] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
   const [firstApprover, setFirstApprover] = useState(null);
@@ -226,6 +230,7 @@ export default function SupplierQuotationsList() {
     setSelectedQuot(quot);
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     setTargetApproverId("");
     if (!workflowsCache) {
       try {
@@ -250,6 +255,7 @@ export default function SupplierQuotationsList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       setHasInactiveWorkflow(false);
       return;
     }
@@ -311,6 +317,7 @@ export default function SupplierQuotationsList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       setHasInactiveWorkflow(false);
       return;
     }
@@ -410,6 +417,7 @@ export default function SupplierQuotationsList() {
           amount: null,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
+        comments: forwardComments,
         },
       );
       toast.success(resp.data?.message || "Forwarded for approval");
@@ -467,8 +475,9 @@ export default function SupplierQuotationsList() {
           </h1>
           <p className="text-sm mt-1">Receive and manage supplier quotations</p>
         </div>
-        <div className="flex gap-2">
-          <Link to="/purchase" className="btn btn-secondary">
+        <div className="flex gap-2 items-center">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          <Link to="/purchase?section=Procurement" className="btn btn-secondary">
             Return to Menu
           </Link>
           {canPerformAction("purchase:supplier-quotations", "create") && (
@@ -512,7 +521,7 @@ export default function SupplierQuotationsList() {
           </div>
         </div>
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <SortableHeader label="Quotation No" sortKey="quotation_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -642,7 +651,7 @@ export default function SupplierQuotationsList() {
                                   {quotation.status === "APPROVED" ? "Approved" : "Accepted"}
                                 </span>
                               </div>
-                            ) : quotation.forwarded_to_username ? (
+                            ) : quotation.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(quotation.status || "").toUpperCase()) ? (
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {quotation.forwarded_to_username}
                               </span>
@@ -722,6 +731,7 @@ export default function SupplierQuotationsList() {
                   setShowForwardModal(false);
                   setSelectedQuot(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white/80 hover:text-white"
               >
@@ -779,7 +789,18 @@ export default function SupplierQuotationsList() {
                 </>
               )}
             </div>
-            <div className="p-4 border-t flex justify-end gap-2">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2">
               <button
                 type="button"
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
@@ -787,6 +808,7 @@ export default function SupplierQuotationsList() {
                   setShowForwardModal(false);
                   setSelectedQuot(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
               >
                 Cancel

@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
+import PendingApprovalTooltip from "@/components/PendingApprovalTooltip.jsx";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "api/client";
@@ -16,6 +17,8 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import addNotification from "../../../../utils/addNotification.js";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
 import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -28,6 +31,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function PurchaseOrdersImportList() {
+  const [viewMode, setViewMode] = useViewMode();
   const location = useLocation();
   const navigate = useNavigate();
   const [exceptionalAllowed, setExceptionalAllowed] = useState(false);
@@ -42,6 +46,7 @@ export default function PurchaseOrdersImportList() {
   const [cancelDenied, setCancelDenied] = useState(false);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [firstApprover, setFirstApprover] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
@@ -427,13 +432,14 @@ export default function PurchaseOrdersImportList() {
     setSelectedPO(doc);
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     if (!workflowsCache) {
       try {
         setWfLoading(true);
         const res = await api.get("/workflows");
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         setWorkflowsCache(items);
-        await computeCandidateFromList(items);
+        await computeCandidate();
       } catch (e) {
         setWfError(e?.response?.data?.message || "Failed to load workflows");
       } finally {
@@ -444,6 +450,25 @@ export default function PurchaseOrdersImportList() {
     }
   };
 
+  const getPrintData = async (po) => {
+    try {
+      const res = await api.get(`/purchase/orders/${po.id}`);
+      const order = res.data?.item || res.data;
+      const supRes = await api.get(`/purchase/suppliers/${order.supplier_id}`);
+      const supplier = supRes.data?.item || supRes.data;
+
+      return {
+        ...order,
+        vendor_name: order.supplier_name || supplier?.name || "",
+        city: supplier?.city || "",
+        state: supplier?.state || "",
+        county: supplier?.country || ""
+      };
+    } catch (e) {
+      return null;
+    }
+  };
+
   const computeCandidate = async () => {
     if (!workflowsCache || !workflowsCache.length) {
       setCandidateWorkflow(null);
@@ -451,6 +476,7 @@ export default function PurchaseOrdersImportList() {
       setWorkflowSteps([]);
       setTargetApproverId(null);
       setWfError("");
+                    setForwardComments("");
       return;
     }
     const route = "/purchase/purchase-orders-import";
@@ -517,6 +543,7 @@ export default function PurchaseOrdersImportList() {
       setWorkflowSteps([]);
       setTargetApproverId(null);
       setWfError("");
+                    setForwardComments("");
       return;
     }
     const route = "/purchase/purchase-orders-import";
@@ -629,7 +656,8 @@ export default function PurchaseOrdersImportList() {
         amount: selectedDoc?.total_amount ?? null,
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
-      });
+        comments: forwardComments,
+        });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       let approverName = null;
       try {
@@ -681,12 +709,13 @@ export default function PurchaseOrdersImportList() {
           selectedDoc?.total_amount === null
             ? null
             : Number(selectedDoc?.total_amount || 0);
-        const wfRes = await api.post("/workflows/forward-by-document", {
+        const wfRes = await api.post("/workflows/start", {
           document_type: "PURCHASE_ORDER",
           document_id: selectedDoc.id,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
           amount,
+          comments: forwardComments || "Forwarded for Approval",
         });
         const newStatus = wfRes?.data?.status || "PENDING_APPROVAL";
         setPurchaseOrders((prev) =>
@@ -725,8 +754,9 @@ export default function PurchaseOrdersImportList() {
           </h1>
           <p className="text-sm mt-1">Manage import purchase orders</p>
         </div>
-        <div className="flex gap-2">
-          <Link to="/purchase" className="btn btn-secondary">
+        <div className="flex gap-2 items-center">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          <Link to="/purchase?section=Procurement" className="btn btn-secondary">
             Return to Menu
           </Link>
           <Link
@@ -768,7 +798,7 @@ export default function PurchaseOrdersImportList() {
         </div>
 
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <SortableHeader label="PO No" sortKey="po_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -857,14 +887,14 @@ export default function PurchaseOrdersImportList() {
                         {/* Slot 3: Print */}
                         <div className="min-w-[80px]">
                           <ListPrintIconButton
-                            onClick={() => printDocument(api, "purchase-order", po.id, toast)}
+                            onClick={() => printDocument(api, "purchase-order", po.id, toast, undefined, () => getPrintData(po))}
                           />
                         </div>
 
                         {/* Slot 4: PDF */}
                         <div className="min-w-[80px]">
                           <ListPdfIconButton
-                            onClick={() => downloadDocumentPdf(api, "purchase-order", po.id, `PO-Import-${po.po_no || po.id}.pdf`, toast)}
+                            onClick={() => downloadDocumentPdf(api, "purchase-order", po.id, `PO-Import-${po.po_no || po.id}.pdf`, toast, undefined, () => getPrintData(po))}
                           />
                         </div>
 
@@ -901,9 +931,9 @@ export default function PurchaseOrdersImportList() {
                                 )}
                               </div>
                             ) : po.status === "PENDING_APPROVAL" || po.forwarded_to_username || forwardedTo[po.id] ? (
-                              <span className="list-approval-forwarded-pill">
+                              <PendingApprovalTooltip documentType="PURCHASE_ORDER" documentId={po.id}><span className="list-approval-forwarded-pill">
                                 Forwarded to {po.forwarded_to_username || forwardedTo[po.id] || "Approver"}
-                              </span>
+                              </span></PendingApprovalTooltip>
                             ) : (
                               <button
                                 type="button"
@@ -954,6 +984,7 @@ export default function PurchaseOrdersImportList() {
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white hover:text-slate-200 text-xl font-bold"
               >
@@ -1048,7 +1079,18 @@ export default function PurchaseOrdersImportList() {
                 })()}
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
               <button
                 type="button"
                 className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
@@ -1058,6 +1100,7 @@ export default function PurchaseOrdersImportList() {
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
               >
                 Cancel

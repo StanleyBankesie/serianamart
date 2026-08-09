@@ -17,6 +17,7 @@ import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function toISODate(v) {
   if (!v) return "";
@@ -37,6 +38,7 @@ export default function GRNLocalForm() {
   const navigate = useNavigate();
   const location = useLocation();
   const isNew = id === "new";
+  const { hasExceptional } = usePermission();
   const isEdit =
     Boolean(id) &&
     id !== "new" &&
@@ -57,6 +59,7 @@ export default function GRNLocalForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardComments, setForwardComments] = useState("");
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -696,7 +699,8 @@ export default function GRNLocalForm() {
             : Number(formData.invoice_amount || 0),
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
-      });
+        comments: forwardComments,
+        });
       setFormData((prev) => ({ ...prev, status: newStatus }));
       setShowForwardModal(false);
       toast.success("GRN submitted for approval successfully");
@@ -872,9 +876,9 @@ export default function GRNLocalForm() {
                 Goods receipt note for local purchases
               </p>
             </div>
-            <Link to="/inventory/grn-local" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -914,11 +918,12 @@ export default function GRNLocalForm() {
                           setFormData({ ...formData, grn_date: e.target.value })
                         }
                         required
+                        disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                     </div>
                     <div>
                       <label className="label">Warehouse</label>
-                      <select
+                      <select required
                         className="input w-80"
                         value={formData.warehouse_id}
                         onChange={(e) =>
@@ -1027,6 +1032,8 @@ export default function GRNLocalForm() {
                           })
                         }
                         required
+                      
+                        disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                       />
                     </div>
                     <div>
@@ -1041,6 +1048,8 @@ export default function GRNLocalForm() {
                             invoice_due_date: e.target.value,
                           })
                         }
+                      
+                        disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                       />
                     </div>
                     <div>
@@ -1069,6 +1078,8 @@ export default function GRNLocalForm() {
                             delivery_date: e.target.value,
                           })
                         }
+                      
+                        disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                       />
                     </div>
                   </div>
@@ -1432,6 +1443,8 @@ export default function GRNLocalForm() {
                                       mfg_date: e.target.value,
                                     })
                                   }
+                                
+                                  disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                                 />
                               </td>
                               <td>
@@ -1444,6 +1457,8 @@ export default function GRNLocalForm() {
                                       expiry_date: e.target.value,
                                     })
                                   }
+                                
+                                  disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                                 />
                               </td>
                               <td>
@@ -1492,9 +1507,9 @@ export default function GRNLocalForm() {
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-                <Link to="/inventory/grn-local" className="btn-secondary">
+                <button onClick={() => window.history.back()} className="btn-secondary">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-primary"

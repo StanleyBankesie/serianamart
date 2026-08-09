@@ -30,6 +30,8 @@ const PAGE_IDS = {
   SALES_RETURN: 19,
   PURCHASE_RETURN: 20,
   DELIVERY_NOTE: 21,
+  TRANSPORT_EXPENSES: 22,
+  TRANSPORT_INCOME: 23,
 };
 
 const ALL_PAGES = [
@@ -96,7 +98,16 @@ const ALL_PAGES = [
     code: "PURCHASE_RETURN",
     label: "Purchase Return",
   },
-  { value: PAGE_IDS.DELIVERY_NOTE, code: "DELIVERY_NOTE", label: "Delivery Note" },
+  {
+    value: PAGE_IDS.TRANSPORT_EXPENSES,
+    code: "TRANSPORT_EXPENSES",
+    label: "Transport Expenses & Logs",
+  },
+  {
+    value: PAGE_IDS.TRANSPORT_INCOME,
+    code: "TRANSPORT_INCOME",
+    label: "Transportation Income",
+  },
 ];
 
 const SALES_PAGES = [
@@ -535,6 +546,8 @@ export default function TaxCodesPage() {
         delete n[id];
         return n;
       });
+      setShowEditModal(false);
+      setEditingTaxId(null);
       load();
     } catch (e2) {
       toast.error(e2?.response?.data?.message || "Failed to update tax code");
@@ -563,34 +576,40 @@ export default function TaxCodesPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold dark:text-brand-300">
-              Tax Codes & Deductions
-            </h1>
-            <p className="text-sm mt-1">
-              Configure tax and deduction codes used across modules
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              className="btn btn-success shadow-sm"
-              onClick={() => setShowCreateModal(true)}
-            >
-              + Create Tax Code
-            </button>
-            <Link to="/finance" className="font-sans btn btn-secondary">
-              Return to Menu
-            </Link>
-            <button
-              className="btn btn-secondary"
-              onClick={load}
-              disabled={loading}
-            >
-              Refresh
-            </button>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header Banner */}
+      <div className="card shadow-md">
+        <div className="card-header bg-brand text-white rounded-t-lg p-5">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <button onClick={() => window.history.back()} className="inline-flex items-center gap-1.5 text-xs text-white/80 hover:text-white transition-colors mb-2"
+              >
+                ← Back to Accounting Setup
+              </button>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                Tax Codes & Deductions Setup
+              </h1>
+              <p className="text-sm mt-0.5 opacity-90">
+                Configure tax codes, compound rates, component splits & module applicability
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn-success text-xs px-3.5 py-2 flex items-center gap-1.5 font-bold"
+                onClick={() => setShowCreateModal(true)}
+              >
+                + Create Tax Code
+              </button>
+              <button
+                type="button"
+                className="px-3.5 py-2 text-xs font-semibold bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors flex items-center gap-1.5"
+                onClick={load}
+                disabled={loading}
+              >
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
       </div>

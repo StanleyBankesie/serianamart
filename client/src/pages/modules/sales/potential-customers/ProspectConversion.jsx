@@ -198,9 +198,9 @@ export default function ProspectConversion() {
               Convert a prospective customer into a full customer account
             </p>
           </div>
-          <Link to="/sales/customers" className="btn-success">
+          <button onClick={() => window.history.back()} className="btn-success">
             Back to Customers
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -413,9 +413,9 @@ export default function ProspectConversion() {
                   </div>
                 </div>
                 <div className="flex justify-end gap-3 pt-4">
-                  <Link to="/sales/customers" className="btn btn-secondary">
+                  <button onClick={() => window.history.back()} className="btn btn-secondary">
                     Cancel
-                  </Link>
+                  </button>
                   <button className="btn-success" disabled={loading}>
                     {loading ? "Converting..." : "Complete Conversion"}
                   </button>

@@ -20,9 +20,9 @@ export default function LeaveApplication({ isEmbedded }) {
   const loadData = async () => {
     try {
       const [eRes, tRes, rRes] = await Promise.all([
-        api.get("/hr/employees?status=ACTIVE"),
-        api.get("/hr/leave/types"),
-        api.get("/hr/leave/records?source=APPLICATION"),
+        api.get("/hr/employees?status=ACTIVE").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/leave/types").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/leave/records?source=APPLICATION").catch(() => ({ data: { items: [] } })),
       ]);
       setEmployees(eRes.data?.items || []);
       setTypes(tRes.data?.items || []);
@@ -93,9 +93,9 @@ export default function LeaveApplication({ isEmbedded }) {
     <div className={isEmbedded ? "space-y-6" : "p-4 md:p-8 space-y-8"}>
       {!isEmbedded && (
         <div className="flex items-center gap-4">
-          <Link to="/human-resources" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             ← Back
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
               Leave Request
@@ -120,12 +120,10 @@ export default function LeaveApplication({ isEmbedded }) {
                     <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
                       New Request
                     </h2>
-                    <Link
-                      to="/human-resources/leave/request?mode=list"
-                      className="btn-secondary text-sm"
+                    <button onClick={() => window.history.back()} className="btn-secondary text-sm"
                     >
                       Back to List
-                    </Link>
+                    </button>
                   </div>
                   <div className="mb-4">
                     <Link

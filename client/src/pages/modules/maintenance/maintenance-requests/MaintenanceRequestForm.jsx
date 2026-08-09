@@ -4,9 +4,10 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 const DEFAULT_MAINT_TYPES = [
   "Corrective",
@@ -25,9 +26,12 @@ const today = () => new Date().toISOString().slice(0, 10);
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceRequestForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = !!id;
+  const location = useLocation();
+  const readOnly = new URLSearchParams(location.search).get("mode") === "view";
   const [form, setForm] = useState({
     request_no: "",
     request_date: today(),
@@ -323,9 +327,9 @@ export default function MaintenanceRequestForm() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link to="/maintenance/maintenance-requests" className="btn-secondary">
+        <button onClick={() => window.history.back()} className="btn-secondary">
           ← Back
-        </Link>
+        </button>
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
             {isEdit ? "Edit" : "New"} Maintenance Request
@@ -359,6 +363,8 @@ export default function MaintenanceRequestForm() {
                 value={form.request_date}
                 onChange={(e) => update("request_date", e.target.value)}
                 required
+              
+                disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
               />
             </div>
             <div>
@@ -368,6 +374,8 @@ export default function MaintenanceRequestForm() {
                 type="date"
                 value={form.breakdown_date || ""}
                 onChange={(e) => update("breakdown_date", e.target.value)}
+              
+                disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
               />
             </div>
             <div>
@@ -487,12 +495,10 @@ export default function MaintenanceRequestForm() {
           </div>
         </div>
         <div className="flex justify-end gap-2">
-          <Link
-            to="/maintenance/maintenance-requests"
-            className="btn-secondary"
+          <button onClick={() => window.history.back()} className="btn-secondary"
           >
             Cancel
-          </Link>
+          </button>
           <button type="submit" className="btn-primary" disabled={saving}>
             {saving ? "Saving..." : "Save Request"}
           </button>

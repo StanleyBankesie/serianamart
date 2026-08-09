@@ -18,12 +18,18 @@ export default function UserOverrides() {
   const STANDARD_EXCEPTIONS = [
     { code: "SALES.DISCOUNT.ALLOW", label: "Permission to give discount" },
     { code: "WORKFLOW.APPROVAL.REVERSE", label: "Reversal of approval" },
+    {
+      code: "WORKFLOW.PENDING_APPROVAL.REVERSE",
+      label: "Reversal of pending approval document to draft",
+    },
     { code: "SALES.ORDER.CANCEL", label: "Sales Order Cancellations" },
     { code: "SALES.QUOTATION.CANCEL", label: "Sales Quotation Cancellation" },
     { code: "PURCHASE.ORDER.CANCEL", label: "Purchase Order Cancellations" },
     { code: "SALES.INVOICE.CANCEL", label: "Invoice Cancellations" },
     { code: "PURCHASE.GRN.REVERSE", label: "GRN Reversal" },
     { code: "PURCHASE.BILL.CANCEL", label: "Purchase Bill Cancellation" },
+    { code: "MAINTENANCE.BILL.CANCEL", label: "Maintenance Bill Cancellation" },
+    { code: "SERVICE.BILL.CANCEL", label: "Service Bill Cancellation" },
     {
       code: "PURCHASE.SHIPPING_ADVICE.CANCEL",
       label: "Cancel Shipping Advice",
@@ -41,12 +47,28 @@ export default function UserOverrides() {
       label: "General Requisition Cancellations",
     },
     {
+      code: "PM.PR.CANCEL",
+      label: "Project Purchase Requisition Cancellations",
+    },
+    {
       code: "POS.EXPECTED_CASH.VIEW",
       label: "POS Day Management - View Expected Cash",
     },
     {
       code: "POS.CASH_VARIANCE.VIEW",
       label: "POS Day Management - View Cash Variance",
+    },
+    {
+      code: "DOCUMENT.EDIT_DATE",
+      label: "Edit Document Date in Edit Mode (All Modules)",
+    },
+    {
+      code: "TASK.REASSIGN",
+      label: "Task Management - Reassign Task to Users",
+    },
+    {
+      code: "TRANSPORT.TRIP.REASSIGN",
+      label: "Trip Management - Reassign Trip to Drivers / Users",
     },
   ];
   const [users, setUsers] = useState([]);
@@ -188,9 +210,9 @@ export default function UserOverrides() {
             Set exceptional overrides per user
           </p>
         </div>
-        <Link to="/administration" className="btn btn-secondary">
+        <button onClick={() => window.history.back()} className="btn btn-secondary">
           Back to Menu
-        </Link>
+        </button>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
       <div className="card">

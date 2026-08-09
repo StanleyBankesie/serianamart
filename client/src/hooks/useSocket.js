@@ -67,13 +67,47 @@ export function useSocket() {
       globalHolder.authKey = "";
     }
 
-    const backendOrigin =
+    let backendOrigin =
       import.meta.env.VITE_API_PROXY_TARGET || window.location.origin;
+      
+    if (typeof window !== "undefined") {
+      const hostname = window.location.hostname;
+      if (hostname.includes("kindheart") || hostname.includes("kindtreat")) {
+        backendOrigin = "https://kindserver.omnisuite-erp.com";
+      } else if (hostname === "kaf.omnisuite-erp.com" || hostname === "kafserver.omnisuite-erp.com") {
+        backendOrigin = "https://kafserver.omnisuite-erp.com";
+      } else if (hostname === "demo.omnisuite-erp.com" || hostname === "demoserver.omnisuite-erp.com") {
+        backendOrigin = "https://demoserver.omnisuite-erp.com";
+      }
+    }
+
     const transportPref = (
       import.meta.env.VITE_SOCKET_TRANSPORT || ""
     ).toLowerCase();
-    const transports =
-      transportPref === "websocket" ? ["websocket"] : ["polling", "websocket"];
+    
+    // Force polling by default to prevent WebSocket upgrade errors on strict Nginx/Plesk servers
+    const transports = transportPref === "websocket" 
+      ? ["websocket"] 
+      : transportPref === "both" 
+        ? ["polling", "websocket"] 
+        : ["polling"];
+      
+    const disableSockets = import.meta.env.VITE_DISABLE_SOCKETS === "true";
+
+    if (disableSockets) {
+      console.log("Socket.io is disabled in this environment.");
+      const dummySocket = {
+        on: () => {},
+        off: () => {},
+        emit: () => {},
+        disconnect: () => {},
+        connect: () => {},
+        id: "dummy-socket",
+      };
+      setSocket(dummySocket);
+      return;
+    }
+
     const newSocket = io(backendOrigin, {
       path: "/socket.io",
       withCredentials: true,

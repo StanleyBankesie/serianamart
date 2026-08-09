@@ -10,6 +10,7 @@ import { filterByPrefix } from "@/utils/searchUtils.js";
 
 import { toast } from "react-toastify";
 import { api } from "api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -17,6 +18,7 @@ import { api } from "api/client";
  * @returns {JSX.Element} The rendered component
  */
 export default function IssueToRequirementForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = !id || id === "new";
@@ -392,9 +394,9 @@ export default function IssueToRequirementForm() {
                 Issue materials to departments / requirement areas
               </p>
             </div>
-            <Link to="/inventory/issue-to-requirement" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -423,6 +425,8 @@ export default function IssueToRequirementForm() {
                     setFormData({ ...formData, issueDate: e.target.value })
                   }
                   required
+                
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
               <div>
@@ -459,7 +463,7 @@ export default function IssueToRequirementForm() {
               </div>
               <div>
                 <label className="label">Source Warehouse</label>
-                <select
+                <select required
                   className="input"
                   value={formData.warehouseId}
                   onChange={(e) =>
@@ -718,12 +722,10 @@ export default function IssueToRequirementForm() {
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-              <Link
-                to="/inventory/issue-to-requirement"
-                className="px-4 py-2 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+              <button onClick={() => window.history.back()} className="px-4 py-2 border border-slate-300 rounded text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
               >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={(e) => handleSubmit(e, "DRAFT")}

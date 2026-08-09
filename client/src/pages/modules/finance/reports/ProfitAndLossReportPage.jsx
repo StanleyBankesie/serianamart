@@ -18,6 +18,12 @@ const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDig
  * @returns {JSX.Element} The rendered component
  */
 export default function ProfitAndLossReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [income, setIncome] = useState({ items: [], total: 0 });
@@ -96,7 +102,7 @@ export default function ProfitAndLossReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
+  }, [from, to, pollingCounter]);
 
   // Flatten tree for export purposes
   function flattenTree(nodes, maxLevel = 99, rows = [], section = "") {
@@ -283,9 +289,9 @@ export default function ProfitAndLossReportPage() {
       {/* Header */}
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
-          <Link to="/finance" className="font-sans text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors">
+          <button onClick={() => window.history.back()} className="font-sans text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors">
             ← Back to Finance
-          </Link>
+          </button>
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-2 tracking-tight">
             Profit & Loss
           </h1>

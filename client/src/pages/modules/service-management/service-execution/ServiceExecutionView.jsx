@@ -42,15 +42,13 @@ export default function ServiceExecutionView() {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">Service Execution</h2>
         <div className="flex gap-2">
-          <Link
-            to="/service-management/service-executions"
-            className="btn-secondary"
+          <button onClick={() => window.history.back()} className="btn-secondary"
           >
             Back to List
-          </Link>
-          <Link to="/service-management" className="btn-secondary">
+          </button>
+          <button onClick={() => window.history.back()} className="btn-secondary">
             Back to Menu
-          </Link>
+          </button>
         </div>
       </div>
       {error ? <div className="text-red-600">{error}</div> : null}

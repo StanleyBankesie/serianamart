@@ -48,7 +48,7 @@ export default function SalesOrderForm() {
   const { id } = useParams();
   const isEditMode = !!id;
   const { user } = useAuth();
-  const { canEditDiscount, canAccessPath } = usePermission();
+  const { canEditDiscount, canAccessPath, hasExceptional } = usePermission();
   const { getExchangeRate } = useExchangeRate();
   const [searchParams] = useSearchParams();
   const isViewMode =
@@ -67,6 +67,7 @@ export default function SalesOrderForm() {
     currency_id: 4,
     exchange_rate: 1,
     sales_person_id: "",
+    salesperson: "",
     warehouse_id: "",
     price_type: "",
     payment_type: "CASH",
@@ -87,6 +88,7 @@ export default function SalesOrderForm() {
 
   const [items, setItems] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [salespersons, setSalespersons] = useState([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showPermModal, setShowPermModal] = useState(false);
@@ -185,8 +187,8 @@ export default function SalesOrderForm() {
   const statuses = [
     { value: "DRAFT", label: "Draft", color: "bg-gray-100 text-gray-800" },
     {
-      value: "CONFIRMED",
-      label: "Confirmed",
+      value: "APPROVED",
+      label: "Approved",
       color: "bg-blue-100 text-blue-800",
     },
     {
@@ -319,6 +321,7 @@ export default function SalesOrderForm() {
     fetchPriceTypes();
     fetchTaxCodes();
     fetchCompanyInfo();
+    fetchSalespersons();
     if (isEditMode) {
       fetchOrder();
     } else {
@@ -440,6 +443,17 @@ export default function SalesOrderForm() {
       );
     } catch (error) {
       console.error("Error fetching customers:", error);
+    }
+  };
+
+  const fetchSalespersons = async () => {
+    try {
+      const response = await api.get("/sales/sales-persons");
+      setSalespersons(
+        Array.isArray(response.data?.items) ? response.data.items : [],
+      );
+    } catch (error) {
+      console.error("Error fetching salespersons:", error);
     }
   };
 
@@ -651,6 +665,7 @@ export default function SalesOrderForm() {
           currency_id: data.currency_id ?? prev.currency_id ?? "",
           exchange_rate: data.exchange_rate || 1,
           sales_person_id: data.sales_person_id || "",
+          salesperson: data.salesperson || "",
           payment_terms: data.payment_terms || "",
           priority: data.priority || "MEDIUM",
           shipping_charges: data.shipping_charges || 0,
@@ -1138,10 +1153,8 @@ export default function SalesOrderForm() {
           formData.warehouse_id != null && formData.warehouse_id !== ""
             ? Number(formData.warehouse_id)
             : null,
-        sales_person_id:
-          formData.sales_person_id != null && formData.sales_person_id !== ""
-            ? Number(formData.sales_person_id)
-            : null,
+        salesperson: formData.salesperson || "",
+        remarks: formData.remarks,
         total_amount: totals.total,
         sub_total: totals.sub,
         tax_amount: totals.tax,
@@ -1208,9 +1221,9 @@ export default function SalesOrderForm() {
     }
   };
 
-  const isConfirmed =
-    String(formData.status || "").toUpperCase() === "CONFIRMED";
-  const viewLocked = isViewMode && isConfirmed;
+  const isApproved =
+    String(formData.status || "").toUpperCase() === "APPROVED";
+  const viewLocked = isViewMode && isApproved;
   return (
     <>
       <div
@@ -1394,6 +1407,7 @@ export default function SalesOrderForm() {
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
                       required
+                      disabled={isViewMode || (isEditMode && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                     />
                   </div>
                   <div className="relative">
@@ -1483,7 +1497,7 @@ export default function SalesOrderForm() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Warehouse
                     </label>
-                    <select
+                    <select required
                       name="warehouse_id"
                       value={formData.warehouse_id}
                       onChange={handleInputChange}
@@ -1511,6 +1525,33 @@ export default function SalesOrderForm() {
                       {quotations.map((q) => (
                         <option key={q.id} value={q.id}>
                           {q.quotation_no} - {q.customer_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Salesperson</label>
+                    <select
+                      className="input w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      value={formData.sales_person_id || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!val) {
+                          setFormData({ ...formData, sales_person_id: "", salesperson: "" });
+                          return;
+                        }
+                        const sp = salespersons.find(s => String(s.id) === String(val));
+                        setFormData({
+                           ...formData,
+                           sales_person_id: sp ? sp.id : "",
+                           salesperson: sp ? sp.name : ""
+                        });
+                      }}
+                    >
+                      <option value="">Select Salesperson</option>
+                      {salespersons.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
                         </option>
                       ))}
                     </select>
@@ -1587,6 +1628,7 @@ export default function SalesOrderForm() {
                         onChange={handleInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
                         required={formData.payment_type === "CREDIT"}
+                        disabled={isViewMode || (isEditMode && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                       />
                     </div>
                   )}
@@ -2075,12 +2117,10 @@ export default function SalesOrderForm() {
 
             {/* Form Actions */}
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t print:hidden">
-              <Link
-                to="/sales/sales-orders"
-                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+              <button onClick={() => window.history.back()} className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
               >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="submit"
                 disabled={loading}

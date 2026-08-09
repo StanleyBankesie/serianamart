@@ -17,6 +17,8 @@ import {
   ListAttachmentIconButton,
 } from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 function Badge({ value, colorMap }) {
   const v = String(value || "").toUpperCase();
@@ -53,6 +55,7 @@ const priorityColors = {
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceRequestsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   const { canReverseApproval } = usePermission();
@@ -64,6 +67,7 @@ export default function MaintenanceRequestsList() {
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [firstApprover, setFirstApprover] = useState(null);
@@ -159,6 +163,7 @@ export default function MaintenanceRequestsList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       setHasInactiveWorkflow(false);
       return;
     }
@@ -223,6 +228,7 @@ export default function MaintenanceRequestsList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       setHasInactiveWorkflow(false);
       return;
     }
@@ -286,6 +292,7 @@ export default function MaintenanceRequestsList() {
     setSelectedRequest(req);
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     if (!workflowsCache) {
       setWfLoading(true);
       try {
@@ -320,6 +327,7 @@ export default function MaintenanceRequestsList() {
     }
     setSubmittingForward(true);
     setWfError("");
+                    setForwardComments("");
 
     let optimisticApprover = null;
     try {
@@ -363,6 +371,7 @@ export default function MaintenanceRequestsList() {
         {
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
+        comments: forwardComments,
         },
       );
       toast.success("Request forwarded for approval");
@@ -370,10 +379,11 @@ export default function MaintenanceRequestsList() {
       return;
     } catch (e) {
       try {
-        await api.post("/workflows/forward-by-document", {
+        await api.post("/workflows/start", {
           document_type: "MAINT_REQUEST",
           document_id: selectedRequest.id,
           target_user_id: targetApproverId || null,
+          comments: forwardComments || "Forwarded for Approval",
         });
         toast.success("Request forwarded for approval");
         await load();
@@ -404,7 +414,7 @@ export default function MaintenanceRequestsList() {
       <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-4">
-            <Link to="/maintenance" className="btn btn-secondary p-2">
+            <Link to="/maintenance?section=Operations %26 Schedules" className="btn btn-secondary p-2">
               <ArrowLeft size={20} />
             </Link>
             <div>
@@ -440,19 +450,23 @@ export default function MaintenanceRequestsList() {
         </div>
 
         <div className="card bg-white overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
-                  <th>Requester</th>
-                  <th>Department</th>
-                  <th>Type</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Created By</th>
-                  <th>Created Date</th>
-                  <th>Approval</th>
-                  <th className="text-right">Actions</th>
+                  <th className="whitespace-nowrap">Requester</th>
+                  <th className="whitespace-nowrap">Department</th>
+                  <th className="whitespace-nowrap">Type</th>
+                  <th className="whitespace-nowrap">Priority</th>
+                  <th className="whitespace-nowrap">Status</th>
+                  <th className="whitespace-nowrap">Created By</th>
+                  <th className="whitespace-nowrap">Created Date</th>
+                  <th className="whitespace-nowrap">Approval</th>
+                  <th className="text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
@@ -460,7 +474,7 @@ export default function MaintenanceRequestsList() {
                   <tr>
                     <td
                       colSpan="9"
-                      className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest"
+                      className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest whitespace-nowrap"
                     >
                       Fetching Tickets...
                     </td>
@@ -477,33 +491,33 @@ export default function MaintenanceRequestsList() {
                       : upperStatus || "DRAFT";
                     return (
                       <tr key={r.id} className="group">
-                        <td className="px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                        <td className="px-4 py-3 text-sm font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">
                           {r.requester_name}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-500">
+                        <td className="px-4 py-3 text-sm text-slate-500 whitespace-nowrap">
                           {r.department}
                         </td>
-                        <td className="px-4 py-3 text-sm text-slate-500">
+                        <td className="px-4 py-3 text-sm text-slate-500 whitespace-nowrap">
                           {r.maintenance_type}
                         </td>
-                        <td className="px-4 py-3 text-sm">
+                        <td className="px-4 py-3 text-sm whitespace-nowrap">
                           <Badge value={r.priority} colorMap={priorityColors} />
                         </td>
-                        <td className="px-4 py-3 text-sm">
+                        <td className="px-4 py-3 text-sm whitespace-nowrap">
                           <Badge
                             value={displayStatus}
                             colorMap={statusColors}
                           />
                         </td>
-                        <td className="px-4 py-3 text-sm">
+                        <td className="px-4 py-3 text-sm whitespace-nowrap">
                           {r.created_by_name || "-"}
                         </td>
-                        <td className="px-4 py-3 text-sm">
+                        <td className="px-4 py-3 text-sm whitespace-nowrap">
                           {r.created_at
                             ? new Date(r.created_at).toLocaleDateString()
                             : "-"}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 whitespace-nowrap">
                           <div className="min-w-[160px]">
                             <div className="list-approval-slot">
                               {displayStatus === "APPROVED" ? (
@@ -542,7 +556,7 @@ export default function MaintenanceRequestsList() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-2">
                             <button
                               type="button"
@@ -590,7 +604,7 @@ export default function MaintenanceRequestsList() {
                   <tr>
                     <td
                       colSpan="9"
-                      className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50"
+                      className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50 whitespace-nowrap"
                     >
                       No maintenance tickets found.
                     </td>
@@ -628,6 +642,7 @@ export default function MaintenanceRequestsList() {
                   setTargetApproverId(null);
                   setWorkflowSteps([]);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white hover:text-slate-200 text-xl font-bold leading-none"
               >
@@ -715,7 +730,18 @@ export default function MaintenanceRequestsList() {
                 })()}
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
               <button
                 type="button"
                 className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
@@ -727,6 +753,7 @@ export default function MaintenanceRequestsList() {
                   setTargetApproverId(null);
                   setWorkflowSteps([]);
                   setWfError("");
+                    setForwardComments("");
                 }}
               >
                 Cancel

@@ -104,9 +104,9 @@ export default function RoleDefaultPermissions() {
             Define CRUD defaults per module
           </p>
         </div>
-        <Link to="/administration" className="btn btn-secondary">
+        <button onClick={() => window.history.back()} className="btn btn-secondary">
           Back to Menu
-        </Link>
+        </button>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
       <div className="card">

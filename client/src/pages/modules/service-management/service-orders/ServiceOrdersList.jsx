@@ -10,6 +10,8 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { toast } from "react-toastify";
 import { ListAttachmentIconButton } from "@/components/list/ListDocActionIconButtons.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -17,6 +19,7 @@ import { ListAttachmentIconButton } from "@/components/list/ListDocActionIconBut
  * @returns {JSX.Element} The rendered component
  */
 export default function ServiceOrdersList() {
+  const [viewMode, setViewMode] = useViewMode();
   const location = useLocation();
   const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
@@ -33,7 +36,7 @@ export default function ServiceOrdersList() {
       try {
         const resp = await api.get("/purchase/service-orders");
         const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
-        if (mounted) setItems(rows);
+        if (mounted) setItems(Array.isArray(rows) ? rows : []);
       } catch (e) {
         if (mounted) {
           setError("No service order API found. Showing placeholder list.");
@@ -71,7 +74,7 @@ export default function ServiceOrdersList() {
           <div className="flex justify-between items-center">
             <div className="font-semibold">Service Orders</div>
             <div className="flex gap-2">
-              <Link to="/service-management" className="btn btn-secondary">
+              <Link to="/service-management?section=Reports%20%26%20Parameters" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link
@@ -98,44 +101,48 @@ export default function ServiceOrdersList() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
-                  <th>Order No</th>
-                  <th>Date</th>
-                  <th>Order Type</th>
-                  <th>Project</th>
-                    <th>Customer/Contractor</th>
-                  <th>Service</th>
-                  <th>Status</th>
-                  <th>Total</th>
-                  <th className="text-right">Actions</th>
-                  <th>Created By</th>
-                  <th>Created Date</th>
+                  <th className="whitespace-nowrap">Order No</th>
+                  <th className="whitespace-nowrap">Date</th>
+                  <th className="whitespace-nowrap">Order Type</th>
+                  <th className="whitespace-nowrap">Project</th>
+                    <th className="whitespace-nowrap">Customer/Contractor</th>
+                  <th className="whitespace-nowrap">Service</th>
+                  <th className="whitespace-nowrap">Status</th>
+                  <th className="whitespace-nowrap">Total</th>
+                  <th className="text-right whitespace-nowrap">Actions</th>
+                  <th className="whitespace-nowrap">Created By</th>
+                  <th className="whitespace-nowrap">Created Date</th>
                 </tr>
               </thead>
               <tbody>
                 {!loading && filtered.length === 0 ? (
                   <tr>
-                    <td colSpan="11" className="text-center text-slate-500">
+                    <td colSpan="11" className="text-center text-slate-500 whitespace-nowrap">
                       No service orders
                     </td>
                   </tr>
                 ) : null}
                 {filtered.map((it) => (
                   <tr key={it.id}>
-                    <td>{it.order_no}</td>
-                    <td>{it.order_date}</td>
-                    <td>{it.order_type}</td>
-                    <td>{it.project_name || "-"}</td>
-                      <td>{it.customer_name}</td>
-                    <td>{it.service_type}</td>
-                    <td>{it.status}</td>
-                    <td className="text-right">
+                    <td className="whitespace-nowrap">{it.order_no}</td>
+                    <td className="whitespace-nowrap">{it.order_date}</td>
+                    <td className="whitespace-nowrap">{it.order_type}</td>
+                    <td className="whitespace-nowrap">{it.project_name || "-"}</td>
+                      <td className="whitespace-nowrap">{it.customer_name}</td>
+                    <td className="whitespace-nowrap">{it.service_type}</td>
+                    <td className="whitespace-nowrap">{it.status}</td>
+                    <td className="text-right whitespace-nowrap">
                       {Number(it.total_amount || 0).toFixed(2)}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-6 py-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-2">
                         {/* Slot 1: View */}
                         <div className="min-w-[80px]">
@@ -171,8 +178,8 @@ export default function ServiceOrdersList() {
                         </div>
                       </div>
                     </td>
-                    <td>{it.created_by_username || it.created_by_name || it.requestor_name || "-"}</td>
-                    <td>{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="whitespace-nowrap">{it.created_by_username || it.created_by_name || it.requestor_name || "-"}</td>
+                    <td className="whitespace-nowrap">{it.created_at ? new Date(it.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 ))}
               </tbody>

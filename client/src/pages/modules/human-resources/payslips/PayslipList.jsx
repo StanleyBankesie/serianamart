@@ -9,6 +9,8 @@ import { api } from "../../../../api/client.js";
 import { renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { toast } from "react-toastify";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -16,6 +18,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function PayslipList() {
+  const [viewMode, setViewMode] = useViewMode();
   const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -264,9 +267,9 @@ export default function PayslipList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/human-resources" className="btn btn-secondary">
+              <button onClick={() => window.history.back()} className="btn btn-secondary">
                 Back to Menu
-              </Link>
+              </button>
               <button
                 onClick={sendBulkEmails}
                 disabled={sendingBulk || !items.length}
@@ -356,8 +359,12 @@ export default function PayslipList() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th>Period</th>

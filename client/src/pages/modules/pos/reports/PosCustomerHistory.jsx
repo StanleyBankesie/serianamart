@@ -32,6 +32,12 @@ function yearEnd() {
  * @returns {JSX.Element} The rendered component
  */
 export default function PosCustomerHistory() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, []);
+
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [fromDate, setFromDate] = useState(yearStart());
@@ -102,7 +108,7 @@ export default function PosCustomerHistory() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [pollingCounter]);
 
   function fmt(n) {
     return `${currencySymbol} ${Number(n || 0).toLocaleString(undefined, {
@@ -362,12 +368,10 @@ ${bodyHtml}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/pos"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to POS
-          </Link>
+          </button>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
               Customer Accounts
             </h1>

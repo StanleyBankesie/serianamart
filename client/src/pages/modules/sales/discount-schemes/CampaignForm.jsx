@@ -8,6 +8,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
 import "./DiscountSchemeList.css";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 const initialFormState = {
   scheme_code: "",
@@ -29,6 +30,7 @@ const initialFormState = {
  * @returns {JSX.Element} The rendered component
  */
 export default function CampaignForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
@@ -170,9 +172,9 @@ export default function CampaignForm() {
             <p>{isEdit ? "Update campaign details" : "Create a new promotional campaign"}</p>
           </div>
           <div className="ds-header-actions">
-            <Link to="/sales/discount-schemes/discount" className="ds-btn ds-btn-secondary">
+            <button onClick={() => window.history.back()} className="ds-btn ds-btn-secondary">
               Back to Campaigns
-            </Link>
+            </button>
           </div>
         </div>
       </header>
@@ -228,6 +230,8 @@ export default function CampaignForm() {
                 value={formData.effective_from}
                 onChange={handleChange}
                 required
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
             <div className="ds-form-group">
@@ -237,6 +241,8 @@ export default function CampaignForm() {
                 name="effective_to"
                 value={formData.effective_to}
                 onChange={handleChange}
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
           </div>
@@ -357,9 +363,9 @@ export default function CampaignForm() {
             <button type="submit" className="ds-btn ds-btn-success" disabled={saving}>
               {saving ? "Saving..." : "💾 Save Campaign"}
             </button>
-            <Link to="/sales/discount-schemes/discount" className="ds-btn ds-btn-secondary">
+            <button onClick={() => window.history.back()} className="ds-btn ds-btn-secondary">
               ✖ Cancel
-            </Link>
+            </button>
           </div>
         </form>
       </div>

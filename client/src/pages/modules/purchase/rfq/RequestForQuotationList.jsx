@@ -9,6 +9,8 @@ import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -16,6 +18,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function RequestForQuotationList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [rfqs, setRfqs] = useState([]);
@@ -83,8 +86,9 @@ export default function RequestForQuotationList() {
             Create and send RFQs to suppliers for competitive bidding
           </p>
         </div>
-        <div className="flex gap-2">
-          <Link to="/purchase" className="btn btn-secondary">
+        <div className="flex gap-2 items-center">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          <Link to="/purchase?section=Procurement" className="btn btn-secondary">
             Return to Menu
           </Link>
           <Link to="/purchase/rfqs/new" className="btn-success">
@@ -121,7 +125,7 @@ export default function RequestForQuotationList() {
           </div>
         </div>
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <th>RFQ No</th>

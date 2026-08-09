@@ -15,6 +15,8 @@ import { toast } from "react-toastify";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -22,6 +24,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function PurchaseBillsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const location = useLocation();
   const billType = location.pathname.includes("purchase-bills-import")
     ? "IMPORT"
@@ -154,8 +157,9 @@ export default function PurchaseBillsList() {
           </h1>
           <p className="text-sm mt-1">Record and manage supplier bills</p>
         </div>
-        <div className="flex gap-2">
-          <Link to="/purchase" className="btn btn-secondary">
+        <div className="flex gap-2 items-center">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          <Link to="/purchase?section=Procurement" className="btn btn-secondary">
             Return to Menu
           </Link>
           {canPerformAction(
@@ -190,7 +194,7 @@ export default function PurchaseBillsList() {
         </div>
 
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <SortableHeader label="Bill No" sortKey="bill_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

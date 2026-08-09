@@ -18,6 +18,7 @@ let tablesEnsuredPromise = null;
 
 // Helper to run database migrations/ensure tables exist for maintenance module
 function ensureTables(companyId, branchId) {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   if (!tablesEnsuredPromise) {
     tablesEnsuredPromise = (async () => {
       try {
@@ -1726,6 +1727,7 @@ export const getJobExecutionById = async (req, res, next) => {
 // Record a new job execution/completion report
 
 async function ensureMaintMaterialUtilizationTables(companyId, branchId) {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   await query(`CREATE TABLE IF NOT EXISTS maint_material_utilization (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     company_id BIGINT UNSIGNED NOT NULL,
@@ -1940,7 +1942,7 @@ export const createBill = async (req, res, next) => {
       { companyId, branchId, branchIdsStr },
     );
     const bill_no = b.bill_no || nextNo("MBL", existing);
-    const r = await query(`INSERT INTO maint_bills (company_id,branch_id,bill_no,bill_date,due_date,execution_id,supplier_id,supplier_name,subtotal,discount_amount,tax_amount,other_charges,total_amount,currency,exchange_rate,payment_terms,payment_method,payment_reference,payment_status,status,notes) VALUES (:companyId,:branchId,:bill_no,:bill_date,:due_date,:execution_id,:supplier_id,:supplier_name,:subtotal,:discount_amount,:tax_amount,:other_charges,:total_amount,:currency,:exchange_rate,:payment_terms,:payment_method,:payment_reference,:payment_status,:status,:notes)`,
+    const r = await query(`INSERT INTO maint_bills (company_id,branch_id,bill_no,bill_date,due_date,execution_id,supplier_id,supplier_name,subtotal,discount_amount,tax_amount,other_charges,total_amount,currency,exchange_rate,payment_terms,payment_method,payment_reference,payment_status,status,notes,cost_center_id) VALUES (:companyId,:branchId,:bill_no,:bill_date,:due_date,:execution_id,:supplier_id,:supplier_name,:subtotal,:discount_amount,:tax_amount,:other_charges,:total_amount,:currency,:exchange_rate,:payment_terms,:payment_method,:payment_reference,:payment_status,:status,:notes,:costCenterId)`,
       {
         companyId,
         branchId, branchIdsStr,
@@ -1963,6 +1965,7 @@ export const createBill = async (req, res, next) => {
         payment_status: b.payment_status || "UNPAID",
         status: "POSTED",
         notes: b.notes || null,
+        costCenterId: b.cost_center_id ? toNumber(b.cost_center_id) : null,
       },
     );
     const billId = r.insertId;
@@ -1994,7 +1997,18 @@ export const updateBill = async (req, res, next) => {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const id = toNumber(req.params.id);
     const b = req.body || {};
-    await query(`UPDATE maint_bills SET bill_date=:bill_date,due_date=:due_date,execution_id=:execution_id,supplier_id=:supplier_id,supplier_name=:supplier_name,subtotal=:subtotal,discount_amount=:discount_amount,tax_amount=:tax_amount,other_charges=:other_charges,total_amount=:total_amount,currency=:currency,exchange_rate=:exchange_rate,payment_terms=:payment_terms,payment_method=:payment_method,payment_reference=:payment_reference,payment_status=:payment_status,status=:status,notes=:notes WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
+    
+    if (b.status === "CANCELLED") {
+      const uRows = await query(
+        `SELECT 1 FROM adm_exceptional_permissions WHERE user_id = :uid AND effect = 'ALLOW' AND is_active = 1 AND permission_code = 'MAINTENANCE.BILL.CANCEL' LIMIT 1`,
+        { uid: req.user?.id }
+      );
+      if (!uRows || uRows.length === 0) {
+        throw httpError(403, "FORBIDDEN", "You do not have exceptional permission to cancel maintenance bills");
+      }
+    }
+    
+    await query(`UPDATE maint_bills SET bill_date=:bill_date,due_date=:due_date,execution_id=:execution_id,supplier_id=:supplier_id,supplier_name=:supplier_name,subtotal=:subtotal,discount_amount=:discount_amount,tax_amount=:tax_amount,other_charges=:other_charges,total_amount=:total_amount,currency=:currency,exchange_rate=:exchange_rate,payment_terms=:payment_terms,payment_method=:payment_method,payment_reference=:payment_reference,payment_status=:payment_status,status=:status,notes=:notes,cost_center_id=:costCenterId WHERE id=:id AND company_id=:companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
       {
         id,
         companyId,
@@ -2017,6 +2031,7 @@ export const updateBill = async (req, res, next) => {
         payment_status: b.payment_status || "UNPAID",
         status: b.status || "DRAFT",
         notes: b.notes || null,
+        costCenterId: b.cost_center_id ? toNumber(b.cost_center_id) : null,
       },
     );
     if (Array.isArray(b.lines)) {
@@ -2034,6 +2049,27 @@ export const updateBill = async (req, res, next) => {
             amount: Number(l.amount || 0),
           },
         );
+      }
+    }
+
+    if (b.status === "CANCELLED" || b.status === "REVERSED") {
+      const prevRows = await query(`SELECT bill_no FROM maint_bills WHERE id=:id AND company_id=:companyId`, { id, companyId });
+      const billNo = prevRows[0]?.bill_no;
+      if (billNo) {
+        const vRows = await query(
+          `SELECT DISTINCT v.id AS voucher_id
+             FROM fin_vouchers v
+             JOIN fin_voucher_lines l ON l.voucher_id = v.id
+            WHERE v.company_id = :companyId
+              AND l.reference_no = :referenceNo`,
+          { companyId, referenceNo: billNo }
+        ).catch(() => []);
+        const voucherIds = vRows.map((r) => Number(r.voucher_id)).filter((n) => Number.isFinite(n) && n > 0);
+        if (voucherIds.length > 0) {
+          const inList = voucherIds.join(",");
+          await query(`DELETE FROM fin_voucher_lines WHERE voucher_id IN (${inList})`).catch(() => null);
+          await query(`DELETE FROM fin_vouchers WHERE id IN (${inList})`).catch(() => null);
+        }
       }
     }
     await cacheDelPattern(`maint_bills:company:${companyId}:*`);
@@ -3105,6 +3141,7 @@ export const getDowntimeReport = async (req, res, next) => {
 
 // Setup routine to ensure material requisition tables exist
 async function ensureMaintMaterialRequisitionTables() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   await query(`CREATE TABLE IF NOT EXISTS maint_material_requisitions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     company_id BIGINT UNSIGNED NOT NULL,
@@ -3318,6 +3355,7 @@ export const submitMaintMaterialRequisition = async (req, res, next) => {
 
 // ===== MAINTENANCE MATERIAL RECEIPT TABLES =====
 async function ensureMaintMaterialReceiptTables(companyId, branchId) {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   await query(`CREATE TABLE IF NOT EXISTS maint_material_receipts (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     company_id BIGINT UNSIGNED NOT NULL,
@@ -3628,6 +3666,50 @@ export const sendRFQEmail = async (req, res, next) => {
     });
 
     res.json({ ok: true, message: "Emails sent successfully to: " + emails.join(', ') });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const sendJobOrderNotification = async (req, res, next) => {
+  try {
+    const { companyId, branchIdsStr = "" } = req.scope || {};
+    const id = Number(req.params.id);
+    const { type } = req.body;
+    
+    if (!Number.isFinite(id)) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+    if (!["email", "sms", "whatsapp", "all"].includes(type)) {
+      throw httpError(400, "VALIDATION_ERROR", "Invalid notification type");
+    }
+
+    const { sendExternalNotification } = await import("../utils/externalNotification.js");
+
+    const [order] = await query(
+      `SELECT o.id, o.job_order_no, o.description,
+              s.item_name AS service_provider, s.email AS provider_email, s.phone AS provider_phone
+       FROM maint_job_orders o
+       LEFT JOIN maint_setup_items s ON (s.id = o.assigned_to_id AND s.item_type = 'SERVICE_PROVIDER')
+       WHERE o.id = :id AND o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
+       LIMIT 1`,
+      { id, companyId, branchIdsStr }
+    );
+
+    if (!order) throw httpError(404, "NOT_FOUND", "Job Order not found");
+
+    const subject = `Job Order ${order.job_order_no} from OmniSuite`;
+    const text = `Dear ${order.service_provider || 'Service Provider'},\n\nPlease find the details regarding Job Order ${order.job_order_no}: ${order.description}\n\nThank you!`;
+    const html = `<p>Dear ${order.service_provider || 'Service Provider'},</p><p>Please find the details regarding Job Order <strong>${order.job_order_no}</strong>: ${order.description}</p><p>Thank you!</p>`;
+
+    const results = await sendExternalNotification({
+      type,
+      recipientEmail: order.provider_email,
+      recipientPhone: order.provider_phone, // assuming phone exists in setup_items, else it will be null and skip
+      subject,
+      text,
+      html
+    });
+
+    res.json(results);
   } catch (err) {
     next(err);
   }

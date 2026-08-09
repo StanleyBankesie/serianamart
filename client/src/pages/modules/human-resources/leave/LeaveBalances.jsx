@@ -48,8 +48,8 @@ export default function LeaveBalances() {
     const loadMeta = async () => {
       try {
         const [dRes, eRes] = await Promise.all([
-          api.get("/admin/departments"),
-          api.get("/hr/employees?status=ACTIVE"),
+          api.get("/admin/departments").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/employees?status=ACTIVE").catch(() => ({ data: { items: [] } })),
         ]);
         setDepartments(dRes.data?.items || []);
         setEmployees(eRes.data?.items || []);
@@ -110,7 +110,7 @@ export default function LeaveBalances() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link to="/human-resources" className="btn-secondary text-sm">← Back</Link>
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">← Back</button>
           <div>
             <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Leave Balances</h1>
             <p className="text-sm text-slate-500 dark:text-slate-400">

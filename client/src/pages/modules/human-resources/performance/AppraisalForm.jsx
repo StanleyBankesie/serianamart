@@ -33,6 +33,7 @@ import {
   Eye,
   MessageSquare,
 } from "lucide-react";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 const STEPS_DATA = [
   { label: "Employee Info", icon: User, key: "employee" },
@@ -275,6 +276,7 @@ function EmptyState({ icon: Icon, title, message }) {
  * @returns {JSX.Element} The rendered component
  */
 export default function AppraisalForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = !!id;
@@ -613,7 +615,7 @@ export default function AppraisalForm() {
         toast.success(action === "SUBMIT" ? "Appraisal submitted" : "Appraisal saved");
       }
       if (action === "SUBMIT") {
-        navigate("/human-resources");
+        navigate("/human-resources?section=Analytics%20%26%20Performance");
       }
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to save appraisal");
@@ -654,7 +656,7 @@ export default function AppraisalForm() {
           <XCircle className="w-12 h-12 text-red-400 mx-auto mb-3" />
           <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">Error Loading Appraisal</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{loadError}</p>
-          <button onClick={() => navigate("/human-resources")} className="px-4 py-2 bg-gray-100 dark:bg-slate-700 text-sm rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors">
+          <button onClick={() => navigate("/human-resources?section=Analytics%20%26%20Performance")} className="px-4 py-2 bg-gray-100 dark:bg-slate-700 text-sm rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors">
             Back to Menu
           </button>
         </div>
@@ -1100,7 +1102,7 @@ export default function AppraisalForm() {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <Link
-              to="/human-resources"
+              to="/human-resources?section=Analytics%20%26%20Performance"
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
             >
               <ChevronLeft className="w-3.5 h-3.5" />

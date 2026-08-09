@@ -8,6 +8,9 @@ import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import { Download, Printer } from "lucide-react";
 
 /**
  *  component
@@ -62,17 +65,15 @@ export default function LeaveRoster() {
         shiftRes,
         wsRes,
       ] = await Promise.all([
-        api.get("/admin/departments"),
-        api.get("/hr/employees?status=ACTIVE"),
-        api.get("/hr/leave/types"),
-        api.get(
-          `/hr/leave/records?source=ROSTER&start_date=${year}-01-01&end_date=${year}-12-31`,
-        ),
-        api.get("/hr/setup/locations"),
-        api.get("/hr/setup/employment-types"),
-        api.get("/hr/setup/employee-categories"),
-        api.get("/hr/shifts"),
-        api.get("/hr/work-schedules"),
+        api.get("/admin/departments").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/employees?status=ACTIVE").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/leave/types").catch(() => ({ data: { items: [] } })),
+        api.get(`/hr/leave/records?source=ROSTER&start_date=${year}-01-01&end_date=${year}-12-31`).catch(() => ({ data: { items: [] } })),
+        api.get("/hr/setup/locations").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/setup/employment-types").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/setup/employee-categories").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/shifts").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/work-schedules").catch(() => ({ data: { items: [] } })),
       ]);
       setDepartments(depRes.data?.items || []);
       setEmployees(empRes.data?.items || []);
@@ -322,9 +323,9 @@ export default function LeaveRoster() {
     <div className="p-4 md:p-8 space-y-8">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link to="/human-resources/leave" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             ← Back
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
               Leave Roster {year}

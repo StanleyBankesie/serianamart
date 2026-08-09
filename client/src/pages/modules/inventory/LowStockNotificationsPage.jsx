@@ -67,7 +67,7 @@ export default function LowStockNotificationsPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link to="/inventory" className="btn btn-secondary">
+            <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
               Return to Menu
             </Link>
             <button

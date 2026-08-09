@@ -14,6 +14,8 @@ import {
   ListAttachmentIconButton,
 } from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 const statusColors = {
   DRAFT: "bg-slate-100 text-slate-600",
@@ -38,6 +40,7 @@ function Badge({ value, colorMap }) {
  * @returns {JSX.Element} The rendered component
  */
 export default function JobExecutionList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   const [items, setItems] = useState([]);
@@ -84,7 +87,7 @@ export default function JobExecutionList() {
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          <Link to="/maintenance" className="btn btn-secondary p-2">
+          <Link to="/maintenance?section=Operations %26 Schedules" className="btn btn-secondary p-2">
             <ArrowLeft size={20} />
           </Link>
           <div>
@@ -122,18 +125,22 @@ export default function JobExecutionList() {
       </div>
 
       <div className="card overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="table">
+        
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
-                <th>Execution No</th>
-                <th>Job Order</th>
-                <th>Timeline</th>
-                <th>Technicians</th>
-                <th>Status</th>
-                <th>Created By</th>
-                <th>Created Date</th>
-                <th className="text-right">Actions</th>
+                <th className="whitespace-nowrap">Execution No</th>
+                <th className="whitespace-nowrap">Job Order</th>
+                <th className="whitespace-nowrap">Timeline</th>
+                <th className="whitespace-nowrap">Technicians</th>
+                <th className="whitespace-nowrap">Status</th>
+                <th className="whitespace-nowrap">Created By</th>
+                <th className="whitespace-nowrap">Created Date</th>
+                <th className="text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
@@ -141,7 +148,7 @@ export default function JobExecutionList() {
                 <tr>
                   <td
                     colSpan="8"
-                    className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest"
+                    className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest whitespace-nowrap"
                   >
                     Loading Logs...
                   </td>
@@ -149,33 +156,33 @@ export default function JobExecutionList() {
               ) : filtered.length > 0 ? (
                 filtered.map((r) => (
                   <tr key={r.id} className="group">
-                    <td className="px-6 py-4 font-bold text-slate-900 dark:text-white text-sm">
+                    <td className="px-6 py-4 font-bold text-slate-900 dark:text-white text-sm whitespace-nowrap">
                       {r.execution_no}
                     </td>
-                    <td className="px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300">
+                    <td className="px-4 py-3 text-sm font-semibold text-brand-700 dark:text-brand-300 whitespace-nowrap">
                       {r.order_no}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-500">
+                    <td className="px-4 py-3 text-sm text-slate-500 whitespace-nowrap">
                       <div>{r.start_date ? String(r.start_date).split('T')[0] : ''}</div>
                       <div className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">
                         {r.end_date ? String(r.end_date).split('T')[0] : ''}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-500">
+                    <td className="px-4 py-3 text-sm text-slate-500 whitespace-nowrap">
                       {r.technicians}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">
                       <Badge value={r.status} colorMap={statusColors} />
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">
                       {r.created_by_name || "-"}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">
                       {r.created_at
                         ? new Date(r.created_at).toLocaleDateString()
                         : "-"}
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-6 py-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
@@ -222,7 +229,7 @@ export default function JobExecutionList() {
                 <tr>
                   <td
                     colSpan="8"
-                    className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50"
+                    className="px-6 py-20 text-center text-slate-400 font-bold uppercase tracking-widest italic opacity-50 whitespace-nowrap"
                   >
                     No execution records identified.
                   </td>

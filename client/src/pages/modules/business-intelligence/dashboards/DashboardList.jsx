@@ -7,6 +7,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -14,6 +16,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function DashboardList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [activeTab, setActiveTab] = useState("overview");
   const [dateFilter, setDateFilter] = useState("30");
   const [selectedBranch, setSelectedBranch] = useState("all");
@@ -476,8 +479,12 @@ export default function DashboardList() {
                       Needs Replenishment
                     </span>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-xs">
+                  
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+                    <table className={ "min-w-full text-xs " + (viewMode === 'grid' ? 'table-grid-mode' : '') }>
                       <thead>
                         <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-400 font-bold uppercase text-left">
                           <th className="px-4 py-2.5">Item</th>

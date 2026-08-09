@@ -115,9 +115,9 @@ export default function PurchaseSetupPage() {
   return (
     <div className="p-4">
       <div className="flex items-center gap-2 mb-4">
-        <Link to="/purchase" className="btn-secondary text-sm">
+        <button onClick={() => window.history.back()} className="btn-secondary text-sm">
           Back to Menu
-        </Link>
+        </button>
         <h2 className="text-lg font-semibold">Purchase Setup & Parameters</h2>
       </div>
 
@@ -151,7 +151,7 @@ export default function PurchaseSetupPage() {
               {activeTab === "accounts" && (
                 <>
                   <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg p-3 text-xs text-blue-800 dark:text-blue-200">
-                    If these accounts are not configured, the system will auto-resolve appropriate accounts from the chart of accounts.
+                    Select default financial accounts for freight and other purchase charges.
                   </div>
                   <div>
                     <label className="block text-sm mb-1">Freight Charges Account</label>
@@ -165,7 +165,7 @@ export default function PurchaseSetupPage() {
                         }))
                       }
                     >
-                      <option value="">Auto-Resolve (Recommended)</option>
+                      <option value="">-- Select Account --</option>
                       {accounts.map((acc) => (
                         <option key={acc.id} value={acc.id}>
                           {acc.code} - {acc.name}
@@ -186,7 +186,7 @@ export default function PurchaseSetupPage() {
                         }))
                       }
                     >
-                      <option value="">Auto-Resolve (Recommended)</option>
+                      <option value="">-- Select Account --</option>
                       {accounts.map((acc) => (
                         <option key={acc.id} value={acc.id}>
                           {acc.code} - {acc.name}
@@ -278,9 +278,9 @@ export default function PurchaseSetupPage() {
                 </p>
               </div>
               <div>
-                <div className="font-medium text-slate-900 dark:text-slate-100 text-sm">Auto-Resolution</div>
+                <div className="font-medium text-slate-900 dark:text-slate-100 text-sm">Account Mapping</div>
                 <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
-                  When no account is specifically configured here, the system automatically resolves the most appropriate account based on your chart of accounts structure.
+                  Configure specific ledger accounts to debit for freight/shipping costs and miscellaneous purchase charges.
                 </p>
               </div>
             </div>

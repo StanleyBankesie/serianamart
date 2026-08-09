@@ -3,6 +3,8 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 const CACHE_KEY = "svc-confirmations-cache";
 function readCache() {
@@ -25,6 +27,7 @@ function clearCache() {
 }
 
 export default function ServiceConfirmationsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const location = useLocation();
   const modulePath = location.pathname.startsWith("/purchase")
     ? "/purchase"
@@ -207,37 +210,41 @@ export default function ServiceConfirmationsList() {
             </h2>
           </div>
           <div className="card-body p-0">
-            <div className="overflow-x-auto">
-              <table className="table">
+            
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+              <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead>
                   <tr>
-                    <th>No</th>
-                    <th>Date</th>
-                    <th>Customer</th>
-                    <th>Total</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                    <th>Created By</th>
-                    <th>Created Date</th>
+                    <th className="whitespace-nowrap">No</th>
+                    <th className="whitespace-nowrap">Date</th>
+                    <th className="whitespace-nowrap">Customer</th>
+                    <th className="whitespace-nowrap">Total</th>
+                    <th className="whitespace-nowrap">Status</th>
+                    <th className="whitespace-nowrap">Actions</th>
+                    <th className="whitespace-nowrap">Created By</th>
+                    <th className="whitespace-nowrap">Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredPendingOrders.map((o) => (
                     <tr key={`order-${o.id}`}>
-                      <td className="font-medium text-blue-700 dark:text-blue-300">
+                      <td className="font-medium text-blue-700 dark:text-blue-300 whitespace-nowrap">
                         {o.order_no || "-"}
                       </td>
-                      <td>
+                      <td className="whitespace-nowrap">
                         {o.order_date ? String(o.order_date).slice(0, 10) : "-"}
                       </td>
-                      <td>{o.customer_name || "-"}</td>
-                      <td>{Number(o.total_amount || 0).toFixed(2)}</td>
-                      <td>
+                      <td className="whitespace-nowrap">{o.customer_name || "-"}</td>
+                      <td className="whitespace-nowrap">{Number(o.total_amount || 0).toFixed(2)}</td>
+                      <td className="whitespace-nowrap">
                         <span className="badge badge-info">
                           {o.status || "-"}
                         </span>
                       </td>
-                      <td>
+                      <td className="whitespace-nowrap">
                         <div className="flex gap-2 items-center">
                           <button
                             type="button"
@@ -268,8 +275,8 @@ export default function ServiceConfirmationsList() {
                           </button>
                         </div>
                       </td>
-                      <td>{o.created_by_name || "-"}</td>
-                      <td>
+                      <td className="whitespace-nowrap">{o.created_by_name || "-"}</td>
+                      <td className="whitespace-nowrap">
                         {o.created_at
                           ? new Date(o.created_at).toLocaleDateString()
                           : "-"}
@@ -293,17 +300,17 @@ export default function ServiceConfirmationsList() {
           </div>
           <div className="card-body p-0">
             <div className="overflow-x-auto">
-              <table className="table">
+              <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead>
                   <tr>
-                    <th>No</th>
-                    <th>Date</th>
-                    <th>Customer</th>
-                    <th>Total</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                    <th>Created By</th>
-                    <th>Created Date</th>
+                    <th className="whitespace-nowrap">No</th>
+                    <th className="whitespace-nowrap">Date</th>
+                    <th className="whitespace-nowrap">Customer</th>
+                    <th className="whitespace-nowrap">Total</th>
+                    <th className="whitespace-nowrap">Status</th>
+                    <th className="whitespace-nowrap">Actions</th>
+                    <th className="whitespace-nowrap">Created By</th>
+                    <th className="whitespace-nowrap">Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -312,22 +319,22 @@ export default function ServiceConfirmationsList() {
                       key={`exec-${e.id}`}
                       className="bg-amber-50/30 dark:bg-amber-900/10"
                     >
-                      <td className="font-medium text-amber-700 dark:text-amber-300">
+                      <td className="font-medium text-amber-700 dark:text-amber-300 whitespace-nowrap">
                         {e.execution_no || "-"}
                       </td>
-                      <td>
+                      <td className="whitespace-nowrap">
                         {e.execution_date
                           ? String(e.execution_date).slice(0, 10)
                           : "-"}
                       </td>
-                      <td>{e.customer_name || e.order_no || "-"}</td>
-                      <td>-</td>
-                      <td>
+                      <td className="whitespace-nowrap">{e.customer_name || e.order_no || "-"}</td>
+                      <td className="whitespace-nowrap">-</td>
+                      <td className="whitespace-nowrap">
                         <span className="badge badge-info">
                           {e.status || "-"}
                         </span>
                       </td>
-                      <td>
+                      <td className="whitespace-nowrap">
                         <div className="flex gap-2 items-center">
                           <Link
                             to={`${modulePath}/service-confirmation/new?execution_id=${e.id}`}
@@ -349,8 +356,8 @@ export default function ServiceConfirmationsList() {
                           </Link>
                         </div>
                       </td>
-                      <td>{e.created_by_name || "-"}</td>
-                      <td>
+                      <td className="whitespace-nowrap">{e.created_by_name || "-"}</td>
+                      <td className="whitespace-nowrap">
                         {e.created_at
                           ? new Date(e.created_at).toLocaleDateString()
                           : "-"}
@@ -374,18 +381,18 @@ export default function ServiceConfirmationsList() {
           </div>
           <div className="card-body p-0">
             <div className="overflow-x-auto">
-              <table className="table">
+              <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead>
                   <tr>
-                    <th>SC No</th>
-                    <th>Order No</th>
-                    <th>Date</th>
-                    <th>Supplier</th>
-                    <th>Total</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                    <th>Created By</th>
-                    <th>Created Date</th>
+                    <th className="whitespace-nowrap">SC No</th>
+                    <th className="whitespace-nowrap">Order No</th>
+                    <th className="whitespace-nowrap">Date</th>
+                    <th className="whitespace-nowrap">Supplier</th>
+                    <th className="whitespace-nowrap">Total</th>
+                    <th className="whitespace-nowrap">Status</th>
+                    <th className="whitespace-nowrap">Actions</th>
+                    <th className="whitespace-nowrap">Created By</th>
+                    <th className="whitespace-nowrap">Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -393,7 +400,7 @@ export default function ServiceConfirmationsList() {
                     <tr>
                       <td
                         colSpan="9"
-                        className="text-center py-8 text-slate-500"
+                        className="text-center py-8 text-slate-500 whitespace-nowrap"
                       >
                         No confirmed records found
                       </td>
@@ -401,21 +408,21 @@ export default function ServiceConfirmationsList() {
                   ) : (
                     filtered.map((c) => (
                       <tr key={c.id}>
-                        <td className="font-medium text-brand-700 dark:text-brand-300">
+                        <td className="font-medium text-brand-700 dark:text-brand-300 whitespace-nowrap">
                           {c.sc_no}
                         </td>
-                        <td>{c.order_no || "-"}</td>
-                        <td>
+                        <td className="whitespace-nowrap">{c.order_no || "-"}</td>
+                        <td className="whitespace-nowrap">
                           {c.sc_date ? String(c.sc_date).slice(0, 10) : "-"}
                         </td>
-                        <td>{c.supplier_name || "-"}</td>
-                        <td>{Number(c.total_amount || 0).toFixed(2)}</td>
-                        <td>
+                        <td className="whitespace-nowrap">{c.supplier_name || "-"}</td>
+                        <td className="whitespace-nowrap">{Number(c.total_amount || 0).toFixed(2)}</td>
+                        <td className="whitespace-nowrap">
                           <span className="badge badge-info">
                             {c.status || "DRAFT"}
                           </span>
                         </td>
-                        <td>
+                        <td className="whitespace-nowrap">
                           <div className="flex gap-2 items-center">
                             <button
                               type="button"
@@ -440,8 +447,8 @@ export default function ServiceConfirmationsList() {
                             )} */}
                           </div>
                         </td>
-                        <td>{c.created_by_name || "-"}</td>
-                        <td>
+                        <td className="whitespace-nowrap">{c.created_by_name || "-"}</td>
+                        <td className="whitespace-nowrap">
                           {c.created_at
                             ? new Date(c.created_at).toLocaleDateString()
                             : "-"}

@@ -39,6 +39,7 @@ function PaymentBadge({ payment }) {
  * @returns {JSX.Element} The rendered component
  */
 export default function ServiceBillForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams();
@@ -71,6 +72,7 @@ export default function ServiceBillForm() {
     payment_method: "cash",
     payment_reference: "",
     notes: "",
+    cost_center_id: "",
   });
 
   const [lines, setLines] = useState([]);
@@ -94,6 +96,7 @@ export default function ServiceBillForm() {
   const [baseFinCurrencyId, setBaseFinCurrencyId] = useState(null);
   const [taxCodes, setTaxCodes] = useState([]);
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
+  const [costCenters, setCostCenters] = useState([]);
 
   const [currentBillId, setCurrentBillId] = useState(id && id !== "new" ? Number(id) : null);
 
@@ -315,13 +318,14 @@ export default function ServiceBillForm() {
     let mounted = true;
     async function loadLookups() {
       try {
-        const [supRes, svcOrdersRes, curRes, itemsRes, uomsRes, taxesRes] = await Promise.all([
+        const [supRes, svcOrdersRes, curRes, itemsRes, uomsRes, taxesRes, ccRes] = await Promise.all([
           api.get("/purchase/suppliers", { params: { contractor: "Y" } }).catch(() => ({ data: { items: [] } })),
           api.get("/purchase/service-orders").catch(() => ({ data: { items: [] } })),
           api.get("/finance/currencies").catch(() => ({ data: { items: [] } })),
           api.get("/inventory/items").catch(() => ({ data: { items: [] } })),
           api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
           api.get("/finance/tax-codes?form=SERVICE_BILL").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/cost-centers").catch(() => ({ data: { items: [] } })),
         ]);
         if (!mounted) return;
 
@@ -342,6 +346,7 @@ export default function ServiceBillForm() {
 
         const fetchedTaxCodes = Array.isArray(taxesRes.data?.items) ? taxesRes.data.items : [];
         setTaxCodes(fetchedTaxCodes);
+        setCostCenters(Array.isArray(ccRes.data?.items) ? ccRes.data.items : (Array.isArray(ccRes.data?.data?.items) ? ccRes.data.data.items : []));
       } catch {}
     }
     loadLookups();
@@ -409,6 +414,7 @@ export default function ServiceBillForm() {
           payment_method: item.payment_method || "cash",
           payment_reference: item.payment_reference || "",
           notes: item.notes || "",
+          cost_center_id: item.cost_center_id ? String(item.cost_center_id) : "",
           subtotal: Number(item.subtotal) || 0,
           tax: Number(item.tax_amount) || 0,
           total: Number(item.total_amount) || 0,
@@ -493,6 +499,7 @@ export default function ServiceBillForm() {
         freight_charges: Number(bill.freight_charges) || 0,
         other_charges: Number(bill.other_charges) || 0,
         notes: bill.notes || null,
+        cost_center_id: bill.cost_center_id ? Number(bill.cost_center_id) : null,
         details: lines
           .filter((l) => l.item_id || l.desc)
           .map((l) => ({
@@ -538,9 +545,9 @@ export default function ServiceBillForm() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/service-management/service-bills" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             ← Back
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
               {id && id !== "new" ? "Edit" : "New"} Service Bill
@@ -573,7 +580,9 @@ export default function ServiceBillForm() {
         <div className="card-body grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           <div className="form-group">
             <label className="label required">Bill Date</label>
-            <input type="date" className={`input ${disabledClass}`} value={bill.bill_date} onChange={(e) => update("bill_date", e.target.value)} readOnly={readOnly} />
+            <input type="date" className={`input ${disabledClass}`} value={bill.bill_date} onChange={(e) => update("bill_date", e.target.value)} readOnly={readOnly} 
+              disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
+            />
           </div>
           <div className="form-group">
             <label className="label required">Supplier</label>
@@ -662,11 +671,15 @@ export default function ServiceBillForm() {
           </div>
           <div className="form-group">
             <label className="label">Due Date</label>
-            <input type="date" className={`input ${disabledClass}`} value={bill.due_date} onChange={(e) => update("due_date", e.target.value)} readOnly={readOnly} />
+            <input type="date" className={`input ${disabledClass}`} value={bill.due_date} onChange={(e) => update("due_date", e.target.value)} readOnly={readOnly} 
+              disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
+            />
           </div>
           <div className="form-group">
             <label className="label">Service Date</label>
-            <input type="date" className={`input ${disabledClass}`} value={bill.service_date} onChange={(e) => update("service_date", e.target.value)} readOnly={readOnly} />
+            <input type="date" className={`input ${disabledClass}`} value={bill.service_date} onChange={(e) => update("service_date", e.target.value)} readOnly={readOnly} 
+              disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
+            />
           </div>
           <div className="form-group">
             <label className="label">Currency</label>
@@ -681,6 +694,17 @@ export default function ServiceBillForm() {
           <div className="form-group">
             <label className="label">Payment Terms (Days)</label>
             <input type="number" className={`input text-right ${disabledClass}`} value={bill.payment_terms} onChange={(e) => update("payment_terms", e.target.value)} readOnly={readOnly} />
+          </div>
+          <div className="form-group">
+            <label className="label">Cost Center</label>
+            <select className={`input ${disabledClass}`} value={bill.cost_center_id || ""} onChange={(e) => update("cost_center_id", e.target.value)} disabled={readOnly}>
+              <option value="">-- Select Cost Center --</option>
+              {costCenters.map((cc) => (
+                <option key={cc.id} value={cc.id}>
+                  {cc.name} ({cc.code})
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>

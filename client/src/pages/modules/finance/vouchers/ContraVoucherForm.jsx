@@ -11,6 +11,7 @@ import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function emptyLine() {
   return {
@@ -31,7 +32,7 @@ function emptyLine() {
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function ContraVoucherForm() {
@@ -41,6 +42,7 @@ export default function ContraVoucherForm() {
   const mode = new URLSearchParams(search).get("mode");
   const readOnly = mode === "view";
   const isEdit = Boolean(id);
+  const { hasExceptional } = usePermission();
   const voucherTypeCode = "CV";
   const title = "Account Transfer";
   const isJV = false;
@@ -144,7 +146,7 @@ export default function ContraVoucherForm() {
     reference: "",
     chequeDate: "",
     taxCodeId: "",
-    items: [{ amount: "" }],
+    items: [{ amount: "", description: "" }],
     notes: "",
   });
   const [rvExchangeRate, setRvExchangeRate] = useState("");
@@ -485,7 +487,15 @@ export default function ContraVoucherForm() {
         setDncnExchangeRate("1");
       }
     })();
-  }, [isCN, isDN, dncnLineCurrencyId, baseCurrency, voucherDate, getExchangeRate, accounts]);
+  }, [
+    isCN,
+    isDN,
+    dncnLineCurrencyId,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+    accounts,
+  ]);
 
   async function loadVoucher() {
     if (!isEdit) return;
@@ -634,7 +644,7 @@ export default function ContraVoucherForm() {
             rawLines.find((l) => l.payment_method)?.payment_method ||
             token("Method") ||
             prev.transferMethod,
-           items:
+          items:
             mapped.length > 0
               ? mapped
                   .filter(
@@ -796,7 +806,9 @@ export default function ContraVoucherForm() {
         (sum, it) => sum + Number(it.amount || 0),
         0,
       );
-      const convertedAmount = Number(subtotal * Number(cvExchangeRate || 1) || 0);
+      const convertedAmount = Number(
+        subtotal * Number(cvExchangeRate || 1) || 0,
+      );
       return {
         debit: convertedAmount,
         credit: subtotal,
@@ -1628,7 +1640,8 @@ export default function ContraVoucherForm() {
       }
 
       const total = items.reduce((s, it) => s + it.amount, 0);
-      const totalConverted = Math.round(total * (Number(cvExchangeRate || 1) || 1) * 100) / 100;
+      const totalConverted =
+        Math.round(total * (Number(cvExchangeRate || 1) || 1) * 100) / 100;
       const firstDesc = items[0]?.description || "";
       voucherNarration = [narration, firstDesc].filter(Boolean).join(" | ");
 
@@ -1823,6 +1836,17 @@ export default function ContraVoucherForm() {
       if (isEdit) {
         const res = await api.put(`/finance/vouchers/${id}`, payload);
         toast.success(res.data?.message || "Updated voucher");
+        navigate("/finance/contra-voucher", {
+          state: {
+            refresh: true,
+            highlightId: id ? Number(id) : undefined,
+            highlightRef:
+              voucherNoPreview && String(voucherNoPreview).trim()
+                ? String(voucherNoPreview)
+                : undefined,
+          },
+        });
+        return;
       } else {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
@@ -2539,7 +2563,13 @@ export default function ContraVoucherForm() {
         setRvExchangeRate("1");
       }
     })();
-  }, [isRV, depositAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
+  }, [
+    isRV,
+    depositAccountCurrencyCode,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+  ]);
 
   useEffect(() => {
     if (!isPAYV) return;
@@ -2561,7 +2591,13 @@ export default function ContraVoucherForm() {
         setPvExchangeRate("1");
       }
     })();
-  }, [isPAYV, paymentAccountCurrencyCode, baseCurrency, voucherDate, getExchangeRate]);
+  }, [
+    isPAYV,
+    paymentAccountCurrencyCode,
+    baseCurrency,
+    voucherDate,
+    getExchangeRate,
+  ]);
 
   // PV UI
   function updatePv(patch) {
@@ -2974,9 +3010,9 @@ export default function ContraVoucherForm() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -3023,12 +3059,12 @@ export default function ContraVoucherForm() {
                 <div>
                   <label className="label">Voucher Date *</label>
                   <input
-                    className={`input md:w-64 ${disabledClass}`}
+                    className={`input w-56  ${disabledClass}`}
                     type="date"
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
                     required
-                    disabled={readOnly}
+                    disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                   />
                 </div>
                 {isJV && (
@@ -3355,9 +3391,15 @@ export default function ContraVoucherForm() {
                                         <span className="text-slate-600 dark:text-slate-400">
                                           {(() => {
                                             const sel = (currencies || []).find(
-                                              (c) => String(c.id) === String(l.currencyId || ""),
+                                              (c) =>
+                                                String(c.id) ===
+                                                String(l.currencyId || ""),
                                             );
-                                            return sel?.code || sel?.currency_code || "-";
+                                            return (
+                                              sel?.code ||
+                                              sel?.currency_code ||
+                                              "-"
+                                            );
                                           })()}
                                         </span>
                                       ) : (
@@ -3366,12 +3408,16 @@ export default function ContraVoucherForm() {
                                           value={l.currencyId}
                                           onChange={(e) => {
                                             const cId = e.target.value;
-                                            updateLine(idx, { currencyId: cId });
+                                            updateLine(idx, {
+                                              currencyId: cId,
+                                            });
                                             autoFetchLineRate(cId, idx);
                                           }}
                                           disabled={readOnly}
                                         >
-                                          <option value="">Base Currency</option>
+                                          <option value="">
+                                            Base Currency
+                                          </option>
                                           {currencies.map((c) => (
                                             <option key={c.id} value={c.id}>
                                               {c.code || c.currency_code}
@@ -3527,9 +3573,9 @@ export default function ContraVoucherForm() {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"
@@ -3561,9 +3607,9 @@ export default function ContraVoucherForm() {
                 <p className="text-sm mt-1">Transfer funds between accounts</p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
               </div>
             </div>
           </div>
@@ -3572,11 +3618,11 @@ export default function ContraVoucherForm() {
         <form onSubmit={submit}>
           <div className="card">
             <div className="card-body space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Voucher Date *</label>
                   <input
-                    className="input"
+                    className="input w-60"
                     type="date"
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
@@ -3584,13 +3630,10 @@ export default function ContraVoucherForm() {
                     disabled={readOnly}
                   />
                 </div>
-              </div>
-
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="label">Transfer Method *</label>
                   <select
-                    className="input"
+                    className="input w-60"
                     value={cvForm.transferMethod}
                     onChange={(e) =>
                       updateCv({ transferMethod: e.target.value })
@@ -3599,12 +3642,12 @@ export default function ContraVoucherForm() {
                     required
                   >
                     <option value="">Select method</option>
-                    <option>Cash</option>
                     <option>Cheque</option>
                     <option>Bank Transfer</option>
                   </select>
                 </div>
-                {(cvForm.transferMethod === "Cheque" || cvForm.transferMethod === "Bank Transfer") && (
+                {(cvForm.transferMethod === "Cheque" ||
+                  cvForm.transferMethod === "Bank Transfer") && (
                   <>
                     <div>
                       <label className="label">Cheque Date *</label>
@@ -3619,20 +3662,18 @@ export default function ContraVoucherForm() {
                         required
                       />
                     </div>
-                    <div className="flex items-end" style={{ marginLeft: "8px" }}>
-                      <div className="w-full">
-                        <label className="label">Reference / Cheque No *</label>
-                        <input
-                          className="input"
-                          value={cvForm.reference}
-                          onChange={(e) =>
-                            updateCv({ reference: e.target.value })
-                          }
-                          placeholder="Reference Number or Cheque Number"
-                          disabled={readOnly}
-                          required
-                        />
-                      </div>
+                    <div className="w-full">
+                      <label className="label">Reference / Cheque No *</label>
+                      <input
+                        className="input"
+                        value={cvForm.reference}
+                        onChange={(e) =>
+                          updateCv({ reference: e.target.value })
+                        }
+                        placeholder="Reference Number or Cheque Number"
+                        disabled={readOnly}
+                        required
+                      />
                     </div>
                   </>
                 )}
@@ -3641,10 +3682,10 @@ export default function ContraVoucherForm() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-4">
                   <div className="flex items-end gap-2">
-                     <div className="flex-1">
-                       <label className="label">Source Account *</label>
+                    <div className="flex-1">
+                      <label className="label">Source Account *</label>
                       <select
-                        className="input"
+                        className="input w-60"
                         value={cvForm.fromAccountId}
                         onChange={(e) =>
                           updateCv({ fromAccountId: e.target.value })
@@ -3674,7 +3715,21 @@ export default function ContraVoucherForm() {
                           <label className="label">Balance</label>
                           <input
                             className="input w-32 bg-slate-50 dark:bg-slate-800"
-                            value={accountBalances[String(cvForm.fromAccountId)] !== undefined && accountBalances[String(cvForm.fromAccountId)] !== null ? Number(accountBalances[String(cvForm.fromAccountId)]).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""}
+                            value={
+                              accountBalances[String(cvForm.fromAccountId)] !==
+                                undefined &&
+                              accountBalances[String(cvForm.fromAccountId)] !==
+                                null
+                                ? Number(
+                                    accountBalances[
+                                      String(cvForm.fromAccountId)
+                                    ],
+                                  ).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ""
+                            }
                             readOnly
                             placeholder="0.00"
                           />
@@ -3682,7 +3737,7 @@ export default function ContraVoucherForm() {
                       </div>
                     )}
                   </div>
-                    <div className="flex items-end gap-2">
+                  <div className="flex items-end gap-2">
                     <div className="flex-1">
                       <label className="label">Amount to Transfer *</label>
                       <input
@@ -3696,7 +3751,10 @@ export default function ContraVoucherForm() {
                             cvForm.items.length > 0
                               ? cvForm.items.map((it, i) =>
                                   i === 0
-                                    ? { ...it, amount: Number(e.target.value || 0) }
+                                    ? {
+                                        ...it,
+                                        amount: Number(e.target.value || 0),
+                                      }
                                     : it,
                                 )
                               : [
@@ -3732,24 +3790,17 @@ export default function ContraVoucherForm() {
                       />
                     </div>
                   </div>
-                   <div>
-                    <label className="label">Total Amount in {cvToCurrencyCode || "Base Currency"}</label>
-                    <input
-                      className="input text-right bg-slate-50 dark:bg-slate-800"
-                      value={(Number(cvForm.items[0]?.amount || 0) * Number(cvExchangeRate || 1)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      readOnly
-                      placeholder="0.00"
-                    />
-                  </div>
                 </div>
                 <div className="space-y-4">
                   <div className="flex items-end gap-2">
-                     <div className="flex-1">
-                       <label className="label">Destination Account *</label>
+                    <div className="flex-1">
+                      <label className="label">Destination Account *</label>
                       <select
-                        className="input"
+                        className="input w-60"
                         value={cvForm.toAccountId}
-                        onChange={(e) => updateCv({ toAccountId: e.target.value })}
+                        onChange={(e) =>
+                          updateCv({ toAccountId: e.target.value })
+                        }
                         required
                         disabled={readOnly}
                       >
@@ -3775,7 +3826,19 @@ export default function ContraVoucherForm() {
                           <label className="label">Balance</label>
                           <input
                             className="input w-32 bg-slate-50 dark:bg-slate-800"
-                            value={accountBalances[String(cvForm.toAccountId)] !== undefined && accountBalances[String(cvForm.toAccountId)] !== null ? Number(accountBalances[String(cvForm.toAccountId)]).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""}
+                            value={
+                              accountBalances[String(cvForm.toAccountId)] !==
+                                undefined &&
+                              accountBalances[String(cvForm.toAccountId)] !==
+                                null
+                                ? Number(
+                                    accountBalances[String(cvForm.toAccountId)],
+                                  ).toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ""
+                            }
                             readOnly
                             placeholder="0.00"
                           />
@@ -3783,25 +3846,43 @@ export default function ContraVoucherForm() {
                       </div>
                     )}
                   </div>
-                   <div>
-                    <label className="label">Description *</label>
-                    <textarea
-                      className={`input w-full ${disabledClass}`}
-                      rows={4}
-                      value={narration}
-                      onChange={(e) => setNarration(e.target.value)}
-                      placeholder="Mandatory description for all lines"
-                      required
-                      disabled={readOnly}
+                  <div>
+                    <label className="label">
+                      Total Amount in {cvToCurrencyCode || "Base Currency"}
+                    </label>
+                    <input
+                      className="input text-right bg-slate-50 dark:bg-slate-800"
+                      value={(
+                        Number(cvForm.items[0]?.amount || 0) *
+                        Number(cvExchangeRate || 1)
+                      ).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                      readOnly
+                      placeholder="0.00"
                     />
                   </div>
                 </div>
               </div>
 
+              <div>
+                <label className="label">Description *</label>
+                <textarea
+                  className={`input w-full ${disabledClass}`}
+                  rows={4}
+                  value={narration}
+                  onChange={(e) => setNarration(e.target.value)}
+                  placeholder="Mandatory description for all lines"
+                  required
+                  disabled={readOnly}
+                />
+              </div>
+
               <div className="flex flex-col md:flex-row gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"

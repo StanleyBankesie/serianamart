@@ -377,7 +377,7 @@ export default function PostCard({
         </div>
         <div className="visibility-badge">
           {post.visibility_type === "company" && "🌍 Company"}
-          {post.visibility_type === "warehouse" && "🏬 Warehouse"}
+          {post.visibility_type === "branch" && "🏬 Branch"}
         </div>
       </div>
 

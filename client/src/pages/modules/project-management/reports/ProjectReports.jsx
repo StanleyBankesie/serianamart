@@ -24,6 +24,12 @@ const StatCard = ({ icon, label, value, color }) => (
  * @returns {JSX.Element} The rendered component
  */
 export default function ProjectReports() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, []);
+
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -36,7 +42,7 @@ export default function ProjectReports() {
       setLoading(false);
     }
     load();
-  }, []);
+  }, [pollingCounter]);
 
   const reportLinks = [
     {
@@ -51,7 +57,7 @@ export default function ProjectReports() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
       <div className="flex items-center gap-4">
-        <Link to="/project-management" className="btn btn-secondary p-2"><ArrowLeft size={20} /></Link>
+        <Link to="/project-management?section=Reports%20%26%20Analytics" className="btn btn-secondary p-2"><ArrowLeft size={20} /></Link>
         <div>
           <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Analytics & Reports</h1>
           <p className="text-slate-500 text-sm">Portfolio KPIs and project intelligence</p>
@@ -70,9 +76,20 @@ export default function ProjectReports() {
       ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Link to="/project-management/reports/task-management-and-execution" className="group bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-brand-200 dark:hover:border-brand-900 transition-all duration-300 flex items-start gap-4">
+          <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-900/30 text-purple-600 shadow-sm group-hover:scale-105 transition-transform">
+            <Activity size={20} />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-900 dark:text-white group-hover:text-purple-600 transition-colors">Task Management & Execution</h3>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Throughput velocity, SLA risk monitoring, assignee workload, and operational task metrics</p>
+          </div>
+        </Link>
         <Link to="/project-management/reports/project-status" className="group bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-brand-200 dark:hover:border-brand-900 transition-all duration-300 flex items-start gap-4">
           <div className="p-3 rounded-xl bg-brand-50 dark:bg-brand-900/30 text-brand-600 shadow-sm group-hover:scale-105 transition-transform">
-            <Activity size={20} />
+            <Briefcase size={20} />
           </div>
           <div className="flex-1">
             <h3 className="font-bold text-slate-900 dark:text-white group-hover:text-brand-600 transition-colors">Project Status Report</h3>

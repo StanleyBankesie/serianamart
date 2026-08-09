@@ -8,6 +8,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -15,6 +16,7 @@ import { Guard } from "../../../../hooks/usePermissions.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function LoanForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
@@ -150,7 +152,7 @@ export default function LoanForm() {
       <div className="p-4 space-y-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">{isEdit ? 'Edit Loan' : 'New Loan Request'}</h1>
-          <Link to="/human-resources/loans" className="btn-secondary">Back</Link>
+          <button onClick={() => window.history.back()} className="btn-secondary">Back</button>
         </div>
 
         <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
@@ -242,6 +244,8 @@ export default function LoanForm() {
                 type="date" 
                 value={form.end_date} 
                 readOnly 
+              
+                disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
               />
             </div>
             <div>
@@ -252,6 +256,8 @@ export default function LoanForm() {
                 value={form.start_date} 
                 onChange={(e) => update('start_date', e.target.value)} 
                 placeholder="loan takes effect when start date is set"
+              
+                disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
               />
               <p className="text-[10px] text-slate-400 mt-1">Loan takes effect when start date is set</p>
             </div>
@@ -281,7 +287,7 @@ export default function LoanForm() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
-            <Link to="/human-resources/loans" className="btn-secondary">Cancel</Link>
+            <button onClick={() => window.history.back()} className="btn-secondary">Cancel</button>
             <button className="btn-primary" disabled={loading}>
               {loading ? 'Saving...' : 'Save Loan'}
             </button>

@@ -1,23 +1,30 @@
 /**
  * @fileoverview AccountsPage component.
- * Provides functionality for AccountsPage.
+ * Standard Modern UI Chart of Accounts Setup for managing financial ledger accounts.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
-
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { 
+  BookOpen, 
+  ArrowLeft, 
+  Plus, 
+  Search, 
+  RefreshCw, 
+  Edit3, 
+  Save, 
+  X,
+  CreditCard,
+  Building2,
+  DollarSign
+} from "lucide-react";
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
 export default function AccountsPage() {
   const [items, setItems] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -29,11 +36,12 @@ export default function AccountsPage() {
   const [filterGroupId, setFilterGroupId] = useState("");
   const [natureFilter, setNatureFilter] = useState("");
   const [activeFilter, setActiveFilter] = useState("");
-  // removed posting filter per request
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [groupId, setGroupId] = useState("");
   const [name, setName] = useState("");
   const [currencyId, setCurrencyId] = useState("");
+  const [baseCurrencyId, setBaseCurrencyId] = useState("");
   const [exchangeRate, setExchangeRate] = useState("1");
   const [isPostable, setIsPostable] = useState(true);
   const [editId, setEditId] = useState("");
@@ -47,23 +55,27 @@ export default function AccountsPage() {
   async function load() {
     try {
       setLoading(true);
-      const [accRes, gRes, cRes] = await Promise.all([
+      const [accRes, grpRes, curRes] = await Promise.all([
         api.get("/finance/accounts", {
           params: {
             search: searchTerm || null,
             groupId: filterGroupId || null,
             nature: natureFilter || null,
             active: activeFilter || null,
-            postable: null,
           },
         }),
         api.get("/finance/account-groups"),
         api.get("/finance/currencies"),
       ]);
-      const arr = accRes.data?.items || [];
-      setItems(arr);
-      setGroups(gRes.data?.items || []);
-      setCurrencies(cRes.data?.items || []);
+      setItems(accRes.data?.items || []);
+      setGroups(grpRes.data?.items || []);
+      const c = curRes.data?.items || [];
+      setCurrencies(c);
+      const base = c.find(cur => Number(cur.is_base) === 1 || cur.is_base === true);
+      if (base) {
+        setBaseCurrencyId(base.id);
+        setCurrencyId(base.id);
+      }
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load accounts");
     } finally {
@@ -71,24 +83,8 @@ export default function AccountsPage() {
     }
   }
 
-  async function autosync() {
-    try {
-      await api.post("/finance/accounts/sync");
-      // Ensure all existing accounts are postable
-      await api.put("/finance/accounts/force-postable");
-    } catch (e) {
-      toast.error(
-        e?.response?.data?.message ||
-          "Failed to sync accounts from customers/suppliers",
-      );
-    }
-  }
-
   useEffect(() => {
-    (async () => {
-      await autosync();
-      await load();
-    })();
+    load();
   }, []);
 
   useEffect(() => {
@@ -96,77 +92,40 @@ export default function AccountsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, filterGroupId, natureFilter, activeFilter]);
 
-  // Auto-fetch exchange rate for new account
-  useEffect(() => {
-    if (!currencyId || !currencies.length) {
-      setExchangeRate("1");
-      return;
-    }
-    const selected = currencies.find(c => String(c.id) === String(currencyId));
-    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
-    if (!selected || !base || selected.code === base.code) {
-      setExchangeRate("1");
-      return;
-    }
-    getExchangeRate(selected.code, base.code).then(rate => {
-      if (rate) setExchangeRate(String(rate));
-    });
-  }, [currencyId, currencies, getExchangeRate]);
-
-  // Auto-fetch exchange rate for edit account
-  useEffect(() => {
-    if (!editCurrencyId || !currencies.length || !editId) return;
-    const selected = currencies.find(c => String(c.id) === String(editCurrencyId));
-    const base = currencies.find(c => Number(c.is_base) === 1 || c.is_base === true);
-    if (!selected || !base || selected.code === base.code) {
-      setEditExchangeRate("1");
-      return;
-    }
-    getExchangeRate(selected.code, base.code).then(rate => {
-      if (rate) setEditExchangeRate(String(rate));
-    });
-  }, [editCurrencyId, currencies, getExchangeRate, editId]);
-
-  async function createAccount(e) {
+  async function create(e) {
     e.preventDefault();
     try {
-      const payload = {
+      if (!groupId) {
+        toast.error("Account Group is required");
+        return;
+      }
+      const grp = groups.find((g) => String(g.id) === String(groupId));
+      const prefix = grp ? grp.code : "ACC";
+      const existingInGroup = items.filter(
+        (a) => String(a.group_id) === String(groupId),
+      );
+      let nextSeq = existingInGroup.length + 1;
+      let genCode = `${prefix}.${String(nextSeq).padStart(3, "0")}`;
+      while (items.some((a) => a.code === genCode)) {
+        nextSeq++;
+        genCode = `${prefix}.${String(nextSeq).padStart(3, "0")}`;
+      }
+
+      await api.post("/finance/accounts", {
         groupId: Number(groupId),
-        name,
+        code: genCode,
+        name: name.trim(),
         currencyId: currencyId ? Number(currencyId) : null,
         isPostable: 1,
-        isControlAccount: 0,
         isActive: 1,
-      };
-      const resp = await api.post("/finance/accounts", payload);
-      const id = Number(resp?.data?.id || 0);
-      const newCode = resp?.data?.code || "";
-      // Optimistically update list without full reload
-      const g = groups.find((x) => String(x.id) === String(groupId));
-      const c = currencies.find((x) => String(x.id) === String(currencyId));
-      const newItem = {
-        id: id || Math.random(),
-        code: newCode,
-        name,
-        group_id: Number(groupId),
-        group_code: g?.code || "",
-        group_name: g?.name || "",
-        nature: g?.nature || "",
-        currency_id: currencyId ? Number(currencyId) : null,
-        currency_code: c?.code || "",
-        is_control_account: 0,
-        is_postable: 1,
-        is_active: 1,
-      };
-      setItems((prev) => {
-        const next = [newItem, ...prev];
-        return next;
       });
-      toast.success("Account created");
-      setName("");
+
+      toast.success("Account created successfully");
       setGroupId("");
-      setCurrencyId("");
-      setIsPostable(true);
+      setName("");
+      setCurrencyId(baseCurrencyId);
+      setShowCreateModal(false);
+      load();
     } catch (e2) {
       toast.error(e2?.response?.data?.message || "Failed to create account");
     }
@@ -198,6 +157,7 @@ export default function AccountsPage() {
     setEditExchangeRate(a.exchange_rate ? String(a.exchange_rate) : "1");
     setEditIsPostable(Boolean(a.is_postable));
   }
+
   function cancelEdit() {
     setEditId("");
     setEditGroupId("");
@@ -207,6 +167,7 @@ export default function AccountsPage() {
     setEditExchangeRate("1");
     setEditIsPostable(true);
   }
+
   async function saveEdit() {
     try {
       setLoading(true);
@@ -217,7 +178,6 @@ export default function AccountsPage() {
         currencyId: editCurrencyId ? Number(editCurrencyId) : null,
         isPostable: 1,
       });
-      // Update local state quickly without reload
       setItems((prev) =>
         prev.map((a) =>
           String(a.id) === String(editId)
@@ -239,13 +199,12 @@ export default function AccountsPage() {
                 currency_code:
                   currencies.find(
                     (c) => String(c.id) === String(editCurrencyId),
-                  )?.code || "",
-                is_postable: editIsPostable ? 1 : 0,
+                  )?.code || a.currency_code,
               }
             : a,
         ),
       );
-      toast.success("Account updated");
+      toast.success("Account updated successfully");
       cancelEdit();
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to update account");
@@ -262,246 +221,267 @@ export default function AccountsPage() {
       getKeys: (a) => [a.code, a.name],
     });
   }, [items, searchTerm]);
-  
-  const filteredItems = rankedItems;
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filteredItems, "code", "asc");
-  const baseCurrencyCode = useMemo(() => {
-    return currencies.find(c => Number(c.is_base) === 1 || c.is_base === true)?.code || "Base";
-  }, [currencies]);
 
-  const selectedCurrencyCode = useMemo(() => {
-    return currencies.find(c => String(c.id) === String(currencyId))?.code || "";
-  }, [currencies, currencyId]);
-
-  const editSelectedCurrencyCode = useMemo(() => {
-    return currencies.find(c => String(c.id) === String(editCurrencyId))?.code || "";
-  }, [currencies, editCurrencyId]);
+  const {
+    sorted: sortedItems,
+    sortKey,
+    sortDir,
+    toggle,
+  } = useSort(rankedItems, "code", "asc");
 
   return (
-    <div className="space-y-4">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center">
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header Banner */}
+      <div className="card shadow-md">
+        <div className="card-header bg-brand text-white rounded-t-lg p-5">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <h1 className="text-2xl font-bold dark:text-brand-300">
-                Chart of Accounts
-              </h1>
-              <p className="text-sm mt-1">Create and manage ledger accounts</p>
-            </div>
-            <div className="flex gap-2 items-center">
-              <Link to="/finance" className="font-sans btn btn-secondary">
-                Return to Menu
+              <Link
+                to="/finance?section=Accounting%20Setup"
+                className="inline-flex items-center gap-1.5 text-xs text-white/80 hover:text-white transition-colors mb-2"
+              >
+                <ArrowLeft size={14} /> Back to Accounting Setup
               </Link>
-              <input
-                className="input w-48"
-                placeholder="Search code/name..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              <select
-                className="input w-48"
-                value={filterGroupId}
-                onChange={(e) => setFilterGroupId(e.target.value)}
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <BookOpen className="w-6 h-6" /> Chart of Accounts
+              </h1>
+              <p className="text-sm mt-0.5 opacity-90">
+                Create and manage ledger accounts, currency mappings & balances
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn-success text-xs px-3.5 py-2 flex items-center gap-1.5 font-bold"
+                onClick={() => setShowCreateModal(true)}
               >
-                <option value="">All Groups</option>
-                {groups.map((g) => (
-                  <option key={`flt-${g.id}`} value={g.id}>
-                    {g.code} - {g.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="input w-40"
-                value={natureFilter}
-                onChange={(e) => setNatureFilter(e.target.value)}
-              >
-                <option value="">All Nature</option>
-                <option value="ASSET">Asset</option>
-                <option value="LIABILITY">Liability</option>
-                <option value="EQUITY">Equity</option>
-                <option value="INCOME">Income</option>
-                <option value="EXPENSE">Expense</option>
-              </select>
-              <select
-                className="input w-32"
-                value={activeFilter}
-                onChange={(e) => setActiveFilter(e.target.value)}
-              >
-                <option value="">All</option>
-                <option value="1">Active</option>
-                <option value="0">Inactive</option>
-              </select>
-              {/* Posting filter removed */}
+                <Plus size={15} /> Create Account
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-body">
-          <form
-            onSubmit={createAccount}
-            className="grid grid-cols-1 md:grid-cols-6 gap-3"
-          >
-            <div className="md:col-span-2">
-              <label className="label">Group *</label>
-              <select
-                className="input"
-                value={groupId}
-                onChange={(e) => setGroupId(e.target.value)}
-                required
-              >
-                <option value="">Select group</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="label">Name *</label>
-              <input
-                className="input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="label">Currency</label>
-              <select
-                className="input"
-                value={currencyId}
-                onChange={(e) => setCurrencyId(e.target.value)}
-              >
-                <option value="">Default (Base)</option>
-                {currencies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} - {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="hidden md:block"></div>
-            <div>
-              <label className="label">
-                Exchange Rate {selectedCurrencyCode ? `(${baseCurrencyCode} per ${selectedCurrencyCode})` : ""}
-              </label>
-              <input
-                type="number"
-                step="0.000001"
-                className="input"
-                value={exchangeRate}
-                onChange={(e) => setExchangeRate(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end justify-end">
-              <button className="btn-success" type="submit">
-                Create Account
-              </button>
-            </div>
-          </form>
+      {/* Filter Toolbar */}
+      <div className="card p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="relative w-full md:w-80">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              className="input w-full pl-9 text-sm"
+              placeholder="Search account code or name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+            <select
+              className="input text-sm"
+              value={filterGroupId}
+              onChange={(e) => setFilterGroupId(e.target.value)}
+            >
+              <option value="">All Account Groups</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name} ({g.code})
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="input text-sm"
+              value={natureFilter}
+              onChange={(e) => setNatureFilter(e.target.value)}
+            >
+              <option value="">All Natures</option>
+              <option value="ASSET">ASSET</option>
+              <option value="LIABILITY">LIABILITY</option>
+              <option value="EQUITY">EQUITY</option>
+              <option value="INCOME">INCOME</option>
+              <option value="EXPENSE">EXPENSE</option>
+            </select>
+
+            <select
+              className="input text-sm"
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value)}
+            >
+              <option value="">All Statuses</option>
+              <option value="1">Active Only</option>
+              <option value="0">Inactive Only</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-body">
-          {loading ? (
-            <div className="text-center py-10">Loading...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <SortableHeader label="ID" sortKey="id" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Code" sortKey="code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Name" sortKey="name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Group" sortKey="group_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Nature" sortKey="nature" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Currency" sortKey="currency_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Rate" sortKey="exchange_rate" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Postable" sortKey="is_postable" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Active" sortKey="is_active" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedItems.map((a) => (
-                    <tr key={a.id}>
-                      {String(editId) === String(a.id) ? (
+      {/* Create Account Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-xl w-full p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-3">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Plus className="w-5 h-5 text-brand" /> Create New Ledger Account
+              </h2>
+              <button
+                type="button"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-bold"
+                onClick={() => setShowCreateModal(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={create} className="space-y-4">
+              <div>
+                <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Account Group *</label>
+                <select
+                  className="input w-full text-sm"
+                  value={groupId}
+                  onChange={(e) => setGroupId(e.target.value)}
+                  required
+                >
+                  <option value="">Select Account Group</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.code} - {g.nature})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Account Name *</label>
+                <input
+                  className="input w-full text-sm"
+                  placeholder="e.g. Stanbic Bank Account"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Currency</label>
+                <select
+                  className="input w-full text-sm"
+                  value={currencyId}
+                  onChange={(e) => setCurrencyId(e.target.value)}
+                >
+                  <option value="">Default (Base Currency)</option>
+                  {currencies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} - {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  className="btn btn-secondary text-xs px-4 py-2"
+                  onClick={() => setShowCreateModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn-success text-xs px-4 py-2 flex items-center gap-1">
+                  <Plus size={14} /> Save Account
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Main Table */}
+      <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="table w-full">
+            <thead>
+              <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                <SortableHeader label="Account Code" sortKey="code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Account Name" sortKey="name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Group" sortKey="group_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Nature" sortKey="nature" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Currency" sortKey="currency_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                <SortableHeader label="Current Balance" sortKey="current_balance" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+              {loading ? (
+                <tr>
+                  <td colSpan="7" className="text-center py-10 text-slate-400">
+                    <RefreshCw className="animate-spin w-6 h-6 mx-auto mb-2" />
+                    Loading accounts...
+                  </td>
+                </tr>
+              ) : sortedItems.length > 0 ? (
+                sortedItems.map((a) => {
+                  const isEditing = String(editId) === String(a.id);
+                  return (
+                    <tr key={a.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      {isEditing ? (
                         <>
-                          <td className="text-gray-500">{a.id}</td>
-                          <td>
+                          <td className="py-2 px-3">
                             <input
-                              className="input"
+                              className="input w-full text-xs font-mono"
                               value={editCode}
                               onChange={(e) => setEditCode(e.target.value)}
                             />
                           </td>
-                          <td>
+                          <td className="py-2 px-3">
                             <input
-                              className="input"
+                              className="input w-full text-xs"
                               value={editName}
                               onChange={(e) => setEditName(e.target.value)}
                             />
                           </td>
-                          <td>
+                          <td className="py-2 px-3">
                             <select
-                              className="input"
+                              className="input w-full text-xs"
                               value={editGroupId}
                               onChange={(e) => setEditGroupId(e.target.value)}
                             >
                               {groups.map((g) => (
-                                <option key={`g-${g.id}`} value={g.id}>
-                                  {g.code} - {g.name}
+                                <option key={g.id} value={g.id}>
+                                  {g.name}
                                 </option>
                               ))}
                             </select>
                           </td>
-                          <td>{a.nature}</td>
-                          <td>
+                          <td className="py-2 px-3 text-xs font-semibold">
+                            {a.nature}
+                          </td>
+                          <td className="py-2 px-3">
                             <select
-                              className="input"
+                              className="input w-full text-xs"
                               value={editCurrencyId}
-                              onChange={(e) =>
-                                setEditCurrencyId(e.target.value)
-                              }
+                              onChange={(e) => setEditCurrencyId(e.target.value)}
                             >
-                              <option value="">Default (Base)</option>
+                              <option value="">Base</option>
                               {currencies.map((c) => (
-                                <option key={`c-${c.id}`} value={c.id}>
-                                  {c.code} - {c.name}
+                                <option key={c.id} value={c.id}>
+                                  {c.code}
                                 </option>
                               ))}
                             </select>
                           </td>
-                          <td>
-                            <label className="label md:hidden">Rate</label>
-                            <label className="label hidden md:block text-[10px] text-gray-500">
-                              {editSelectedCurrencyCode ? `(${baseCurrencyCode}/${editSelectedCurrencyCode})` : ""}
-                            </label>
-                            <input
-                              type="number"
-                              step="0.000001"
-                              className="input"
-                              value={editExchangeRate}
-                              onChange={(e) => setEditExchangeRate(e.target.value)}
-                            />
+                          <td className="py-2 px-3 text-right font-mono">
+                            {Number(a.current_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
-                          <td>Yes</td>
-                          <td>{a.is_active ? "Yes" : "No"}</td>
-                          <td>
-                            <div className="flex gap-2">
+                          <td className="py-2 px-3 text-right">
+                            <div className="flex justify-end gap-1.5">
                               <button
-                                className="btn-success"
+                                className="btn-success text-xs px-2.5 py-1 flex items-center gap-1"
                                 disabled={loading}
                                 onClick={saveEdit}
                               >
-                                Save
+                                <Save size={12} /> Save
                               </button>
                               <button
-                                className="btn btn-secondary"
+                                className="btn btn-secondary text-xs px-2.5 py-1"
                                 disabled={loading}
                                 onClick={cancelEdit}
                               >
@@ -512,52 +492,75 @@ export default function AccountsPage() {
                         </>
                       ) : (
                         <>
-                          <td className="text-gray-500">{a.id}</td>
-                          <td className="font-medium">{a.code}</td>
-                          <td>{a.name}</td>
-                          <td>{a.group_name}</td>
-                          <td>{a.nature}</td>
-                          <td>{a.currency_code || "Base"}</td>
-                          <td>{a.exchange_rate || "1.0"}</td>
-                          <td>{a.is_postable ? "Yes" : "No"}</td>
-                          <td>{a.is_active ? "Yes" : "No"}</td>
-                          <td>
-                            <div className="flex gap-2">
-                              <button
-                                className="btn btn-secondary"
-                                disabled={loading}
-                                onClick={() => startEdit(a)}
-                              >
-                                Edit
-                              </button>
-                              {!a.is_active ? (
+                          <td className="py-3 px-4 font-mono font-bold text-brand dark:text-brand-300">
+                            {a.code}
+                          </td>
+                          <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
+                            {a.name}
+                          </td>
+                          <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs">
+                            {a.group_name || "—"}
+                          </td>
+                          <td className="py-3 px-4 text-xs font-semibold">
+                            <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700">
+                              {a.nature || "—"}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-xs font-mono font-semibold">
+                            {a.currency_code || "Base"}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
+                            {Number(a.current_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} {a.current_balance_type || ""}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex justify-end items-center gap-2">
+                              {a.is_active ? (
                                 <button
-                                  className="btn-success"
+                                  type="button"
+                                  className="px-2.5 py-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                                  disabled={loading}
+                                  onClick={() => {
+                                    if (window.confirm("Deactivate this account?")) {
+                                      handleToggleActive(a.id, 0);
+                                    }
+                                  }}
+                                >
+                                  Deactivate
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
                                   disabled={loading}
                                   onClick={() => handleToggleActive(a.id, 1)}
                                 >
                                   Activate
                                 </button>
-                              ) : null}
-                              {a.is_active ? (
-                                <button
-                                  className="btn btn-secondary"
-                                  disabled={loading}
-                                  onClick={() => handleToggleActive(a.id, 0)}
-                                >
-                                  Deactivate
-                                </button>
-                              ) : null}
+                              )}
+                              <button
+                                type="button"
+                                className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors flex items-center gap-1"
+                                onClick={() => startEdit(a)}
+                                disabled={loading}
+                              >
+                                <Edit3 size={12} /> Edit
+                              </button>
                             </div>
                           </td>
                         </>
                       )}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan="7" className="text-center py-10 text-slate-400">
+                    No accounts found matching filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 /**
  * @fileoverview StockBalancesReportPage component.
- * Provides functionality for StockBalancesReportPage.
+ * Modernized report for real-time inventory stock balances across all warehouses.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -8,13 +8,17 @@ import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { api } from "../../../../api/client.js";
 import { Link } from "react-router-dom";
+import { Package, Layers, ShieldAlert, CheckCircle2, Download, Printer, RefreshCw, Search } from "lucide-react";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
 export default function StockBalancesReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, []);
+
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -34,13 +38,9 @@ export default function StockBalancesReportPage() {
     ])
       .then(([whRes, sbRes, itRes]) => {
         if (!mounted) return;
-        setWarehouses(
-          Array.isArray(whRes?.data?.items) ? whRes.data.items : [],
-        );
+        setWarehouses(Array.isArray(whRes?.data?.items) ? whRes.data.items : []);
         setItems(Array.isArray(sbRes?.data?.items) ? sbRes.data.items : []);
-        setItemOptions(
-          Array.isArray(itRes?.data?.items) ? itRes.data.items : [],
-        );
+        setItemOptions(Array.isArray(itRes?.data?.items) ? itRes.data.items : []);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -53,97 +53,176 @@ export default function StockBalancesReportPage() {
     return () => {
       mounted = false;
     };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchBalances() {
-      try {
-        const params = {};
-        if (warehouseId) params.warehouseId = warehouseId;
-        if (q.trim()) params.q = q.trim();
-        const res = await api.get("/inventory/stock-balances", { params });
-        if (!cancelled) {
-          setItems(Array.isArray(res?.data?.items) ? res.data.items : []);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(
-            e?.response?.data?.message || "Failed to load stock balances",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-    fetchBalances();
-    return () => {
-      cancelled = true;
-    };
-  }, [warehouseId, q]);
+  }, [pollingCounter]);
 
   const filtered = useMemo(() => {
-    const key = q.trim().toLowerCase();
-    return items.filter((r) => {
-      if (!key) return true;
-      return (
-        String(r.item_code || "")
-          .toLowerCase()
-          .includes(key) || String(r.item_name || "").includes(key)
-      );
+    return items.filter((it) => {
+      if (warehouseId && String(it.warehouse_id) !== String(warehouseId)) {
+        return false;
+      }
+      if (q) {
+        const query = q.toLowerCase();
+        const code = String(it.item_code || "").toLowerCase();
+        const name = String(it.item_name || "").toLowerCase();
+        if (!code.includes(query) && !name.includes(query)) {
+          return false;
+        }
+      }
+      return true;
     });
-  }, [items, q]);
+  }, [items, warehouseId, q]);
 
+  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(filtered, {
+    key: "item_code",
+    dir: "asc",
+  });
 
-  const { sorted: sorted_filtered, sortKey, sortDir, toggle } = useSort(filtered, "id", "desc");
+  const totalStockItems = filtered.length;
+  const totalStockQty = filtered.reduce((acc, it) => acc + Number(it.total_qty || 0), 0);
+  const totalReserveQty = filtered.reduce((acc, it) => acc + Number(it.reserve_qty || 0), 0);
+  const totalAvailableQty = filtered.reduce((acc, it) => acc + Number(it.available_qty || 0), 0);
+
+  function exportExcel() {
+    const exportData = sortedItems.map((r) => ({
+      "Item Code": r.item_code || "-",
+      "Item Name": r.item_name || "-",
+      Warehouse: r.warehouse_name || "All",
+      "Total Qty": Number(r.total_qty || 0),
+      "Reserved Qty": Number(r.reserve_qty || 0),
+      "Available Qty": Number(r.available_qty || 0),
+    }));
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    ws["!cols"] = [{ wch: 15 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "StockBalances");
+    XLSX.writeFile(wb, `stock-balances-report.xlsx`);
+  }
+
+  function exportPDF() {
+    const doc = new jsPDF("p", "mm", "a4");
+    doc.setFontSize(16);
+    doc.text("Stock Balances Summary Report", 14, 15);
+    doc.setFontSize(9);
+    doc.text(`Generated on ${new Date().toLocaleDateString()} | Total Items: ${totalStockItems}`, 14, 22);
+
+    let y = 30;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.text("Item Code", 14, y);
+    doc.text("Item Name", 50, y);
+    doc.text("Total Qty", 120, y);
+    doc.text("Reserve Qty", 150, y);
+    doc.text("Available Qty", 180, y);
+    doc.line(14, y + 2, 196, y + 2);
+    y += 7;
+
+    doc.setFont("helvetica", "normal");
+    sortedItems.slice(0, 45).forEach((r) => {
+      doc.text(String(r.item_code || "-"), 14, y);
+      doc.text(String(r.item_name || "-").slice(0, 30), 50, y);
+      doc.text(String(Number(r.total_qty || 0)), 120, y);
+      doc.text(String(Number(r.reserve_qty || 0)), 150, y);
+      doc.text(String(Number(r.available_qty || 0)), 180, y);
+      y += 6;
+    });
+
+    doc.save(`stock-balances-report.pdf`);
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="card">
-        <div className="card-header bg-brand text-white rounded-t-lg">
-          <div className="flex justify-between items-center text-white">
+    <div className="space-y-6 max-w-7xl mx-auto p-4 sm:p-6">
+      {/* Header Banner */}
+      <div className="card shadow-md">
+        <div className="card-header bg-brand text-white rounded-t-lg p-5">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-              <h1 className="text-2xl font-bold dark:text-brand-300">
-                Stock Balances
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <Package className="w-7 h-7" /> Stock Balances Report
               </h1>
-              <p className="text-sm mt-1">
-                Quantity available per item and warehouse
+              <p className="text-sm mt-1 opacity-90">
+                Real-time inventory levels, reserved stock, and net available quantities across warehouses
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
-                Return to Menu
-              </Link>
+              <div className="flex items-center gap-3"><div className="flex items-center gap-2" title="Live Auto-Refresh Active"><span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span><span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Live</span></div><button onClick={() => window.history.back()} className="btn btn-secondary text-xs">Back</button></div>
+              <button onClick={exportExcel} disabled={!sortedItems.length} className="btn btn-outline btn-sm text-white border-white/30 hover:bg-white/10 flex items-center gap-1.5 text-xs">
+                <Download size={14} /> Excel
+              </button>
+              <button onClick={exportPDF} disabled={!sortedItems.length} className="btn btn-outline btn-sm text-white border-white/30 hover:bg-white/10 flex items-center gap-1.5 text-xs">
+                <Download size={14} /> PDF
+              </button>
+              
             </div>
           </div>
         </div>
-        <div className="card-body">
-          {error ? (
-            <div className="text-red-600 text-sm mb-3">{error}</div>
-          ) : null}
-          <div className="flex flex-col md:flex-row gap-3 mb-4">
-            <input
-              type="text"
-              placeholder="Search item..."
-              className="input flex-1"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              list="stock_bal_item_options"
-            />
+      </div>
+
+      {/* KPI Overview Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="card p-4 border-l-4 border-brand bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Tracked Stock Items</p>
+            <h3 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">{totalStockItems}</h3>
+          </div>
+          <Package className="w-8 h-8 text-brand opacity-80" />
+        </div>
+
+        <div className="card p-4 border-l-4 border-indigo-500 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Stock Qty</p>
+            <h3 className="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">{totalStockQty.toLocaleString()}</h3>
+          </div>
+          <Layers className="w-8 h-8 text-indigo-500 opacity-80" />
+        </div>
+
+        <div className="card p-4 border-l-4 border-amber-500 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Reserved Qty</p>
+            <h3 className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">{totalReserveQty.toLocaleString()}</h3>
+          </div>
+          <ShieldAlert className="w-8 h-8 text-amber-500 opacity-80" />
+        </div>
+
+        <div className="card p-4 border-l-4 border-emerald-500 bg-white dark:bg-slate-900 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Available Qty</p>
+            <h3 className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">{totalAvailableQty.toLocaleString()}</h3>
+          </div>
+          <CheckCircle2 className="w-8 h-8 text-emerald-500 opacity-80" />
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="card p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm">
+        <div className="flex flex-col md:flex-row gap-4 items-end">
+          <div className="flex-1">
+            <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Search Item (Code / Name)</label>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search item code or name..."
+                className="input w-full text-xs pl-8"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                list="stock_bal_item_options"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
+            </div>
             <datalist id="stock_bal_item_options">
-              {itemOptions.slice(0, 1000).map((it) => (
+              {itemOptions.slice(0, 500).map((it) => (
                 <option key={it.id} value={it.item_code}>
                   {it.item_name}
                 </option>
               ))}
             </datalist>
+          </div>
+
+          <div className="w-full md:w-72">
+            <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Warehouse Filter</label>
             <select
-              className="input w-full md:w-72"
+              className="input w-full text-xs"
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
-              title="Warehouse"
             >
               <option value="">All Warehouses</option>
               {warehouses.map((w) => (
@@ -153,10 +232,25 @@ export default function StockBalancesReportPage() {
               ))}
             </select>
           </div>
+
+          <button
+            type="button"
+            className="btn btn-secondary text-xs flex items-center justify-center gap-1 py-2 px-4 shrink-0"
+            onClick={() => { setQ(""); setWarehouseId(""); }}
+          >
+            <RefreshCw size={13} /> Clear
+          </button>
+        </div>
+      </div>
+
+      {/* Data Table */}
+      <div className="card">
+        <div className="card-body p-0">
+          {error && <div className="p-4 text-rose-600 text-xs font-semibold">{error}</div>}
           <div className="overflow-x-auto">
-            <table className="table">
+            <table className="table w-full text-sm">
               <thead>
-                <tr>
+                <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
                   <SortableHeader label="Item Code" sortKey="item_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Item Name" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Total Qty" sortKey="total_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
@@ -166,45 +260,26 @@ export default function StockBalancesReportPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr>
-                    <td colSpan="5" className="text-center py-8 text-slate-500">
-                      Loading...
-                    </td>
-                  </tr>
-                ) : null}
-                {!loading && !filtered.length ? (
-                  <tr>
-                    <td colSpan="5" className="text-center py-8 text-slate-500">
-                      No records
-                    </td>
-                  </tr>
-                ) : null}
-                {sorted_filtered.map((r, i) => (
-                  <tr key={i}>
-                    <td className="font-medium text-brand-700 dark:text-brand-300">
-                      {r.item_code}
-                    </td>
-                    <td>{r.item_name}</td>
-                    <td className="text-right">
-                      {Number(r.total_qty || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td className="text-right">
-                      {Number(r.reserved_qty || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td className="text-right">
-                      {Number(r.available_qty || 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                  </tr>
-                ))}
+                  <tr><td colSpan="5" className="text-center py-8 text-slate-400">Loading stock balances...</td></tr>
+                ) : sortedItems.length > 0 ? (
+                  sortedItems.map((it) => (
+                    <tr key={it.id || it.item_code} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 transition-colors">
+                      <td className="py-3 px-4 font-mono text-xs font-bold text-brand">{it.item_code}</td>
+                      <td className="py-3 px-4 text-xs font-semibold text-slate-800 dark:text-slate-200">{it.item_name}</td>
+                      <td className="py-3 px-4 text-xs font-mono font-bold text-right text-slate-900 dark:text-slate-100">
+                        {Number(it.total_qty || 0).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-xs font-mono font-semibold text-right text-amber-600 dark:text-amber-400">
+                        {Number(it.reserve_qty || 0).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-xs font-mono font-bold text-right text-emerald-600 dark:text-emerald-400">
+                        {Number(it.available_qty || 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr><td colSpan="5" className="text-center py-10 text-slate-400">No stock balance records found</td></tr>
+                )}
               </tbody>
             </table>
           </div>

@@ -90,9 +90,9 @@ export default function ShiftForm() {
         <h1 className="text-2xl font-bold">
           {isEdit ? "Edit Shift" : "New Shift"}
         </h1>
-        <Link to="/human-resources/shifts" className="btn-secondary">
+        <button onClick={() => window.history.back()} className="btn-secondary">
           Back
-        </Link>
+        </button>
       </div>
 
       <form
@@ -169,9 +169,9 @@ export default function ShiftForm() {
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t">
-          <Link to="/human-resources/shifts" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             Cancel
-          </Link>
+          </button>
           <button className="btn-primary px-8" type="submit" disabled={loading}>
             {loading ? "Saving..." : "Save Shift"}
           </button>

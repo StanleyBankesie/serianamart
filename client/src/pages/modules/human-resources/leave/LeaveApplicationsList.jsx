@@ -7,6 +7,8 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -14,6 +16,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function LeaveApplicationsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState({ q: "" });
@@ -48,9 +51,9 @@ export default function LeaveApplicationsList() {
     <div className="p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Link to="/human-resources/leave" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             ← Back
-          </Link>
+          </button>
           <h1 className="text-xl font-semibold">My Leave Applications</h1>
         </div>
         <div className="flex items-center gap-2">
@@ -66,7 +69,10 @@ export default function LeaveApplicationsList() {
         </div>
       </div>
       <div className="bg-white dark:bg-slate-800 rounded shadow-sm overflow-auto">
-        <table className="min-w-full">
+        <div className="flex justify-end mb-4">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+        </div>
+        <table className={"min-w-full " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
           <thead className="bg-slate-50 dark:bg-slate-900/50">
             <tr className="text-left">
               <th className="px-4 py-2 text-xs uppercase">Type</th>

@@ -7,7 +7,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
-
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import { Download, Printer } from "lucide-react";
 function diffDays(a, b) {
   const one = new Date(a);
   const two = new Date(b);
@@ -66,13 +69,13 @@ export default function RosterManagement() {
     const load = async () => {
       try {
         const [emps, shf, sched, pos, locs, cats, ets] = await Promise.all([
-          api.get("/hr/employees?status=ACTIVE"),
-          api.get("/hr/shifts"),
-          api.get("/hr/work-schedules"),
-          api.get("/hr/positions"),
-          api.get("/hr/setup/locations"),
-          api.get("/hr/setup/employee-categories"),
-          api.get("/hr/setup/employment-types"),
+          api.get("/hr/employees?status=ACTIVE").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/shifts").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/work-schedules").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/positions").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/setup/locations").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/setup/employee-categories").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/setup/employment-types").catch(() => ({ data: { items: [] } })),
         ]);
         setEmployees(emps.data?.items || []);
         setShifts(shf.data?.items || []);
@@ -214,10 +217,38 @@ export default function RosterManagement() {
     <div className="p-4 space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Link to="/human-resources" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             Back to Menu
-          </Link>
+          </button>
           <h1 className="text-xl font-semibold">Roster Management</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (!roster.length) return;
+              const ws = XLSX.utils.json_to_sheet(roster);
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, "Roster");
+              XLSX.writeFile(wb, "RosterManagement.xlsx");
+            }}
+            className="btn-secondary text-sm flex items-center gap-2"
+          >
+            <Download className="w-4 h-4" /> Excel
+          </button>
+          <button
+            onClick={() => {
+              if (!roster.length) return;
+              const doc = new jsPDF('landscape');
+              const keys = ["employee_name", "date", "day", "type", "label", "hours"];
+              const tableColumn = ["Employee", "Date", "Day", "Assignment", "Hours"];
+              const tableRows = roster.map(r => [r.employee_name, r.date, r.day, r.label, String(r.hours)]);
+              doc.autoTable({ head: [tableColumn], body: tableRows });
+              doc.save("RosterManagement.pdf");
+            }}
+            className="btn-secondary text-sm flex items-center gap-2"
+          >
+            <Printer className="w-4 h-4" /> PDF
+          </button>
         </div>
       </div>
 

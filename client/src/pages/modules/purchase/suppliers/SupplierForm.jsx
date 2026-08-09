@@ -10,6 +10,7 @@ import { useGhanaCities } from "../../../../hooks/useGhanaCities";
 import { toast } from "react-toastify";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
+import PhoneInput from "../../../../components/PhoneInput.jsx";
 
 /**
  *  component
@@ -509,12 +510,10 @@ export default function SupplierForm() {
               ➕ New Supplier
             </button>
           )}
-          <Link
-            to="/purchase/suppliers"
-            className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition-colors flex items-center gap-2"
+          <button onClick={() => window.history.back()} className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md transition-colors flex items-center gap-2"
           >
             Back
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -711,12 +710,10 @@ export default function SupplierForm() {
                   <label className="block text-sm font-semibold text-slate-800 mb-1">
                     Phone
                   </label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-500 outline-none"
+                  <PhoneInput
+                    className="w-60"
                     value={formData.phone}
-                    onChange={handleChange}
+                    onChange={(v) => setFormData(p => ({ ...p, phone: v }))}
                   />
                 </div>
                 <div>
@@ -842,12 +839,10 @@ export default function SupplierForm() {
           </div>
 
           <div className="flex justify-end gap-3 pt-6 border-t border-slate-200 mt-6">
-            <Link
-              to="/purchase/suppliers"
-              className="px-6 py-2 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 transition-colors"
+            <button onClick={() => window.history.back()} className="px-6 py-2 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 transition-colors"
             >
               Cancel
-            </Link>
+            </button>
             <button
               type="submit"
               className="px-6 py-2 text-white rounded-md transition-colors disabled:opacity-50"

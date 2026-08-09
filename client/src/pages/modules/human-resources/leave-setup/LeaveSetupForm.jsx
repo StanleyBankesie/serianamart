@@ -21,9 +21,8 @@ export default function LeaveSetupForm() {
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     type_name: "",
-    days_per_year: 0,
+    max_days: 0,
     is_paid: true,
-    carry_forward: false,
   });
 
   useEffect(() => {
@@ -36,7 +35,6 @@ export default function LeaveSetupForm() {
         setForm({
           ...item,
           is_paid: Boolean(item.is_paid),
-          carry_forward: Boolean(item.carry_forward),
         });
       } catch {
         toast.error("Failed to fetch leave type details");
@@ -75,9 +73,9 @@ export default function LeaveSetupForm() {
             </h1>
             <p className="text-sm mt-1">Leave configuration</p>
           </div>
-          <Link to="/human-resources/leave-setup" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             Back
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -99,9 +97,9 @@ export default function LeaveSetupForm() {
                 <input
                   className="input"
                   type="number"
+                  value={form.max_days}
+                  onChange={(e) => update("max_days", Number(e.target.value))}
                   min="0"
-                  value={form.days_per_year}
-                  onChange={(e) => update("days_per_year", Number(e.target.value))}
                 />
               </div>
               <div>
@@ -129,9 +127,9 @@ export default function LeaveSetupForm() {
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
-              <Link to="/human-resources/leave-setup" className="btn-secondary">
+              <button onClick={() => window.history.back()} className="btn-secondary">
                 Cancel
-              </Link>
+              </button>
               <button className="btn-primary" type="submit" disabled={loading}>
                 {loading ? "Saving..." : "Save Leave Type"}
               </button>

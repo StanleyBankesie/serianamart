@@ -7,150 +7,14 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import NotificationSettings from "./notifications/NotificationSettings.jsx";
 
 const TABS = [
   { key: "general", label: "General" },
   { key: "notifications", label: "Notifications" },
   { key: "templates", label: "Templates" },
   { key: "departments", label: "Departments" },
-  { key: "backups", label: "Backups" },
 ];
-
-function BackupsSection() {
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [settings, setSettings] = useState({
-    s3: { bucket: "", region: "", endpoint: "", access_key: "", secret_key: "", has_secret: false },
-    gdrive: { client_email: "", folder_id: "", private_key: "", has_private_key: false },
-    b2: { bucket: "", endpoint: "", access_key: "", secret_key: "", has_secret: false },
-  });
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        setLoading(true);
-        const res = await api.get("/admin/settings/backups");
-        const d = res?.data?.data;
-        if (d && mounted) {
-          setSettings({
-            s3: { ...d.s3, secret_key: "" },
-            gdrive: { ...d.gdrive, private_key: "" },
-            b2: { ...d.b2, secret_key: "" },
-          });
-        }
-      } catch (err) {
-        toast.error("Failed to load backup settings");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    try {
-      setSaving(true);
-      await api.post("/admin/settings/backups", settings);
-      toast.success("Backup settings saved successfully");
-      setSettings(prev => ({
-        s3: { ...prev.s3, secret_key: "", has_secret: true },
-        gdrive: { ...prev.gdrive, private_key: "", has_private_key: true },
-        b2: { ...prev.b2, secret_key: "", has_secret: true },
-      }));
-    } catch (err) {
-      toast.error(err.message || "Failed to save backup settings");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleChange = (provider, field, value) => {
-    setSettings(prev => ({
-      ...prev,
-      [provider]: { ...prev[provider], [field]: value }
-    }));
-  };
-
-  if (loading) return <div className="text-slate-500 text-sm">Loading backup settings...</div>;
-
-  return (
-    <form onSubmit={handleSave} className="space-y-6 max-w-4xl">
-      <div className="bg-white p-6 rounded-lg border border-slate-200">
-        <h3 className="text-lg font-medium text-slate-800 mb-4">AWS S3 Configuration</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Bucket Name</label>
-            <input type="text" className="w-full px-3 py-2 border rounded-md" value={settings.s3.bucket} onChange={e => handleChange('s3', 'bucket', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Region</label>
-            <input type="text" className="w-full px-3 py-2 border rounded-md" value={settings.s3.region} onChange={e => handleChange('s3', 'region', e.target.value)} placeholder="e.g. us-east-1" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Endpoint (Optional)</label>
-            <input type="text" className="w-full px-3 py-2 border rounded-md" value={settings.s3.endpoint} onChange={e => handleChange('s3', 'endpoint', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Access Key ID</label>
-            <input type="text" className="w-full px-3 py-2 border rounded-md" value={settings.s3.access_key} onChange={e => handleChange('s3', 'access_key', e.target.value)} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Secret Access Key {settings.s3.has_secret && <span className="text-green-600 text-xs">(Saved)</span>}</label>
-            <input type="password" className="w-full px-3 py-2 border rounded-md" value={settings.s3.secret_key} onChange={e => handleChange('s3', 'secret_key', e.target.value)} placeholder={settings.s3.has_secret ? "Leave blank to keep existing" : ""} />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white p-6 rounded-lg border border-slate-200">
-        <h3 className="text-lg font-medium text-slate-800 mb-4">Google Drive Configuration</h3>
-        <div className="grid grid-cols-1 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Client Email</label>
-            <input type="email" className="w-full px-3 py-2 border rounded-md" value={settings.gdrive.client_email} onChange={e => handleChange('gdrive', 'client_email', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Folder ID</label>
-            <input type="text" className="w-full px-3 py-2 border rounded-md" value={settings.gdrive.folder_id} onChange={e => handleChange('gdrive', 'folder_id', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Private Key {settings.gdrive.has_private_key && <span className="text-green-600 text-xs">(Saved)</span>}</label>
-            <textarea className="w-full px-3 py-2 border rounded-md" rows="3" value={settings.gdrive.private_key} onChange={e => handleChange('gdrive', 'private_key', e.target.value)} placeholder={settings.gdrive.has_private_key ? "Leave blank to keep existing" : ""}></textarea>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white p-6 rounded-lg border border-slate-200">
-        <h3 className="text-lg font-medium text-slate-800 mb-4">Backblaze B2 Configuration</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Bucket Name</label>
-            <input type="text" className="w-full px-3 py-2 border rounded-md" value={settings.b2.bucket} onChange={e => handleChange('b2', 'bucket', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Endpoint</label>
-            <input type="text" className="w-full px-3 py-2 border rounded-md" value={settings.b2.endpoint} onChange={e => handleChange('b2', 'endpoint', e.target.value)} placeholder="e.g. https://s3.us-west-004.backblazeb2.com" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Application Key ID</label>
-            <input type="text" className="w-full px-3 py-2 border rounded-md" value={settings.b2.access_key} onChange={e => handleChange('b2', 'access_key', e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Application Key {settings.b2.has_secret && <span className="text-green-600 text-xs">(Saved)</span>}</label>
-            <input type="password" className="w-full px-3 py-2 border rounded-md" value={settings.b2.secret_key} onChange={e => handleChange('b2', 'secret_key', e.target.value)} placeholder={settings.b2.has_secret ? "Leave blank to keep existing" : ""} />
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <button type="submit" disabled={saving} className="px-4 py-2 bg-brand text-white rounded-md font-medium hover:bg-brand-dark transition-colors disabled:opacity-50">
-          {saving ? "Saving..." : "Save Backup Settings"}
-        </button>
-      </div>
-    </form>
-  );
-}
 
 /**
  *  component
@@ -179,9 +43,9 @@ export default function SettingsPage() {
   const [cloudSaving, setCloudSaving] = useState(false);
   const [emailTestTo, setEmailTestTo] = useState("");
   const [emailTesting, setEmailTesting] = useState(false);
-  const [loginBackgroundUrl, setLoginBackgroundUrl] = useState("");
-  const [loginBackgroundVersion, setLoginBackgroundVersion] = useState("");
-  const [loginBackgroundSaving, setLoginBackgroundSaving] = useState(false);
+  const [loginHeroImageUrl, setloginHeroImageUrl] = useState("");
+  const [loginHeroImageVersion, setloginHeroImageVersion] = useState("");
+  const [loginHeroImageSaving, setloginHeroImageSaving] = useState(false);
   const [inactivityTimeout, setInactivityTimeout] = useState(() => {
     try {
       if (typeof localStorage !== "undefined") {
@@ -243,25 +107,27 @@ export default function SettingsPage() {
     finally { setEmailTesting(false); }
   }
 
-  async function loadLoginBackgroundMeta() {
+  async function loadloginHeroImageMeta() {
     try {
-      const res = await api.get("/admin/settings/login-background/meta");
-      const hasBackground = !!res?.data?.hasBackground;
-      const version = res?.data?.updatedAt || Date.now();
-      setLoginBackgroundVersion(String(version || ""));
-      setLoginBackgroundUrl(hasBackground ? `/api/admin/settings/login-background?v=${encodeURIComponent(String(version))}` : "");
+      const res = await api.get("/admin/settings/login-hero-bg-info");
+      if (res.data) {
+        const hasBackground = !!res?.data?.hasBackground;
+        const version = res?.data?.updatedAt || Date.now();
+        setloginHeroImageVersion(String(version || ""));
+        setloginHeroImageUrl(hasBackground ? `/api/admin/settings/login-hero-background?v=${encodeURIComponent(String(version))}` : "");
+      }
     } catch {
-      setLoginBackgroundUrl("");
-      setLoginBackgroundVersion("");
+      setloginHeroImageUrl("");
+      setloginHeroImageVersion("");
     }
   }
 
-  useEffect(() => { loadLoginBackgroundMeta(); }, []);
+  useEffect(() => { loadloginHeroImageMeta(); }, []);
 
-  async function uploadLoginBackground(file) {
+  async function uploadloginHeroImage(file) {
     if (!file) return;
     try {
-      setLoginBackgroundSaving(true);
+      setloginHeroImageSaving(true);
       let uploadFile = file;
       if (file.size > 300 * 1024) {
         const compressed = await new Promise((resolve) => {
@@ -287,24 +153,24 @@ export default function SettingsPage() {
       }
       const fd = new FormData();
       fd.append("background", uploadFile);
-      await api.post("/admin/settings/login-background", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("Login background updated");
-      await loadLoginBackgroundMeta();
+      await api.post("/admin/settings/login-hero-background", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success("Login hero image updated");
+      await loadloginHeroImageMeta();
     } catch (e) {
-      toast.error(e?.response?.data?.message || e?.message || "Failed to update login background");
-    } finally { setLoginBackgroundSaving(false); }
+      toast.error(e?.response?.data?.message || e?.message || "Failed to update Login hero image");
+    } finally { setloginHeroImageSaving(false); }
   }
 
-  async function clearLoginBackground() {
+  async function clearloginHeroImage() {
     try {
-      setLoginBackgroundSaving(true);
-      await api.delete("/admin/settings/login-background");
-      setLoginBackgroundUrl("");
-      setLoginBackgroundVersion("");
-      toast.success("Login background reset");
+      setloginHeroImageSaving(true);
+      await api.delete("/admin/settings/login-hero-background");
+      setloginHeroImageUrl("");
+      setloginHeroImageVersion("");
+      toast.success("Login hero image reset");
     } catch (e) {
-      toast.error(e?.response?.data?.message || e?.message || "Failed to reset login background");
-    } finally { setLoginBackgroundSaving(false); }
+      toast.error(e?.response?.data?.message || e?.message || "Failed to reset Login hero image");
+    } finally { setloginHeroImageSaving(false); }
   }
 
   async function requestPushPermission() {
@@ -367,7 +233,7 @@ export default function SettingsPage() {
               <h1 className="text-2xl font-bold dark:text-brand-300">Administration Settings</h1>
               <p className="text-sm mt-1">Notifications, branding, and document setup</p>
             </div>
-            <Link to="/administration" className="btn btn-secondary">Return to Menu</Link>
+            <button onClick={() => window.history.back()} className="btn btn-secondary">Back</button>
           </div>
         </div>
       </div>
@@ -387,79 +253,30 @@ export default function SettingsPage() {
             <div className="card-body space-y-3">
               <div className="flex justify-between items-start gap-4">
                 <div>
-                  <div className="text-lg font-semibold">Login Background</div>
+                  <div className="text-lg font-semibold">Login Hero Image</div>
                   <div className="text-sm text-slate-500">Change the image shown behind the login form.</div>
                 </div>
-                {loginBackgroundUrl ? (
-                  <div className="w-40 h-24 rounded border border-slate-200 bg-cover bg-center" style={{ backgroundImage: `url(${loginBackgroundUrl})` }} />
+                {loginHeroImageUrl ? (
+                  <div className="w-40 h-24 rounded border border-slate-200 bg-cover bg-center" style={{ backgroundImage: `url(${loginHeroImageUrl})` }} />
                 ) : (
                   <div className="w-40 h-24 rounded border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-500">Default image</div>
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
                 <label className="btn-primary cursor-pointer">
-                  {loginBackgroundSaving ? "Saving..." : "Upload Background"}
-                  <input type="file" accept="image/*" className="hidden" disabled={loginBackgroundSaving} onChange={e => { const file = e.target.files?.[0] || null; e.target.value = ""; uploadLoginBackground(file); }} />
+                  {loginHeroImageSaving ? "Saving..." : "Upload Background"}
+                  <input type="file" accept="image/*" className="hidden" disabled={loginHeroImageSaving} onChange={e => { const file = e.target.files?.[0] || null; e.target.value = ""; uploadloginHeroImage(file); }} />
                 </label>
-                <button type="button" className="btn-outline" disabled={loginBackgroundSaving || !loginBackgroundUrl} onClick={clearLoginBackground}>Reset to Default</button>
+                <button type="button" className="btn-outline" disabled={loginHeroImageSaving || !loginHeroImageUrl} onClick={clearloginHeroImage}>Reset to Default</button>
               </div>
             </div>
           </div>
+
           <div className="card">
             <div className="card-body space-y-3">
-              <div className="flex justify-between items-start gap-4">
-                <div>
-                  <div className="text-lg font-semibold">Security & Inactivity</div>
-                  <div className="text-sm text-slate-500">Set how many minutes until an inactive user is automatically logged out. Set to 0 to disable.</div>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 items-center">
-                <input type="number" min="0" className="input w-32" value={inactivityTimeout}
-                  onChange={e => { const val = e.target.value; setInactivityTimeout(val); try { if (typeof localStorage !== "undefined") localStorage.setItem("omnisuite.inactivityTimeout", val); } catch {} }} />
-                <span className="text-sm text-slate-600">minutes</span>
-              </div>
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-body space-y-3">
-              <div className="text-lg font-semibold">Email</div>
-              <div className="text-sm text-slate-500">Send a test email to verify SMTP settings.</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-slate-700">Recipient</label>
-                  <input className="input w-full" value={emailTestTo} onChange={e => setEmailTestTo(e.target.value)} placeholder="user@example.com (optional)" />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" className="btn-primary" onClick={sendTestEmail} disabled={emailTesting}>{emailTesting ? "Sending..." : "Send Test Email"}</button>
-              </div>
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-body space-y-3">
-              <div className="text-lg font-semibold">Cloudinary Storage</div>
-              <div className="text-sm text-slate-500">Store attachments in Cloudinary; links are saved to document records.</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-slate-700">Cloud Name</label>
-                  <input className="input w-full" value={cloud.cloud_name} onChange={e => setCloud(p => ({ ...p, cloud_name: e.target.value }))} disabled={cloudLoading || cloudSaving} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-700">API Key</label>
-                  <input className="input w-full" value={cloud.api_key} onChange={e => setCloud(p => ({ ...p, api_key: e.target.value }))} disabled={cloudLoading || cloudSaving} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-700">API Secret</label>
-                  <input type="password" placeholder={cloud.has_secret && !cloud.api_secret ? "•••••••• (unchanged)" : ""} className="input w-full" value={cloud.api_secret} onChange={e => setCloud(p => ({ ...p, api_secret: e.target.value }))} disabled={cloudLoading || cloudSaving} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-700">Folder (optional)</label>
-                  <input className="input w-full" value={cloud.folder} onChange={e => setCloud(p => ({ ...p, folder: e.target.value }))} disabled={cloudLoading || cloudSaving} />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" className="btn-primary" onClick={saveCloudinary} disabled={cloudSaving}>{cloudSaving ? "Saving..." : "Save Cloudinary Settings"}</button>
-              </div>
+              <div className="text-lg font-semibold">Upcoming Events & Announcements</div>
+              <div className="text-sm text-slate-500">Configure multiple event topics to be displayed on the login page carousel.</div>
+              <AnnouncementsSection />
             </div>
           </div>
         </div>
@@ -480,13 +297,25 @@ export default function SettingsPage() {
                 </label>
               </div>
               <div className="flex gap-2">
-                <button type="button" className="btn-secondary" onClick={requestPushPermission}>Request Permission</button>
-                <button type="button" className="btn-primary" onClick={subscribePushNow} disabled={!pushEnabled}>Subscribe Now</button>
-                <button type="button" className="btn-outline" onClick={unsubscribePushNow}>Unsubscribe</button>
+                <div className="flex flex-col gap-1 w-1/3">
+                  <button type="button" className="btn-secondary" onClick={requestPushPermission}>Request Permission</button>
+                </div>
+                <div className="flex flex-col gap-1 w-1/3">
+                  <button type="button" className="btn-primary" onClick={subscribePushNow} disabled={!pushEnabled}>Subscribe Now</button>
+                </div>
+                <div className="flex flex-col gap-1 w-1/3">
+                  <button type="button" className="btn-outline" onClick={unsubscribePushNow}>Unsubscribe</button>
+                </div>
               </div>
-              <div className="text-xs text-slate-500">When enabled, the app registers for push after login and delivers background alerts.</div>
             </div>
           </div>
+
+          <div className="card">
+            <div className="card-body p-0">
+              <NotificationSettings />
+            </div>
+          </div>
+
           <div className="card">
             <div className="card-body space-y-3">
               <div className="text-lg font-semibold">Low Stock Notifications</div>
@@ -521,7 +350,7 @@ export default function SettingsPage() {
       )}
 
       {activeTab === "departments" && <DepartmentsSection />}
-      {activeTab === "backups" && <BackupsSection />}
+      
     </div>
   );
 }
@@ -531,6 +360,8 @@ function LowStockNotificationSection() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [pushEnabled, setPushEnabled] = useState(false);
   const [emailEnabled, setEmailEnabled] = useState(false);
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [whatsappEnabled, setWhatsappEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -554,7 +385,14 @@ function LowStockNotificationSection() {
         const item = res?.data?.item || null;
         setPushEnabled(Boolean(item?.push_enabled));
         setEmailEnabled(Boolean(item?.email_enabled));
-      } catch { setPushEnabled(false); setEmailEnabled(false); }
+        setSmsEnabled(Boolean(item?.sms_enabled));
+        setWhatsappEnabled(Boolean(item?.whatsapp_enabled));
+      } catch { 
+        setPushEnabled(false); 
+        setEmailEnabled(false); 
+        setSmsEnabled(false); 
+        setWhatsappEnabled(false); 
+      }
       finally { setLoading(false); }
     }
     loadPref();
@@ -564,38 +402,58 @@ function LowStockNotificationSection() {
     if (!selectedUserId) return;
     try {
       setSaving(true);
-      await api.put(`/access/notification-prefs/low-stock`, { user_id: Number(selectedUserId), push_enabled: pushEnabled ? 1 : 0, email_enabled: emailEnabled ? 1 : 0 });
+      await api.put(`/access/notification-prefs/low-stock`, { 
+        user_id: Number(selectedUserId), 
+        push_enabled: pushEnabled ? 1 : 0, 
+        email_enabled: emailEnabled ? 1 : 0,
+        sms_enabled: smsEnabled ? 1 : 0,
+        whatsapp_enabled: whatsappEnabled ? 1 : 0
+      });
     } catch {}
     setSaving(false);
   }
 
   return (
-    <div className="space-y-3">
-      <div className="max-w-md">
-        <label className="text-xs font-medium text-slate-700">User</label>
-        <select className="input w-full" value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}>
-          <option value="">Choose a user...</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.username || u.full_name || `User #${u.id}`}</option>)}
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 mb-2">
+        <select className="input flex-1" value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}>
+          <option value="">Select a user...</option>
+          {users.map(u => (
+            <option key={u.id} value={u.id}>{u.first_name} {u.last_name} ({u.email})</option>
+          ))}
         </select>
       </div>
+
       {selectedUserId && (
-        <div className="space-y-3">
-          {loading ? <div className="text-sm text-slate-500">Loading preferences...</div> : (
-            <>
-              <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="checkbox" checked={pushEnabled} onChange={e => setPushEnabled(e.target.checked)} />
-                  <span className="text-sm">Push notification + app notification</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" className="checkbox" checked={emailEnabled} onChange={e => setEmailEnabled(e.target.checked)} />
-                  <span className="text-sm">Email notification</span>
-                </label>
+        <>
+          {loading ? (
+            <div className="text-sm text-slate-500 py-2">Loading...</div>
+          ) : (
+            <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" className="toggle toggle-sm" checked={pushEnabled} onChange={e => setPushEnabled(e.target.checked)} />
+                <span className="text-sm">In-App Push</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" className="toggle toggle-sm" checked={emailEnabled} onChange={e => setEmailEnabled(e.target.checked)} />
+                <span className="text-sm">Email</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" className="toggle toggle-sm" checked={smsEnabled} onChange={e => setSmsEnabled(e.target.checked)} />
+                <span className="text-sm">SMS</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" className="toggle toggle-sm" checked={whatsappEnabled} onChange={e => setWhatsappEnabled(e.target.checked)} />
+                <span className="text-sm">WhatsApp</span>
+              </label>
+              <div className="pt-2">
+                <button className="btn-primary w-full" onClick={save} disabled={saving}>
+                  {saving ? "Saving..." : "Save Preferences"}
+                </button>
               </div>
-              <button className="btn-primary" disabled={saving} onClick={save}>{saving ? "Saving..." : "Save Preference"}</button>
-            </>
+            </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
@@ -716,4 +574,93 @@ function DepartmentsSection() {
   );
 }
 
+function AnnouncementsSection() {
+  const [topics, setTopics] = useState([""]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await api.get("/admin/settings/announcements");
+        let loaded = res?.data?.announcements || [];
+        if (!Array.isArray(loaded)) {
+          loaded = loaded ? [String(loaded)] : [];
+        }
+        if (loaded.length === 0) loaded = [""];
+        setTopics(loaded);
+      } catch {
+        toast.error("Failed to load announcements");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const handleChange = (idx, val) => {
+    const newTopics = [...topics];
+    newTopics[idx] = val;
+    setTopics(newTopics);
+  };
+
+  const handleAdd = () => {
+    setTopics([...topics, ""]);
+  };
+
+  const handleRemove = (idx) => {
+    const newTopics = topics.filter((_, i) => i !== idx);
+    if (newTopics.length === 0) newTopics.push("");
+    setTopics(newTopics);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const validTopics = topics.filter(t => t.trim() !== "");
+      await api.post("/admin/settings/announcements", { announcements: validTopics });
+      toast.success("Announcements saved successfully");
+      if (validTopics.length === 0) setTopics([""]);
+      else setTopics(validTopics);
+    } catch {
+      toast.error("Failed to save announcements");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="text-sm text-slate-500 py-2">Loading...</div>;
+
+  return (
+    <div className="space-y-4">
+      {topics.map((topic, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="e.g. Annual Company Retreat - Nov 15th"
+            className="input flex-1"
+            value={topic}
+            onChange={(e) => handleChange(idx, e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => handleRemove(idx)}
+            className="btn-outline px-3 text-red-500 hover:text-red-700 hover:bg-red-50 border-red-200"
+            title="Remove topic"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <div className="flex gap-2 pt-2">
+        <button type="button" onClick={handleAdd} className="btn-outline">
+          + Add Topic
+        </button>
+        <button type="button" onClick={handleSave} className="btn-primary" disabled={saving}>
+          {saving ? "Saving..." : "Save Topics"}
+        </button>
+      </div>
+    </div>
+  );
+}

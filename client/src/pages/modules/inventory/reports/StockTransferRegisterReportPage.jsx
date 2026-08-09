@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from "react";
+import { Download, Printer } from "lucide-react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
@@ -18,16 +19,42 @@ import jsPDF from "jspdf";
  * @returns {JSX.Element} The rendered component
  */
 export default function StockTransferRegisterReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [warehouseId, setWarehouseId] = useState("");
+  const [itemId, setItemId] = useState("");
+  const [warehouses, setWarehouses] = useState([]);
+  const [itemsFilter, setItemsFilter] = useState([]);
+
+  async function loadFilters() {
+    try {
+      const [whRes, itRes] = await Promise.all([
+        api.get("/inventory/warehouses"),
+        api.get("/inventory/items"),
+      ]);
+      setWarehouses(whRes.data?.items || []);
+      setItemsFilter(itRes.data?.items || []);
+    } catch {}
+  }
+
+  useEffect(() => {
+    loadFilters();
+  }, [pollingCounter]);
+
 
   async function run() {
     try {
       setLoading(true);
       const res = await api.get("/inventory/reports/stock-transfer-register", {
-        params: { from: from || null, to: to || null },
+        params: { from: from || null, to: to || null, warehouseId: warehouseId || null, itemId: itemId || null },
       });
       setItems(res.data?.items || []);
     } catch (e) {
@@ -39,21 +66,55 @@ export default function StockTransferRegisterReportPage() {
 
   useEffect(() => {
     run();
-  }, []);
+  }, [from, to, warehouseId, itemId, pollingCounter]);
 
 
   const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
+
+  function exportExcel() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
+    XLSX.writeFile(wb, "inventory-report.xlsx");
+  }
+
+  function exportPDF() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const doc = new jsPDF("p", "mm", "a4");
+    doc.setFontSize(16);
+    doc.text("Inventory Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Generated on ${new Date().toLocaleDateString()}`, 14, 22);
+    
+    // Fallback simple PDF generation
+    const headers = Object.keys(rows[0] || {}).slice(0, 8);
+    const data = rows.map(r => headers.map(h => String(r[h] || "")));
+    
+    try {
+      doc.autoTable({
+        startY: 30,
+        head: [headers],
+        body: data,
+        styles: { fontSize: 8 }
+      });
+    } catch (e) {
+      doc.text("Data table (see Excel for full details)", 14, 30);
+    }
+    doc.save("inventory-report.pdf");
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/inventory"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Inventory
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Stock Transfer Register
           </h1>
@@ -61,11 +122,21 @@ export default function StockTransferRegisterReportPage() {
             Transfers between warehouses with quantities
           </p>
         </div>
+        <div className="flex gap-2">
+          <button onClick={exportExcel} className="btn btn-outline btn-sm border-brand text-brand hover:bg-brand hover:text-white flex items-center gap-1.5 text-xs">
+            <Download size={14} /> Excel
+          </button>
+          <button onClick={exportPDF} className="btn btn-outline btn-sm border-brand text-brand hover:bg-brand hover:text-white flex items-center gap-1.5 text-xs">
+            <Download size={14} /> PDF
+          </button>
+          
+        </div>
+
       </div>
 
       <div className="card">
         <div className="card-body">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
             <div>
               <label className="label">From</label>
               <input
@@ -84,99 +155,43 @@ export default function StockTransferRegisterReportPage() {
                 onChange={(e) => setTo(e.target.value)}
               />
             </div>
+
+            <div>
+              <label className="label">Warehouse</label>
+              <select
+                className="input"
+                value={warehouseId}
+                onChange={(e) => setWarehouseId(e.target.value)}
+              >
+                <option value="">All Warehouses</option>
+                {warehouses.map(w => (
+                  <option key={w.id} value={w.id}>{w.warehouse_name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Item</label>
+              <select
+                className="input"
+                value={itemId}
+                onChange={(e) => setItemId(e.target.value)}
+              >
+                <option value="">All Items</option>
+                {itemsFilter.map(i => (
+                  <option key={i.id} value={i.id}>{i.item_name || i.item_code}</option>
+                ))}
+              </select>
+            </div>
             <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
-              >
-                {loading ? "Running..." : "Run Report"}
-              </button>
-              <button
-                type="button"
-                className="btn-success"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                }}
-                disabled={loading}
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  const rows = Array.isArray(items) ? items : [];
-                  if (!rows.length) return;
-                  const ws = XLSX.utils.json_to_sheet(rows);
-                  const wb = XLSX.utils.book_new();
-                  XLSX.utils.book_append_sheet(wb, ws, "StockTransferRegister");
-                  XLSX.writeFile(wb, "stock-transfer-register.xlsx");
-                }}
-                disabled={!items.length}
-              >
-                Export Excel
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => {
-                  const rows = Array.isArray(items) ? items : [];
-                  if (!rows.length) return;
-                  const doc = new jsPDF("p", "mm", "a4");
-                  let y = 15;
-                  doc.setFontSize(14);
-                  doc.text("Stock Transfer Register", 10, y);
-                  y += 8;
-                  doc.setFontSize(10);
-                  doc.text("Date", 10, y);
-                  doc.text("Transfer No", 45, y);
-                  doc.text("From", 90, y);
-                  doc.text("To", 125, y);
-                  doc.text("Item", 155, y);
-                  doc.text("Qty", 190, y, { align: "right" });
-                  y += 4;
-                  doc.line(10, y, 200, y);
-                  y += 5;
-                  rows.forEach((r) => {
-                    if (y > 270) {
-                      doc.addPage();
-                      y = 15;
-                    }
-                    const dt = r.transfer_date ? new Date(r.transfer_date).toLocaleDateString() : "-";
-                    const no = String(r.transfer_no || "-");
-                    const from = String(r.from_warehouse_name || "-").slice(0, 25);
-                    const to = String(r.to_warehouse_name || "-").slice(0, 25);
-                    const item = String(r.item_name || r.item_code || "-").slice(0, 25);
-                    const qty = String(Number(r.qty || 0).toLocaleString());
-                    doc.text(dt, 10, y);
-                    doc.text(no, 45, y);
-                    doc.text(from, 90, y);
-                    doc.text(to, 125, y);
-                    doc.text(item, 155, y);
-                    doc.text(qty, 190, y, { align: "right" });
-                    y += 5;
-                  });
-                  doc.save("stock-transfer-register.pdf");
-                }}
-                disabled={!items.length}
-              >
-                Export PDF
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => window.print()}
-              >
-                Print
-              </button>
+              
+              
+              
+              
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="table">
+            <table className="table table-fixed">
               <thead className="sticky top-0 z-10">
                 <tr>
                   <SortableHeader label="Date" sortKey="date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

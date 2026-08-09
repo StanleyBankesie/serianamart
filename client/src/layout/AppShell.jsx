@@ -12,7 +12,9 @@ import {
   Routes,
   useNavigate,
   useLocation,
+  Navigate,
 } from "react-router-dom";
+import Swal from "sweetalert2";
 
 import { useAuth } from "../auth/AuthContext.jsx";
 import {
@@ -39,7 +41,9 @@ import ProductionHome from "../pages/modules/production/ProductionHome.jsx";
 import PosHome from "../pages/modules/pos/PosHome.jsx";
 import BusinessIntelligenceHome from "../pages/modules/business-intelligence/BusinessIntelligenceHome.jsx";
 import ServiceManagementHome from "../pages/modules/service-management/ServiceManagementHome.jsx";
+import TransportLayout from "../pages/modules/transport/TransportLayout.jsx";
 import ExecutiveOverviewRoutes from "../pages/modules/executive-overview/ExecutiveOverviewRoutes.jsx";
+import SystemConfigurationHome from "../pages/modules/system-configuration/SystemConfigurationHome.jsx";
 import NotificationsPage from "../pages/NotificationsPage.jsx";
 import SocialFeedPage from "../pages/social/SocialFeedPage.jsx";
 import RoleSetup from "../pages/admin/RoleSetup.jsx";
@@ -50,6 +54,8 @@ import addNotification from "../utils/addNotification.js";
 
 import logoDark from "../assets/resources/OMNISUITE_WHITE_LOGO.png";
 import logoLight from "../assets/resources/OMNISUITE_LOGO_FILL.png";
+import clearIcon from "../assets/resources/OMNISUITE_ICON_CLEAR.png";
+import PaymentPackageModal from "../components/PaymentPackageModal.jsx";
 import { api } from "../api/client.js";
 import useOfflineQueue from "../offline/useOfflineQueue.js";
 import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
@@ -70,13 +76,14 @@ import {
   AreaChart,
   Headset,
   Presentation,
+  Truck,
   Home,
 } from "lucide-react";
 import FloatingChat from "../components/chat/FloatingChat.jsx";
 import FloatingCreateButton from "../components/FloatingCreateButton.jsx";
 import useSocket from "../hooks/useSocket.js";
 
-const AppRoutes = React.memo(function AppRoutes() {
+const AppRoutes = React.memo(function AppRoutes({ user }) {
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />
@@ -93,6 +100,7 @@ const AppRoutes = React.memo(function AppRoutes() {
       <Route path="/pos/*" element={<PosHome />} />
       <Route path="/business-intelligence/*" element={<BusinessIntelligenceHome />} />
       <Route path="/service-management/*" element={<ServiceManagementHome />} />
+      <Route path="/transport/*" element={<TransportLayout />} />
       <Route path="/executive-overview/*" element={<ExecutiveOverviewRoutes />} />
       <Route path="/administration/access/dashboard-permissions" element={<DashboardPermissions />} />
       <Route path="/notifications" element={<NotificationsPage />} />
@@ -100,11 +108,21 @@ const AppRoutes = React.memo(function AppRoutes() {
       <Route path="/social-feed/:id" element={<SocialFeedPage />} />
       <Route path="/admin/roles" element={<RoleSetup />} />
       <Route path="/admin/user-permissions" element={<UserPermissions />} />
+      <Route 
+        path="/system-configuration/*" 
+        element={(user?.id === 1 || user?.id === 2) ? <SystemConfigurationHome /> : <Navigate to="/" replace />} 
+      />
     </Routes>
   );
 });
 
 const modules = [
+  {
+    key: "system-configuration",
+    label: "System Configuration",
+    path: "/system-configuration",
+    icon: <Settings />,
+  },
   {
     key: "administration",
     label: "Administration",
@@ -152,6 +170,12 @@ const modules = [
     label: "Executive Overview",
     path: "/executive-overview",
     icon: <Presentation />,
+  },
+  {
+    key: "transport",
+    label: "Transport",
+    path: "/transport",
+    icon: <Truck />,
   },
 ];
 
@@ -219,12 +243,14 @@ export default function AppShell() {
     canPerformPageAction,
     ensurePagePerms,
     basePathFrom,
+    canAccessFeatureKey,
   } = usePermission();
   const { theme } = useTheme();
   const { pending, failed, completed, items, lastEvent } = useOfflineQueue();
   const navigate = useNavigate();
   const location = useLocation();
   const [queueOpen, setQueueOpen] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
   const lastChatToneAtRef = useRef(0);
   useEffect(() => {
@@ -234,6 +260,116 @@ export default function AppShell() {
       return () => clearTimeout(t);
     }
   }, [lastEvent]);
+
+  useEffect(() => {
+    if (sessionStorage.getItem("triggerRenewal") === "true") {
+      sessionStorage.removeItem("triggerRenewal");
+      setShowPaymentModal(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function checkLicense() {
+      if (Number(user?.id) === 1) return;
+      const companyId = user?.company_id || user?.companyIds?.[0];
+      if (!companyId) return;
+
+      try {
+        const res = await api.get(`/licenses/company/${companyId}`);
+        if (mounted && res?.data) {
+          const l = res.data;
+          console.log("License Data:", l);
+          if (["ACTIVE", "EXPIRED", "INACTIVE", "SUSPENDED", "CANCELLED"].includes(l.status)) {
+            const exp = new Date(l.expiry_date);
+            const graceDays = l.grace_days || 0;
+            const finalExp = new Date(
+              exp.getTime() + graceDays * 24 * 60 * 60 * 1000,
+            );
+            const now = new Date();
+            let daysRemaining = Math.max(
+              0,
+              Math.ceil((finalExp - now) / (1000 * 60 * 60 * 24)),
+            );
+
+            const alertDays = l.alert_days !== undefined && l.alert_days !== null ? l.alert_days : 30;
+            console.log("License Expiry:", { daysRemaining, alertDays, finalExp, now, status: l.status });
+            
+            const shouldAlert = l.status !== "ACTIVE" || daysRemaining <= alertDays || isNaN(daysRemaining);
+
+            if (shouldAlert) {
+              const formattedDate = new Date(l.expiry_date).toLocaleDateString();
+              let title = "";
+              let text = "";
+
+              if (l.status === "INACTIVE") {
+                title = "License Inactive";
+                text = "Your license is currently INACTIVE. Please renew.";
+              } else if (l.status === "SUSPENDED") {
+                title = "License Suspended";
+                text = "Your license is suspended. Please renew.";
+              } else if (l.status === "CANCELLED") {
+                title = "License Cancelled";
+                text = "Your license is cancelled. Please renew.";
+              } else {
+                title = daysRemaining === 0 ? "License Expired" : "License Expiring Soon";
+                text = daysRemaining === 0 
+                  ? `Your license expired on ${formattedDate} (including ${graceDays} days grace).`
+                  : `Your license expires on ${formattedDate} + ${graceDays} days grace period.`;
+              }
+              
+              // Temporarily ignore the dismissal check to guarantee it shows during our testing
+              const isDismissed = false; // sessionStorage.getItem("licenseAlertDismissed") === "true";
+              const canDismiss = (l.status === "ACTIVE" && daysRemaining > 0);
+              const canRenew = canAccessFeatureKey("system", "license-renewal");
+
+              if (!isDismissed || !canDismiss) {
+                Swal.fire({
+                  toast: true,
+                  position: "bottom-end",
+                  title,
+                  iconHtml: `<img src="${clearIcon}" style="height: 64px; width: auto; object-fit: contain;" />`,
+                  text,
+                  showCancelButton: canDismiss,
+                  showConfirmButton: canRenew,
+                  confirmButtonColor: "#2563eb",
+                  cancelButtonColor: "#64748b",
+                  confirmButtonText: "Renew",
+                  cancelButtonText: "Dismiss",
+                  width: "20em",
+                  padding: "0.5em",
+                  customClass: {
+                    container: 'z-[999999]',
+                    title: 'text-sm m-0 p-0',
+                    htmlContainer: 'text-xs m-1 p-0',
+                    actions: 'm-0 p-0 scale-75',
+                    icon: 'border-0 m-0 mr-2'
+                  },
+                  timerProgressBar: true,
+                  showCloseButton: canDismiss,
+                  background: "rgba(255, 255, 255, 1)",
+                }).then((result) => {
+                  if (result.isConfirmed) {
+                    setShowPaymentModal(true);
+                  } else if (result.isDismissed) {
+                    sessionStorage.setItem("licenseAlertDismissed", "true");
+                  }
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("License check error:", err);
+      }
+    }
+
+    checkLicense();
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
 
   const [online, setOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine !== false : true,
@@ -1091,7 +1227,12 @@ export default function AppShell() {
           ensurePagePerms(base);
         } catch {}
       }
-      const allow = { view: true, create: true, edit: true, delete: true };
+      const allow = {
+        view: pageAllow.view !== null ? pageAllow.view : (fk ? canPerformAction(fk, "view") : true),
+        create: pageAllow.create !== null ? pageAllow.create : (fk ? canPerformAction(fk, "create") : true),
+        edit: pageAllow.edit !== null ? pageAllow.edit : (fk ? canPerformAction(fk, "edit") : true),
+        delete: pageAllow.delete !== null ? pageAllow.delete : (fk ? canPerformAction(fk, "delete") : true),
+      };
       const nodes = Array.from(
         document.querySelectorAll(
           'button, a, [role="button"], input[type="button"], input[type="submit"]',
@@ -1255,6 +1396,7 @@ export default function AppShell() {
           {/* <div className="badge bg-brand-100 dark:bg-brand-900/50 text-brand-800 dark:text-brand-200 border border-brand-300 dark:border-brand-700">
             Role-based + Branch-based
           </div> */}
+          <FloatingInstallButton />
           <ThemeToggle />
           <Link
             to="/notifications"
@@ -1580,197 +1722,116 @@ export default function AppShell() {
           </div>
         </div>
       )}
-
       {changePwModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 sm:p-6">
-          <div className="w-full max-w-sm sm:max-w-md card p-5 sm:p-6 shadow-erp-lg bg-white dark:bg-slate-900 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center">
-              <h2 className="text-base sm:text-lg font-bold">
-                Change Password
-              </h2>
-              <button
-                type="button"
-                className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                onClick={() => setChangePwModalOpen(false)}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="mt-4 space-y-3">
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Current Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPwCurrent ? "text" : "password"}
-                    placeholder="Enter current password"
-                    className="input w-full pr-10"
-                    value={pwCurrent}
-                    onChange={(e) => setPwCurrent(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPwCurrent((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                    tabIndex={-1}
-                  >
-                    {showPwCurrent ? (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                </div>
+          <div className="w-full max-w-sm sm:max-w-md card shadow-erp-2xl bg-white dark:bg-slate-900 flex flex-col max-h-[90vh]">
+            <div className="p-5 sm:p-6 overflow-y-auto flex-1 min-h-0">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-base sm:text-lg font-bold">
+                  Change Password
+                </h2>
               </div>
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  New Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPwNew ? "text" : "password"}
-                    placeholder="Enter new password"
-                    className="input w-full pr-10"
-                    value={pwNew}
-                    onChange={(e) => setPwNew(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPwNew((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                    tabIndex={-1}
-                  >
-                    {showPwNew ? (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                        />
-                      </svg>
-                    )}
-                  </button>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Current Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPwCurrent ? "text" : "password"}
+                      placeholder="Enter current password"
+                      className="input w-full pr-10"
+                      value={pwCurrent}
+                      onChange={(e) => setPwCurrent(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwCurrent((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      tabIndex={-1}
+                    >
+                      {showPwCurrent ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Verify Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPwConfirm ? "text" : "password"}
-                    placeholder="Re-enter new password"
-                    className="input w-full pr-10"
-                    value={pwConfirm}
-                    onChange={(e) => setPwConfirm(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPwConfirm((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                    tabIndex={-1}
-                  >
-                    {showPwConfirm ? (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                        />
-                      </svg>
-                    )}
-                  </button>
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    New Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPwNew ? "text" : "password"}
+                      placeholder="Enter new password"
+                      className="input w-full pr-10"
+                      value={pwNew}
+                      onChange={(e) => setPwNew(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwNew((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      tabIndex={-1}
+                    >
+                      {showPwNew ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Verify Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPwConfirm ? "text" : "password"}
+                      placeholder="Re-enter new password"
+                      className="input w-full pr-10"
+                      value={pwConfirm}
+                      onChange={(e) => setPwConfirm(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPwConfirm((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      tabIndex={-1}
+                    >
+                      {showPwConfirm ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="mt-6">
+            <div className="p-5 sm:p-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 shrink-0">
               <button
                 type="button"
-                className="btn-primary w-full"
+                className="btn-primary w-full py-2.5 text-base shadow-md"
+                data-rbac-exempt="true"
                 disabled={pwChanging}
                 onClick={async () => {
                   if (!pwCurrent || !pwNew || !pwConfirm) {
@@ -1813,7 +1874,7 @@ export default function AppShell() {
                   }
                 }}
               >
-                {pwChanging ? "Changing..." : "Update Password"}
+                {pwChanging ? "Saving..." : "Update Password Now"}
               </button>
             </div>
           </div>
@@ -1831,7 +1892,7 @@ export default function AppShell() {
             type="button"
             aria-label="Close menu"
             onClick={() => setSidebarOpen(false)}
-            className="fixed inset-0 z-40 bg-black/40 md:hidden transition-opacity duration-300 animate-in fade-in"
+            className="fixed inset-0 z-50 bg-black/40 md:hidden transition-opacity duration-300 animate-in fade-in"
           />
         )}
 
@@ -1839,7 +1900,7 @@ export default function AppShell() {
           onTouchStart={handleSidebarTouchStart}
           onTouchEnd={handleSidebarTouchEnd}
           className={
-            "md:sticky md:top-[45px] md:h-[calc(100vh-45px)] border-b md:border-b-0 md:border-r border-slate-800 dark:border-slate-800 p-5 bg-brand-950 dark:bg-slate-950 shadow-lg overflow-y-auto no-scrollbar z-40 transition-all duration-300 ease-in-out " +
+            "md:sticky md:top-[45px] md:h-[calc(100vh-45px)] border-b md:border-b-0 md:border-r border-slate-800 dark:border-slate-800 p-5 bg-brand-950 dark:bg-slate-950 shadow-lg overflow-y-auto no-scrollbar z-[60] transition-all duration-300 ease-in-out " +
             (sidebarOpen
               ? "fixed inset-y-0 left-0 w-[280px] top-[45px] translate-x-0 md:static md:translate-x-0"
               : "fixed inset-y-0 left-0 w-[280px] top-[45px] -translate-x-full md:static md:translate-x-0 md:hidden")
@@ -1852,7 +1913,7 @@ export default function AppShell() {
               className={({ isActive }) =>
                 `flex items-center px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200 group ` +
                 (isActive
-                  ? "bg-brand-800 text-white shadow-lg border-l-4 border-primary-light"
+                  ? "bg-brand-800 text-white shadow-lg border-l-4 border-secondary"
                   : "text-brand-200 hover:bg-brand-800 hover:text-white border-l-4 border-transparent")
               }
             >
@@ -1866,6 +1927,9 @@ export default function AppShell() {
             </NavLink>
             {modules
               .filter((m) => {
+                if (m.key === "system-configuration") {
+                  return user?.id === 1 || user?.id === 2;
+                }
                 // Use PermissionContext to check if module should appear in sidebar
                 return canViewModule(m.key);
               })
@@ -1876,7 +1940,7 @@ export default function AppShell() {
                   className={({ isActive }) =>
                     `flex items-center px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200 group ` +
                     (isActive
-                      ? "bg-brand-800 text-white shadow-lg border-l-4 border-primary-light"
+                      ? "bg-brand-800 text-white shadow-lg border-l-4 border-secondary"
                       : "text-brand-200 hover:bg-brand-800 hover:text-white border-l-4 border-transparent")
                   }
                 >
@@ -1893,7 +1957,7 @@ export default function AppShell() {
         </aside>
 
         <main className=" bg-slate-50 (#f8fafc)  dark:bg-slate-900 overflow-x-hidden min-w-0">
-          <div className="w-full max-w-full lg:max-w-[1200px] mx-auto p-2 md:p-2 lg:p-3">
+          <div className="w-full max-w-full 2xl:max-w-[1600px] mx-auto p-2 md:p-2 lg:p-3">
             {pushPromptVisible ? (
               <div className="mb-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 flex items-center justify-between">
                 <div className="text-sm">
@@ -1929,7 +1993,9 @@ export default function AppShell() {
                 </div>
               </div>
             ) : (
-              <AppRoutes />
+              <React.Suspense fallback={<div>Loading...</div>}>
+                <AppRoutes user={user} />
+              </React.Suspense>
             )}
           </div>
         </main>
@@ -1941,7 +2007,7 @@ export default function AppShell() {
           title="New Verification"
         />
       ) : null}
-      <FloatingInstallButton />
+      <PaymentPackageModal isOpen={showPaymentModal} onClose={() => setShowPaymentModal(false)} companyId={user?.company_id || user?.companyIds?.[0]} />
       <FloatingChat />
     </div>
   );

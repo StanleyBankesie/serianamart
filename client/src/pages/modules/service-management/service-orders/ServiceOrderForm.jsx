@@ -9,6 +9,7 @@ import { useAuth } from "../../../../auth/AuthContext.jsx";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { Trash2 } from "lucide-react";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function toYmd(date) {
   try {
@@ -28,6 +29,7 @@ function toYmd(date) {
  * @returns {JSX.Element} The rendered component
  */
 export default function ServiceOrderForm() {
+  const { hasExceptional } = usePermission();
 
   const navigate = useNavigate();
   const params = useParams();
@@ -148,13 +150,7 @@ export default function ServiceOrderForm() {
   const [customers, setCustomers] = useState([]);
   const [customerSearch, setCustomerSearch] = useState("");
 
-  const [permissions, setPermissions] = useState({});
 
-  useEffect(() => {
-    api.get("/inventory/permissions").then((res) => {
-      setPermissions(res.data?.permissions || {});
-    });
-  }, []);
 
   function generateOrderNo() {
     return `ORD-${Date.now().toString().slice(-8)}`;
@@ -228,7 +224,7 @@ export default function ServiceOrderForm() {
     }
     async function fetchProjects() {
       try {
-        const resp = await api.get("/projects");
+        const resp = await api.get("/projects/projects");
         const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
         if (mounted) setProjects(rows);
       } catch {
@@ -289,7 +285,7 @@ export default function ServiceOrderForm() {
     fetchSupervisors();
     async function fetchCustomers() {
       try {
-        const resp = await api.get("/sales/customers");
+        const resp = await api.get("/sales/customers", { params: { service_customer: "Y" } });
         const rows = Array.isArray(resp.data?.items) ? resp.data.items : [];
         if (mounted) setCustomers(rows);
       } catch {
@@ -643,12 +639,10 @@ export default function ServiceOrderForm() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/service-management/service-orders"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Service Order List
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold mt-2">Service Order Management</h1>
           <p className="text-sm mt-1">
             Comprehensive order system for internal services and external
@@ -1012,6 +1006,8 @@ export default function ServiceOrderForm() {
                         }
                         min={today}
                         required
+                      
+                        disabled={!!editId && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                     </div>
                     <div className="group">
@@ -1538,6 +1534,8 @@ export default function ServiceOrderForm() {
                         }
                         min={today}
                         
+                      
+                        disabled={!!editId && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                     </div>
                     <div className="group">
@@ -1553,6 +1551,8 @@ export default function ServiceOrderForm() {
                         }
                         min={today}
                         
+                      
+                        disabled={!!editId && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                     </div>
                   </div>

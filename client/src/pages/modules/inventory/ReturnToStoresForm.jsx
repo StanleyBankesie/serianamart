@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -13,6 +14,7 @@ import { api } from "api/client";
  * @returns {JSX.Element} The rendered component
  */
 export default function ReturnToStoresForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = !id || id === "new";
@@ -392,9 +394,9 @@ export default function ReturnToStoresForm() {
                 Record materials being returned to stores
               </p>
             </div>
-            <Link to="/inventory/return-to-stores" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -457,6 +459,8 @@ export default function ReturnToStoresForm() {
                       setFormData({ ...formData, rtsDate: e.target.value })
                     }
                     required
+                  
+                    disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                   />
                 </div>
                 <div>

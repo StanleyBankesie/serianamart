@@ -10,6 +10,8 @@ import { usePermission } from "../../../../auth/PermissionContext";
 import { Plus } from "lucide-react";
 import { filterAndSort } from "../../../../utils/searchUtils.js";
 import { toast } from "react-toastify";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 const statuses = [
   { value: "DRAFT", label: "Draft", color: "bg-slate-100 text-slate-600" },
@@ -26,6 +28,7 @@ const statuses = [
  * @returns {JSX.Element} The rendered component
  */
 export default function PMPurchaseRequisitionList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const { canPerformAction } = usePermission();
   const [items, setItems] = useState([]);
@@ -77,7 +80,7 @@ export default function PMPurchaseRequisitionList() {
               <p className="text-sm mt-1">Request materials for project procurement</p>
             </div>
             <div className="flex gap-2">
-              <Link to="/project-management" className="btn btn-secondary">Return to Menu</Link>
+              <button onClick={() => window.history.back()} className="btn btn-secondary">Back</button>
               <Link to="/project-management/purchase-requisitions/new" className="btn-success flex items-center gap-2"><Plus size={16} />New Requisition</Link>
             </div>
           </div>
@@ -93,8 +96,12 @@ export default function PMPurchaseRequisitionList() {
             <button className="btn btn-secondary" onClick={fetchList}>Refresh</button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th className="cursor-pointer select-none" onClick={() => toggleSort("requisition_no")}>Requisition No</th>
@@ -131,7 +138,7 @@ export default function PMPurchaseRequisitionList() {
                           <button className="px-2 py-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100"
                             onClick={() => handleSubmit(r.id)}>Submit</button>
                         )}
-                        {["DRAFT","REJECTED","PENDING_APPROVAL"].includes(r.status) && (
+                        {hasExceptional("PM.PR.CANCEL") && ["DRAFT","REJECTED","PENDING_APPROVAL"].includes(r.status) && (
                           <button className="px-2 py-1 text-xs font-medium text-white bg-red-700 rounded hover:bg-red-800"
                             onClick={() => handleDelete(r.id)}>Cancel</button>
                         )}

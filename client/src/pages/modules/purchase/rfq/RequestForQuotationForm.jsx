@@ -4,13 +4,14 @@
  */
 
 import React, { useEffect, useState, useMemo, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { format } from "date-fns";
 import { Printer, Download } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -18,14 +19,6 @@ import { filterByPrefix } from "@/utils/searchUtils.js";
  * @returns {JSX.Element} The rendered component
  */
 export default function RequestForQuotationForm() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const isEdit = Boolean(id) && id !== "new";
-
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
   // Form State
   const [formData, setFormData] = useState({
     rfq_no: "",
@@ -362,6 +355,8 @@ export default function RequestForQuotationForm() {
                   value={formData.rfq_date}
                   onChange={handleInputChange}
                   className="p-2 border border-gray-300 rounded focus:ring-2 focus:ring-[#0E3646] focus:border-transparent outline-none"
+                
+                  disabled={isView || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                 />
               </div>
               <div className="flex flex-col gap-1">
@@ -374,6 +369,8 @@ export default function RequestForQuotationForm() {
                   value={formData.expiry_date}
                   onChange={handleInputChange}
                   className="p-2 border border-gray-300 rounded focus:ring-2 focus:ring-[#0E3646] focus:border-transparent outline-none"
+                
+                  disabled={isView || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                 />
               </div>
               <div className="flex flex-col gap-1">
@@ -666,6 +663,8 @@ export default function RequestForQuotationForm() {
                               )
                             }
                             className="w-full p-1 border border-gray-300 rounded"
+                          
+                            disabled={isView || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                           />
                         </td>
                         <td className="p-3">

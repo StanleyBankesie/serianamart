@@ -1,10 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Download, Printer } from "lucide-react";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import * as XLSX from "xlsx";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { api } from "../../../../api/client.js";
 import { Link } from "react-router-dom";
 
 export default function StockValueReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, []);
+
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [itemGroups, setItemGroups] = useState([]);
@@ -53,7 +63,7 @@ export default function StockValueReportPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [pollingCounter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,7 +95,7 @@ export default function StockValueReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [warehouseId, itemGroupId, q]);
+  }, [warehouseId, itemGroupId, q, pollingCounter]);
 
   const itemSelectOptions = React.useMemo(() => {
     if (!itemOptions) return [];
@@ -138,6 +148,42 @@ export default function StockValueReportPage() {
     );
   }, [sorted_filtered]);
 
+
+  function exportExcel() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
+    XLSX.writeFile(wb, "inventory-report.xlsx");
+  }
+
+  function exportPDF() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const doc = new jsPDF("p", "mm", "a4");
+    doc.setFontSize(16);
+    doc.text("Inventory Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Generated on ${new Date().toLocaleDateString()}`, 14, 22);
+    
+    // Fallback simple PDF generation
+    const headers = Object.keys(rows[0] || {}).slice(0, 8);
+    const data = rows.map(r => headers.map(h => String(r[h] || "")));
+    
+    try {
+      doc.autoTable({
+        startY: 30,
+        head: [headers],
+        body: data,
+        styles: { fontSize: 8 }
+      });
+    } catch (e) {
+      doc.text("Data table (see Excel for full details)", 14, 30);
+    }
+    doc.save("inventory-report.pdf");
+  }
+
   return (
     <div className="space-y-6">
       <div className="card">
@@ -152,9 +198,7 @@ export default function StockValueReportPage() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/inventory" className="btn btn-secondary">
-                Return to Menu
-              </Link>
+              <div className="flex items-center gap-3"><div className="flex items-center gap-2" title="Live Auto-Refresh Active"><span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span><span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Live</span></div><button onClick={() => window.history.back()} className="btn btn-secondary">Back</button></div>
             </div>
           </div>
         </div>

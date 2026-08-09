@@ -13,6 +13,12 @@ import { api } from "../../../../api/client.js";
  * @returns {JSX.Element} The rendered component
  */
 export default function VisitorsLogReport() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState({
     total_visitors: 0,
@@ -144,9 +150,9 @@ export default function VisitorsLogReport() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/service-management" className="btn-success text-sm">
+              <button onClick={() => window.history.back()} className="btn-success text-sm">
                 Back
-              </Link>
+              </button>
               <button
                 type="button"
                 className="btn-success text-sm"
@@ -197,32 +203,32 @@ export default function VisitorsLogReport() {
 
           {/* Filters */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-            <div>
+            <div className="min-w-0">
               <label className="label text-xs">From Date</label>
               <input
                 type="date"
-                className="input input-sm"
+                className="input input-sm w-full min-w-0"
                 value={filters.from}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, from: e.target.value }))
                 }
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="label text-xs">To Date</label>
               <input
                 type="date"
-                className="input input-sm"
+                className="input input-sm w-full min-w-0"
                 value={filters.to}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, to: e.target.value }))
                 }
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="label text-xs">Department</label>
               <select
-                className="input input-sm"
+                className="input input-sm w-full min-w-0"
                 value={filters.department}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, department: e.target.value }))

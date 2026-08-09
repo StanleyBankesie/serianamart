@@ -24,6 +24,8 @@ import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
 import { ListPrintIconButton, ListPdfIconButton, ListAttachmentIconButton } from "../../../../components/list/ListDocActionIconButtons.jsx";
 import DocumentAttachmentsModal from "../../../../components/attachments/DocumentAttachmentsModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 const StatusBadge = ({ level }) => {
   const colors = {
@@ -45,6 +47,7 @@ const StatusBadge = ({ level }) => {
  * @returns {JSX.Element} The rendered component
  */
 export default function DowntimeLogList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,25 +129,29 @@ export default function DowntimeLogList() {
       </div>
 
       <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
+        
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+          <table className={ "w-full text-left " + (viewMode === 'grid' ? 'table-grid-mode' : '') }>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-900/50">
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Asset & Reason</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Timeframe</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Duration</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Impact</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Created By</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Created Date</th>
-                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Asset & Reason</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Timeframe</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center whitespace-nowrap">Duration</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Impact</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Created By</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Created Date</th>
+                <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
                 {loading ? (
-                <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse font-bold text-slate-400 uppercase">Analyzing downtime cycles...</td></tr>
+                <tr><td colSpan="7" className="px-6 py-20 text-center animate-pulse font-bold text-slate-400 uppercase whitespace-nowrap">Analyzing downtime cycles...</td></tr>
               ) : items.length > 0 ? items.map((item) => (
                 <tr key={item.id} className="group hover:bg-slate-50/80 transition-colors">
-                  <td className="px-6 py-5">
+                  <td className="px-6 py-5 whitespace-nowrap">
                     <div className="flex items-center gap-4">
                       <div className={`p-3 rounded-2xl ${item.category === 'PLANNED' ? 'bg-indigo-50 text-indigo-600' : 'bg-rose-50 text-rose-600'} dark:bg-opacity-10`}>
                         {item.category === 'PLANNED' ? <Calendar size={18} /> : <AlertTriangle size={18} />}
@@ -155,7 +162,7 @@ export default function DowntimeLogList() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-5">
+                  <td className="px-6 py-5 whitespace-nowrap">
                     <div className="flex flex-col gap-1">
                       <div className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                         <Zap size={12} className="text-emerald-500" />
@@ -169,17 +176,17 @@ export default function DowntimeLogList() {
                       )}
                     </div>
                   </td>
-                  <td className="px-6 py-5 text-center">
+                  <td className="px-6 py-5 text-center whitespace-nowrap">
                     <span className="font-black text-slate-900 dark:text-white text-sm bg-slate-100 dark:bg-slate-900 px-3 py-1.5 rounded-xl">
                       {calculateDuration(item.start_time, item.end_time)}
                     </span>
                   </td>
-                  <td className="px-6 py-5">
+                  <td className="px-6 py-5 whitespace-nowrap">
                     <StatusBadge level={item.impact_level} />
                   </td>
-                    <td className="px-6 py-5 text-sm">{item.created_by_name || "-"}</td>
-                    <td className="px-6 py-5 text-sm">{item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}</td>
-                    <td className="px-6 py-5 text-right">
+                    <td className="px-6 py-5 text-sm whitespace-nowrap">{item.created_by_name || "-"}</td>
+                    <td className="px-6 py-5 text-sm whitespace-nowrap">{item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="px-6 py-5 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
                         <button type="button" className="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors" title="View" onClick={() => navigate(`/maintenance/assets/downtime/${item.id}?mode=view`)}><Eye size={15} /></button>
                         <ListPrintIconButton onClick={() => toast.info("Print coming soon")} />
@@ -190,7 +197,7 @@ export default function DowntimeLogList() {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-medium">
+                  <td colSpan="7" className="px-6 py-20 text-center text-slate-400 font-medium whitespace-nowrap">
                     Excellent! No downtime incidents recorded recently.
                   </td>
                 </tr>

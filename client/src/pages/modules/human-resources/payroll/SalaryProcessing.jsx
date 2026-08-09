@@ -207,9 +207,9 @@ export default function SalaryProcessing() {
       <div className="p-4 space-y-5">
         {/* ── header ─────────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3">
-          <Link to="/human-resources" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             ← Back
-          </Link>
+          </button>
           <div>
             <h2 className="text-xl font-bold text-slate-800 dark:text-white">
               Process Salaries

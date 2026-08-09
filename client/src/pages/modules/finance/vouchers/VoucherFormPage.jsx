@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import PendingApprovalTooltip from "@/components/PendingApprovalTooltip.jsx";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -58,7 +59,6 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const isCN = String(voucherTypeCode).toUpperCase() === "CN";
   const isJV = String(voucherTypeCode).toUpperCase() === "JV";
   const isSV = String(voucherTypeCode).toUpperCase() === "SV";
-  const isPAYV = String(voucherTypeCode).toUpperCase() === "PAYV";
   const [rvForm, setRvForm] = useState({
     receivedFrom: "",
     receivedFromCode: "",
@@ -111,6 +111,7 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
   const [receivedFromSearch, setReceivedFromSearch] = useState("");
   const [paidToSearch, setPaidToSearch] = useState("");
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardComments, setForwardComments] = useState("");
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -700,7 +701,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
         next_number: 1,
         requires_approval: 0,
         is_active: 1,
-      });
+      
+          comments: forwardComments || "Forwarded for Approval",
+        });
       const res2 = await api.get("/finance/voucher-types", {
         params: { code: upper },
       });
@@ -2967,9 +2970,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -3448,9 +3451,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"
@@ -3574,7 +3577,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             ? candidateWorkflow.id
                             : null,
                           target_user_id: targetApproverId || null,
-                        },
+        comments: forwardComments,
+        },
                       );
                       const newStatus = res?.data?.status || "PENDING_APPROVAL";
                       setVoucherStatus(newStatus);
@@ -3612,9 +3616,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <p className="text-sm mt-1">Record incoming payments</p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -4528,9 +4532,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               </div>
 
               <div className="flex flex-col md:flex-row gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"
@@ -4656,7 +4660,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             ? candidateWorkflow.id
                             : null,
                           target_user_id: targetApproverId || null,
-                        },
+        comments: forwardComments,
+        },
                       );
                       const newStatus = res?.data?.status || "PENDING_APPROVAL";
                       setVoucherStatus(newStatus);
@@ -4694,9 +4699,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <p className="text-sm mt-1">Record outgoing payments</p>
               </div>
               <div className="flex gap-2">
-                <Link to="/finance/payment-voucher" className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -5636,9 +5641,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               </div>
 
               <div className="flex flex-col md:flex-row gap-2">
-                <Link to="/finance/payment-voucher" className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"
@@ -5764,7 +5769,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             ? candidateWorkflow.id
                             : null,
                           target_user_id: targetApproverId || null,
-                        },
+        comments: forwardComments,
+        },
                       );
                       const newStatus = res?.data?.status || "PENDING_APPROVAL";
                       setVoucherStatus(newStatus);
@@ -5802,9 +5808,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                 <p className="text-sm mt-1">Transfer funds between accounts</p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                </div>
             </div>
           </div>
@@ -6110,9 +6116,9 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
               </div>
 
               <div className="flex flex-col md:flex-row gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"
@@ -6239,7 +6245,8 @@ export default function VoucherFormPage({ voucherTypeCode, title }) {
                             ? candidateWorkflow.id
                             : null,
                           target_user_id: targetApproverId || null,
-                        },
+        comments: forwardComments,
+        },
                       );
                       const newStatus = res?.data?.status || "PENDING_APPROVAL";
                       setVoucherStatus(newStatus);

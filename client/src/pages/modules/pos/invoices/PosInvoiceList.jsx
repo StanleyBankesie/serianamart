@@ -13,6 +13,8 @@ import { useAuth } from "../../../../auth/AuthContext.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import QRCode from "qrcode";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 // POS receipt settings are loaded from the database (company/branch scoped)
 
@@ -70,6 +72,7 @@ async function waitForImages(container) {
  * @returns {JSX.Element} The rendered component
  */
 export default function PosInvoiceList() {
+  const [viewMode, setViewMode] = useViewMode();
   const { user } = useAuth();
   const { canPerformAction } = usePermission();
   const [now, setNow] = useState(new Date());
@@ -882,12 +885,10 @@ export default function PosInvoiceList() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/pos"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to POS
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             POS Invoices
           </h1>
@@ -1004,7 +1005,7 @@ export default function PosInvoiceList() {
 
       <div className="card">
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <th>Invoice No</th>

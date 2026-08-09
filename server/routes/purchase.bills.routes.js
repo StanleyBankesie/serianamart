@@ -251,9 +251,33 @@ router.get(
             AND (mb.branch_id = ? OR mb.branch_id IS NULL)
             AND (mb.payment_status = 'UNPAID' OR mb.payment_status = 'PARTIAL' OR mb.payment_status = 'PARTIAL PAYMENT')
             AND mb.status NOT IN ('CANCELLED', 'DRAFT')
+
+          UNION ALL
+
+          SELECT tb.id, tb.bill_no, tb.bill_date,
+                 tb.total_amount as net_amount,
+                 COALESCE(tb.amount_paid, 0) as amount_paid,
+                 (tb.total_amount - COALESCE(tb.amount_paid, 0)) as balance_amount,
+                 COALESCE(tb.payment_status, 'UNPAID') as payment_status,
+                 COALESCE(tb.due_date, tb.bill_date) as due_date,
+                 s.supplier_name,
+                 'Transportation' as source,
+                 NULL as items
+          FROM trans_transportation_bills tb
+          LEFT JOIN pur_suppliers s ON tb.supplier_id = s.id
+          WHERE tb.supplier_id = ?
+            AND tb.company_id = ?
+            AND (tb.branch_id = ? OR tb.branch_id IS NULL)
+            AND (tb.payment_status IS NULL OR tb.payment_status IN ('UNPAID', 'PARTIAL', 'PARTIAL PAYMENT'))
+            AND (tb.status IS NULL OR tb.status IN ('DRAFT', 'POSTED', 'COMPLETED'))
         ) combined
         ORDER BY bill_date DESC`;
-      const billParams = [supplierId, companyId, branchId, supplierId, companyId, branchId, supplierId, companyId, branchId];
+      const billParams = [
+        supplierId, companyId, branchId,
+        supplierId, companyId, branchId,
+        supplierId, companyId, branchId,
+        supplierId, companyId, branchId
+      ];
       const billRows = await query(sql, billParams);
 
       // Group bill details by bill

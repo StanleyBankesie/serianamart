@@ -218,31 +218,92 @@ export async function saveRoleModules(req, res, next) {
     try {
       await conn.beginTransaction();
 
-      // Replace role modules with the newly submitted list
+      // 1. Get company id for the role to verify license
+      const [roleInfo] = await conn.query(`SELECT company_id FROM adm_roles WHERE id = ?`, [roleId]);
+      if (!roleInfo || roleInfo.length === 0) {
+        throw new Error("Role not found");
+      }
+      const companyId = roleInfo[0].company_id;
+
+      // 2. Fetch active licensed modules for this company
+      const [licenseModules] = await conn.query(`
+        SELECT lm.module_code 
+        FROM adm_license_modules lm
+        JOIN adm_company_licenses cl ON lm.license_id = cl.id
+        WHERE cl.company_id = ?
+      `, [companyId]);
+      const allowedModuleCodes = licenseModules.map(m => m.module_code);
+
+      // 3. Filter submitted moduleKeys against allowed license modules
+      // Always allow 'administration' and 'dashboard' as they are core modules
+      const validModuleKeys = moduleKeys.filter(mk => 
+        allowedModuleCodes.includes(mk) || 
+        mk === 'administration' || 
+        mk === 'dashboard'
+      );
+
+      // Replace role modules with the newly validated list
       await conn.query(`DELETE FROM adm_role_modules WHERE role_id = ?`, [roleId]);
 
-      if (moduleKeys.length > 0) {
-        const values = moduleKeys.map(() => "(?, ?)").join(",");
+      if (validModuleKeys.length > 0) {
+        const values = validModuleKeys.map(() => "(?, ?)").join(",");
         const params = [];
-        for (const mk of moduleKeys) {
+        for (const mk of validModuleKeys) {
           params.push(roleId, mk);
         }
         await conn.query(`INSERT INTO adm_role_modules (role_id, module_key) VALUES ${values}`,
           params,
         );
+        
+        // Auto-add Features and Pages under these modules into their respective tables
+        const lowerKeys = validModuleKeys.map(k => String(k).toLowerCase());
+        const placeholders = lowerKeys.map(() => '?').join(',');
+
+        // Insert missing features strictly related to the allowed modules
+        await conn.query(`
+          INSERT IGNORE INTO adm_role_features (role_id, feature_key)
+          SELECT ?, feature_key FROM adm_pages 
+          WHERE LOWER(module) IN (${placeholders}) AND feature_key IS NOT NULL
+        `, [roleId, ...lowerKeys]);
+
+        // Insert missing pages strictly related to the allowed modules
+        await conn.query(`
+          INSERT IGNORE INTO adm_role_pages (role_id, page_id)
+          SELECT ?, id FROM adm_pages 
+          WHERE LOWER(module) IN (${placeholders})
+        `, [roleId, ...lowerKeys]);
       }
 
       // IMPORTANT:
       // If a module is unchecked, its feature/dashboard permissions must be removed too.
       // This guarantees sidebar and backend checks reflect the unchecked state.
-      if (moduleKeys.length === 0) {
+      if (validModuleKeys.length === 0) {
         await conn.query(`DELETE FROM adm_role_permissions WHERE role_id = ?`, [roleId]);
+        await conn.query(`DELETE FROM adm_role_features WHERE role_id = ?`, [roleId]);
+        await conn.query(`DELETE FROM adm_role_pages WHERE role_id = ?`, [roleId]);
       } else {
-        const placeholders = moduleKeys.map(() => "?").join(",");
+        const placeholders = validModuleKeys.map(() => "?").join(",");
         await conn.query(`DELETE FROM adm_role_permissions
            WHERE role_id = ? AND module_key NOT IN (${placeholders})`,
-          [roleId, ...moduleKeys],
+          [roleId, ...validModuleKeys],
         );
+        
+        // Scrub adm_role_features of any features that do not belong to the allowed modules
+        // Split feature_key by ':' and delete if the prefix is not in validModuleKeys
+        const [features] = await conn.query('SELECT feature_key FROM adm_role_features WHERE role_id = ?', [roleId]);
+        const badFeatures = features.filter(f => !f.feature_key || !validModuleKeys.includes(f.feature_key.split(':')[0])).map(f => f.feature_key).filter(Boolean);
+        if (badFeatures.length > 0) {
+          const bfPlaceholders = badFeatures.map(() => '?').join(',');
+          await conn.query(`DELETE FROM adm_role_features WHERE role_id = ? AND feature_key IN (${bfPlaceholders})`, [roleId, ...badFeatures]);
+          await conn.query(`DELETE FROM adm_role_permissions WHERE role_id = ? AND feature_key IN (${bfPlaceholders})`, [roleId, ...badFeatures]);
+        }
+        
+        // Scrub adm_role_pages of any pages that do not belong to the allowed modules
+        await conn.query(`
+          DELETE rp FROM adm_role_pages rp
+          JOIN adm_pages p ON rp.page_id = p.id
+          WHERE rp.role_id = ? AND LOWER(p.module) NOT IN (${placeholders})
+        `, [roleId, ...validModuleKeys.map(m => String(m).toLowerCase())]);
       }
 
       await conn.commit();

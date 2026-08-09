@@ -22,6 +22,7 @@ import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function toISODate(v) {
   if (!v) return "";
@@ -41,6 +42,7 @@ export default function GRNImportForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = id === "new";
+  const { hasExceptional } = usePermission();
   const [searchParams] = useSearchParams();
   const mode = (searchParams.get("mode") || "").toLowerCase();
   const isView = !isNew && mode === "view";
@@ -49,6 +51,7 @@ export default function GRNImportForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardComments, setForwardComments] = useState("");
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -801,6 +804,8 @@ export default function GRNImportForm() {
           port_clearance_id: formData.port_clearance_id
             ? Number(formData.port_clearance_id)
             : null,
+        
+          comments: forwardComments || "Forwarded for Approval",
         });
       } else {
         await api.put(`/inventory/grn/${id}`, {
@@ -838,7 +843,8 @@ export default function GRNImportForm() {
             : Number(formData.invoice_amount || 0),
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
-      });
+        comments: forwardComments,
+        });
       setFormData((prev) => ({ ...prev, status: newStatus }));
       setShowForwardModal(false);
       toast.success("Import GRN submitted for approval successfully");
@@ -1014,9 +1020,9 @@ export default function GRNImportForm() {
                 Goods receipt note for import purchases
               </p>
             </div>
-            <Link to="/inventory/grn-import" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -1051,6 +1057,7 @@ export default function GRNImportForm() {
                     onChange={(e) =>
                       setFormData({ ...formData, grn_date: e.target.value })
                     }
+                    disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                     required
                   />
                 </div>
@@ -1100,7 +1107,7 @@ export default function GRNImportForm() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="label">Warehouse</label>
-                  <select
+                  <select required
                     className="input"
                     value={formData.warehouse_id}
                     onChange={(e) =>
@@ -1173,6 +1180,8 @@ export default function GRNImportForm() {
                           })
                         }
                         required
+                      
+                        disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                     </div>
                     <div>
@@ -1187,6 +1196,8 @@ export default function GRNImportForm() {
                             invoice_due_date: e.target.value,
                           })
                         }
+                      
+                        disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                     </div>
                     <div>
@@ -1215,6 +1226,8 @@ export default function GRNImportForm() {
                             delivery_date: e.target.value,
                           })
                         }
+                      
+                        disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                       />
                     </div>
                   </div>
@@ -1664,6 +1677,8 @@ export default function GRNImportForm() {
                                       mfg_date: e.target.value,
                                     })
                                   }
+                                
+                                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                                 />
                               </td>
                               <td>
@@ -1676,6 +1691,8 @@ export default function GRNImportForm() {
                                       expiry_date: e.target.value,
                                     })
                                   }
+                                
+                                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                                 />
                               </td>
                               <td>
@@ -1725,9 +1742,9 @@ export default function GRNImportForm() {
             </fieldset>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-              <Link to="/inventory/grn-import" className="btn-secondary">
+              <button onClick={() => window.history.back()} className="btn-secondary">
                 Cancel
-              </Link>
+              </button>
               {!isView ? (
                 <button type="submit" className="btn-primary" disabled={saving}>
                   {saving ? "Saving..." : "Save GRN"}

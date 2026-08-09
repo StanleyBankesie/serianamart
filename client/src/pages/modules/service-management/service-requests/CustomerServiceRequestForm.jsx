@@ -5,9 +5,10 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import { api } from "../../../../api/client";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Link, useNavigate, useLocation, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function SectionHeader({ number, title }) {
   return (
@@ -28,6 +29,8 @@ function SectionHeader({ number, title }) {
  * @returns {JSX.Element} The rendered component
  */
 export default function CustomerServiceRequestForm() {
+  const { id } = useParams();
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const location = useLocation();
   function normalizeDateString(v) {
@@ -179,7 +182,7 @@ requisitionType: "ITEM",
     let mounted = true;
     async function fetchCustomers() {
       try {
-        const resp = await api.get("/sales/customers");
+        const resp = await api.get("/sales/customers", { params: { service_customer: "Y" } });
         const items = Array.isArray(resp.data?.items) ? resp.data.items : [];
         if (mounted) setCustomers(items);
       } catch {
@@ -468,12 +471,10 @@ requisitionType: "ITEM",
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/service-management/service-requests"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Request List
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Service Request
           </h1>
@@ -819,6 +820,8 @@ requisitionType: "ITEM",
                   type="date"
                   value={form.preferredDate}
                   onChange={(e) => update("preferredDate", e.target.value)}
+                
+                  disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
               <div>

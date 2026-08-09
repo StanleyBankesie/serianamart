@@ -19,6 +19,12 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function GeneralLedgerReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [searchParams] = useSearchParams();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -32,6 +38,7 @@ export default function GeneralLedgerReportPage() {
   const [items, setItems] = useState([]);
   const [accountMeta, setAccountMeta] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [controlBreak, setControlBreak] = useState(true);
   const accountInputRef = useRef(null);
   const accountDropdownRef = useRef(null);
 
@@ -88,6 +95,7 @@ export default function GeneralLedgerReportPage() {
         to: to || null,
       };
       if (accountId) params.accountId = accountId;
+      if (groupId) params.groupId = groupId;
       const res = await api.get("/finance/reports/general-ledger", { params });
       setOpening(Number(res.data?.opening_balance || 0));
       setAccountMeta(res.data?.account || null);
@@ -127,7 +135,7 @@ export default function GeneralLedgerReportPage() {
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
+  }, [from, to, accountId, groupId, pollingCounter]);
 
   // If selected account falls outside selected group, clear selection.
   useEffect(() => {
@@ -151,10 +159,7 @@ export default function GeneralLedgerReportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, accounts]);
 
-  useEffect(() => {
-    run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId]);
+  // Removed redundant useEffect for accountId
 
   const {
     sorted: sortedItems,
@@ -162,6 +167,17 @@ export default function GeneralLedgerReportPage() {
     sortDir,
     toggle,
   } = useSort(items, "voucher_date", "desc");
+
+  const groupedItems = useMemo(() => {
+    if (!controlBreak) return null;
+    const groups = {};
+    sortedItems.forEach(r => {
+      const key = r.account_name || r.account_code || "Unknown Account";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    });
+    return groups;
+  }, [sortedItems, controlBreak, accountId]);
 
   const groupFilteredAccounts = useMemo(() => {
     if (!groupId) return accounts || [];
@@ -234,12 +250,10 @@ export default function GeneralLedgerReportPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/finance"
-            className="font-sans text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="font-sans text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Finance
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             General Ledger
           </h1>
@@ -342,17 +356,10 @@ export default function GeneralLedgerReportPage() {
               />
             </div>
             <div className="flex items-end gap-3 shrink-0 ml-auto">
-              {/* <button
-                type="button"
-                className="btn-success"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                }}
-                disabled={loading}
-              >
-                Clear
-              </button> */}
+              <label className="flex items-center gap-2 mr-4 cursor-pointer border px-3 py-1.5 rounded-lg border-slate-200 hover:bg-slate-50 transition-colors">
+                <input type="checkbox" className="toggle toggle-brand toggle-sm" checked={controlBreak} onChange={e => setControlBreak(e.target.checked)} />
+                <span className="text-sm font-medium text-slate-700">Control Break Format</span>
+              </label>
               <button
                 type="button"
                 className="btn-secondary px-4 whitespace-nowrap"
@@ -458,7 +465,7 @@ export default function GeneralLedgerReportPage() {
             <table className="table">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  {!accountId ? (
+                  {!accountId && !controlBreak ? (
                     <SortableHeader
                       label="Account"
                       sortKey="account_name"
@@ -530,54 +537,107 @@ export default function GeneralLedgerReportPage() {
                   />
                 </tr>
               </thead>
-              <tbody>
-                {sortedItems.map((r, idx) => {
-                  const balance = Number(r.balance || 0);
-                  const balanceType = balance >= 0 ? "Dr" : "Cr";
-                  const displayBalance = Math.abs(balance);
+              {groupedItems ? (
+                Object.entries(groupedItems).map(([accountName, rows]) => {
+                  const totalDr = rows.reduce((acc, r) => acc + Number(r.debit || 0), 0);
+                  const totalCr = rows.reduce((acc, r) => acc + Number(r.credit || 0), 0);
+                  const lastBalance = rows.length > 0 ? Number(rows[rows.length - 1].balance || 0) : 0;
+                  const balanceType = lastBalance >= 0 ? "Dr" : "Cr";
                   return (
-                    <tr key={`${r.account_code || ""}-${r.voucher_no}-${r.line_no}-${idx}`}>
-                      {!accountId ? (
-                        <td className="font-medium">{r.account_name || r.account_code || "-"}</td>
-                      ) : null}
-                      <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
-                      <td>
-                        <Link
-                          to={getVoucherPath(r)}
-                          className="font-medium text-sky-400 hover:text-sky-500"
-                        >
-                          {r.voucher_no}
-                        </Link>
-                      </td>
-                      <td>{r.description || "-"}</td>
-                      <td className="text-right">
-                        {Number(r.debit || 0).toLocaleString()}
-                      </td>
-                      <td className="text-right">
-                        {Number(r.credit || 0).toLocaleString()}
-                      </td>
-                      <td className="text-right">
-                        {r.currency_code || "-"}
-                      </td>
-                      <td className="text-right">
-                        {Number(r.exchange_rate || 1).toLocaleString()}
-                      </td>
-                      <td className="text-right">
-                        <span className="font-medium">
-                          {displayBalance.toLocaleString()}{" "}
-                          <span
-                            className={
-                              balance >= 0 ? "text-blue-600" : "text-red-600"
-                            }
-                          >
-                            {balanceType}
-                          </span>
-                        </span>
-                      </td>
-                    </tr>
+                    <tbody key={accountName} className="border-b-[8px] border-slate-200/50">
+                      <tr className="bg-slate-100 dark:bg-slate-800">
+                        <td colSpan="8" className="font-bold text-slate-700 dark:text-slate-200 py-3 px-4">
+                          Account: <span className="text-brand-600 dark:text-brand-400">{accountName}</span>
+                        </td>
+                      </tr>
+                      {rows.map((r, idx) => {
+                        const balance = Number(r.balance || 0);
+                        const rBalanceType = balance >= 0 ? "Dr" : "Cr";
+                        const displayBalance = Math.abs(balance);
+                        return (
+                          <tr key={`${r.voucher_no}-${r.line_no}-${idx}`}>
+                            <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
+                            <td>
+                              <Link to={getVoucherPath(r)} className="font-medium text-sky-400 hover:text-sky-500">
+                                {r.voucher_no}
+                              </Link>
+                            </td>
+                            <td>{r.description || "-"}</td>
+                            <td className="text-right">{Number(r.debit || 0).toLocaleString()}</td>
+                            <td className="text-right">{Number(r.credit || 0).toLocaleString()}</td>
+                            <td className="text-right">{r.currency_code || "-"}</td>
+                            <td className="text-right">{Number(r.exchange_rate || 1).toLocaleString()}</td>
+                            <td className="text-right">
+                              <span className="font-medium">
+                                {displayBalance.toLocaleString()}{" "}
+                                <span className={balance >= 0 ? "text-blue-600" : "text-red-600"}>{rBalanceType}</span>
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="bg-slate-50 dark:bg-slate-800/50 font-semibold border-t-2 border-slate-200">
+                        <td colSpan="3" className="text-right pr-4 py-3">Totals for {accountName}:</td>
+                        <td className="text-right text-brand-600 py-3">{totalDr.toLocaleString()}</td>
+                        <td className="text-right text-brand-600 py-3">{totalCr.toLocaleString()}</td>
+                        <td colSpan="2" className="py-3"></td>
+                        <td className="text-right text-brand-600 py-3">
+                           {Math.abs(lastBalance).toLocaleString()} <span className={lastBalance >= 0 ? "text-blue-600" : "text-red-600"}>{balanceType}</span>
+                        </td>
+                      </tr>
+                    </tbody>
                   );
-                })}
-              </tbody>
+                })
+              ) : (
+                <tbody>
+                  {sortedItems.map((r, idx) => {
+                    const balance = Number(r.balance || 0);
+                    const balanceType = balance >= 0 ? "Dr" : "Cr";
+                    const displayBalance = Math.abs(balance);
+                    return (
+                      <tr key={`${r.account_code || ""}-${r.voucher_no}-${r.line_no}-${idx}`}>
+                        {!accountId && !controlBreak ? (
+                          <td className="font-medium">{r.account_name || r.account_code || "-"}</td>
+                        ) : null}
+                        <td>{new Date(r.voucher_date).toLocaleDateString()}</td>
+                        <td>
+                          <Link
+                            to={getVoucherPath(r)}
+                            className="font-medium text-sky-400 hover:text-sky-500"
+                          >
+                            {r.voucher_no}
+                          </Link>
+                        </td>
+                        <td>{r.description || "-"}</td>
+                        <td className="text-right">
+                          {Number(r.debit || 0).toLocaleString()}
+                        </td>
+                        <td className="text-right">
+                          {Number(r.credit || 0).toLocaleString()}
+                        </td>
+                        <td className="text-right">
+                          {r.currency_code || "-"}
+                        </td>
+                        <td className="text-right">
+                          {Number(r.exchange_rate || 1).toLocaleString()}
+                        </td>
+                        <td className="text-right">
+                          <span className="font-medium">
+                            {displayBalance.toLocaleString()}{" "}
+                            <span
+                              className={
+                                balance >= 0 ? "text-blue-600" : "text-red-600"
+                              }
+                            >
+                              {balanceType}
+                            </span>
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              )}
             </table>
           </div>
         </div>

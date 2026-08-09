@@ -11,12 +11,14 @@ import { api } from "api/client";
 import { useUoms } from "@/hooks/useUoms";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 export default function StockUpdationForm({
   isModal = false,
   modalId = null,
   onClose = null,
 }) {
+  const { hasExceptional } = usePermission();
   const { uoms, loading: uomsLoading } = useUoms();
   const { id: routeId } = useParams();
   const id = isModal ? modalId : routeId;
@@ -446,12 +448,10 @@ export default function StockUpdationForm({
             </div>
             <div className="flex gap-2">
               {!isModal && (
-                <Link
-                  to="/inventory/stock-updation"
-                  className="btn-success bg-green-600 text-white hover:bg-green-700 px-6 py-2 rounded shadow-sm font-medium"
+                <button onClick={() => window.history.back()} className="btn-success bg-green-600 text-white hover:bg-green-700 px-6 py-2 rounded shadow-sm font-medium"
                 >
                   ← Back to List
-                </Link>
+                </button>
               )}
               {isModal && (
                 <button
@@ -499,11 +499,13 @@ export default function StockUpdationForm({
                         })
                       }
                       required
+                    
+                      disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                     />
                   </div>
                   <div>
                     <label className="label">Warehouse</label>
-                    <select
+                    <select required
                       className="input"
                       value={formData.warehouseId}
                       onChange={(e) =>

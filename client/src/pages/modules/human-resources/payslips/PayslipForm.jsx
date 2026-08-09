@@ -116,9 +116,9 @@ export default function PayslipForm() {
             </h1>
           </div>
           <div className="flex gap-2">
-            <Link to="/human-resources/payslips" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back
-            </Link>
+            </button>
           </div>
         </div>
       </div>
@@ -170,9 +170,9 @@ export default function PayslipForm() {
               </div>
             </div>
             <div className="flex justify-end gap-3">
-              <Link to="/human-resources/payslips" className="btn-success">
+              <button onClick={() => window.history.back()} className="btn-success">
                 Cancel
-              </Link>
+              </button>
               <button className="btn-success" disabled={loading}>
                 {loading ? "Saving..." : "Save"}
               </button>

@@ -50,7 +50,7 @@ export default function VoucherImportPage() {
     const bId = selectedBranch || "";
     const rows = [
       TEMPLATE_HEADERS,
-      [bId, "VOUCH-001", "Journal Entry", "2026-01-15", "US Dollar", "1", "Sales Revenue", "January sales", "5000", "", "", ""],
+      [bId, "VOUCH-001", "Journal Voucher", "2026-01-15", "US Dollar", "1", "Sales Revenue", "January sales", "5000", "", "", ""],
       ["", "", "", "", "", "", "Cash in Hand", "January sales", "", "5000", "", ""],
       [bId, "VOUCH-002", "Payment Voucher", "2026-01-16", "Ghana Cedis", "1", "Rent Expense", "Office rent Q1", "2000", "", "CHQ-00123", "2026-01-16"],
       ["", "", "", "", "", "", "Bank Account", "Office rent Q1", "", "2000", "", ""],
@@ -76,7 +76,7 @@ export default function VoucherImportPage() {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target.result, { type: "array" });
+        const wb = XLSX.read(evt.target.result, { type: "array", cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
         if (!rows.length) {
@@ -104,19 +104,43 @@ export default function VoucherImportPage() {
     const vouchers = [];
     let current = null;
 
+    const formatDate = (d) => {
+      if (!d) return "";
+      if (d instanceof Date) {
+        // Adjust for timezone offset to prevent off-by-one day errors
+        const tzOffset = d.getTimezoneOffset() * 60000;
+        return new Date(d.getTime() - tzOffset).toISOString().slice(0, 10);
+      }
+      return String(d).trim();
+    };
+
     for (const row of rawRows) {
       const vtc = String(row.voucher_type_code || "").trim();
-      const vDate = String(row.voucher_date || "").trim();
+      const vDate = formatDate(row.voucher_date);
       const acctName = String(row.account_name || "").trim();
       const voucherId = String(row.voucher_id || "").trim();
 
       // If voucher_type_code is present, start a new voucher header
       if (vtc) {
+        let normalizedVtc = vtc;
+        const lower = vtc.toLowerCase();
+        if (lower === "journal entry" || lower === "journal voucher") {
+          normalizedVtc = "Journal Voucher";
+        } else if (lower === "payment voucher") {
+          normalizedVtc = "Payment Voucher";
+        } else if (lower === "receipt voucher") {
+          normalizedVtc = "Receipt Voucher";
+        } else if (lower === "sales voucher") {
+          normalizedVtc = "Sales Voucher";
+        } else if (lower === "purchase voucher") {
+          normalizedVtc = "Purchase Voucher";
+        }
+
         const rawBid = row.branch_id !== undefined ? row.branch_id : row.branchId;
         current = {
           branch_id: rawBid ? Number(rawBid) : null,
           voucher_id: voucherId || null,
-          voucher_type_code: vtc.toUpperCase(),
+          voucher_type_code: normalizedVtc,
           voucher_date: vDate || new Date().toISOString().slice(0, 10),
           currency_name: String(row.currency_name || "").trim() || null,
           exchange_rate: Number(row.exchange_rate || 1) || 1,
@@ -133,7 +157,7 @@ export default function VoucherImportPage() {
           debit: Number(row.debit || 0),
           credit: Number(row.credit || 0),
           cheque_number: String(row.cheque_number || "").trim() || null,
-          cheque_date: String(row.cheque_date || "").trim() || null,
+          cheque_date: formatDate(row.cheque_date) || null,
         });
       }
     }
@@ -157,7 +181,13 @@ export default function VoucherImportPage() {
         toast.success(msg);
       }
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Import failed");
+      const errorMsg = err?.response?.data?.message || err.message || "Import failed";
+      toast.error(errorMsg);
+      setResult({
+        created: 0,
+        failed: parsedRows.length,
+        errors: [{ row: "All", message: errorMsg }]
+      });
     } finally {
       setUploading(false);
     }
@@ -232,6 +262,32 @@ export default function VoucherImportPage() {
               onChange={handleFile}
             />
           </div>
+
+          {/* Results */}
+          {result && (
+            <div
+              className={`p-4 rounded-lg border ${
+                result.failed > 0
+                  ? "bg-yellow-50 border-yellow-200"
+                  : "bg-green-50 border-green-200"
+              }`}
+            >
+              <h3 className="font-semibold mb-2">Import Results</h3>
+              <p>
+                Created: <strong>{result.created}</strong> | Failed:{" "}
+                <strong>{result.failed}</strong>
+              </p>
+              {result.errors?.length > 0 && (
+                <ul className="mt-2 text-sm text-red-700 space-y-1">
+                  {result.errors.map((e, i) => (
+                    <li key={i}>
+                      Row {e.row}: {e.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* Preview */}
           {preview && parsedRows.length > 0 && (
@@ -344,32 +400,6 @@ export default function VoucherImportPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
-
-          {/* Results */}
-          {result && (
-            <div
-              className={`p-4 rounded-lg border ${
-                result.failed > 0
-                  ? "bg-yellow-50 border-yellow-200"
-                  : "bg-green-50 border-green-200"
-              }`}
-            >
-              <h3 className="font-semibold mb-2">Import Results</h3>
-              <p>
-                Created: <strong>{result.created}</strong> | Failed:{" "}
-                <strong>{result.failed}</strong>
-              </p>
-              {result.errors?.length > 0 && (
-                <ul className="mt-2 text-sm text-red-700 space-y-1">
-                  {result.errors.map((e, i) => (
-                    <li key={i}>
-                      Row {e.row}: {e.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
           )}
         </div>

@@ -283,7 +283,7 @@ export default function PostCreator({ onPostCreated }) {
                 className="visibility-select"
               >
                 <option value="company">🌍 Company</option>
-                <option value="warehouse">🏬 My Warehouse</option>
+                <option value="branch">🏬 My Branch</option>
               </select>
             </div>
 

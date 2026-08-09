@@ -19,6 +19,8 @@ import {
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import { X } from "lucide-react";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -26,6 +28,7 @@ import { X } from "lucide-react";
  * @returns {JSX.Element} The rendered component
  */
 export default function QuotationList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const { canPerformAction, exceptionalPerms } = usePermission();
   const [quotations, setQuotations] = useState([]);
@@ -42,6 +45,7 @@ export default function QuotationList() {
   const [selectedQuot, setSelectedQuot] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [hasInactiveWorkflow, setHasInactiveWorkflow] = useState(false);
   const [firstApprover, setFirstApprover] = useState(null);
@@ -513,6 +517,7 @@ export default function QuotationList() {
     setSelectedQuot(quot);
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     setTargetApproverId("");
     if (!workflowsCache) {
       try {
@@ -537,6 +542,7 @@ export default function QuotationList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       setHasInactiveWorkflow(false);
       return;
     }
@@ -601,6 +607,7 @@ export default function QuotationList() {
       setCandidateWorkflow(null);
       setFirstApprover(null);
       setWfError("");
+                    setForwardComments("");
       setHasInactiveWorkflow(false);
       return;
     }
@@ -703,6 +710,7 @@ export default function QuotationList() {
           amount: null,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
+        comments: forwardComments,
         },
       );
       toast.success(resp.data?.message || "Forwarded for approval");
@@ -774,7 +782,7 @@ export default function QuotationList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/sales" className="btn btn-secondary">
+              <Link to="/sales?section=Sales%20Transactions" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link to="/sales/quotations/new" className="btn-success">
@@ -831,8 +839,13 @@ export default function QuotationList() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table">
+            
+                <>
+<div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+              <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead>
                   <tr>
                     <SortableHeader label="Quotation No" sortKey="quotation_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -923,7 +936,7 @@ export default function QuotationList() {
                                   </button>
                                 )}
                               </div>
-                            ) : quot.forwarded_to_username ? (
+                            ) : quot.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(quot.status || "").toUpperCase()) ? (
                               <span className="list-approval-forwarded-pill">
                                 Forwarded to {quot.forwarded_to_username}
                               </span>
@@ -955,14 +968,16 @@ export default function QuotationList() {
                         )}
                       </div>
                     </td>
-                    <td>{quot.created_by_username || quot.created_by_name || "-"}</td>
-                    <td>{quot.created_at ? new Date(quot.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="grid-created-by-cell">{quot.created_by_username || quot.created_by_name || "-"}</td>
+                    <td className="grid-created-date-cell">{quot.created_at ? new Date(quot.created_at).toLocaleDateString() : "-"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
+          
+</>
+)}
         </div>
       </div>
       <DocumentAttachmentsModal
@@ -986,6 +1001,7 @@ export default function QuotationList() {
                   setShowForwardModal(false);
                   setSelectedQuot(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white/80 hover:text-white"
               >
@@ -1043,7 +1059,18 @@ export default function QuotationList() {
                 </>
               )}
             </div>
-            <div className="p-4 border-t flex justify-end gap-2">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2">
               <button
                 type="button"
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
@@ -1051,6 +1078,7 @@ export default function QuotationList() {
                   setShowForwardModal(false);
                   setSelectedQuot(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
               >
                 Cancel

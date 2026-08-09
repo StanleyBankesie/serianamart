@@ -19,6 +19,8 @@ import {
   ListPdfIconButton,
   ListAttachmentIconButton,
 } from "@/components/list/ListDocActionIconButtons.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -26,6 +28,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function SalesOrderList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -737,13 +740,13 @@ export default function SalesOrderList() {
       RETURNED: "badge badge-error",
       REJECTED: "badge badge-error",
       APPROVED: "badge badge-info",
-      CONFIRMED: "badge badge-info",
       PROCESSING: "badge badge-primary",
       SHIPPED: "badge badge-secondary",
       DELIVERED: "badge badge-success",
       CANCELLED: "badge badge-error",
     };
-    return <span className={statusClasses[status] || "badge"}>{status}</span>;
+    const formattedStatus = String(status || "").split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    return <span className={statusClasses[status] || "badge"}>{formattedStatus}</span>;
   };
 
   const filteredBase = useMemo(() => {
@@ -1004,6 +1007,7 @@ export default function SalesOrderList() {
         await fetchOrders();
       } catch {}
     } catch (e) {
+      console.error("Sales Order Submit Failed:", e?.response?.data || e.message, e);
       try {
         const amount =
           selectedOrder.total_amount === undefined ||
@@ -1076,7 +1080,7 @@ export default function SalesOrderList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/sales" className="btn btn-secondary">
+              <Link to="/sales?section=Sales%20Transactions" className="btn btn-secondary">
                 Return to Menu
               </Link>
               {canCreateOnPage() && (
@@ -1111,7 +1115,6 @@ export default function SalesOrderList() {
                 <option value="DRAFT">Draft</option>
                 <option value="PENDING_APPROVAL">Pending Approval</option>
                 <option value="APPROVED">Approved</option>
-                <option value="CONFIRMED">Confirmed</option>
                 <option value="PROCESSING">Processing</option>
                 <option value="SHIPPED">Shipped</option>
                 <option value="DELIVERED">Delivered</option>
@@ -1133,8 +1136,11 @@ export default function SalesOrderList() {
             </div>
           ) : (
             <>
+              <div className="flex justify-end mb-4">
+                <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+              </div>
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className={"table " + (viewMode === "grid" ? "table-grid-mode" : "")}>
                 <thead>
                   <tr>
                     <SortableHeader
@@ -1233,7 +1239,7 @@ export default function SalesOrderList() {
 
                           {/* Slot 2: Edit */}
                           <div className="min-w-[80px]">
-                            {!["APPROVED", "POSTED", "CONFIRMED"].includes(displayStatus) &&
+                            {!["APPROVED", "POSTED"].includes(displayStatus) &&
                             canPerformAction("sales:sales-orders", "edit") ? (
                               <button
                                 type="button"
@@ -1268,40 +1274,44 @@ export default function SalesOrderList() {
                           {/* Slot 5: Workflow */}
                           <div className="min-w-[160px]">
                             <div className="list-approval-slot">
-                              {displayStatus === "APPROVED" ? (
-                                <div className="flex items-center gap-2">
-                                  <span className="list-approval-approved-pill">
-                                    Approved
+                                {displayStatus === "APPROVED" ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="list-approval-approved-pill">
+                                      Approved
+                                    </span>
+                                    {!autoApproved && canReverseApproval() && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openReverseModal(order)}
+                                        className="list-approval-reverse-btn"
+                                      >
+                                        Reverse Approval
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : displayStatus === "PENDING_APPROVAL" ? (
+                                  <span className="list-approval-forwarded-pill">
+                                    Forwarded to{" "}
+                                    {order.forwarded_to_username ||
+                                      forwardedTo[order.id] ||
+                                      "Approver"}
                                   </span>
-                                  {!autoApproved && canReverseApproval() && (
-                                    <button
-                                      type="button"
-                                      className="list-approval-reverse-btn"
-                                      onClick={() =>
-                                        reverseSalesOrder(order.id)
-                                      }
-                                    >
-                                      Reverse Approval
-                                    </button>
-                                  )}
-                                </div>
-                              ) : displayStatus === "PENDING_APPROVAL" ? (
-                                <span className="list-approval-forwarded-pill">
-                                  Forwarded to{" "}
-                                  {order.forwarded_to_username ||
-                                    forwardedTo[order.id] ||
-                                    "Approver"}
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="list-approval-forward-btn"
-                                  onClick={() => openForwardModal(order)}
-                                  disabled={submittingForward || workflowDisabled}
-                                >
-                                  Forward for Approval
-                                </button>
-                              )}
+                                ) : displayStatus === "SUBMITTED" ? (
+                                  <span className="list-approval-forwarded-pill">
+                                    Submitted
+                                  </span>
+                                ) : displayStatus !== "CANCELLED" &&
+                                  displayStatus !== "REVERSED" &&
+                                  displayStatus !== "REJECTED" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openForwardModal(order)}
+                                    className="list-approval-forward-btn"
+                                    disabled={submittingForward}
+                                  >
+                                    Forward for Approval
+                                  </button>
+                                ) : null}
                             </div>
                           </div>
 
@@ -1318,8 +1328,7 @@ export default function SalesOrderList() {
                           {/* Slot 8: exceptional cancel — fixed cell */}
                           <div className="min-w-[80px]">
                             {!order.has_invoice &&
-                            hasExceptional("SALES.ORDER.CANCEL") &&
-                            displayStatus !== "APPROVED" ? (
+                            hasExceptional("SALES.ORDER.CANCEL") ? (
                               <button
                                 type="button"
                                 className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-white bg-[#990000] rounded-lg hover:bg-[#770000] transition-colors h-9"
@@ -1351,12 +1360,12 @@ export default function SalesOrderList() {
                           </div>
                         </div>
                       </td>
-                      <td>
+                      <td className="grid-created-by-cell">
                         {order.created_by_username ||
                           order.created_by_name ||
                           "-"}
                       </td>
-                      <td>
+                      <td className="grid-created-date-cell">
                         {order.created_at
                           ? new Date(order.created_at).toLocaleDateString()
                           : "-"}

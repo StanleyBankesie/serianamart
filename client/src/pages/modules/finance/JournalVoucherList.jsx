@@ -16,6 +16,8 @@ import {
 } from "@/components/list/ListDocActionIconButtons.jsx";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -23,6 +25,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function JournalVoucherList() {
+  const [viewMode, setViewMode] = useViewMode();
   const { canPerformAction } = usePermission();
   const [vouchers, setVouchers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +96,7 @@ export default function JournalVoucherList() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link to="/finance" className="font-sans btn btn-secondary">
+            <Link to="/finance?section=Voucher%20Management" className="font-sans btn btn-secondary">
               Return to Menu
             </Link>
             <Link to="/finance/journal-voucher/create" className="btn-success">
@@ -132,8 +135,12 @@ export default function JournalVoucherList() {
             </select>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

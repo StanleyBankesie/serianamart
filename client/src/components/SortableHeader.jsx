@@ -4,7 +4,7 @@
  */
 
 import React from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
 
 /**
  * Determines the justify-content class based on text alignment classes.
@@ -45,36 +45,33 @@ export default function SortableHeader({
       : "descending"
     : "none";
 
+  const renderIcon = () => {
+    if (!active) {
+      return <ArrowUpDown className="h-4 w-4 opacity-0 group-hover:opacity-40 transition-opacity duration-200" />;
+    }
+    return direction === "asc" ? (
+      <ArrowUp className="h-4 w-4 text-brand-600 dark:text-brand-400 opacity-100 transition-transform duration-200" />
+    ) : (
+      <ArrowDown className="h-4 w-4 text-brand-600 dark:text-brand-400 opacity-100 transition-transform duration-200" />
+    );
+  };
+
   return (
     <th
-      className={`select-none font-bold transition-colors ${active ? "bg-sky-50 text-sky-700" : "text-slate-700 hover:text-brand-700"} ${className}`}
+      className={`select-none font-semibold transition-colors group ${active ? "bg-slate-50 dark:bg-slate-800/50" : "hover:bg-slate-50 dark:hover:bg-slate-800/50"} ${className}`}
       title={`Sort by ${label}`}
       aria-sort={ariaSort}
     >
       <button
         type="button"
-        className={`flex w-full items-center gap-2 ${justifyClass} bg-transparent py-3 outline-none`}
+        className={`flex w-full items-center gap-2 ${justifyClass} bg-transparent py-3 px-2 outline-none rounded-md`}
         onClick={() => onToggle(sortKey)}
       >
-        <span>{label}</span>
-        <span
-          className={`inline-flex flex-col leading-none ${
-            active ? "text-sky-600" : "text-slate-500"
-          }`}
-          aria-hidden="true"
-        >
-          <ChevronUp
-            className={`h-3 w-3 ${
-              active && direction === "asc" ? "opacity-100" : "opacity-50"
-            }`}
-            strokeWidth={2.25}
-          />
-          <ChevronDown
-            className={`-mt-1 h-3 w-3 ${
-              active && direction === "desc" ? "opacity-100" : "opacity-50"
-            }`}
-            strokeWidth={2.25}
-          />
+        <span className={active ? "text-slate-900 dark:text-slate-100" : "text-slate-600 dark:text-slate-300 group-hover:text-slate-800 dark:group-hover:text-slate-200 transition-colors"}>
+          {label}
+        </span>
+        <span className="inline-flex items-center" aria-hidden="true">
+          {renderIcon()}
         </span>
       </button>
     </th>

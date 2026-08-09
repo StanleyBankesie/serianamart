@@ -1,0 +1,51 @@
+﻿Logging in...
+Login Status: 200
+Token successfully obtained! Length: 19287
+
+Fetching /api/admin/companies...
+Status for /api/admin/companies: 400
+Body (truncated): <html>
+<head><title>400 Request Header Or Cookie Too Large</title></head>
+<body>
+<center><h1>400 Bad Request</h1></center>
+<center>Request Header Or Cookie Too Large</center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+
+Fetching /api/admin/page-permissions?path=%2F...
+Status for /api/admin/page-permissions?path=%2F: 400
+Body (truncated): <html>
+<head><title>400 Request Header Or Cookie Too Large</title></head>
+<body>
+<center><h1>400 Bad Request</h1></center>
+<center>Request Header Or Cookie Too Large</center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+
+Fetching /api/auth/user-branches...
+Status for /api/auth/user-branches: 400
+Body (truncated): <html>
+<head><title>400 Request Header Or Cookie Too Large</title></head>
+<body>
+<center><h1>400 Bad Request</h1></center>
+<center>Request Header Or Cookie Too Large</center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+
+Fetching /api/inventory/alerts/low-stock...
+Status for /api/inventory/alerts/low-stock: 400
+Body (truncated): <html>
+<head><title>400 Request Header Or Cookie Too Large</title></head>
+<body>
+<center><h1>400 Bad Request</h1></center>
+<center>Request Header Or Cookie Too Large</center>
+<hr><center>nginx</center>
+</body>
+</html>
+

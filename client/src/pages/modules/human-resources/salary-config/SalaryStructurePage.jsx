@@ -119,12 +119,10 @@ export default function SalaryStructurePage() {
               Define the net pay formula for payroll calculations
             </p>
           </div>
-          <Link
-            to="/human-resources/salary-config"
-            className="btn-secondary"
+          <button onClick={() => window.history.back()} className="btn-secondary"
           >
             ← Back
-          </Link>
+          </button>
         </div>
 
         {loading ? (

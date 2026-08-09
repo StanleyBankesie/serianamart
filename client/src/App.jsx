@@ -12,11 +12,13 @@ import { ConfigProvider } from "antd";
 import { AuthProvider } from "./auth/AuthContext.jsx";
 import { PermissionProvider } from "./auth/PermissionContext.jsx";
 import { ThemeProvider } from "./theme/ThemeContext.jsx";
+import { GpsTrackingProvider } from "./context/GpsTrackingContext.jsx";
 import ProtectedRoute from "./auth/ProtectedRoute.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import ForgotPasswordRequest from "./pages/ForgotPasswordRequest.jsx";
 import ResetPasswordPage from "./pages/ResetPasswordPage.jsx";
+import PrivacyPolicy from "./pages/PrivacyPolicy.jsx";
 import { Provider, useDispatch } from "react-redux";
 import { store } from "./store/store.js";
 import BranchSelectionPage from "./pages/BranchSelectionPage.jsx";
@@ -86,6 +88,7 @@ export default function App() {
             <AuthProvider>
 
               <PermissionProvider>
+                <GpsTrackingProvider>
                 <ToastContainer position="top-right" theme="dark" />
 
                 <Routes>
@@ -97,6 +100,7 @@ export default function App() {
                     element={<ErrorBoundary><ForgotPasswordRequest /></ErrorBoundary>}
                   />
                   <Route path="/reset-password" element={<ErrorBoundary><ResetPasswordPage /></ErrorBoundary>} />
+                  <Route path="/privacy-policy" element={<ErrorBoundary><PrivacyPolicy /></ErrorBoundary>} />
                   <Route
                     path="/select-branch"
                     element={
@@ -115,6 +119,7 @@ export default function App() {
                   />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
+                </GpsTrackingProvider>
               </PermissionProvider>
             </AuthProvider>
           </ThemeProvider>

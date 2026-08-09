@@ -78,9 +78,9 @@ export default function CustomerCreditForm() {
               {isEdit ? "Edit Credit Limit" : "New Credit Limit"}
             </h1>
           </div>
-          <Link to="/sales/customer-credit" className="btn-success">
+          <button onClick={() => window.history.back()} className="btn-success">
             Back
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -121,9 +121,9 @@ export default function CustomerCreditForm() {
               </div>
             </div>
             <div className="flex justify-end gap-3">
-              <Link to="/sales/customer-credit" className="btn-success">
+              <button onClick={() => window.history.back()} className="btn-success">
                 Cancel
-              </Link>
+              </button>
               <button className="btn-success" disabled={loading}>
                 {loading ? "Saving..." : "Save"}
               </button>

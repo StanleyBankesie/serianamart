@@ -1,7 +1,131 @@
+const getSectionIcon = (section, sectionIndex) => {
+  if (section.icon) return section.icon;
+  const title = (section.title || section.category || "").toLowerCase();
+  
+  if (title.includes("master") || title.includes("catalog")) return "🗂️";
+  if (title.includes("operation") || title.includes("schedule") || title.includes("execution")) return "🗓️";
+  if (title.includes("procurement") || title.includes("purchase") || title.includes("requisition")) return "🛒";
+  if (title.includes("report") || title.includes("analytic") || title.includes("intelligence") || title.includes("analytics")) return "📊";
+  if (title.includes("sale") || title.includes("transaction")) return "💳";
+  if (title.includes("customer")) return "👥";
+  if (title.includes("price") || title.includes("discount") || title.includes("promot")) return "🏷️";
+  if (title.includes("bill") || title.includes("invoice") || title.includes("payable") || title.includes("receivable")) return "🧾";
+  if (title.includes("logistics") || title.includes("deliver") || title.includes("shipping") || title.includes("transport")) return "🚚";
+  if (title.includes("stock") || title.includes("inventory") || title.includes("warehouse")) return "🏬";
+  if (title.includes("account") || title.includes("bank") || title.includes("finance") || title.includes("ledger") || title.includes("journal") || title.includes("cheque") || title.includes("pdc")) return "🏦";
+  if (title.includes("employee") || title.includes("hr") || title.includes("payroll") || title.includes("staff") || title.includes("people")) return "👔";
+  if (title.includes("leave") || title.includes("attendance") || title.includes("time")) return "⏰";
+  if (title.includes("user") || title.includes("access") || title.includes("role") || title.includes("security") || title.includes("permission")) return "🔒";
+  if (title.includes("audit") || title.includes("log")) return "📜";
+  if (title.includes("workflow") || title.includes("approval")) return "🔄";
+  if (title.includes("setup") || title.includes("setting") || title.includes("config") || title.includes("parameter") || title.includes("structure")) return "⚙️";
+  if (title.includes("manufactur") || title.includes("production") || title.includes("shop floor")) return "🏭";
+  if (title.includes("project") || title.includes("portfolio") || title.includes("task") || title.includes("wbs") || title.includes("milestone")) return "📌";
+  if (title.includes("service") || title.includes("technician")) return "🛠️";
+  if (title.includes("visitor")) return "📇";
+  if (title.includes("license") || title.includes("package")) return "📜";
+  if (title.includes("company") || title.includes("branch") || title.includes("organization")) return "🏢";
+  if (title.includes("vehicle") || title.includes("trip") || title.includes("fuel")) return "⛽";
+
+  const fallbackIcons = ["🗂️", "📦", "🧩", "💼", "🔖", "🗃️", "⚡"];
+  return fallbackIcons[sectionIndex % fallbackIcons.length];
+};
+
 import React, { useState, useMemo } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, NavLink } from "react-router-dom";
+import { ArrowLeft, ChevronDown } from "lucide-react";
 import { usePermission } from "../auth/PermissionContext.jsx";
 import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
+import { ModuleTopNavBar } from "./ModuleLayout.jsx";
+
+// ─── Module Top Navigation Dropdown Component ───────────────────
+function ModuleNavDropdown({ section, location, navigate }) {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef(null);
+
+  const visibleItems = useMemo(() => {
+    const rawItems = section.items || section.features || [];
+    return rawItems.filter((item) => item && !item.hidden && (item.path || item.title || item.name || item.label));
+  }, [section]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  if (visibleItems.length === 0) return null;
+
+  const sectionTitle = section.title || section.name || section.category || "Section";
+  const isSectionActive = visibleItems.some((i) => location.pathname === i.path);
+
+  return (
+    <div ref={ref} className="relative flex-shrink-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+          isSectionActive
+            ? "bg-brand-900 text-white"
+            : "text-slate-600 dark:text-slate-300 hover:bg-brand-50 dark:hover:bg-brand-900/20 hover:text-brand-700 dark:hover:text-brand-300"
+        }`}
+      >
+        <span>{sectionTitle}</span>
+        <ChevronDown size={14} className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1.5 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-erp-lg overflow-hidden"
+          style={{ minWidth: 240, maxWidth: 360 }}
+        >
+          <div className="p-1.5 grid grid-cols-1 gap-1 max-h-80 overflow-y-auto">
+            {visibleItems.map((item, idx) => {
+              const itemTitle = item.title || item.name || item.label;
+              const itemPath = item.path;
+              const itemIcon = item.icon;
+              const itemDesc = item.description || item.desc;
+              const isActive = location.pathname === itemPath;
+
+              return (
+                <button
+                  key={itemPath || itemTitle || idx}
+                  onClick={() => {
+                    if (itemPath) navigate(itemPath);
+                    setOpen(false);
+                  }}
+                  className={`flex items-start gap-2.5 w-full px-3 py-2 rounded-lg text-sm font-medium text-left transition-colors ${
+                    isActive
+                      ? "bg-brand-900 text-white"
+                      : "text-slate-700 dark:text-slate-300 hover:bg-brand-50 dark:hover:bg-brand-900/20 hover:text-brand-700 dark:hover:text-brand-300"
+                  }`}
+                >
+                  {typeof itemIcon === "string" ? (
+                    <span className="text-base flex-shrink-0 mt-0.5">{itemIcon}</span>
+                  ) : itemIcon ? (
+                    React.createElement(itemIcon, { className: "w-4 h-4 flex-shrink-0 mt-0.5" })
+                  ) : (
+                    <span className="text-base flex-shrink-0 mt-0.5">📄</span>
+                  )}
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="truncate leading-snug">{itemTitle}</span>
+                    {itemDesc && (
+                      <span className={`text-[11px] font-normal truncate leading-tight ${isActive ? "text-white/80" : "text-slate-400 dark:text-slate-500"}`}>
+                        {itemDesc}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const ModuleDashboard = ({
   title,
@@ -13,16 +137,33 @@ const ModuleDashboard = ({
   headerActions = [],
   showAll = false,
   moduleKey,
+  useSectionNavigation = false,
 }) => {
+  const [activeSection, setActiveSection] = React.useState(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { canAccessPath, canAccessFeatureKey, canViewDashboardElement } =
+
+  React.useEffect(() => {
+    const searchParams = new URLSearchParams(location.search || "");
+    const secParam = searchParams.get("section");
+    if (secParam !== null && sections.length > 0) {
+      const secIdx = sections.findIndex(
+        (s, idx) =>
+          String(idx) === secParam ||
+          String(s.title || s.category || "").toLowerCase() === secParam.toLowerCase()
+      );
+      if (secIdx !== -1) {
+        setActiveSection(secIdx);
+      }
+    }
+  }, [location.search, sections]);
+  const { canAccessPath, canAccessFeatureKey, canViewDashboardElement, isSuper } =
     usePermission();
 
   const isDashboardPath = (path) => {
     const parts = String(path || "").split("/").filter(Boolean);
     const last = String(parts[parts.length - 1] || "");
-    return last.toLowerCase() === "dashboard";
+    return last.toLowerCase() === "dashboard" || last.toLowerCase() === "dashboards";
   };
 
   // Auto-inject a Dashboard button if the module has registered dashboards
@@ -31,19 +172,29 @@ const ModuleDashboard = ({
     const mk = moduleKey || (location.pathname.split("/").filter(Boolean)[0] || "");
     const moduleInfo = MODULES_REGISTRY[mk];
     const hasDashboards = moduleInfo && moduleInfo.dashboards && moduleInfo.dashboards.length > 0;
+    
+    const isDashboardAllowed =
+      canViewDashboardElement(mk, "dashboard", "dashboard") !== false &&
+      canViewDashboardElement(mk, "dashboard", "dashboards") !== false;
+
+    const dbPath = `/${mk}/dashboard`;
+    const dbsPath = `/${mk}/dashboards`;
+    const canAccessDb = canAccessPath(dbPath) || canAccessPath(dbsPath);
+
     if (
       mk &&
       hasDashboards &&
-      canAccessPath(`/${mk}/dashboard`) &&
-      canViewDashboardElement(mk, "dashboard", "dashboard") &&
-      !actions.some((a) => String(a.path || "") === `/${mk}/dashboard`)
+      canAccessDb &&
+      isDashboardAllowed &&
+      !actions.some((a) => String(a.path || "") === dbPath || String(a.path || "") === dbsPath)
     ) {
-      actions.push({ label: "Dashboard", path: `/${mk}/dashboard`, icon: "📊" });
+      const targetPath = canAccessPath(dbPath) ? dbPath : dbsPath;
+      actions.push({ label: "Dashboard", path: targetPath, icon: "📊" });
     }
     return actions.filter((a) => {
       const p = String(a?.path || "");
       if (mk && isDashboardPath(p)) {
-        return canViewDashboardElement(mk, "dashboard", "dashboard") !== false;
+        return isDashboardAllowed;
       }
       return true;
     });
@@ -80,7 +231,7 @@ const ModuleDashboard = ({
   }, [stats.length]);
 
   function isFeatureEnabled(path) {
-    if (showAll) return true;
+    if (showAll || isSuper) return true;
     return canAccessPath(path);
   }
 
@@ -90,21 +241,26 @@ const ModuleDashboard = ({
     const path = String(item.path || "");
     if (!path) return false;
 
+    if (showAll || isSuper) return true;
+
     const parts = path.split("/").filter(Boolean);
     const mk = String(item.module_key || parts[0] || "");
     const fk = String(item.feature_key || parts[1] || "");
 
-    if (showAll) return true;
     if (mk && isDashboardPath(path)) {
-      return canViewDashboardElement(mk, "dashboard", "dashboard") === true;
+      return (
+        canViewDashboardElement(mk, "dashboard", "dashboard") !== false &&
+        canViewDashboardElement(mk, "dashboard", "dashboards") !== false
+      );
     }
+
     if (mk && fk) {
       if (canAccessFeatureKey(mk, fk)) return true;
-      if (!item.feature_key && parts.length > 2) {
+      if (item.feature_key && canAccessFeatureKey(mk, item.feature_key)) return true;
+      if (parts.length > 2) {
         const fk2 = String(parts[2] || "");
         if (fk2 && canAccessFeatureKey(mk, fk2)) return true;
       }
-      return canAccessPath(path);
     }
     return canAccessPath(path);
   };
@@ -311,41 +467,66 @@ const ModuleDashboard = ({
   }, [location.pathname, location.search, location.hash, navigate]);
 
   return (
-    <div className="p-6 space-y-8 animate-fade-in fullbleed-sm">
-      {/* Header */}
-      <div className="mb-8 flex items-start justify-between gap-4">
+    <div className="space-y-6 animate-fade-in px-3 sm:px-4 md:-mx-6 md:px-6">
+      <div className="-mx-3 px-3 sm:-mx-4 sm:px-4 md:-mx-6 md:px-6 sticky top-0 z-40 bg-slate-50 dark:bg-slate-950 pb-2 pt-2 -mt-2">
+        <ModuleTopNavBar sections={allSections} headerActions={resolvedHeaderActions} moduleKey={moduleKey} />
+      </div>
+
+      <div className="space-y-8">
+        {/* Header */}
+        <div className="mb-8 hidden lg:flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-brand-900 dark:text-white tracking-tight mb-2">
-            {title}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-lg max-w-3xl">
-            {description}
-          </p>
+          {(!useSectionNavigation || searchTerm || activeSection === null) && (
+            <h1 className="text-3xl font-bold text-brand-900 dark:text-white tracking-tight mb-2">
+              {title}
+            </h1>
+          )}
+          {description && (!useSectionNavigation || searchTerm || activeSection === null) && (
+            <p className="text-slate-500 dark:text-slate-400 text-lg max-w-3xl">
+              {description}
+            </p>
+          )}
         </div>
-        {resolvedHeaderActions.length > 0 && (
-          <div className="flex items-center gap-2">
-            {resolvedHeaderActions.map((a, i) => (
-              <button
-                key={i}
-                onClick={(e) => handleNavigate(a.path, e)}
-                className="btn btn-primary"
-                title={a.title || a.label}
-              >
-                {a.icon ? <span className="mr-2">{a.icon}</span> : null}
-                {a.label || "Open"}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {!searchTerm && useSectionNavigation && activeSection !== null && (
+            <button 
+              type="button"
+              onClick={() => {
+              setActiveSection(null);
+              const searchParams = new URLSearchParams(location.search || "");
+              searchParams.delete("section");
+              navigate({ pathname: location.pathname, search: searchParams.toString() }, { replace: true });
+            }}
+              className="btn btn-secondary flex items-center gap-2 shadow-xs hover:shadow transition-all font-semibold"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              <span>Back</span>
+            </button>
+          )}
+          {(!useSectionNavigation || searchTerm || activeSection === null) && resolvedHeaderActions.map((a, i) => (
+            <button
+              key={i}
+              onClick={(e) => handleNavigate(a.path, e)}
+              className="btn btn-primary"
+              title={a.title || a.label}
+            >
+              {a.icon ? <span className="mr-2">{typeof a.icon === "string" ? a.icon : React.createElement(a.icon, { className: "w-4 h-4 inline" })}</span> : null}
+              {a.label || "Open"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Search Field */}
+      {(!useSectionNavigation || searchTerm || activeSection === null) && (
       <div className="mb-6">
         <div className="max-w-md">
           <div className="relative">
             <input
               type="text"
-              placeholder="Search feature name, code, or path..."
+              placeholder="Search entry, transaction or report page"
               className="input w-full pl-10"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -359,9 +540,10 @@ const ModuleDashboard = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* Key Statistics */}
-      {!isSearching && stats.filter((s) => {
+      {!isSearching && (!useSectionNavigation || searchTerm || activeSection === null) && stats.filter((s) => {
         if (!canShowItem(s)) return false;
         const path = String(s.path || "");
         const parts = path.split("/").filter(Boolean);
@@ -535,7 +717,7 @@ const ModuleDashboard = ({
       )}
 
       {/* Quick Actions */}
-      {!isSearching &&
+      {!isSearching && (!useSectionNavigation || searchTerm || activeSection === null) &&
         quickActions.filter((a) => !a?.path || canShowItem(a)).length > 0 && (
         <div className="mb-10">
           <h2 className="text-xl font-semibold text-brand-800 dark:text-brand-200 mb-4 flex items-center gap-2">
@@ -576,7 +758,95 @@ const ModuleDashboard = ({
             </button>
           </div>
         )}
-        {filteredSections.map((section, sectionIndex) => {
+        
+        {/* Section Navigation Mode: View all sections as cards */}
+        {!searchTerm && useSectionNavigation && activeSection === null && (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredSections.map((section, sectionIndex) => {
+              const sectionTitle = section.title || section.category;
+              const sectionIcon = getSectionIcon(section, sectionIndex);
+              const itemsList = section.items || section.features || [];
+              const itemCount = itemsList.filter(item => canShowItem(item)).length;
+              const sectionDescription = section.description || (itemCount ? `${itemCount} feature pages` : "");
+              
+              // Gradient accents based on section index
+              const gradients = [
+                "from-blue-500/10 via-indigo-500/5 to-transparent border-blue-500/20 hover:border-blue-500/50 dark:hover:border-blue-400/60 shadow-blue-500/5",
+                "from-emerald-500/10 via-teal-500/5 to-transparent border-emerald-500/20 hover:border-emerald-500/50 dark:hover:border-emerald-400/60 shadow-emerald-500/5",
+                "from-amber-500/10 via-orange-500/5 to-transparent border-amber-500/20 hover:border-amber-500/50 dark:hover:border-amber-400/60 shadow-amber-500/5",
+                "from-purple-500/10 via-pink-500/5 to-transparent border-purple-500/20 hover:border-purple-500/50 dark:hover:border-purple-400/60 shadow-purple-500/5",
+                "from-cyan-500/10 via-blue-500/5 to-transparent border-cyan-500/20 hover:border-cyan-500/50 dark:hover:border-cyan-400/60 shadow-cyan-500/5",
+              ];
+              const cardGradient = gradients[sectionIndex % gradients.length];
+
+              const iconGradients = [
+                "from-blue-500 to-indigo-600 shadow-blue-500/25",
+                "from-emerald-500 to-teal-600 shadow-emerald-500/25",
+                "from-amber-500 to-orange-600 shadow-amber-500/25",
+                "from-purple-500 to-pink-600 shadow-purple-500/25",
+                "from-cyan-500 to-blue-600 shadow-cyan-500/25",
+              ];
+              const iconStyle = iconGradients[sectionIndex % iconGradients.length];
+
+              return (
+                <div
+                  key={sectionIndex}
+                  className={`relative overflow-hidden rounded-2xl bg-white dark:bg-slate-800/90 backdrop-blur-md p-6 border shadow-sm hover:shadow-xl hover:-translate-y-1.5 transition-all duration-300 ease-out group cursor-pointer flex flex-col justify-between ${cardGradient}`}
+                  onClick={() => {
+                    setActiveSection(sectionIndex);
+                    const secTitle = section.title || section.category;
+                    if (secTitle) {
+                      const searchParams = new URLSearchParams(location.search || "");
+                      searchParams.set("section", secTitle);
+                      navigate({ pathname: location.pathname, search: searchParams.toString() }, { replace: true });
+                    }
+                  }}
+                >
+                  {/* Subtle top background tint */}
+                  <div className={`absolute inset-0 bg-gradient-to-br ${cardGradient} opacity-0 group-hover:opacity-60 transition-opacity duration-500 pointer-events-none`} />
+
+                  <div className="relative z-10">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div 
+                        className={`shrink-0 bg-gradient-to-br ${iconStyle} text-white flex items-center justify-center text-2xl shadow-lg group-hover:scale-110 group-hover:rotate-2 transition-transform duration-300`}
+                        style={{ width: '52px', height: '52px', minWidth: '52px', minHeight: '52px', maxWidth: '52px', maxHeight: '52px', borderRadius: '50%' }}
+                      >
+                        {sectionIcon}
+                      </div>
+                      <span className="flex-none w-max inline-block text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-700/70 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-600/60 shadow-2xs">
+                        {itemCount} {itemCount === 1 ? 'Page' : 'Pages'}
+                      </span>
+                    </div>
+
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-colors mb-1.5">
+                      {sectionTitle}
+                    </h3>
+                    
+                    {sectionDescription && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                        {sectionDescription}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="relative z-10 pt-4 mt-4 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-xs font-bold text-brand-600 dark:text-brand-400 group-hover:translate-x-0.5 transition-all">
+                    <span>Explore Section</span>
+                    <svg className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Normal Mode OR Section Navigation Mode: View active section items */}
+        {(!useSectionNavigation || searchTerm || activeSection !== null) && filteredSections.map((section, sectionIndex) => {
+          if (!searchTerm && useSectionNavigation && activeSection !== sectionIndex) {
+            return null; // Skip if in section navigation mode and not the active section
+          }
+          
           const sectionTitle = section.title || section.category;
           const sectionItems = section.items || section.features || [];
 
@@ -586,18 +856,21 @@ const ModuleDashboard = ({
               id={`section-${slug(sectionTitle)}`}
               data-section-title={String(sectionTitle || "")}
             >
-              <div className="flex items-center gap-3 mb-5 border-b border-slate-200 dark:border-slate-700 pb-2">
-                <h2 className="text-xl font-bold text-slate-800 dark:text-white">
-                  {sectionTitle}
-                </h2>
-                {section.badge && (
-                  <span className="bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300 text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                    {section.badge}
-                  </span>
-                )}
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              {(!useSectionNavigation || searchTerm || activeSection === null) && (
+                <div className="flex items-center gap-3 mb-5 border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-white">
+                    {sectionTitle}
+                  </h2>
+                  {section.badge && (
+                    <span className="bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300 text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                      {section.badge}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                 {sectionItems
                   .filter((item) => canShowItem(item))
                   .map((item, itemIndex) => {
@@ -612,9 +885,21 @@ const ModuleDashboard = ({
                         className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700/50 hover:border-brand-300/80 dark:hover:border-brand-600/80 hover:-translate-y-1.5 hover:shadow-[0_15px_35px_rgba(14,54,70,0.06)] dark:hover:shadow-[0_15px_35px_rgba(0,0,0,0.25)] transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] group relative overflow-hidden"
                         onClick={() => handleNavigate(item.path)}
                       >
-                        <div className="flex items-start gap-4">
-                          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-50 to-brand-100/50 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center text-xl shadow-inner group-hover:scale-110 group-hover:rotate-1 group-hover:from-brand-100 group-hover:to-brand-200/50 dark:group-hover:from-slate-600 dark:group-hover:to-slate-700 transition-all duration-300">
-                            {item.icon || "📄"}
+                        {/* Subtle hover background tint for item cards */}
+                        <div className="absolute inset-0 bg-gradient-to-br from-brand-50/60 to-transparent dark:from-slate-700/50 dark:to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+
+                        <div className="flex flex-col lg:flex-row items-center lg:items-start text-center lg:text-left gap-4 relative z-10">
+                          <div 
+                            className="shrink-0 rounded-full bg-gradient-to-br from-brand-50 to-brand-100/50 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center text-xl shadow-inner group-hover:scale-110 group-hover:rotate-1 group-hover:from-brand-100 group-hover:to-brand-200/50 dark:group-hover:from-slate-600 dark:group-hover:to-slate-700 transition-all duration-300"
+                            style={{ width: '44px', height: '44px', minWidth: '44px', minHeight: '44px', maxWidth: '44px', maxHeight: '44px', borderRadius: '50%' }}
+                          >
+                            {typeof item.icon === "string" ? (
+                              item.icon
+                            ) : item.icon ? (
+                              React.createElement(item.icon, { className: "w-5 h-5 text-slate-700 dark:text-slate-300" })
+                            ) : (
+                              "📄"
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
                             <h3 className="font-semibold text-slate-800 dark:text-slate-100 group-hover:text-brand-700 dark:group-hover:text-brand-400 transition-colors mb-1">
@@ -626,7 +911,7 @@ const ModuleDashboard = ({
                               </p>
                             )}
                             {itemActions.length > 0 && (
-                              <div className="mt-4 flex flex-wrap gap-2">
+                              <div className="mt-4 flex flex-wrap gap-2 justify-center lg:justify-start">
                                 {itemActions.map((action, actionIndex) => {
                                   const actionType = String(
                                     action.type || "outline",
@@ -663,6 +948,7 @@ const ModuleDashboard = ({
             </div>
           );
         })}
+      </div>
       </div>
       {overlayType === "reports" && overlayItems.length > 0 ? (
         <div className="fixed inset-0 z-40 pointer-events-none">

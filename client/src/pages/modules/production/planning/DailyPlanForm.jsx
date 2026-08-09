@@ -17,6 +17,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -24,6 +25,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function DailyPlanForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(!!id);
@@ -163,6 +165,8 @@ export default function DailyPlanForm() {
               className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
               value={formData.plan_date}
               onChange={e => setFormData({...formData, plan_date: e.target.value})}
+            
+              disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
             />
           </div>
           <div className="md:col-span-2 space-y-2">

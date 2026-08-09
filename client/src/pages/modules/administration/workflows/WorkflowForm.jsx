@@ -88,6 +88,8 @@ const WorkflowForm = () => {
     document_type: "",
     document_route: "",
     email_notify: true,
+      sms_notify: true,
+      whatsapp_notify: true,
     is_active: true,
     steps: [],
   });
@@ -218,8 +220,9 @@ const WorkflowForm = () => {
       setFormData({
         ...data,
         is_active: !!data.is_active,
-        email_notify:
-          data.email_notify == null ? true : Boolean(data.email_notify),
+        email_notify: data.email_notify == null ? true : Boolean(data.email_notify),
+        sms_notify: data.sms_notify == null ? true : Boolean(data.sms_notify),
+        whatsapp_notify: data.whatsapp_notify == null ? true : Boolean(data.whatsapp_notify),
         steps: mappedSteps,
       });
       const initialCode = toCode(
@@ -532,6 +535,32 @@ const WorkflowForm = () => {
               />
               <label htmlFor="email_notify" className="text-sm text-gray-700">
                 Send email notifications to approvers
+              </label>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <input
+                id="sms_notify"
+                type="checkbox"
+                name="sms_notify"
+                checked={!!formData.sms_notify}
+                onChange={handleChange}
+              />
+              <label htmlFor="sms_notify" className="text-sm text-gray-700">
+                Send SMS notifications to approvers
+              </label>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <input
+                id="whatsapp_notify"
+                type="checkbox"
+                name="whatsapp_notify"
+                checked={!!formData.whatsapp_notify}
+                onChange={handleChange}
+              />
+              <label htmlFor="whatsapp_notify" className="text-sm text-gray-700">
+                Send WhatsApp notifications to approvers
               </label>
             </div>
           </div>

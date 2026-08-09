@@ -11,6 +11,8 @@ import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { usePermission } from "@/auth/PermissionContext.jsx";
+import SearchableOptionInput from "@/components/SearchableOptionInput";
 
 function emptyLine() {
   return {
@@ -31,7 +33,7 @@ function emptyLine() {
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function DebitNoteForm() {
@@ -41,6 +43,7 @@ export default function DebitNoteForm() {
   const mode = new URLSearchParams(search).get("mode");
   const readOnly = mode === "view";
   const isEdit = Boolean(id);
+  const { hasExceptional } = usePermission();
   const voucherTypeCode = "DN";
   const title = "Debit Note";
   const isJV = false;
@@ -369,7 +372,7 @@ export default function DebitNoteForm() {
     linesManuallyEdited.current = false;
     const acc = accounts.find((a) => String(a.id) === String(dnSupplierId));
     setDnCurrencyCode(String(acc?.currency_code || acc?.currency || ""));
-    
+
     // Fetch balance
     (async () => {
       try {
@@ -384,14 +387,15 @@ export default function DebitNoteForm() {
     if (acc) {
       const accountCode = acc.code || "";
       const supplier = payees.find(
-        (p) => p.type === "SUPPLIER" && String(p.code) === String(accountCode)
+        (p) => p.type === "SUPPLIER" && String(p.code) === String(accountCode),
       );
       if (supplier) {
-        api.get(`/purchase/suppliers/${supplier.id}`)
+        api
+          .get(`/purchase/suppliers/${supplier.id}`)
           .then((res) => {
             const custData = res.data?.item || res.data || {};
-            if (custData.purchase_account_id) {
-              setDnPurchaseAccountId(String(custData.purchase_account_id));
+            if (custData.expense_account_id) {
+              setDnPurchaseAccountId(String(custData.expense_account_id));
             } else {
               setDnPurchaseAccountId("");
             }
@@ -401,14 +405,17 @@ export default function DebitNoteForm() {
           });
       } else {
         // Fallback: search suppliers by name/code directly if payee mapping didn't hit
-        api.get(`/purchase/suppliers?active=true`)
+        api
+          .get(`/purchase/suppliers?active=true`)
           .then((res) => {
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const matchingCust = items.find(
-              (c) => String(c.supplier_name).toLowerCase() === String(acc.name).toLowerCase()
+              (c) =>
+                String(c.supplier_name).toLowerCase() ===
+                String(acc.name).toLowerCase(),
             );
-            if (matchingCust && matchingCust.purchase_account_id) {
-              setDnPurchaseAccountId(String(matchingCust.purchase_account_id));
+            if (matchingCust && matchingCust.expense_account_id) {
+              setDnPurchaseAccountId(String(matchingCust.expense_account_id));
             } else {
               setDnPurchaseAccountId("");
             }
@@ -446,7 +453,9 @@ export default function DebitNoteForm() {
     const desc = dnDescription || "";
 
     // 1. Line 1: Creditor/Supplier Account (Debit)
-    const supplierAcc = accounts.find((a) => String(a.id) === String(dnSupplierId));
+    const supplierAcc = accounts.find(
+      (a) => String(a.id) === String(dnSupplierId),
+    );
     const line1 = {
       accountId: String(dnSupplierId),
       accountName: supplierAcc?.name || "",
@@ -472,7 +481,9 @@ export default function DebitNoteForm() {
           const rateVal = Number(c.rate_percent || 0);
           const taxAmount = Math.round(totalAmount * rateVal) / 100;
           totalTaxAmount += taxAmount;
-          const taxAcc = accounts.find((a) => String(a.id) === String(c.account_id));
+          const taxAcc = accounts.find(
+            (a) => String(a.id) === String(c.account_id),
+          );
           taxLines.push({
             accountId: String(c.account_id),
             accountName: String(c.account_name || ""),
@@ -493,7 +504,9 @@ export default function DebitNoteForm() {
 
     // 3. Line 2: Purchase Account (Credit)
     const creditAmount = Math.round((totalAmount - totalTaxAmount) * 100) / 100;
-    const purchaseAcc = accounts.find((a) => String(a.id) === String(dnPurchaseAccountId));
+    const purchaseAcc = accounts.find(
+      (a) => String(a.id) === String(dnPurchaseAccountId),
+    );
     const line2 = {
       accountId: dnPurchaseAccountId ? String(dnPurchaseAccountId) : "",
       accountName: purchaseAcc?.name || "",
@@ -2041,6 +2054,17 @@ export default function DebitNoteForm() {
       if (isEdit) {
         const res = await api.put(`/finance/vouchers/${id}`, payload);
         toast.success(res.data?.message || "Updated voucher");
+        navigate("/finance/debit-note", {
+          state: {
+            refresh: true,
+            highlightId: id ? Number(id) : undefined,
+            highlightRef:
+              voucherNoPreview && String(voucherNoPreview).trim()
+                ? String(voucherNoPreview)
+                : undefined,
+          },
+        });
+        return;
       } else {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
@@ -3223,9 +3247,9 @@ export default function DebitNoteForm() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -3271,7 +3295,7 @@ export default function DebitNoteForm() {
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
                     required
-                    disabled={readOnly}
+                    disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                   />
                 </div>
                 {/* CN: Supplier, Currency and Balance grouped inline horizontally */}
@@ -3719,11 +3743,14 @@ export default function DebitNoteForm() {
                                       {accountLabel || "-"}
                                     </span>
                                   ) : (
-                                    <select
-                                      className="input"
+                                    <SearchableOptionInput
                                       value={l.accountId}
-                                      onChange={(e) => {
-                                        const accId = e.target.value;
+                                      options={accounts.map((a) => ({
+                                        label: isSV || isPV ? a.name : `${a.code} - ${a.name}`,
+                                        value: a.id,
+                                      }))}
+                                      onSelect={(val) => {
+                                        const accId = val;
                                         const acc = accounts.find(
                                           (a) => String(a.id) === String(accId),
                                         );
@@ -3734,18 +3761,9 @@ export default function DebitNoteForm() {
                                         });
                                         autoFetchLineRate(newCId, idx);
                                       }}
-                                      required
                                       disabled={readOnly}
-                                    >
-                                      <option value="">Select account</option>
-                                      {accounts.map((a) => (
-                                        <option key={a.id} value={a.id}>
-                                          {isSV || isPV
-                                            ? a.name
-                                            : `${a.code} - ${a.name}`}
-                                        </option>
-                                      ))}
-                                    </select>
+                                      required={true}
+                                    />
                                   )}
                                 </td>
                                 <td>
@@ -3774,14 +3792,22 @@ export default function DebitNoteForm() {
                                         <span className="text-slate-600 dark:text-slate-400">
                                           {(() => {
                                             const sel = (currencies || []).find(
-                                              (c) => String(c.id) === String(l.currencyId || ""),
+                                              (c) =>
+                                                String(c.id) ===
+                                                String(l.currencyId || ""),
                                             );
-                                            return sel?.code || sel?.currency_code || (() => {
-                                              const acc = accounts.find(
-                                                (a) => String(a.id) === String(l.accountId || ""),
-                                              );
-                                              return acc?.currency_code || "";
-                                            })();
+                                            return (
+                                              sel?.code ||
+                                              sel?.currency_code ||
+                                              (() => {
+                                                const acc = accounts.find(
+                                                  (a) =>
+                                                    String(a.id) ===
+                                                    String(l.accountId || ""),
+                                                );
+                                                return acc?.currency_code || "";
+                                              })()
+                                            );
                                           })()}
                                         </span>
                                       ) : (
@@ -3790,12 +3816,16 @@ export default function DebitNoteForm() {
                                           value={l.currencyId}
                                           onChange={(e) => {
                                             const cId = e.target.value;
-                                            updateLine(idx, { currencyId: cId });
+                                            updateLine(idx, {
+                                              currencyId: cId,
+                                            });
                                             autoFetchLineRate(cId, idx);
                                           }}
                                           disabled={readOnly}
                                         >
-                                          <option value="">Base Currency</option>
+                                          <option value="">
+                                            Base Currency
+                                          </option>
                                           {currencies.map((c) => (
                                             <option key={c.id} value={c.id}>
                                               {c.code || c.currency_code}
@@ -3951,9 +3981,9 @@ export default function DebitNoteForm() {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"

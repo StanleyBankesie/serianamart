@@ -11,6 +11,7 @@ import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 function emptyLine() {
   return {
@@ -41,6 +42,7 @@ export default function ReceiptVoucherForm() {
   const mode = new URLSearchParams(search).get("mode");
   const readOnly = mode === "view";
   const isEdit = Boolean(id);
+  const { hasExceptional } = usePermission();
   const voucherTypeCode = "RV";
   const title = "Receive Payment";
   const isJV = false;
@@ -61,6 +63,8 @@ export default function ReceiptVoucherForm() {
   const [customerInvoices, setCustomerInvoices] = useState([]);
   const [selectedInvoiceRefs, setSelectedInvoiceRefs] = useState([]);
   const [voucherNoPreview, setVoucherNoPreview] = useState("");
+  const [costCenters, setCostCenters] = useState([]);
+  const [costCenterId, setCostCenterId] = useState("");
 
   const [voucherDate, setVoucherDate] = useState(
     new Date().toISOString().split("T")[0],
@@ -208,7 +212,7 @@ export default function ReceiptVoucherForm() {
       };
       const formParam = formIdMap[vTypeCode] || null;
 
-      const [vtRes, fyRes, accRes, taxRes, custRes, supRes, curRes, projRes] =
+      const [vtRes, fyRes, accRes, taxRes, custRes, supRes, curRes, projRes, ccRes] =
         await Promise.all([
           api.get("/finance/voucher-types"),
           api.get("/finance/fiscal-years"),
@@ -218,6 +222,7 @@ export default function ReceiptVoucherForm() {
           api.get("/purchase/suppliers?active=true"),
           api.get("/finance/currencies"),
           api.get("/projects/projects"),
+          api.get("/finance/cost-centers"),
         ]);
       const vt = vtRes.data?.items || [];
       const fys = fyRes.data?.items || [];
@@ -262,6 +267,7 @@ export default function ReceiptVoucherForm() {
       setCurrencies(currs);
       setSuppliers(suppliers);
       setProjects(projRes.data?.items || []);
+      setCostCenters(ccRes.data?.items || ccRes.data?.data?.items || []);
 
       if (!fiscalYearId && fys.length) setFiscalYearId(String(fys[0].id));
     } catch (e) {
@@ -526,6 +532,7 @@ export default function ReceiptVoucherForm() {
       }
       setNarration(v.narration || data.voucher?.narration || "");
       setProjectId(v.project_id || data.voucher?.project_id || "");
+      setCostCenterId(v.cost_center_id || data.voucher?.cost_center_id || "");
       setVoucherHeaderAmounts({
         totalDebit: Number(v.total_debit || 0),
         totalCredit: Number(v.total_credit || 0),
@@ -1781,30 +1788,34 @@ export default function ReceiptVoucherForm() {
               exchangeRate: Number(rvVoucherExchangeRate || 1) || 1,
             }
           : {}),
-        ...(isPAYV &&
-        paymentType === "AGAINST_BILL" &&
-        selectedBillId &&
-        Number(totals.grand || 0) > 0
-          ? {
-              apply_to_purchase_bills: [
-                {
-                  bill_id: Number(selectedBillId),
-                  amount: Number(totals.grand || 0),
-                },
-              ],
-            }
+        ...(isRV && rvForm.receiptType === "AGAINST_INVOICE" && selectedInvoiceRefs.length > 0
+          ? (() => {
+              const allocations = [];
+              let remaining = Number(totals.grand || 0);
+              const selectedInvoices = customerInvoices.filter(i => selectedInvoiceRefs.includes(String(i.invoice_no)));
+              for (const inv of selectedInvoices) {
+                if (!inv || remaining <= 0) continue;
+                const balance = Number(inv.balance_amount || inv.net_amount || 0);
+                const alloc = Math.min(balance, remaining);
+                remaining -= alloc;
+                allocations.push({ invoice_id: inv.id, amount: alloc });
+              }
+              return {
+                apply_to_sales_invoices: allocations.map(a => ({ invoice_id: Number(a.invoice_id), amount: Number(a.amount) }))
+              };
+            })()
           : {}),
-        // Include payment details for Direct Payment - backend will generate posting lines
-        ...(isPAYV && paymentType === "DIRECT"
+        // Include payment details for Direct Receipt
+        ...(isRV && rvForm.receiptType === "DIRECT"
           ? {
               paymentDetails: {
                 accountId: firstPvPaymentItem.accountId || null,
-                paymentAccountId: pvForm.paymentAccountId || null,
+                paymentAccountId: rvForm.depositAccountId || null,
                 totalAmount: Number(totals.grand || 0),
-                baseAmount: Number(pvAmountInBase || 0),
+                baseAmount: Number(rvAmountInBase || 0),
                 baseCurrencyCode: baseCurrency?.code || "USD",
-                currencyCode: effectivePaymentCurrencyCode || "USD",
-                description: firstPvPaymentItem.description || "Direct Payment",
+                currencyCode: rvVoucherCurrencyId ? "GHS" : "GHS", // Will be processed on backend
+                description: firstPvPaymentItem.description || "Direct Receipt",
               },
             }
           : {}),
@@ -1864,11 +1875,23 @@ export default function ReceiptVoucherForm() {
                   : narration,
         lines: cleaned,
         projectId: projectId || null,
+        costCenterId: costCenterId || null,
       };
 
       if (isEdit) {
         const res = await api.put(`/finance/vouchers/${id}`, payload);
         toast.success(res.data?.message || "Updated voucher");
+        navigate("/finance/receipt-voucher", {
+          state: {
+            refresh: true,
+            highlightId: id ? Number(id) : undefined,
+            highlightRef:
+              voucherNoPreview && String(voucherNoPreview).trim()
+                ? String(voucherNoPreview)
+                : undefined,
+          },
+        });
+        return;
       } else {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
@@ -3084,9 +3107,9 @@ export default function ReceiptVoucherForm() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -3138,7 +3161,7 @@ export default function ReceiptVoucherForm() {
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
                     required
-                    disabled={readOnly}
+                    disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                   />
                 </div>
                 {isJV && (
@@ -3647,9 +3670,9 @@ export default function ReceiptVoucherForm() {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"
@@ -3681,9 +3704,9 @@ export default function ReceiptVoucherForm() {
                 <p className="text-sm mt-1">Record incoming payments</p>
               </div>
               <div className="flex gap-2">
-                <Link to=".." className="btn-success">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Back
-                </Link>
+                </button>
                 {voucherStatus === "APPROVED" ? (
                   <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
                     Approved
@@ -3759,6 +3782,22 @@ export default function ReceiptVoucherForm() {
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label className="label">Cost Center</label>
+                  <select
+                    className="input w-64"
+                    value={costCenterId}
+                    onChange={(e) => setCostCenterId(e.target.value)}
+                    disabled={readOnly}
+                  >
+                    <option value=""> Select Cost Center </option>
+                    {costCenters.map((cc) => (
+                      <option key={cc.id} value={cc.id}>
+                        {cc.name} ({cc.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 {!(isPAYV || isRV) && (
                   <div>
                     <label className="label">Fiscal Year *</label>
@@ -3787,7 +3826,7 @@ export default function ReceiptVoucherForm() {
                     <input
                       className={`input w-64 ${disabledClass}`}
                       placeholder="Type to search accounts"
-                      value={receivedFromSearch || rvForm.receivedFrom || ""}
+                      value={receivedFromSearch || ""}
                       onChange={(e) => {
                         setReceivedFromSearch(e.target.value);
                         if (!e.target.value) {
@@ -4020,76 +4059,6 @@ export default function ReceiptVoucherForm() {
                     disabled
                   />
                 </div>
-                {paymentType === "AGAINST_BILL" ? (
-                  <div className="md:w-64">
-                    <label className="label">Outstanding Invoices</label>
-                    <select
-                      className={`input md:w-64 ${disabledClass}`}
-                      value={selectedInvoiceRefs[0] || ""}
-                      onChange={(e) => {
-                        const selectedRef = String(e.target.value || "");
-                        const chosenList = customerInvoices.filter(
-                          (inv) => String(inv.invoice_no) === selectedRef,
-                        );
-                        setSelectedInvoiceRefs(
-                          selectedRef ? [selectedRef] : [],
-                        );
-                        const items =
-                          chosenList.length > 0
-                            ? chosenList.map((inv) => ({
-                                description: "",
-                                accountId: rvForm.payerAccountId || "",
-                                amount: Number(inv.balance_amount || 0),
-                                referenceNo: String(inv.invoice_no),
-                                currencyCode: getAccountCurrencyCode(
-                                  rvForm.payerAccountId,
-                                ),
-                                exchangeRate: "1",
-                              }))
-                            : [
-                                {
-                                  description: "",
-                                  accountId: rvForm.payerAccountId || "",
-                                  amount: 0,
-                                  referenceNo: "",
-                                  currencyCode: getAccountCurrencyCode(
-                                    rvForm.payerAccountId,
-                                  ),
-                                  exchangeRate: "1",
-                                },
-                              ];
-                        const firstTaxCodeId =
-                          chosenList.length > 0
-                            ? chosenList[0].tax_code_id || null
-                            : null;
-                        updateRvForm({
-                          items,
-                          ...(firstTaxCodeId
-                            ? { taxCodeId: String(firstTaxCodeId) }
-                            : {}),
-                        });
-                      }}
-                      disabled={readOnly}
-                    >
-                      <option value="">Select invoice</option>
-                      {customerInvoices.map((inv) => (
-                        <option key={inv.id} value={inv.invoice_no}>
-                          {inv.invoice_no} - Outstanding{" "}
-                          {Number(inv.balance_amount || 0).toLocaleString(
-                            undefined,
-                            {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            },
-                          )}
-                          {inv.payment_status
-                            ? ` (${String(inv.payment_status).replace(/_/g, " ")})`
-                            : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : null}
                 <div className="md:w-64">
                   <label className="label">Currency</label>
                   <input
@@ -4107,6 +4076,139 @@ export default function ReceiptVoucherForm() {
                   />
                 </div>
               </div>
+
+              {paymentType === "AGAINST_BILL" ? (
+                <div className="space-y-3 mt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:w-96">
+                      <label className="label">Outstanding Invoices</label>
+                      <div className={`border rounded p-2 md:w-96 min-h-[120px] max-h-[160px] overflow-y-auto bg-white dark:bg-slate-900 ${disabledClass}`}>
+                        {customerInvoices.length === 0 && (
+                          <div className="text-slate-500 italic p-2 text-sm">
+                            No outstanding invoices
+                          </div>
+                        )}
+                        {customerInvoices.map((inv) => {
+                          const key = String(inv.invoice_no);
+                          const isChecked = selectedInvoiceRefs.includes(key);
+                          return (
+                            <label key={key} className="flex items-center space-x-2 p-1 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                disabled={readOnly}
+                                onChange={(e) => {
+                                  let keys = [...selectedInvoiceRefs];
+                                  if (e.target.checked) {
+                                    keys.push(key);
+                                  } else {
+                                    keys = keys.filter(k => k !== key);
+                                  }
+                                  setSelectedInvoiceRefs(keys);
+                                  const selectedInvoices = customerInvoices.filter((i) => keys.includes(String(i.invoice_no)));
+                                  
+                                  const firstTaxCodeId = selectedInvoices.length > 0 ? selectedInvoices[0].tax_code_id || null : null;
+                                  
+                                  if (selectedInvoices.length > 0) {
+                                    const totalAmount = selectedInvoices.reduce((sum, inv) => sum + Number(inv.balance_amount || 0), 0);
+                                    let found = false;
+                                    const updatedItems = rvForm.items.map((it) => {
+                                      if (String(it.accountId) === String(rvForm.payerAccountId)) {
+                                        found = true;
+                                        return {
+                                          ...it,
+                                          description: `Receipt for ${selectedInvoices.length} Invoice(s)`,
+                                          amount: totalAmount,
+                                          referenceNo: selectedInvoices.map(i => i.invoice_no).join(", "),
+                                          currencyCode: getAccountCurrencyCode(rvForm.payerAccountId),
+                                          exchangeRate: "1",
+                                        };
+                                      }
+                                      return it;
+                                    });
+                                    if (!found) {
+                                      updatedItems.push({
+                                        description: `Receipt for ${selectedInvoices.length} Invoice(s)`,
+                                        accountId: rvForm.payerAccountId || "",
+                                        amount: totalAmount,
+                                        referenceNo: selectedInvoices.map(i => i.invoice_no).join(", "),
+                                        currencyCode: getAccountCurrencyCode(rvForm.payerAccountId),
+                                        exchangeRate: "1",
+                                      });
+                                    }
+                                    updateRvForm({
+                                      items: updatedItems,
+                                      ...(firstTaxCodeId ? { taxCodeId: String(firstTaxCodeId) } : {}),
+                                    });
+                                  } else {
+                                    let found = false;
+                                    const updatedItems = rvForm.items.map((it) => {
+                                      if (String(it.accountId) === String(rvForm.payerAccountId)) {
+                                        found = true;
+                                        return {
+                                          ...it,
+                                          description: "",
+                                          amount: 0,
+                                          referenceNo: "",
+                                          currencyCode: getAccountCurrencyCode(rvForm.payerAccountId),
+                                          exchangeRate: "1",
+                                        };
+                                      }
+                                      return it;
+                                    });
+                                    if (!found) {
+                                      updatedItems.push({
+                                        description: "",
+                                        accountId: rvForm.payerAccountId || "",
+                                        amount: 0,
+                                        referenceNo: "",
+                                        currencyCode: getAccountCurrencyCode(rvForm.payerAccountId),
+                                        exchangeRate: "1",
+                                      });
+                                    }
+                                    updateRvForm({
+                                      items: updatedItems,
+                                      ...(firstTaxCodeId ? { taxCodeId: String(firstTaxCodeId) } : {}),
+                                    });
+                                  }
+                                }}
+                              />
+                              <span className="text-sm">
+                                {inv.invoice_no} - GH₵ {Number(inv.balance_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                {inv.payment_status ? ` (${String(inv.payment_status).replace(/_/g, " ")})` : ""}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {selectedInvoiceRefs.length > 0 && (
+                      <div className="bg-slate-50 dark:bg-slate-800 rounded p-3 text-sm max-h-[160px] overflow-y-auto">
+                        <div className="font-medium mb-1">Selected Invoices Summary</div>
+                        {selectedInvoiceRefs.map(key => {
+                          const inv = customerInvoices.find(i => String(i.invoice_no) === key);
+                          if (!inv) return null;
+                          return (
+                            <div key={key} className="flex justify-between py-1 border-b border-slate-200 dark:border-slate-700 last:border-0">
+                              <span>{inv.invoice_no}</span>
+                              <span className="font-medium">GH₵ {Number(inv.balance_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          );
+                        })}
+                        <div className="flex justify-between pt-2 mt-1 border-t border-slate-300 dark:border-slate-600 font-bold">
+                          <span>Total</span>
+                          <span>
+                            GH₵ {customerInvoices
+                              .filter(i => selectedInvoiceRefs.includes(String(i.invoice_no)))
+                              .reduce((sum, i) => sum + Number(i.balance_amount || 0), 0)
+                              .toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
                 {isCN || isDN ? (
@@ -4592,20 +4694,20 @@ export default function ReceiptVoucherForm() {
                 </div>
               ) : null}
 
-              <div>
+              <div className="w-full mt-6">
                 <label className="label">Notes / Remarks</label>
                 <textarea
-                  className="input h-24"
+                  className="input h-24 w-full"
                   value={rvForm.notes}
                   onChange={(e) => updateRvForm({ notes: e.target.value })}
                   placeholder="Additional notes or comments"
                 />
               </div>
 
-              <div className="flex flex-col md:flex-row gap-2">
-                <Link to=".." className="btn-success">
+              <div className="flex flex-col md:flex-row justify-end gap-2 mt-4">
+                <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
-                </Link>
+                </button>
                 <button
                   type="submit"
                   className="btn-success"

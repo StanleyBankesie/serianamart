@@ -84,12 +84,10 @@ export default function AssetForm() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to="/maintenance/assets"
-          className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+        <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
         >
           ← Back to Assets
-        </Link>
+        </button>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
           {readOnly ? "View Asset" : isEdit ? "Edit Asset" : "New Asset"}
         </h1>
@@ -149,9 +147,9 @@ export default function AssetForm() {
               </div>
             </fieldset>
             <div className="flex justify-end gap-3">
-              <Link to="/maintenance/assets" className="btn-success">
+              <button onClick={() => window.history.back()} className="btn-success">
                 Cancel
-              </Link>
+              </button>
               <button className="btn-success" disabled={loading || readOnly}>
                 {loading ? "Saving..." : "Save"}
               </button>

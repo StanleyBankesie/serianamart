@@ -6,15 +6,22 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
+import { toast } from "react-toastify";
+import * as XLSX from "xlsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
+function normalizeBool(val) {
+  if (!val) return false;
+  if (typeof val === "boolean") return val;
+  const s = String(val).trim().toLowerCase();
+  return ["1", "true", "yes", "y", "x"].includes(s);
+}
+
 export default function EmployeeList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const { canPerformAction } = usePermission();
   const [employees, setEmployees] = useState([]);
@@ -24,9 +31,44 @@ export default function EmployeeList() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
 
+  const [departments, setDepartments] = useState([]);
+  const [positions, setPositions] = useState([]);
+  const [employmentTypes, setEmploymentTypes] = useState([]);
+  const [employeeCategories, setEmployeeCategories] = useState([]);
+  const [taxes, setTaxes] = useState([]);
+  const [allowances, setAllowances] = useState([]);
+  const [locations, setLocations] = useState([]);
+
   useEffect(() => {
     fetchEmployees();
+    loadOptions();
   }, []);
+
+  const loadOptions = async () => {
+    try {
+      const safeGet = (url) => api.get(url).catch(() => ({ data: {} }));
+      const [deptRes, posRes, etRes, catRes, taxRes, allowRes, locRes] =
+        await Promise.all([
+          safeGet("/hr/setup/departments"),
+          safeGet("/hr/setup/positions"),
+          safeGet("/hr/setup/employment-types"),
+          safeGet("/hr/setup/employee-categories"),
+          safeGet("/hr/taxes"),
+          safeGet("/hr/setup/allowance-types"),
+          safeGet("/hr/setup/locations"),
+        ]);
+
+      setDepartments(deptRes.data?.items || []);
+      setPositions(posRes.data?.items || []);
+      setEmploymentTypes(etRes.data?.items || []);
+      setEmployeeCategories(catRes.data?.items || []);
+      setTaxes(taxRes.data?.items || []);
+      setAllowances(allowRes.data?.items || []);
+      setLocations(locRes.data?.items || []);
+    } catch (e) {
+      console.error("Error loading options:", e);
+    }
+  };
 
   const fetchEmployees = async () => {
     try {
@@ -43,6 +85,132 @@ export default function EmployeeList() {
       setLoading(false);
     }
   };
+
+  function downloadTemplate() {
+    try {
+      const baseCols = [
+        "emp_code",
+        "first_name",
+        "last_name",
+        "middle_name",
+        "gender",
+        "dob",
+        "joining_date",
+        "email",
+        "phone",
+        "department",
+        "position",
+        "manager_emp_code",
+        "employment_type",
+        "employment_type_id",
+        "category",
+        "category_id",
+        "location",
+        "location_id",
+        "status",
+        "base_salary",
+        "address",
+        "picture_url",
+        "national_id",
+      ];
+      const taxCols = (taxes || []).map((t) => t.tax_name).filter(Boolean);
+      const allowanceCols = (allowances || [])
+        .map((a) => a.allowance_name)
+        .filter(Boolean);
+      const cols = [...baseCols, ...taxCols, ...allowanceCols];
+
+      const ws = XLSX.utils.aoa_to_sheet([cols]);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Employees");
+      XLSX.writeFile(wb, "employee_upload_template.xlsx");
+      toast.success("Template downloaded");
+    } catch (err) {
+      toast.error("Failed to generate template");
+    }
+  }
+
+  async function handleBulkUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      if (!rows.length) {
+        toast.error("Template is empty");
+        return;
+      }
+      const deptByName = new Map(departments.map((d) => [d.dept_name, d.id]));
+      const posByName = new Map(positions.map((p) => [p.pos_name, p.id]));
+      const locByName = new Map(locations.map((l) => [l.location_name, l.id]));
+      const etByName = new Map(employmentTypes.map((t) => [t.name, t.id]));
+      const catByName = new Map(employeeCategories.map((c) => [c.name, c.id]));
+      const taxByName = new Map(taxes.map((t) => [t.tax_name, t.id]));
+      const allowanceByName = new Map(
+        allowances.map((a) => [a.allowance_name, a.id]),
+      );
+
+      const payload = rows.map((r) => {
+        const tax_mappings = [];
+        const allowance_mappings = [];
+        for (const [name, id] of taxByName.entries()) {
+          if (normalizeBool(r[name])) tax_mappings.push(id);
+        }
+        for (const [name, id] of allowanceByName.entries()) {
+          if (normalizeBool(r[name])) allowance_mappings.push(id);
+        }
+        const dept_id = r.department
+          ? deptByName.get(String(r.department).trim()) || null
+          : r.dept_id || null;
+        const pos_id = r.position
+          ? posByName.get(String(r.position).trim()) || null
+          : r.pos_id || null;
+        const location_id = r.location
+          ? locByName.get(String(r.location).trim()) || null
+          : r.location_id || null;
+        const employment_type_id = r.employment_type
+          ? etByName.get(String(r.employment_type).trim()) || null
+          : r.employment_type_id || null;
+        const category_id = r.category
+          ? catByName.get(String(r.category).trim()) || null
+          : r.category_id || null;
+        return {
+          emp_code: r.emp_code,
+          first_name: r.first_name,
+          last_name: r.last_name,
+          middle_name: r.middle_name || null,
+          gender: r.gender || null,
+          dob: r.dob || null,
+          joining_date: r.joining_date,
+          email: r.email || null,
+          phone: r.phone || null,
+          dept_id,
+          pos_id,
+          manager_emp_code: r.manager_emp_code || null,
+          location_id,
+          employment_type: r.employment_type || null,
+          employment_type_id,
+          category_id,
+          status: "ACTIVE",
+          base_salary: r.base_salary || 0,
+          address: r.address || null,
+          picture_url: r.picture_url || null,
+          national_id: r.national_id || null,
+          tax_mappings,
+          allowance_mappings,
+        };
+      });
+
+      await api.post("/hr/employees/bulk", { items: payload });
+      toast.success("Bulk upload processed");
+      fetchEmployees();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Bulk upload failed");
+    } finally {
+      e.target.value = "";
+    }
+  }
 
   const getStatusBadge = (isActive) => {
     return isActive ? (
@@ -79,7 +247,7 @@ export default function EmployeeList() {
     });
   })();
 
-  const departments = [
+  const departmentList = [
     "ALL",
     ...new Set(employees.map((emp) => emp.dept_name).filter(Boolean)),
   ];
@@ -101,8 +269,24 @@ export default function EmployeeList() {
                 Manage employee records and information
               </p>
             </div>
-            <div className="flex gap-2">
-              <Link to="/human-resources" className="btn btn-secondary">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white rounded-md shadow-sm hover:bg-slate-50 transition-colors"
+                onClick={downloadTemplate}
+              >
+                Download Template
+              </button>
+              <label className="px-3 py-1.5 text-xs font-semibold text-slate-800 bg-white rounded-md shadow-sm hover:bg-slate-50 transition-colors cursor-pointer inline-flex items-center">
+                Upload
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleBulkUpload}
+                  className="hidden"
+                />
+              </label>
+              <Link to="/human-resources?section=Employee%20Management" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link to="/human-resources/employees/new" className="btn-success">
@@ -137,7 +321,7 @@ export default function EmployeeList() {
                 value={departmentFilter}
                 onChange={(e) => setDepartmentFilter(e.target.value)}
               >
-                {departments.map((dept) => (
+                {departmentList.map((dept) => (
                   <option key={dept} value={dept}>
                     {dept === "ALL" ? "All Departments" : dept}
                   </option>
@@ -169,8 +353,13 @@ export default function EmployeeList() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table">
+            
+                <>
+<div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+              <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
                   <tr>
                     <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Photo</th>
@@ -273,7 +462,9 @@ export default function EmployeeList() {
                 </tbody>
               </table>
             </div>
-          )}
+          
+</>
+)}
         </div>
       </div>
     </div>

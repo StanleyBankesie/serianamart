@@ -50,6 +50,11 @@ function BarChart({
   if (horizontal) {
     return (
       <div className="w-full space-y-2">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="text-[10px] font-bold text-slate-400 uppercase w-24 shrink-0 text-right">
+            Amount Total
+          </div>
+        </div>
         {data.map((d, idx) => {
           const barColor = palette ? palette[idx % palette.length] : color;
           const val = Number(d[yKey] || 0);
@@ -703,12 +708,10 @@ export default function PosDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <Link
-            to="/pos"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to POS
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             POS Dashboard
           </h1>
@@ -738,7 +741,7 @@ export default function PosDashboard() {
         <div className="p-4 rounded-lg border border-slate-200 bg-white dark:bg-slate-800 dark:border-slate-700">
           <div className="text-xs uppercase text-slate-500 mb-1">Daily Sales</div>
           <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-            {fmtCurrency(Number(daySummary?.cashAmount || 0) + Number(daySummary?.cardAmount || 0) + Number(daySummary?.mobileAmount || 0))}
+            {fmtCurrency(Number(daySummary?.cashAmount || 0) + Number(daySummary?.cardAmount || 0) + Number(daySummary?.mobileAmount || 0) + Number(daySummary?.creditAmount || 0))}
           </div>
         </div>
       </div>

@@ -235,7 +235,10 @@ export async function lookupGraceToken(oldAccessToken) {
  * @returns {Object|null} The decoded token payload if valid, otherwise null.
  */
 export function verifyAccessToken(token) {
-  const payload = jwt.verify(String(token || ""), getJwtSecret());
+  // SECURITY: Explicitly restrict to HS256 to prevent algorithm confusion attacks
+  const payload = jwt.verify(String(token || ""), getJwtSecret(), {
+    algorithms: ["HS256"],
+  });
   if (
     !payload ||
     typeof payload !== "object" ||
@@ -250,6 +253,7 @@ export function verifyAccessToken(token) {
 export function signAccessToken(payload) {
   const tokenPayload = { ...payload };
   delete tokenPayload.profile_picture_url;
+  delete tokenPayload.permissions; // PREVENT NGINX 400 BAD REQUEST HEADER TOO LARGE
   return jwt.sign(
     {
       ...tokenPayload,
@@ -291,25 +295,25 @@ export async function ensureAuthTables() {
     await query(
       `ALTER TABLE adm_users
         ADD COLUMN failed_attempts INT NOT NULL DEFAULT 0`,
-    );
+    ).catch(() => {});
   }
   if (!(await hasColumn("adm_users", "last_failed_attempt"))) {
     await query(
       `ALTER TABLE adm_users
         ADD COLUMN last_failed_attempt DATETIME NULL`,
-    );
+    ).catch(() => {});
   }
   if (!(await hasColumn("adm_users", "status"))) {
     await query(
       `ALTER TABLE adm_users
         ADD COLUMN status CHAR(1) NOT NULL DEFAULT 'N'`,
-    );
+    ).catch(() => {});
   }
   if (!(await hasColumn("adm_users", "valid_to"))) {
     await query(
       `ALTER TABLE adm_users
         ADD COLUMN valid_to DATE NULL`,
-    );
+    ).catch(() => {});
   }
 
   const [trigRows] = await query(
@@ -367,30 +371,39 @@ export async function getUserPermissions(userId) {
 
   if (!roleId) return [];
 
-  const permRows = await query(
-    `
-    SELECT DISTINCT feature_key as code
-    FROM adm_role_permissions rp
-    WHERE rp.role_id = :roleId AND rp.can_view = 1
-    `,
-    { roleId },
-  ).catch(() => []);
-
-  // Also include any legacy permissions if needed
-  const legacyRows = await query(
-    `
-    SELECT DISTINCT p.code
-    FROM adm_users u
-    JOIN adm_user_permissions up ON up.user_id = u.id
-    JOIN adm_pages p ON p.id = up.page_id
-    WHERE u.id = :userId AND up.can_view = 1
-    `,
-    { userId },
-  ).catch(() => []);
+  const [permRows, legacyRows, exclusiveRows] = await Promise.all([
+    query(
+      `
+      SELECT DISTINCT feature_key as code
+      FROM adm_role_permissions rp
+      WHERE rp.role_id = :roleId AND rp.can_view = 1
+      `,
+      { roleId },
+    ).catch(() => []),
+    query(
+      `
+      SELECT DISTINCT p.code
+      FROM adm_users u
+      JOIN adm_user_permissions up ON up.user_id = u.id
+      JOIN adm_pages p ON p.id = up.page_id
+      WHERE u.id = :userId AND up.can_view = 1
+      `,
+      { userId },
+    ).catch(() => []),
+    query(
+      `
+      SELECT feature_key as code
+      FROM adm_admin_page_permissions
+      WHERE user_id = :userId
+      `,
+      { userId },
+    ).catch(() => []),
+  ]);
 
   const allPerms = [
     ...permRows.map((row) => row.code),
     ...legacyRows.map((row) => row.code),
+    ...exclusiveRows.map((row) => row.code),
   ];
 
   return Array.from(new Set(allPerms.filter(Boolean)));
@@ -461,18 +474,15 @@ export async function buildAuthUserPayload(user, permissions = []) {
     username: user.username,
     email: user.email,
     full_name: user.full_name || "",
-    permissions: Array.isArray(permissions) ? permissions : [],
+    permissions: (Array.isArray(permissions) && permissions.includes("*")) ? ["*"] : (Array.isArray(permissions) ? permissions : []),
     companyIds: allCompanyIds,
     branchIds: allBranchIds,
     companyName: user.company_name || "",
     branchName: user.branch_name || "",
     profile_picture_url: profilePictureToDataUrl(user.profile_picture),
     status: user.status || "N",
+    licenseExpired: Boolean(user.licenseExpired),
   };
-
-  if (Number(user.id) === 1) {
-    payload.permissions = ["*"];
-  }
 
   return payload;
 }

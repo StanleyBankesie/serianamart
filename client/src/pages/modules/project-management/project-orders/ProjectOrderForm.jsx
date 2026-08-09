@@ -25,7 +25,7 @@ export default function ProjectOrderForm() {
   const effectiveId = isNew ? null : id;
 
   useAuth();
-  const { canEditDiscount } = usePermission();
+  const { canEditDiscount, hasExceptional } = usePermission();
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -104,27 +104,8 @@ export default function ProjectOrderForm() {
 
   const { subTotal, taxTotal, total } = calcGrand();
 
-  useEffect(() => {
-    const wh = formData.warehouseId;
-    if (!wh) {
-      setItems((prev) => prev.map((i) => ({ ...i, available_qty: undefined })));
-      setNewItem((prev) => ({ ...prev, available_qty: undefined }));
-      return;
-    }
-    (async () => {
-      const enriched = await Promise.all(
-        items.map(async (i) => ({
-          ...i,
-          available_qty: await fetchAvailable(wh, i.item_id),
-        })),
-      );
-      setItems(enriched);
-      if (newItem.item_id) {
-        const aq = await fetchAvailable(wh, Number(newItem.item_id));
-        setNewItem((prev) => ({ ...prev, available_qty: aq }));
-      }
-    })();
-  }, [formData.warehouseId]);
+  // useEffect for warehouseId removed to prevent stale closure race conditions.
+  // Instead, handleWarehouseChange takes care of this logic exclusively.
 
   useEffect(() => {
     let mounted = true;
@@ -182,13 +163,14 @@ export default function ProjectOrderForm() {
       setApprover(d.status === "PENDING_APPROVAL" && d.approver ? d.approver : null);
       const dets = res.data?.details || [];
       if (dets.length > 0) {
-        setItems(dets.map((line) => {
+        Promise.all(dets.map(async (line) => {
           const qty = Number(line.qty ?? line.quantity ?? 0);
           const price = Number(line.unit_price || 0);
           const disc = Number(line.discount_percent || 0);
           const sub = qty * price;
           const discAmt = (sub * disc) / 100;
           const net = Number(line.net_amount || sub - discAmt);
+          const aq = await fetchAvailable(d.warehouse_id, line.item_id);
           return {
             id: line.id || Date.now() + Math.random(),
             item_id: line.item_id ? String(line.item_id) : "",
@@ -200,8 +182,9 @@ export default function ProjectOrderForm() {
             subTotal: sub, discAmt, net,
             taxAmt: Number(line.tax_amount || (net * (Number(line.tax_rate) || 0)) / 100),
             total: Number(line.total_amount || net + (net * (Number(line.tax_rate) || 0)) / 100),
+            available_qty: aq,
           };
-        }));
+        })).then(resolvedItems => setItems(resolvedItems));
         const initQueries = {};
         dets.forEach(x => { initQueries[x.id || Date.now()] = x.item_name || ""; });
         setItemQueries(initQueries);
@@ -246,10 +229,38 @@ export default function ProjectOrderForm() {
     } catch { return 0; }
   };
 
+  const handleWarehouseChange = async (e) => {
+    const wh = e.target.value;
+    setFormData(prev => ({ ...prev, warehouseId: wh }));
+    if (!wh) {
+      setItems(prev => prev.map((i) => ({ ...i, available_qty: undefined })));
+      setNewItem(prev => ({ ...prev, available_qty: undefined }));
+      return;
+    }
+    if (items.length > 0 && wh) {
+      const updated = await Promise.all(
+        items.map(async (it) => {
+          if (it.item_id) {
+            return {
+              ...it,
+              available_qty: await fetchAvailable(wh, it.item_id),
+            };
+          }
+          return it;
+        })
+      );
+      setItems(updated);
+    }
+    if (newItem.item_id && wh) {
+      const aq = await fetchAvailable(wh, Number(newItem.item_id));
+      setNewItem((prev) => ({ ...prev, available_qty: aq }));
+    }
+  };
+
   const handleNewItemChange = (e) => {
     const { name, value } = e.target;
     if (name === "item_id") {
-      const prod = availableItems.find((p) => p.id === parseInt(value));
+      const prod = availableItems.find((p) => String(p.id) === String(value));
       setNewItem((prev) => ({
         ...prev,
         item_id: value,
@@ -258,10 +269,13 @@ export default function ProjectOrderForm() {
         qty: 1,
         uom: String(prod?.uom || ""),
       }));
-      if (value && formData.warehouseId) {
-        fetchAvailable(formData.warehouseId, Number(value)).then((aq) =>
+      const wh = formData.warehouseId;
+      if (value && wh) {
+        fetchAvailable(wh, Number(value)).then((aq) =>
           setNewItem((prev) => ({ ...prev, available_qty: aq }))
         );
+      } else {
+        setNewItem((prev) => ({ ...prev, available_qty: undefined }));
       }
     } else {
       setNewItem((prev) => ({ ...prev, [name]: value }));
@@ -271,6 +285,10 @@ export default function ProjectOrderForm() {
   const addItem = () => {
     if (!newItem.item_id || !newItem.qty || !newItem.unit_price) {
       setError("Please fill all required item fields");
+      return;
+    }
+    if (newItem.available_qty !== undefined && Number(newItem.qty || 0) > Number(newItem.available_qty || 0)) {
+      setError("Quantity exceeds available stock for selected warehouse");
       return;
     }
     const calculations = calcItem({
@@ -336,6 +354,19 @@ export default function ProjectOrderForm() {
   const handleSave = async (e) => {
     if (e) e.preventDefault();
     if (!formData.projectId || items.length === 0) { setError("Select a project and add at least one item"); return; }
+    
+    const invalidItems = items.filter(
+      (item) => Number(item.qty || 0) > Number(item.available_qty || 0)
+    );
+    if (invalidItems.length > 0) {
+      setError(
+        `Quantity exceeds available stock for items: ${invalidItems
+          .map((i) => i.item_name || i.itemName)
+          .join(", ")}`
+      );
+      return;
+    }
+
     setSaving(true);
     setError("");
     try {
@@ -353,6 +384,19 @@ export default function ProjectOrderForm() {
 
   const handleSubmitApproval = async () => {
     if (!formData.projectId || items.length === 0) { setError("Select a project and add at least one item"); return; }
+    
+    const invalidItems = items.filter(
+      (item) => Number(item.qty || 0) > Number(item.available_qty || 0)
+    );
+    if (invalidItems.length > 0) {
+      setError(
+        `Quantity exceeds available stock for items: ${invalidItems
+          .map((i) => i.item_name || i.itemName)
+          .join(", ")}`
+      );
+      return;
+    }
+
     setSubmitting(true);
     setError("");
     try {
@@ -422,7 +466,7 @@ export default function ProjectOrderForm() {
                     className="btn btn-secondary text-xs px-3 py-1">Print</button>
                 </>
               )}
-              <Link to="/project-management/project-orders" className="btn-success">Back to List</Link>
+              <button onClick={() => window.history.back()} className="btn-success">Back</button>
             </div>
           </div>
         </div>
@@ -450,7 +494,7 @@ export default function ProjectOrderForm() {
                 <input type="date" className="input" value={formData.orderDate}
                   onChange={e => setFormData({ ...formData, orderDate: e.target.value })} required disabled={readOnly} />
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="label">Project *</label>
                 <select className="input" value={formData.projectId}
                   onChange={e => setFormData({ ...formData, projectId: e.target.value })} required disabled={readOnly}>
@@ -479,7 +523,7 @@ export default function ProjectOrderForm() {
               <div>
                 <label className="label">Warehouse</label>
                 <select className="input" value={formData.warehouseId}
-                  onChange={e => setFormData({ ...formData, warehouseId: e.target.value })} disabled={readOnly}>
+                  onChange={handleWarehouseChange} disabled={readOnly}>
                   <option value="">Select Warehouse</option>
                   {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name}</option>)}
                 </select>
@@ -707,7 +751,7 @@ export default function ProjectOrderForm() {
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
               <Link to="/project-management/project-orders"
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</Link>
+                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Close</Link>
               {!readOnly && formData.status === "DRAFT" && (
                   <button type="submit" className="btn-success" disabled={saving}>
                     {saving ? "Saving..." : "Save"}

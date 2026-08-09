@@ -22,7 +22,7 @@ export default function ThemeToggle() {
       className={
         `relative inline-flex h-6 w-11 items-center rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-brand/40 focus:ring-offset-2 focus:ring-offset-transparent ` +
         (isDark
-          ? 'bg-brand/25 border-white/10 dark:border-white/10'
+          ? 'bg-slate-600 border-slate-500'
           : 'bg-slate-200 border-slate-300')
       }
       role="switch"
@@ -33,7 +33,7 @@ export default function ThemeToggle() {
       <span
         className={
           `inline-block h-5 w-5 transform rounded-full shadow transition-transform ` +
-          (isDark ? 'translate-x-5 bg-brand' : 'translate-x-1 bg-white')
+          (isDark ? 'translate-x-5 bg-white' : 'translate-x-1 bg-white')
         }
       />
     </button>

@@ -44,13 +44,20 @@ export default function WorkScheduleManagement() {
     [shifts, form.shift_id],
   );
 
+  const availableEmployees = useMemo(() => {
+    return employees.filter(e => {
+       const hasSchedule = items.some(item => String(item.employee_id) === String(e.id));
+       return !hasSchedule || String(form.employee_id) === String(e.id);
+    });
+  }, [employees, items, form.employee_id]);
+
   useEffect(() => {
     const load = async () => {
       try {
         const [empRes, shiftRes, schedRes] = await Promise.all([
-          api.get("/hr/employees?status=ACTIVE"),
-          api.get("/hr/shifts"),
-          api.get("/hr/work-schedules"),
+          api.get("/hr/employees?status=ACTIVE").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/shifts").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/work-schedules").catch(() => ({ data: { items: [] } })),
         ]);
         setEmployees(empRes.data?.items || []);
         setShifts(shiftRes.data?.items || []);
@@ -136,6 +143,12 @@ export default function WorkScheduleManagement() {
           },
         ];
       });
+      setForm({
+        employee_id: "",
+        shift_id: "",
+        off_days: [],
+        is_active: true,
+      });
     } catch (err) {
       toast.error(err?.response?.data?.message || "Failed to save schedule");
     } finally {
@@ -147,9 +160,9 @@ export default function WorkScheduleManagement() {
     <div className="p-4 space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Link to="/human-resources" className="btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="btn-secondary text-sm">
             Back to Menu
-          </Link>
+          </button>
           <h1 className="text-xl font-semibold">Work Schedule Management</h1>
         </div>
       </div>
@@ -168,7 +181,7 @@ export default function WorkScheduleManagement() {
                 required
               >
                 <option value="">Select Employee</option>
-                {employees.map((e) => (
+                {availableEmployees.map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.first_name} {e.last_name} ({e.emp_code})
                   </option>

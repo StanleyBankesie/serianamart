@@ -325,7 +325,7 @@ export default function StockReorderPage() {
             >
               <Plus size={20} /> Add Reorder Point
             </button>
-            <Link to="/inventory" className="btn btn-secondary">
+            <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
               Return to Menu
             </Link>
           </div>

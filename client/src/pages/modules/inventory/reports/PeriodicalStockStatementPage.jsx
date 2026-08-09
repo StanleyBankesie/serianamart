@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Download, Printer } from "lucide-react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
@@ -8,6 +9,12 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 
 export default function PeriodicalStockStatementPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
@@ -126,25 +133,59 @@ export default function PeriodicalStockStatementPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [pollingCounter]);
 
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, warehouseId, itemGroupId, q]);
+  }, [from, to, warehouseId, itemGroupId, q, pollingCounter]);
 
   const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "item_name", "asc");
+
+
+  function exportExcel() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
+    XLSX.writeFile(wb, "inventory-report.xlsx");
+  }
+
+  function exportPDF() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const doc = new jsPDF("p", "mm", "a4");
+    doc.setFontSize(16);
+    doc.text("Inventory Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Generated on ${new Date().toLocaleDateString()}`, 14, 22);
+    
+    // Fallback simple PDF generation
+    const headers = Object.keys(rows[0] || {}).slice(0, 8);
+    const data = rows.map(r => headers.map(h => String(r[h] || "")));
+    
+    try {
+      doc.autoTable({
+        startY: 30,
+        head: [headers],
+        body: data,
+        styles: { fontSize: 8 }
+      });
+    } catch (e) {
+      doc.text("Data table (see Excel for full details)", 14, 30);
+    }
+    doc.save("inventory-report.pdf");
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/inventory"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Inventory
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Periodical Stock Statement
           </h1>
@@ -152,6 +193,16 @@ export default function PeriodicalStockStatementPage() {
             Detailed stock movements within the period
           </p>
         </div>
+        <div className="flex gap-2">
+          <button onClick={exportExcel} className="btn btn-outline btn-sm border-brand text-brand hover:bg-brand hover:text-white flex items-center gap-1.5 text-xs">
+            <Download size={14} /> Excel
+          </button>
+          <button onClick={exportPDF} className="btn btn-outline btn-sm border-brand text-brand hover:bg-brand hover:text-white flex items-center gap-1.5 text-xs">
+            <Download size={14} /> PDF
+          </button>
+          
+        </div>
+
       </div>
 
       <div className="card">
@@ -331,72 +382,8 @@ export default function PeriodicalStockStatementPage() {
                   <path d="M12 5l-4 4h8l-4-4zm0 14l4-4H8l4 4z" fill="currentColor" />
                 </svg>
               </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  const rows = Array.isArray(items) ? items : [];
-                  if (!rows.length) return;
-                  const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
-                    "Item Code": r.item_code,
-                    "Item Name": r.item_name,
-                    "Opening Value": r.opening_value,
-                    "Receipt Value": r.receipt_value,
-                    "Issue Value": r.issue_value,
-                    "Closing Value": r.closing_value
-                  })));
-                  const wb = XLSX.utils.book_new();
-                  XLSX.utils.book_append_sheet(
-                    wb,
-                    ws,
-                    "PeriodicalStockStatement",
-                  );
-                  XLSX.writeFile(wb, "periodical-stock-statement.xlsx");
-                }}
-                disabled={!items.length}
-              >
-                Export Excel
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => {
-                  const rows = Array.isArray(items) ? items : [];
-                  if (!rows.length) return;
-                  const doc = new jsPDF("p", "mm", "a4");
-                  let y = 15;
-                  doc.setFontSize(14);
-                  doc.text("Periodical Stock Statement", 10, y);
-                  y += 8;
-                  doc.setFontSize(10);
-                  doc.text("Item Code", 10, y);
-                  doc.text("Item Name", 40, y);
-                  doc.text("Opening", 100, y, { align: "right" });
-                  doc.text("Receipts", 130, y, { align: "right" });
-                  doc.text("Issues", 160, y, { align: "right" });
-                  doc.text("Closing", 190, y, { align: "right" });
-                  y += 4;
-                  doc.line(10, y, 200, y);
-                  y += 5;
-                  rows.forEach((r) => {
-                    if (y > 270) {
-                      doc.addPage();
-                      y = 15;
-                    }
-                    doc.text(String(r.item_code || "-"), 10, y);
-                    doc.text(String(r.item_name || "-").slice(0, 30), 40, y);
-                    doc.text(Number(r.opening_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2}), 100, y, { align: "right" });
-                    doc.text(Number(r.receipt_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2}), 130, y, { align: "right" });
-                    doc.text(Number(r.issue_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2}), 160, y, { align: "right" });
-                    doc.text(Number(r.closing_value || 0).toLocaleString(undefined, {minimumFractionDigits: 2}), 190, y, { align: "right" });
-                    y += 5;
-                  });
-                  doc.save("periodical-stock-statement.pdf");
-                }}
-                disabled={!items.length}
-              >
-                Export PDF
-              </button>
+              
+              
             </div>
           </div>
 

@@ -4,10 +4,11 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
 import { Plus, Trash2 } from "lucide-react";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -21,7 +22,10 @@ export default function SalesReturnForm() {
     returnRouteId && /^\d+$/.test(String(returnRouteId))
       ? Number(returnRouteId)
       : null;
-  const readOnly = Boolean(existingId);
+  const isEdit = Boolean(existingId);
+  const location = useLocation();
+  const readOnly = new URLSearchParams(location.search).get("mode") === "view";
+  const { hasExceptional } = usePermission();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [customers, setCustomers] = useState([]);
@@ -548,9 +552,9 @@ export default function SalesReturnForm() {
                 Record returned goods and auto-create a Credit Note
               </p>
             </div>
-            <Link to="/sales/returns" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
         <div className="card-body p-6">
@@ -571,7 +575,7 @@ export default function SalesReturnForm() {
                   type="date"
                   className="input"
                   value={formData.returnDate}
-                  disabled={readOnly}
+                  disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
                   onChange={(e) =>
                     setFormData((p) => ({ ...p, returnDate: e.target.value }))
                   }
@@ -1023,9 +1027,9 @@ export default function SalesReturnForm() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Link to="/sales/returns" className="btn btn-secondary">
+              <button onClick={() => window.history.back()} className="btn btn-secondary">
                 {readOnly ? "Back to List" : "Cancel"}
-              </Link>
+              </button>
               {!readOnly && (
                 <button
                   type="submit"

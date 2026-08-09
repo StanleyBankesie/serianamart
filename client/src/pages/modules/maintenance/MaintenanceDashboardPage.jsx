@@ -437,12 +437,7 @@ export default function MaintenanceDashboardPage() {
                   description: "Manage work orders and scheduling.",
                   icon: "🛠️",
                 },
-                {
-                  label: "Downtime Tracking",
-                  path: "/maintenance/assets/downtime",
-                  description: "Review downtime incidents by asset.",
-                  icon: "📉",
-                },
+
                 {
                   label: "Material Requisitions",
                   path: "/maintenance/material-requisitions",

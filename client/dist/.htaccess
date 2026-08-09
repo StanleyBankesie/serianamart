@@ -1,8 +1,15 @@
-RewriteEngine On
-RewriteBase /
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  
+  # Ignore API, Uploads, and WebSockets (let Passenger/Node handle them)
+  RewriteCond %{REQUEST_URI} ^/api/ [NC,OR]
+  RewriteCond %{REQUEST_URI} ^/uploads/ [NC,OR]
+  RewriteCond %{REQUEST_URI} ^/socket.io/ [NC]
+  RewriteRule ^ - [L]
 
-# Serve index.html for all non-file, non-directory requests (SPA fallback)
-RewriteRule ^index\.html$ - [L]
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . /index.html [L]
+  # SPA Fallback for frontend
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [QSA,L]
+</IfModule>

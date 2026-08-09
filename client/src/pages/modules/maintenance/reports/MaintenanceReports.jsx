@@ -78,7 +78,7 @@ export default function MaintenanceReports() {
   return (
     <div className="p-8 max-w-6xl mx-auto space-y-10 animate-in fade-in duration-700">
       <div className="flex items-center gap-6">
-        <Link to="/maintenance" className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 hover:bg-slate-50 transition-all text-slate-500">
+        <Link to="/maintenance?section=Reports %26 Setup" className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 hover:bg-slate-50 transition-all text-slate-500">
           <ArrowLeft size={20} />
         </Link>
         <div>

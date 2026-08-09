@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -14,6 +15,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function MedicalPolicyForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
@@ -123,7 +125,7 @@ export default function MedicalPolicyForm() {
     <div className="space-y-4 p-4">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">{isEdit ? 'Edit Medical Policy' : 'New Medical Policy'}</h1>
-        <Link to="/human-resources/medical-policies" className="btn-secondary">Back</Link>
+        <button onClick={() => window.history.back()} className="btn-secondary">Back</button>
       </div>
 
       <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
@@ -154,6 +156,8 @@ export default function MedicalPolicyForm() {
               type="date" 
               value={form.renewal_date} 
               onChange={(e) => update('renewal_date', e.target.value)} 
+            
+              disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
             />
           </div>
           <div>
@@ -225,7 +229,7 @@ export default function MedicalPolicyForm() {
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <Link to="/human-resources/medical-policies" className="btn-secondary">Cancel</Link>
+          <button onClick={() => window.history.back()} className="btn-secondary">Cancel</button>
           <button className="btn-primary" disabled={loading || uploadingFile}>
             {loading || uploadingFile ? 'Saving...' : 'Save Policy'}
           </button>

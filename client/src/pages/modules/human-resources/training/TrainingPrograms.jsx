@@ -312,7 +312,7 @@ export default function TrainingPrograms() {
     <div className="p-4 space-y-4">
       {/* Breadcrumb */}
       <div className="text-sm breadcrumbs text-slate-500 dark:text-slate-400 mb-2">
-        <Link to="/human-resources" className="hover:text-brand">Human Resources</Link>
+        <Link to="/human-resources?section=Training%20%26%20Development" className="hover:text-brand">Human Resources</Link>
         <span className="mx-2">/</span>
         <Link to="/human-resources/training" className="hover:text-brand">Training</Link>
         <span className="mx-2">/</span>

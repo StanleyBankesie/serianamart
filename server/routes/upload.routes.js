@@ -25,8 +25,20 @@ const storage = multer.diskStorage({
   },
 });
 
-// File filter (optional, but good for images)
+// File filter (validates extension + mimetype against dangerous extensions)
 const fileFilter = (req, file, cb) => {
+  const dangerousExts = [
+    ".php", ".php3", ".php4", ".php5", ".phtml", ".phar",
+    ".exe", ".dll", ".bat", ".cmd", ".sh", ".cgi", ".pl",
+    ".js", ".jsp", ".asp", ".aspx", ".vbs", ".html", ".htm",
+    ".svg", ".htaccess", ".htpasswd"
+  ];
+  
+  const ext = path.extname(file.originalname || "").toLowerCase();
+  if (!ext || dangerousExts.includes(ext)) {
+    return cb(new Error("Dangerous or unsupported file extension"), false);
+  }
+
   const allowed = [
     'image/',
     'application/pdf',

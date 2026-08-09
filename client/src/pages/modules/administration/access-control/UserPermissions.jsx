@@ -32,7 +32,12 @@ export default function UserPermissions() {
     async function loadUsers() {
       try {
         const res = await api.get("/admin/users");
-        const items = res?.data?.data?.items || res?.data?.items || [];
+        const d = res?.data;
+        let items = [];
+        if (Array.isArray(d)) items = d;
+        else if (Array.isArray(d?.items)) items = d.items;
+        else if (Array.isArray(d?.data?.items)) items = d.data.items;
+        else if (Array.isArray(d?.data)) items = d.data;
         setUsers(items);
       } catch {}
     }
@@ -73,12 +78,23 @@ export default function UserPermissions() {
         setRolePermissions(byModule);
         const allFeatures = featsRes?.data?.features || [];
         const roleFeats = roleFeatsRes?.data?.features || [];
-        const roleFeatSet = new Set(roleFeats.map(String));
-        const filtered = allFeatures.filter(
-          (f) =>
-            mods.includes(f.module_key) &&
-            roleFeatSet.has(String(f.feature_key)),
-        );
+        const registryLabelMap = new Map();
+        Object.entries(MODULES_REGISTRY).forEach(([mKey, mod]) => {
+          (mod.features || []).forEach((f) => {
+            registryLabelMap.set(`${mKey}:${f.key}`, f.label);
+          });
+        });
+
+        const filtered = allFeatures
+          .filter(
+            (f) =>
+              mods.includes(f.module_key) &&
+              roleFeatSet.has(String(f.feature_key)),
+          )
+          .map((feature) => {
+            const updatedLabel = registryLabelMap.get(feature.feature_key) || feature.label;
+            return { ...feature, label: updatedLabel };
+          });
         setFeatures(filtered);
         setAvailableModules(
           Array.from(new Set(filtered.map((f) => f.module_key))),
@@ -171,7 +187,7 @@ export default function UserPermissions() {
         <div className="flex gap-2">
           <button
             className="btn btn-secondary"
-            onClick={() => navigate("/administration")}
+            onClick={() => navigate("/administration?section=Audit%20%26%20Logs")}
           >
             Back to Menu
           </button>
@@ -257,16 +273,16 @@ export default function UserPermissions() {
             <div>Loading...</div>
           ) : selectedUser ? (
             <div className="overflow-x-auto">
-              <table className="table w-full">
+              <table className="table w-full table-fixed">
                 <thead>
                   <tr>
-                    <th>Feature</th>
-                    <th>Type</th>
-                    <th>Module</th>
-                    <th className="text-center w-28">View</th>
-                    <th className="text-center w-28">Create</th>
-                    <th className="text-center w-28">Edit</th>
-                    <th className="text-center w-28">Delete</th>
+                    <th className="text-center w-[14.28%]">Feature</th>
+                    <th className="text-center w-[14.28%]">Module</th>
+                    <th className="text-center w-[14.28%]">Type</th>
+                    <th className="text-center w-[14.28%]">View</th>
+                    <th className="text-center w-[14.28%]">Create</th>
+                    <th className="text-center w-[14.28%]">Edit</th>
+                    <th className="text-center w-[14.28%]">Delete</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -276,9 +292,9 @@ export default function UserPermissions() {
                     const overrideRow = featureOverrides[f.feature_key] || {};
                     return (
                       <tr key={f.feature_key}>
-                        <td className="p-3 font-medium">{f.label}</td>
-                        <td className="p-3">{f.type}</td>
-                        <td className="p-3">{mk}</td>
+                        <td className="p-3 font-medium text-center truncate">{f.label}</td>
+                        <td className="p-3 text-center truncate">{mk}</td>
+                        <td className="p-3 text-center truncate">{f.type}</td>
                         <td className="p-3 text-center">
                           <input
                             type="checkbox"

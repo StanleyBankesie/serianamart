@@ -58,12 +58,10 @@ export default function PmScheduleForm() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to="/maintenance/pm-schedules"
-          className="btn btn-secondary mb-4"
+        <button onClick={() => window.history.back()} className="btn btn-secondary mb-4"
         >
           ← Back to PM Schedules
-        </Link>
+        </button>
         <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">
           {readOnly
             ? "View Schedule"
@@ -122,9 +120,9 @@ export default function PmScheduleForm() {
               </div>
             </fieldset>
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
-              <Link to="/maintenance/pm-schedules" className="btn btn-secondary">
+              <button onClick={() => window.history.back()} className="btn btn-secondary">
                 Cancel
-              </Link>
+              </button>
               {!readOnly && (
                 <button className="btn-success px-8" disabled={loading}>
                   {loading ? "Saving..." : "Save Plan"}

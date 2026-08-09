@@ -6,6 +6,8 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { usePermission } from "../auth/PermissionContext.jsx";
+import { useAuth } from "../auth/AuthContext.jsx";
+import { api } from "../api/client.js";
 
 /**
  * Sidebar component
@@ -16,8 +18,11 @@ import { usePermission } from "../auth/PermissionContext.jsx";
  */
 export default function Sidebar() {
   const location = useLocation();
-  const { isModuleEnabled, canAccessPath } = usePermission();
+  const { canViewModule, canAccessPath, canAccessFeatureKey } = usePermission();
+  const { user } = useAuth();
   const [rbacTick, setRbacTick] = useState(0);
+  const [isExpired, setIsExpired] = useState(false);
+
   useEffect(() => {
     const bump = () => setRbacTick((t) => t + 1);
     window.addEventListener("rbac:updated", bump);
@@ -28,7 +33,21 @@ export default function Sidebar() {
     };
   }, []);
 
-  const menuItems = [
+  useEffect(() => {
+    let mounted = true;
+    if (user?.companyIds?.[0]) {
+      api.get(`/licenses/company/${user.companyIds[0]}`).then(res => {
+        if (mounted && res.data) {
+          if (!res.data.exists || res.data.status === 'EXPIRED' || res.data.status === 'INACTIVE' || res.data.status === 'SUSPENDED' || res.data.status === 'CANCELLED') {
+            setIsExpired(true);
+          }
+        }
+      }).catch(() => {});
+    }
+    return () => { mounted = false; };
+  }, [user]);
+
+  let menuItems = [
     {
       key: "sales",
       label: "Sales",
@@ -81,11 +100,7 @@ export default function Sidebar() {
           label: "Items Setup",
           path: "/inventory/items",
         },
-        {
-          key: "item-categories",
-          label: "Categories",
-          path: "/inventory/item-groups",
-        },
+
         {
           key: "stock-adjustments",
           label: "Stock Adjustments",
@@ -317,11 +332,53 @@ export default function Sidebar() {
         },
       ],
     },
+    {
+      key: "transport",
+      label: "Transport",
+      icon: "🚛",
+      path: "/transport",
+      children: [
+        {
+          key: "requests",
+          label: "Transport Requests",
+          path: "/transport/requests",
+        },
+        {
+          key: "vehicles",
+          label: "Vehicles",
+          path: "/transport/vehicles",
+        },
+        {
+          key: "drivers",
+          label: "Drivers",
+          path: "/transport/drivers",
+        },
+        {
+          key: "trips",
+          label: "Trips & Dispatch",
+          path: "/transport/trips",
+        },
+        {
+          key: "fuel",
+          label: "Fuel & Expenses",
+          path: "/transport/fuel",
+        },
+        {
+          key: "billing",
+          label: "Billing",
+          path: "/transport/billing",
+        },
+      ],
+    },
   ];
 
-  // Filter menu items based on user permissions
+  if (isExpired || user?.licenseExpired) {
+    menuItems = menuItems.filter((item) => item.key === "administration");
+  }
+
+  // Filter menu items based on module configuration AND RBAC rules
   const visibleMenuItems = menuItems.filter((item) =>
-    isModuleEnabled(item.key),
+    canViewModule(item.key),
   );
 
   /**
@@ -336,11 +393,19 @@ export default function Sidebar() {
 
     // Filter children based on permissions
     const visibleChildren = hasChildren
-      ? item.children.filter((child) => canAccessPath(child.path, "view"))
+      ? item.children.filter((child) => {
+          if ((child.key === "company-setup" || child.key === "branch-setup") && Number(user?.id) !== 1) {
+            return false;
+          }
+          if (child.key) {
+            return canAccessFeatureKey(item.key, child.key);
+          }
+          return canAccessPath(child.path, "view");
+        })
       : [];
 
-    // Don't render item if no children are visible and it's not a parent module
-    if (hasChildren && visibleChildren.length === 0 && level > 0) {
+    // Don't render item if no children are visible
+    if (hasChildren && visibleChildren.length === 0) {
       return null;
     }
 

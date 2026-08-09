@@ -278,10 +278,7 @@ const FEATURE_PAGES = [
         "label": "AssetList",
         "value": "asset-list"
       },
-      {
-        "label": "DowntimeLogList",
-        "value": "downtime-log-list"
-      },
+
       {
         "label": "MaintenanceContractList",
         "value": "maintenance-contract-list"
@@ -789,12 +786,10 @@ export default function DocumentTemplatesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          to="/administration/settings"
-          className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 mb-2 inline-block"
+        <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 mb-2 inline-block"
         >
           ← Back to Settings
-        </Link>
+        </button>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
           Document Templates
         </h1>

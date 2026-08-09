@@ -17,7 +17,10 @@ import {
   writeStoredAuth,
 } from "../auth/authStorage.js";
 
-const AXIOS_TIMEOUT_MS = 30000;
+const AXIOS_TIMEOUT_MS = Math.max(
+  5000,
+  Number(import.meta.env.VITE_AXIOS_TIMEOUT_MS || 45000),
+);
 const WARM_CACHE_MAX_AGE_MS = Math.max(
   0,
   Number(import.meta.env.VITE_WARM_CACHE_MAX_AGE_MS || 30 * 60 * 1000),
@@ -35,7 +38,7 @@ export function startPostLoginGracePeriod(durationMs = 4000) {
  * Includes credentials by default and automatically normalizes JSON payloads.
  */
 export const api = axios.create({
-  withCredentials: true,
+  withCredentials: false,
   timeout: AXIOS_TIMEOUT_MS,
   headers: {
     "Content-Type": "application/json",
@@ -51,14 +54,22 @@ export const api = axios.create({
 });
 
 let API_BASE = import.meta.env.VITE_API_BASE_URL;
+
 if (
   typeof window !== "undefined" &&
-  window.location.hostname.includes("serianamart.omnisuite-erp.com")
+  (window.location.hostname === "serianamart.omnisuite-erp.com" ||
+    window.location.hostname === "serianaserver.omnisuite-erp.com")
 ) {
   API_BASE = "https://serianaserver.omnisuite-erp.com/api";
 } else if (!API_BASE) {
   // Default to same-origin so Vite dev proxy handles local API traffic.
   API_BASE = "/api";
+} else if (
+  API_BASE &&
+  !API_BASE.startsWith("http") &&
+  !API_BASE.startsWith("/")
+) {
+  API_BASE = "/" + API_BASE;
 }
 api.defaults.baseURL = API_BASE;
 
@@ -205,6 +216,35 @@ api.interceptors.request.use(
     if (!config.baseURL) {
       config.baseURL = api.defaults.baseURL;
     }
+
+    const urlPath = normalizeUrl(config.url);
+    const method = String(config?.method || "get").toLowerCase();
+
+    if (method === "get") {
+      // Remove Content-Type from GET requests. ModSecurity strictly blocks GET requests
+      // that contain a Content-Type header as a Protocol Anomaly / Request Smuggling risk.
+      if (config.headers) {
+        delete config.headers["Content-Type"];
+        delete config.headers["content-type"];
+      }
+
+      if (
+        typeof config.__background === "undefined" &&
+        _postLoginGraceUntil > Date.now() &&
+        urlPath !== "/auth/me"
+      ) {
+        config.__background = true;
+      }
+    }
+
+    const needsCookieCredentials =
+      urlPath === "/login" ||
+      urlPath === "/auth/refresh" ||
+      urlPath === "/auth/logout";
+    if (needsCookieCredentials) {
+      config.withCredentials = true;
+    }
+
     const storedAuth = readStoredAuth();
     const accessToken = String(storedAuth?.token || "").trim();
     if (accessToken) {
@@ -212,6 +252,7 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${accessToken}`;
     } else if (config.headers?.Authorization) {
       delete config.headers.Authorization;
+      delete config.headers["X-Access-Token"];
     }
     return config;
   },
@@ -434,7 +475,7 @@ export function setUserHeader(user) {
 const inflightGets = new Map();
 const MAX_CONCURRENT_GETS = Math.max(
   1,
-  Number(import.meta.env.VITE_MAX_CONCURRENT_GETS || 4),
+  Number(import.meta.env.VITE_MAX_CONCURRENT_GETS || 1), // Reduced to 1 to bypass strict ModSecurity rules
 );
 const GET_RETRY_LIMIT = Math.max(
   0,
@@ -588,8 +629,17 @@ function delay(ms) {
 }
 
 function shouldRetryGet(error, attempt) {
-  if (attempt >= GET_RETRY_LIMIT) return false;
+  if (attempt >= Math.max(GET_RETRY_LIMIT, 3)) return false; // Ensure we retry at least 3 times
+  if (
+    error?.response?.status === 500 ||
+    error?.response?.status === 502 ||
+    error?.response?.status === 403
+  )
+    return true; // Retry on server/WAF errors
   if (error?.response) return false;
+  const msg = String(error?.message || "").toLowerCase();
+  if (error?.code === "ECONNABORTED" || msg.includes("timeout of"))
+    return false;
   if (error?.config?.__skipNetworkRetry === true) return false;
   return true;
 }

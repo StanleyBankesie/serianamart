@@ -16,6 +16,12 @@ import { Link } from "react-router-dom";
  * @returns {JSX.Element} The rendered component
  */
 export default function ChartOfAccountsReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,7 +55,7 @@ export default function ChartOfAccountsReportPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pollingCounter]);
 
   const exportExcel = () => {
     const rows = filtered.map((r) => ({
@@ -78,9 +84,9 @@ export default function ChartOfAccountsReportPage() {
               Visual table of accounts grouped by parent groups. Export to Excel.
             </p>
           </div>
-          <Link to="/finance" className="font-sans btn-secondary text-sm">
+          <button onClick={() => window.history.back()} className="font-sans btn-secondary text-sm">
             Back to Finance
-          </Link>
+          </button>
         </div>
 
         <div className="bg-white dark:bg-slate-800 p-4 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 flex flex-wrap items-end gap-4">

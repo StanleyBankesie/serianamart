@@ -17,6 +17,12 @@ const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDig
  * @returns {JSX.Element} The rendered component
  */
 export default function ExecOutstandingPayablesPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [items, setItems] = useState([]);
@@ -40,13 +46,13 @@ export default function ExecOutstandingPayablesPage() {
     setFrom(jan1.toISOString().slice(0, 10));
     setTo(today.toISOString().slice(0, 10));
   }, []);
-  useEffect(() => { run(); }, [from, to]); // eslint-disable-line
+  useEffect(() => { run(); }, [from, to, pollingCounter]); // eslint-disable-line
 
   return (
     <div className="space-y-6 p-4">
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
-          <Link to="/executive-overview" className="text-xs font-bold text-brand uppercase tracking-wider">← Back to Executive Overview</Link>
+          <button onClick={() => window.history.back()} className="text-xs font-bold text-brand uppercase tracking-wider">← Back to Executive Overview</button>
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-2">Outstanding Payables</h1>
           <p className="text-slate-500 text-sm mt-1">Supplier payments due and overdue</p>
         </div>

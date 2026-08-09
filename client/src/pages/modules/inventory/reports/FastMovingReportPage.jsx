@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from "react";
+import { Download, Printer } from "lucide-react";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { toast } from "react-toastify";
@@ -18,6 +19,12 @@ import jsPDF from "jspdf";
  * @returns {JSX.Element} The rendered component
  */
 export default function FastMovingReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [items, setItems] = useState([]);
@@ -39,26 +46,70 @@ export default function FastMovingReportPage() {
 
   useEffect(() => {
     run();
-  }, []);
+  }, [from, to, pollingCounter]);
 
 
   const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
+
+
+  function exportExcel() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
+    XLSX.writeFile(wb, "inventory-report.xlsx");
+  }
+
+  function exportPDF() {
+    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+    if (!rows || !rows.length) return;
+    const doc = new jsPDF("p", "mm", "a4");
+    doc.setFontSize(16);
+    doc.text("Inventory Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Generated on ${new Date().toLocaleDateString()}`, 14, 22);
+    
+    // Fallback simple PDF generation
+    const headers = Object.keys(rows[0] || {}).slice(0, 8);
+    const data = rows.map(r => headers.map(h => String(r[h] || "")));
+    
+    try {
+      doc.autoTable({
+        startY: 30,
+        head: [headers],
+        body: data,
+        styles: { fontSize: 8 }
+      });
+    } catch (e) {
+      doc.text("Data table (see Excel for full details)", 14, 30);
+    }
+    doc.save("inventory-report.pdf");
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/inventory"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Inventory
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             Fast Moving Items
           </h1>
           <p className="text-sm mt-1">Items with high turnover in the period</p>
         </div>
+        <div className="flex gap-2">
+          <button onClick={exportExcel} className="btn btn-outline btn-sm border-brand text-brand hover:bg-brand hover:text-white flex items-center gap-1.5 text-xs">
+            <Download size={14} /> Excel
+          </button>
+          <button onClick={exportPDF} className="btn btn-outline btn-sm border-brand text-brand hover:bg-brand hover:text-white flex items-center gap-1.5 text-xs">
+            <Download size={14} /> PDF
+          </button>
+          
+        </div>
+
       </div>
 
       <div className="card">
@@ -83,99 +134,15 @@ export default function FastMovingReportPage() {
               />
             </div>
             <div className="md:col-span-2 flex items-end gap-2">
-              <button
-                type="button"
-                className="btn-success"
-                onClick={run}
-                disabled={loading}
-              >
-                {loading ? "Running..." : "Run Report"}
-              </button>
-              <button
-                type="button"
-                className="btn-success"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                }}
-                disabled={loading}
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  const rows = Array.isArray(items) ? items : [];
-                  if (!rows.length) return;
-                  const ws = XLSX.utils.json_to_sheet(rows);
-                  const wb = XLSX.utils.book_new();
-                  XLSX.utils.book_append_sheet(wb, ws, "FastMoving");
-                  XLSX.writeFile(wb, "fast-moving.xlsx");
-                }}
-                disabled={!items.length}
-              >
-                Export Excel
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => {
-                  const rows = Array.isArray(items) ? items : [];
-                  if (!rows.length) return;
-                  const doc = new jsPDF("p", "mm", "a4");
-                  let y = 15;
-                  doc.setFontSize(14);
-                  doc.text("Fast Moving Items", 10, y);
-                  y += 8;
-                  doc.setFontSize(10);
-                  doc.text("Item", 10, y);
-                  doc.text("Issued Qty", 130, y);
-                  doc.text("Turnover", 190, y, { align: "right" });
-                  y += 4;
-                  doc.line(10, y, 200, y);
-                  y += 5;
-                  rows.forEach((r) => {
-                    if (y > 270) {
-                      doc.addPage();
-                      y = 15;
-                    }
-                    doc.text(
-                      String(r.item_name || r.item_code || "-").slice(0, 80),
-                      10,
-                      y,
-                    );
-                    doc.text(
-                      String(Number(r.issued_qty || 0).toLocaleString()),
-                      130,
-                      y,
-                    );
-                    doc.text(
-                      String(Number(r.turnover || 0).toLocaleString()),
-                      190,
-                      y,
-                      { align: "right" },
-                    );
-                    y += 5;
-                  });
-                  doc.save("fast-moving.pdf");
-                }}
-                disabled={!items.length}
-              >
-                Export PDF
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={() => window.print()}
-              >
-                Print
-              </button>
+              
+              
+              
+              
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="table">
+            <table className="table table-fixed">
               <thead className="sticky top-0 z-10">
                 <tr>
                   <SortableHeader label="Item" sortKey="item" currentKey={sortKey} direction={sortDir} onToggle={toggle} />

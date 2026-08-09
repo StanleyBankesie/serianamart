@@ -14,6 +14,8 @@ import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmen
 import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.jsx";
 import useSort from "../../../../hooks/useSort.js";
 import SortableHeader from "../../../../components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -26,6 +28,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function InvoiceList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const { canPerformAction, exceptionalPerms, canReverseApproval, hasExceptional } = usePermission();
   const [showForwardModal, setShowForwardModal] = useState(false);
@@ -35,6 +38,9 @@ export default function InvoiceList() {
   const [targetApproverId, setTargetApproverId] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
+  const [wfLoading, setWfLoading] = useState(false);
+  const [submittingForward, setSubmittingForward] = useState(false);
   const [invoices, setInvoices] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -422,12 +428,19 @@ export default function InvoiceList() {
     }
   }
   const getStatusBadge = (status) => {
-    const statusClasses = {
-      DRAFT: "badge badge-warning",
-      POSTED: "badge badge-success",
-      CANCELLED: "badge badge-error",
+    const badges = {
+      DRAFT: "badge-warning",
+      PENDING_APPROVAL: "badge-warning",
+      APPROVED: "badge-success",
+      POSTED: "badge-success",
+      CANCELLED: "badge-error",
+      RETURNED: "badge-error",
     };
-    return <span className={statusClasses[status] || "badge"}>{status}</span>;
+    return (
+      <span className={`badge ${badges[status] || "badge-info"}`}>
+        {status}
+      </span>
+    );
   };
 
   const getPaymentStatusBadge = (pstatus) => {
@@ -443,33 +456,72 @@ export default function InvoiceList() {
   const openForwardModal = async (doc) => {
     setSelectedDoc(doc);
     setWfError("");
+                    setForwardComments("");
     setShowForwardModal(true);
     try {
-      const res = await api.get("/workflows", { params: { document_type: "INVOICE" } });
+      const res = await api.get("/workflows");
       const wfs = Array.isArray(res.data?.items) ? res.data.items : [];
-      const active = wfs.find((w) => w.is_active);
+      const active = wfs.find((w) => Number(w.is_active) === 1 && (String(w.document_type).toUpperCase() === "SALES_INVOICE" || String(w.document_type).toUpperCase() === "SALES INVOICE" || String(w.document_route) === "/sales/invoices"));
       setCandidateWorkflow(active || null);
-      if (active?.steps) setWorkflowSteps(Array.isArray(active.steps) ? active.steps : []);
+      if (active) {
+        setWfLoading(true);
+        const wfRes = await api.get(`/workflows/${active.id}`);
+        const steps = Array.isArray(wfRes.data?.item?.steps) ? wfRes.data.item.steps : [];
+        setWorkflowSteps(steps);
+        if (steps.length > 0) {
+           const first = steps[0];
+           const defaultTarget = (Array.isArray(first.approvers) && first.approvers.length ? first.approvers[0].id : first.approver_user_id) || null;
+           setTargetApproverId(defaultTarget);
+        } else {
+           setTargetApproverId(null);
+        }
+        setWfLoading(false);
+      } else {
+        setWorkflowSteps([]);
+        setTargetApproverId(null);
+      }
     } catch {
       setCandidateWorkflow(null);
       setWorkflowSteps([]);
+      setTargetApproverId(null);
+      setWfLoading(false);
     }
   };
 
   async function handleForwardSubmit() {
     if (!selectedDoc) return;
+    setSubmittingForward(true);
+    setWfError("");
+                    setForwardComments("");
     try {
-      const approverName = workflowSteps.find((s) => Number(s.approver_id) === Number(targetApproverId))?.approver_name || "";
-      await api.post(`/sales/invoices/${selectedDoc.id}/submit`, {
+      let optimisticApprover = null;
+      try {
+        const first = Array.isArray(workflowSteps) && workflowSteps.length ? workflowSteps[0] : null;
+        const opts = first ? (Array.isArray(first.approvers) && first.approvers.length ? first.approvers.map((u) => ({ id: u.id, name: u.username })) : first.approver_user_id ? [{ id: first.approver_user_id, name: first.approver_name || String(first.approver_user_id) }] : []) : [];
+        if (targetApproverId && opts.length) {
+          const hit = opts.find((u) => Number(u.id) === Number(targetApproverId));
+          optimisticApprover = hit ? hit.name : null;
+        }
+      } catch {}
+      const res = await api.post(`/sales/invoices/${selectedDoc.id}/submit`, {
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
-        target_approver_id: targetApproverId || null,
-      });
-      toast.success("Invoice forwarded for approval");
+        target_user_id: targetApproverId || null,
+        comments: forwardComments,
+        });
+      const newStatus = res?.data?.status || "PENDING_APPROVAL";
+      if (newStatus === "POSTED") {
+        toast.success("Invoice automatically approved and posted");
+      } else {
+        toast.success("Invoice forwarded for approval");
+      }
       setInvoices((prev) =>
         prev.map((x) =>
-          x.id === selectedDoc.id ? { ...x, forwarded_to_username: approverName || "Approver", status: "PENDING_APPROVAL" } : x,
+          x.id === selectedDoc.id ? { ...x, forwarded_to_username: optimisticApprover || x.forwarded_to_username || "Approver", status: newStatus } : x,
         ),
       );
+      try {
+        await fetchInvoices();
+      } catch {}
       setShowForwardModal(false);
       setSelectedDoc(null);
       setCandidateWorkflow(null);
@@ -477,6 +529,9 @@ export default function InvoiceList() {
       setWorkflowSteps([]);
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to forward for approval");
+      setWfError(e?.response?.data?.message || "Failed to forward for approval");
+    } finally {
+      setSubmittingForward(false);
     }
   }
 
@@ -508,7 +563,7 @@ export default function InvoiceList() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/sales" className="btn btn-secondary">
+              <Link to="/sales?section=Sales%20Transactions" className="btn btn-secondary">
                 Return to Menu
               </Link>
               <Link to="/sales/invoices/new" className="btn-success">
@@ -558,24 +613,28 @@ export default function InvoiceList() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
-                <table className="table">
+              
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+                <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead>
                   <tr>
                     <SortableHeader label="Invoice No" sortKey="invoice_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Date" sortKey="invoice_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Customer" sortKey="customer_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <th>Payment</th>
+                    <th className="grid-payment-status-cell">Payment</th>
                     <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Net Amount" sortKey="net_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="text-right">Actions</th>
-                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <th>Payment Type</th>
-                    <th>Price Type</th>
-                    <SortableHeader label="Warehouse" sortKey="warehouse_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Balance" sortKey="balance_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
-                    <SortableHeader label="Remarks" sortKey="remarks" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                    <SortableHeader label="Created By" sortKey="created_by_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="grid-created-by-cell" />
+                    <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="grid-created-date-cell" />
+                    <th className="grid-payment-type-cell">Payment Type</th>
+                    <th className="grid-price-type-cell">Price Type</th>
+                    <SortableHeader label="Warehouse" sortKey="warehouse_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="grid-warehouse-cell" />
+                    <SortableHeader label="Balance" sortKey="balance_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right grid-balance-cell" />
+                    <SortableHeader label="Remarks" sortKey="remarks" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="grid-remarks-cell" />
                   </tr>
                 </thead>
                 <tbody>
@@ -584,7 +643,7 @@ export default function InvoiceList() {
                       <td className="font-medium">{inv.invoice_no}</td>
                       <td>{new Date(inv.invoice_date).toLocaleDateString()}</td>
                       <td>{inv.customer_name}</td>
-                      <td>{getPaymentStatusBadge(inv.payment_status)}</td>
+                      <td className="grid-payment-status-cell">{getPaymentStatusBadge(inv.payment_status)}</td>
                       <td>{getStatusBadge(inv.status)}</td>
                       <td className="font-semibold">
                         {inv.net_amount.toLocaleString("en-US", {
@@ -604,9 +663,59 @@ export default function InvoiceList() {
                           </button>
                         </div>
 
-                        {/* Slot 2: Edit (Blank for Invoices) */}
+                        {/* Slot 1.5: Edit */}
                         <div className="min-w-[80px]">
-                          <div className="w-full h-9" />
+                          {["DRAFT", "RETURNED", "PENDING_APPROVAL"].includes(String(inv.status || "").toUpperCase()) &&
+                          canPerformAction("sales:invoices", "edit") ? (
+                            <button
+                              type="button"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                              onClick={() => navigate(`/sales/invoices/${inv.id}?mode=edit`)}
+                            >
+                              Edit
+                            </button>
+                          ) : (
+                            <div className="w-full h-9" />
+                          )}
+                        </div>
+
+                        {/* Slot 2: workflow (forward / approved / reverse) */}
+                        <div className="min-w-[160px]">
+                          <div className="list-approval-slot">
+                            {["APPROVED", "POSTED"].includes(String(inv.status || "").toUpperCase()) ? (
+                              <div className="flex items-center gap-2">
+                                <span className="list-approval-approved-pill">Approved</span>
+                                {canReverseApproval() && (
+                                  <ReverseApprovalButton
+                                    docType="SALES_INVOICE"
+                                    docId={inv.id}
+                                    className="list-approval-reverse-btn"
+                                    onDone={() =>
+                                      setInvoices((prev) =>
+                                        prev.map((x) =>
+                                          x.id === inv.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    Reverse Approval
+                                  </ReverseApprovalButton>
+                                )}
+                              </div>
+                            ) : String(inv.status || "").toUpperCase() === "PENDING_APPROVAL" ? (
+                              <span className="list-approval-forwarded-pill">
+                                Forwarded to {inv.forwarded_to_username || "Approver"}
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="list-approval-forward-btn"
+                                onClick={() => openForwardModal(inv)}
+                              >
+                                Forward for Approval
+                              </button>
+                            )}
+                          </div>
                         </div>
 
                         {/* Slot 3: Print */}
@@ -629,38 +738,7 @@ export default function InvoiceList() {
                           />
                         </div>
 
-                        {/* Slot 6: workflow (forward / approved / reverse) */}
-                        <div className="min-w-[160px]">
-                          <div className="list-approval-slot">
-                            {String(inv.status || "").toUpperCase() === "APPROVED" ? (
-                              <div className="flex items-center gap-2">
-                                <span className="list-approval-approved-pill">Approved</span>
-                                {canReverseApproval() && (
-                                  <ReverseApprovalButton
-                                    docType="INVOICE"
-                                    docId={inv.id}
-                                    className="list-approval-reverse-btn"
-                                    onDone={() =>
-                                      setInvoices((prev) =>
-                                        prev.map((x) =>
-                                          x.id === inv.id ? { ...x, status: "RETURNED", forwarded_to_username: null } : x,
-                                        ),
-                                      )
-                                    }
-                                  >
-                                    Reverse Approval
-                                  </ReverseApprovalButton>
-                                )}
-                              </div>
-                            ) : inv.forwarded_to_username ? (
-                              <span className="list-approval-forwarded-pill">
-                                Forwarded to {inv.forwarded_to_username}
-                              </span>
-                            ) : (
-                              <div className="w-full h-9" />
-                            )}
-                          </div>
-                        </div>
+
 
                         {/* Slot 7: Cancel */}
                         <div className="min-w-[80px]">
@@ -687,15 +765,15 @@ export default function InvoiceList() {
                         </div>
                       </div>
                     </td>
-                    <td>{inv.created_by_name || "-"}</td>
-                    <td>{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : "-"}</td>
-                      <td>{inv.payment_type || ""}</td>
-                      <td>{inv.price_type || ""}</td>
-                      <td>{warehouses.find((w) => String(w.id) === String(inv.warehouse_id))?.warehouse_name || ""}</td>
-                      <td className="text-right">
-                        {Number(inv.balance_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      </td>
-                      <td>{inv.remarks || ""}</td>
+                    <td className="grid-created-by-cell">{inv.created_by_name || "-"}</td>
+                    <td className="grid-created-date-cell">{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="grid-payment-type-cell">{inv.payment_type || ""}</td>
+                    <td className="grid-price-type-cell">{inv.price_type || ""}</td>
+                    <td className="grid-warehouse-cell">{warehouses.find((w) => String(w.id) === String(inv.warehouse_id))?.warehouse_name || ""}</td>
+                    <td className="text-right grid-balance-cell">
+                      {Number(inv.balance_amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="grid-remarks-cell">{inv.remarks || ""}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -748,54 +826,108 @@ export default function InvoiceList() {
                   setSelectedDoc(null);
                   setCandidateWorkflow(null);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white hover:text-slate-200 text-xl font-bold"
               >
                 &times;
               </button>
             </div>
-            <div className="p-4 space-y-4">
-              {wfError && <div className="text-sm text-red-600">{wfError}</div>}
-              <div className="text-sm">
-                <span className="font-medium">Invoice:</span>{" "}
-                {selectedDoc?.invoice_no || `#${selectedDoc?.id}`}
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-slate-700">
+                Document No:{" "}
+                <span className="font-semibold">
+                  {selectedDoc?.invoice_no || `#${selectedDoc?.id}`}
+                </span>
               </div>
-              {candidateWorkflow && (
-                <div className="text-sm">
-                  <span className="font-medium">Workflow:</span>{" "}
-                  {candidateWorkflow.workflow_name || candidateWorkflow.name}
+              <div className="text-sm text-slate-700">
+                Workflow:{" "}
+                <span className="font-semibold">
+                  {candidateWorkflow
+                    ? `${candidateWorkflow.workflow_name || candidateWorkflow.name} (${candidateWorkflow.workflow_code || ""})`
+                    : "None (inactive)"}
+                </span>
+              </div>
+              <div>
+                {wfLoading ? (
+                  <div className="text-sm text-slate-500">Loading workflow...</div>
+                ) : null}
+              </div>
+              <div>
+                {wfError ? (
+                  <div className="text-sm text-red-600">{wfError}</div>
+                ) : null}
+              </div>
+              <div className="text-sm">
+                <div className="font-medium">Target Approver</div>
+                {(() => {
+                  const hasSteps = Array.isArray(workflowSteps) && workflowSteps.length > 0;
+                  const first = hasSteps ? workflowSteps[0] : null;
+                  const opts = first
+                    ? Array.isArray(first.approvers) && first.approvers.length
+                      ? first.approvers.map((u) => ({ id: u.id, name: u.username }))
+                      : first.approver_user_id
+                        ? [{ id: first.approver_user_id, name: first.approver_name || String(first.approver_user_id) }]
+                        : []
+                    : [];
+
+                  if (!hasSteps) {
+                    return <div className="text-slate-500">None required</div>;
+                  }
+                  if (opts.length === 0) {
+                    return <div className="text-slate-500">No approvers</div>;
+                  }
+                  if (opts.length === 1) {
+                    return <div className="text-slate-700 font-semibold">{opts[0].name}</div>;
+                  }
+                  return (
+                    <select
+                      className="input mt-1"
+                      value={targetApproverId || ""}
+                      onChange={(e) => setTargetApproverId(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">-- Select Approver --</option>
+                      {opts.map((o) => (
+                        <option key={o.id} value={o.id}>{o.name}</option>
+                      ))}
+                    </select>
+                  );
+                })()}
+              </div>
+              
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
                 </div>
-              )}
-              {workflowSteps.length > 0 && (
-                <div>
-                  <label className="label">First Approver</label>
-                  <select
-                    className="input"
-                    value={targetApproverId || ""}
-                    onChange={(e) => setTargetApproverId(e.target.value || null)}
-                  >
-                    <option value="">-- Select --</option>
-                    {workflowSteps.map((step) => (
-                      <option key={step.approver_id} value={step.approver_id}>
-                        {step.approver_name || `Approver #${step.approver_id}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4">
                 <button
-                  className="btn btn-secondary"
+                  type="button"
+                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50"
                   onClick={() => {
                     setShowForwardModal(false);
                     setSelectedDoc(null);
                     setCandidateWorkflow(null);
+                    setWorkflowSteps([]);
+                    setWfError("");
+                    setForwardComments("");
                   }}
+                  disabled={submittingForward}
                 >
                   Cancel
                 </button>
-                <button className="btn-success" onClick={handleForwardSubmit}>
-                  Submit
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm font-medium text-white bg-brand rounded hover:bg-brand/90 flex items-center justify-center disabled:opacity-50"
+                  onClick={handleForwardSubmit}
+                  disabled={submittingForward || wfLoading}
+                >
+                  {submittingForward ? "Submitting..." : "Submit"}
                 </button>
               </div>
             </div>

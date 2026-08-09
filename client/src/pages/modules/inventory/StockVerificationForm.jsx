@@ -4,12 +4,14 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Save, Plus, Trash2, ArrowLeft, Check } from "lucide-react";
 import { filterByPrefix } from "@/utils/searchUtils.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 export default function StockVerificationForm({
   isModal = false,
   modalId = null,
   onClose = null,
 }) {
+  const { hasExceptional } = usePermission();
   const { id: routeId } = useParams();
   const id = isModal ? modalId : routeId;
   const navigate = useNavigate();
@@ -446,26 +448,26 @@ export default function StockVerificationForm({
       ) : (
         <div className="space-y-6">
           {/* Main Info Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 pb-2 border-b dark:border-slate-700">
               Verification Details
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                   Verification Number
                 </label>
                 <input
                   type="text"
                   name="verification_number"
                   value={formData.verification_number}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-gray-50 dark:bg-slate-700 text-gray-500 dark:text-slate-300"
                   readOnly
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                   Verification Date *
                 </label>
                 <input
@@ -473,20 +475,22 @@ export default function StockVerificationForm({
                   name="verification_date"
                   value={formData.verification_date}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
+                
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                   Warehouse *
                 </label>
                 <select
                   name="warehouse_id"
                   value={formData.warehouse_id}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 >
                   <option value="">Select Warehouse</option>
@@ -499,14 +503,14 @@ export default function StockVerificationForm({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                   Verification Type *
                 </label>
                 <select
                   name="verification_type"
                   value={formData.verification_type}
                   onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 >
                   {verificationTypes.map((type) => (
@@ -519,7 +523,7 @@ export default function StockVerificationForm({
             </div>
 
             <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                 Remarks
               </label>
               <textarea
@@ -527,16 +531,16 @@ export default function StockVerificationForm({
                 value={formData.remarks}
                 onChange={handleInputChange}
                 rows="4"
-                className="w-96 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-96 px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter any additional remarks..."
               />
             </div>
           </div>
 
           {/* Items Card */}
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-              <h2 className="text-lg font-semibold text-gray-900">Items</h2>
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow overflow-hidden">
+            <div className="p-6 border-b border-gray-200 dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-800/50">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Items</h2>
               <button
                 onClick={addItem}
                 className="flex items-center gap-2 px-3 py-1.5 text-white text-sm font-medium rounded-md hover:opacity-90 transition-opacity"
@@ -548,39 +552,39 @@ export default function StockVerificationForm({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="table">
-                <thead className="bg-gray-50">
+              <table className="table w-full">
+                <thead className="bg-gray-50 dark:bg-slate-800 border-b dark:border-slate-700">
                   <tr>
-                    <th className="w-1/2 min-w-[280px] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-1/2 min-w-[280px] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       Item
                     </th>
-                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-blue-600 uppercase tracking-wider">
+                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider">
                       Available Qty
                     </th>
-                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-amber-600 uppercase tracking-wider">
+                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wider">
                       Reserve Qty
                     </th>
-                    <th className="w-28 min-w-[110px] px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-28 min-w-[110px] px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       Verified Qty
                     </th>
-                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-indigo-600 uppercase tracking-wider">
+                    <th className="w-24 min-w-[90px] px-3 py-3 text-center text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                       Balance Qty
                     </th>
-                    <th className="w-28 min-w-[100px] px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-28 min-w-[100px] px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       Variance
                     </th>
-                    <th className="w-20 min-w-[80px] px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-20 min-w-[80px] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       UOM
                     </th>
-                    <th className="w-96 min-w-[380px] px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-96 min-w-[380px] px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       Remarks
                     </th>
-                    <th className="w-16 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="w-16 px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
                       Action
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
                   {items.length === 0 ? (
                     <tr>
                       <td
@@ -605,7 +609,7 @@ export default function StockVerificationForm({
                             <div className="relative">
                               <input
                                 id={`sv-item-search-${item.id}`} autoComplete="off"
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                 placeholder="Scan barcode or type item name"
                                 value={itemQueries[item.id] || ""}
                                 onChange={(e) => {
@@ -643,14 +647,14 @@ export default function StockVerificationForm({
                                   const r = el ? el.getBoundingClientRect() : { bottom: 0, left: 0, width: 0 };
                                   return (
                                     <div
-                                      className="bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-auto"
+                                      className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg max-h-48 overflow-auto"
                                       style={{ position: 'fixed', top: `${r.bottom + 4}px`, left: `${r.left}px`, width: `${r.width}px`, zIndex: 9999 }}
                                     >
                                       {searchResults.map((o) => (
                                         <button
                                           type="button"
                                           key={o.id}
-                                          className="block w-full text-left px-3 py-2 hover:bg-gray-50 text-xs"
+                                          className="block w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-slate-700 dark:text-white text-xs"
                                           onClick={() => {
                                             updateItem(
                                               item.id,
@@ -695,7 +699,7 @@ export default function StockVerificationForm({
                                     : Number(e.target.value),
                                 )
                               }
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center font-bold"
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center font-bold"
                               step="1"
                             />
                           </td>
@@ -736,7 +740,7 @@ export default function StockVerificationForm({
                           </td>
                           <td className="px-3 py-4">
                             <div className="flex items-center gap-2">
-                              <span className="text-gray-600 font-medium">
+                              <span className="text-gray-600 dark:text-slate-300 font-medium">
                                 {item.uom || "PCS"}
                               </span>
                             </div>
@@ -748,14 +752,14 @@ export default function StockVerificationForm({
                               onChange={(e) =>
                                 updateItem(item.id, "remarks", e.target.value)
                               }
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               placeholder="Optional"
                             />
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button
                               onClick={() => removeItem(item.id)}
-                              className="text-red-600 hover:text-red-900 p-2 hover:bg-red-50 rounded-full transition-colors"
+                              className="text-red-600 hover:text-red-900 p-2 hover:bg-red-50 dark:hover:bg-slate-700 rounded-full transition-colors"
                             >
                               <Trash2 className="w-5 h-5" />
                             </button>
@@ -769,7 +773,7 @@ export default function StockVerificationForm({
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
             <div className="flex flex-col md:flex-row gap-3 md:justify-end">
               <button
                 type="button"
@@ -778,7 +782,7 @@ export default function StockVerificationForm({
                     ? onClose && onClose()
                     : navigate("/inventory/stock-verification")
                 }
-                className="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 bg-white dark:bg-slate-700 text-gray-700 dark:text-white border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-600 transition-colors"
               >
                 Cancel
               </button>

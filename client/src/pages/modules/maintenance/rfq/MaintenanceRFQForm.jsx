@@ -7,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 const STATUSES = ["DRAFT", "SENT", "RESPONDED", "CLOSED"];
 
@@ -16,6 +17,7 @@ const STATUSES = ["DRAFT", "SENT", "RESPONDED", "CLOSED"];
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceRFQForm() {
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
@@ -123,9 +125,9 @@ export default function MaintenanceRFQForm() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link to="/maintenance/rfq" className="btn-secondary">
+        <button onClick={() => window.history.back()} className="btn-secondary">
           ← Back
-        </Link>
+        </button>
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
             {isEdit ? "Edit" : "New"} Request for Quotation
@@ -148,6 +150,8 @@ export default function MaintenanceRFQForm() {
                 type="date"
                 value={form.rfq_date}
                 onChange={(e) => update("rfq_date", e.target.value)}
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
             <div>
@@ -172,6 +176,8 @@ export default function MaintenanceRFQForm() {
                 type="date"
                 value={form.response_deadline}
                 onChange={(e) => update("response_deadline", e.target.value)}
+              
+                disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
               />
             </div>
           </div>
@@ -326,9 +332,9 @@ export default function MaintenanceRFQForm() {
           </div>
         </div>
         <div className="flex justify-end gap-2">
-          <Link to="/maintenance/rfq" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             Cancel
-          </Link>
+          </button>
           <button type="submit" className="btn-primary" disabled={saving}>
             {saving ? "Saving..." : "Save RFQ"}
           </button>

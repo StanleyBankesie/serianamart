@@ -4,9 +4,10 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useLocation } from "react-router-dom";
 import { api } from "api/client";
 import { useGhanaCities } from "../../../../hooks/useGhanaCities";
+import { useAuth } from "@/auth/AuthContext.jsx";
 
 /**
  *  component
@@ -14,9 +15,14 @@ import { useGhanaCities } from "../../../../hooks/useGhanaCities";
  * @returns {JSX.Element} The rendered component
  */
 export default function CompanyForm() {
+  const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const isSystemConfig = location.pathname.startsWith("/system-configuration");
+  const backPath = isSystemConfig ? "/system-configuration/companies" : "/administration/companies";
+  const moduleHome = isSystemConfig ? "/system-configuration" : "/administration";
   const { cities: ghanaCities } = useGhanaCities();
 
   const [loading, setLoading] = useState(false);
@@ -295,7 +301,7 @@ export default function CompanyForm() {
         }
       }
 
-      navigate("/administration/companies");
+      navigate(backPath);
     } catch (err) {
       setError(err?.response?.data?.message || "Error saving company");
     } finally {
@@ -303,11 +309,22 @@ export default function CompanyForm() {
     }
   }
 
+  if (Number(user?.id) !== 1) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h2>
+        <p className="text-slate-600 dark:text-slate-400">
+          You do not have permission to view the Company Setup page.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <Link
-          to="/administration/companies"
+          to={backPath}
           className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 mb-2 inline-block"
         >
           ← Back to Companies
@@ -533,7 +550,7 @@ export default function CompanyForm() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Link to="/administration/companies" className="btn-success">
+              <Link to={backPath} className="btn-success">
                 Cancel
               </Link>
               <button className="btn-success" type="submit" disabled={loading}>

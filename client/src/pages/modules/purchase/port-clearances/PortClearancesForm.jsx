@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -13,6 +14,7 @@ import { api } from "api/client";
  * @returns {JSX.Element} The rendered component
  */
 export default function PortClearancesForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = !id || id === "new";
@@ -281,9 +283,9 @@ export default function PortClearancesForm() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link to="/purchase/port-clearances" className="btn-secondary">
+          <button onClick={() => window.history.back()} className="btn-secondary">
             Cancel
-          </Link>
+          </button>
           <button
             onClick={handleSubmit}
             disabled={saving}
@@ -327,6 +329,8 @@ export default function PortClearancesForm() {
                   value={formData.clearance_date}
                   onChange={handleFormChange}
                   required
+                
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
               <div className="md:col-span-2">
@@ -368,6 +372,8 @@ export default function PortClearancesForm() {
                   name="target_clearance_date"
                   value={formData.target_clearance_date}
                   onChange={handleFormChange}
+                
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
             </div>
@@ -398,6 +404,8 @@ export default function PortClearancesForm() {
                   name="arrival_date"
                   value={formData.arrival_date}
                   onChange={handleFormChange}
+                
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
               <div>
@@ -438,6 +446,8 @@ export default function PortClearancesForm() {
                   name="declaration_date"
                   value={formData.declaration_date}
                   onChange={handleFormChange}
+                
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
               </div>
             </div>

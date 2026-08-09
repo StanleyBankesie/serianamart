@@ -64,7 +64,7 @@ export default function ClearanceTracking() {
             <h1 className="text-2xl font-bold">Clearance Tracking</h1>
             <p className="text-sm text-slate-500">Manage department clearance for exiting employees</p>
           </div>
-          <Link to="/human-resources" className="btn-secondary">Back to Menu</Link>
+          <button onClick={() => window.history.back()} className="btn-secondary">Back</button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -23,29 +23,29 @@ export default {
           900: "#0E3646",
           950: "#061a22",
         },
-        // Primary Action Color (Orange #F57C00)
+        // Primary Action Color (Mapped to brand-900)
         primary: {
-          DEFAULT: "#F57C00",
-          light: "#ff9d3f",
-          dark: "#bb5d00",
-          50: "#fff8f0", // For backgrounds
+          DEFAULT: "#0E3646",
+          light: "#173d50",
+          dark: "#061a22",
+          50: "#f0f7fa", // For backgrounds
         },
-        // Secondary/Success Color (Green #2E8B1F)
+        // Secondary Color (Custom Golden Yellow from user)
         secondary: {
-          DEFAULT: "#2E8B1F",
-          light: "#4ecf3b",
-          dark: "#1f6115",
-          50: "#f2fdf0", // For backgrounds
+          DEFAULT: "#F9B514", // vibrant golden yellow
+          light: "#FBCD49",
+          dark: "#E59E04",
+          50: "#FFFDF2", // For backgrounds
         },
         // Colorful Tickers & Dashboards (Mapped to Theme)
         ticker: {
           blue: { DEFAULT: "#0E3646", bg: "#f0f7fa" }, // Brand Base
           green: { DEFAULT: "#2E8B1F", bg: "#f2fdf0" }, // Success Base
-          orange: { DEFAULT: "#F57C00", bg: "#fff8f0" }, // Primary Base
+          orange: { DEFAULT: "#fbbf24", bg: "#fffbeb" }, // Secondary Base
           red: { DEFAULT: "#ef4444", bg: "#fef2f2" }, // Keep Red for Alerts (UX Standard)
           purple: { DEFAULT: "#5fa2c4", bg: "#e1eff5" }, // Mapped to Brand Light
           teal: { DEFAULT: "#3b86a8", bg: "#c2deeb" }, // Mapped to Brand Mid
-          pink: { DEFAULT: "#F57C00", bg: "#fff8f0" }, // Mapped to Orange
+          pink: { DEFAULT: "#fbbf24", bg: "#fffbeb" }, // Mapped to Secondary
         },
         // Semantic Status Colors
         status: {

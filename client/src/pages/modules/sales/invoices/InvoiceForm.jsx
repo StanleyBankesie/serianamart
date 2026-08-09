@@ -24,7 +24,7 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function InvoiceForm() {
-  const { canEditDiscount, canAccessPath } = usePermission();
+  const { canEditDiscount, canAccessPath, hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const { getExchangeRate } = useExchangeRate();
@@ -40,6 +40,7 @@ export default function InvoiceForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [customers, setCustomers] = useState([]);
+  const [salespersons, setSalespersons] = useState([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [itemsCatalog, setItemsCatalog] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -65,6 +66,7 @@ export default function InvoiceForm() {
     phone: "",
     remarks: "",
     project_id: "",
+    salesperson: "",
   });
 
   const [lines, setLines] = useState([]);
@@ -196,6 +198,7 @@ export default function InvoiceForm() {
 
   useEffect(() => {
     fetchCustomers();
+    fetchSalespersons();
     fetchItems();
     fetchOrders();
     fetchWarehouses();
@@ -275,6 +278,15 @@ export default function InvoiceForm() {
     };
     run();
   }, [actionParam, isEdit]);
+
+  const fetchSalespersons = async () => {
+    try {
+      const response = await api.get('/sales/sales-persons');
+      setSalespersons(Array.isArray(response.data?.items) ? response.data.items : []);
+    } catch (error) {
+      console.error('Error fetching salespersons:', error);
+    }
+  };
 
   const fetchCustomers = async () => {
     try {
@@ -1270,64 +1282,46 @@ export default function InvoiceForm() {
         const resp = await api.post("/sales/invoices", payload);
         savedId = Number(resp?.data?.id || 0);
       }
-      try {
-        const subResp = await api.post(`/sales/invoices/${savedId}/submit`);
-        const pstatus = subResp?.data?.payment_status || "UNPAID";
-        toast.success(`Invoice ${invoiceNo} saved and submitted (${pstatus})`);
-        if (autoDelivery) {
-          try {
-            const nextNoResp = await api.get("/sales/deliveries/next-no");
-            const nextNo = nextNoResp?.data?.nextNo || "";
-            const dPayload = {
-              delivery_no: nextNo || `DN${String(Date.now()).slice(-6)}`,
-              delivery_date: toYmd(form.invoice_date),
-              customer_id: Number(form.customer_id),
-              sales_order_id: form.sales_order_id
-                ? Number(form.sales_order_id)
-                : null,
-              invoice_id: savedId || null,
-              remarks: `Auto delivery for invoice ${invoiceNo}`,
-              status: "DELIVERED",
-              items: workingLines.map((l) => ({
-                item_id: Number(l.item_id),
-                quantity: Math.round(Number(l.qty || 0) * 100) / 100,
-                unit_price: Math.round(Number(l.unit_price || 0) * 100) / 100,
-                uom: String(l.uom || defaultUomCode),
-              })),
-            };
-            const dResp = await api.post("/sales/deliveries", dPayload);
-            const createdNo = nextNo || dPayload.delivery_no;
-            if (dResp?.data?.item?.delivery_no) {
-              toast.success(
-                `Delivery ${dResp.data.item.delivery_no} created automatically`,
-              );
-            } else {
-              toast.success(`Delivery ${createdNo} created automatically`);
-            }
-          } catch (delErr) {
-            const dmsg =
-              delErr?.response?.data?.message ||
-              "Failed to create delivery note";
-            toast.error(dmsg);
+      
+      toast.success(`Invoice ${invoiceNo} saved successfully`);
+      if (autoDelivery) {
+        try {
+          const nextNoResp = await api.get("/sales/deliveries/next-no");
+          const nextNo = nextNoResp?.data?.nextNo || "";
+          const dPayload = {
+            delivery_no: nextNo || `DN${String(Date.now()).slice(-6)}`,
+            delivery_date: toYmd(form.invoice_date),
+            customer_id: Number(form.customer_id),
+            sales_order_id: form.sales_order_id
+              ? Number(form.sales_order_id)
+              : null,
+            invoice_id: savedId || null,
+            remarks: `Auto delivery for invoice ${invoiceNo}`,
+            status: "DELIVERED",
+            items: workingLines.map((l) => ({
+              item_id: Number(l.item_id),
+              quantity: Math.round(Number(l.qty || 0) * 100) / 100,
+              unit_price: Math.round(Number(l.unit_price || 0) * 100) / 100,
+              uom: String(l.uom || defaultUomCode),
+            })),
+          };
+          const dResp = await api.post("/sales/deliveries", dPayload);
+          const createdNo = nextNo || dPayload.delivery_no;
+          if (dResp?.data?.item?.delivery_no) {
+            toast.success(
+              `Delivery ${dResp.data.item.delivery_no} created automatically`,
+            );
+          } else {
+            toast.success(`Delivery ${createdNo} created automatically`);
           }
-        }
-        navigate("/sales/invoices");
-      } catch (subErr) {
-        const smsg =
-          subErr?.response?.data?.message || "Failed to submit invoice";
-        if (/already submitted/i.test(smsg)) {
-          toast.info(`Invoice ${invoiceNo} already submitted`);
-          navigate("/sales/invoices");
-        } else if (
-          /no line items/i.test(smsg) ||
-          /warehouse_id is required/i.test(smsg) ||
-          /insufficient stock/i.test(smsg)
-        ) {
-          toast.error(smsg);
-        } else {
-          toast.error(smsg);
+        } catch (delErr) {
+          const dmsg =
+            delErr?.response?.data?.message ||
+            "Failed to create delivery note";
+          toast.error(dmsg);
         }
       }
+      navigate("/sales/invoices");
     } catch (err) {
       const msg = err?.response?.data?.message || "Error saving invoice";
       setError(msg);
@@ -1498,9 +1492,9 @@ export default function InvoiceForm() {
                 <Download className="w-4 h-4 inline mr-1" />
                 Download PDF
               </button>
-              <Link to="/sales/invoices" className="btn-success">
+              <button onClick={() => window.history.back()} className="btn-success">
                 Back
-              </Link>
+              </button>
             </div>
           </div>
         </div>
@@ -1529,7 +1523,7 @@ export default function InvoiceForm() {
                   value={form.invoice_date}
                   onChange={(e) => update("invoice_date", e.target.value)}
                   required
-                  disabled={readOnly}
+                  disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                 />
               </div>
               <div className="relative">
@@ -1642,6 +1636,22 @@ export default function InvoiceForm() {
                 </select>
               </div>
               <div>
+                <label className="label">Salesperson</label>
+                <select
+                  className="input w-56"
+                  value={form.salesperson || ""}
+                  onChange={(e) => update("salesperson", e.target.value)}
+                  disabled={readOnly}
+                >
+                  <option value="">Select Salesperson</option>
+                  {salespersons.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="label">Order</label>
                 <select
                   className="input w-56"
@@ -1747,7 +1757,7 @@ export default function InvoiceForm() {
                   readOnly
                 />
               </div>
-              <div>
+              <div className="hidden">
                 <label className="label">City</label>
                 <input
                   className="input bg-gray-50 w-56"
@@ -1757,7 +1767,7 @@ export default function InvoiceForm() {
                   readOnly
                 />
               </div>
-              <div>
+              <div className="hidden">
                 <label className="label">State</label>
                 <input
                   className="input bg-gray-50 w-56"
@@ -1767,7 +1777,7 @@ export default function InvoiceForm() {
                   readOnly
                 />
               </div>
-              <div>
+              <div className="hidden">
                 <label className="label">Country</label>
                 <input
                   className="input bg-gray-50 w-56"
@@ -1777,7 +1787,7 @@ export default function InvoiceForm() {
                   readOnly
                 />
               </div>
-              <div>
+              <div className="hidden">
                 <label className="label">Phone</label>
                 <input
                   className="input bg-gray-50 w-56"
@@ -2463,9 +2473,9 @@ export default function InvoiceForm() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Link to="/sales/invoices" className="btn-success">
+              <button onClick={() => window.history.back()} className="btn-success">
                 Cancel
-              </Link>
+              </button>
               <label className="flex items-center gap-2 mr-4">
                 <input
                   type="checkbox"

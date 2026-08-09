@@ -16,6 +16,12 @@ import jsPDF from "jspdf";
  * @returns {JSX.Element} The rendered component
  */
 export default function RatioAnalysisReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [order, setOrder] = useState("new");
@@ -43,23 +49,21 @@ export default function RatioAnalysisReportPage() {
     setFrom(jan1.toISOString().slice(0, 10));
     setTo(today.toISOString().slice(0, 10));
     run();
-  }, []);
+  }, [pollingCounter]);
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, order]);
+  }, [from, to, order, pollingCounter]);
 
   return (
     <div className="space-y-6 p-4">
       {/* Modern Header */}
       <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div>
-          <Link
-            to="/finance"
-            className="font-sans text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors"
+          <button onClick={() => window.history.back()} className="font-sans text-xs font-bold text-brand uppercase tracking-wider hover:text-brand-600 transition-colors"
           >
             ← Back to Finance
-          </Link>
+          </button>
           <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-100 mt-2 tracking-tight">
             Ratio Analysis
           </h1>

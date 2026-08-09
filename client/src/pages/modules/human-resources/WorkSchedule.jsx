@@ -34,9 +34,9 @@ export default function WorkSchedule() {
     setLoading(true);
     try {
       const [empRes, shiftRes, schedRes] = await Promise.all([
-        api.get("/hr/employees?status=ALL"),
-        api.get("/hr/shifts"),
-        api.get("/hr/work-schedules"),
+        api.get("/hr/employees?status=ALL").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/shifts").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/work-schedules").catch(() => ({ data: { items: [] } })),
       ]);
       setEmployees(empRes.data?.items || []);
       setShifts(shiftRes.data?.items || []);
@@ -102,7 +102,7 @@ export default function WorkSchedule() {
     <div className="p-4 space-y-4">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <Link to="/human-resources" className="btn-secondary text-sm">Back</Link>
+        <button onClick={() => window.history.back()} className="btn-secondary text-sm">Back</button>
         <h1 className="text-2xl font-bold">Work Schedule Management</h1>
       </div>
 

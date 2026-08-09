@@ -8,6 +8,8 @@ import { Link } from 'react-router-dom';
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
 import { Guard } from "../../../../hooks/usePermissions.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -15,6 +17,7 @@ import { Guard } from "../../../../hooks/usePermissions.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function LoanList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -43,13 +46,16 @@ export default function LoanList() {
             <p className="text-sm text-slate-500">Track and manage employee staff loans</p>
           </div>
           <div className="flex gap-2">
-            <Link to="/human-resources" className="btn-secondary">Back to Menu</Link>
+            <button onClick={() => window.history.back()} className="btn-secondary">Back</button>
             <Link to="/human-resources/loans/new" className="btn-primary">+ New Loan</Link>
           </div>
         </div>
 
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden">
-          <table className="min-w-full">
+          <div className="flex justify-end mb-4">
+            <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          </div>
+          <table className={"min-w-full " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead className="bg-[var(--table-header-bg)] dark:bg-slate-900/50">
               <tr className="text-left bg-slate-50 dark:bg-slate-900/50">
                 <th className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Employee</th>

@@ -4,8 +4,12 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { api } from "api/client";
+import { useAuth } from "@/auth/AuthContext.jsx";
+import DataTable from "@/components/common/DataTable.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -13,6 +17,12 @@ import { api } from "api/client";
  * @returns {JSX.Element} The rendered component
  */
 export default function CompanyList() {
+  const [viewMode, setViewMode] = useViewMode();
+  const { user } = useAuth();
+  const location = useLocation();
+  const isSystemConfig = location.pathname.startsWith("/system-configuration");
+  const moduleHome = isSystemConfig ? "/system-configuration" : "/administration";
+  const basePath = isSystemConfig ? "/system-configuration/companies" : "/administration/companies";
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -33,6 +43,49 @@ export default function CompanyList() {
     }
   };
 
+  if (Number(user?.id) !== 1) {
+    return (
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-bold text-red-600 mb-4">Access Denied</h2>
+        <p className="text-slate-600 dark:text-slate-400">
+          You do not have permission to view the Company Setup page.
+        </p>
+      </div>
+    );
+  }
+
+  const columns = [
+    { header: "Code", accessor: "code" },
+    { header: "Name", accessor: "name" },
+    { 
+      header: "Status", 
+      accessor: "is_active",
+      render: (c) => c.is_active ? <span className="badge badge-success">Active</span> : <span className="badge badge-error">Inactive</span>
+    },
+    { 
+      header: "Created By", 
+      accessor: (c) => c.created_by_name || "-" 
+    },
+    { 
+      header: "Created Date", 
+      accessor: "created_at",
+      render: (c) => c.created_at ? new Date(c.created_at).toLocaleDateString() : "-"
+    },
+    {
+      header: "Actions",
+      filterable: false,
+      sortable: false,
+      render: (c) => (
+        <Link
+          to={`${basePath}/${c.id}`}
+          className="text-brand hover:text-brand-600 text-sm font-medium"
+        >
+          Edit
+        </Link>
+      )
+    }
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -43,10 +96,10 @@ export default function CompanyList() {
           <p className="text-sm mt-1">Manage companies</p>
         </div>
         <div className="flex gap-2">
-          <Link to="/administration" className="btn btn-secondary">
+          <Link to={moduleHome} className="btn btn-secondary">
             Return to Menu
           </Link>
-          <Link to="/administration/companies/new" className="btn-success">
+          <Link to={`${basePath}/new`} className="btn-success">
             + New Company
           </Link>
         </div>
@@ -59,56 +112,7 @@ export default function CompanyList() {
           ) : error ? (
             <div className="text-red-500 py-4">{error}</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th />
-                                    <th>Created By</th>
-                  <th>Created Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.length === 0 ? (
-                    <tr>
-                      <td
-                        colspan="4"
-                        className="text-center py-4 text-gray-500"
-                      >
-                        No companies found
-                      </td>
-                    </tr>
-                  ) : (
-                    items.map((c) => (
-                      <tr key={c.id}>
-                        <td className="font-medium">{c.code}</td>
-                        <td>{c.name}</td>
-                        <td>
-                          {c.is_active ? (
-                            <span className="badge badge-success">Active</span>
-                          ) : (
-                            <span className="badge badge-error">Inactive</span>
-                          )}
-                        </td>
-                        <td>
-                          <Link
-                            to={`/administration/companies/${c.id}`}
-                            className="text-brand hover:text-brand-600 text-sm font-medium"
-                          >
-                            Edit
-                          </Link>
-                        </td>
-                        <td>{c.created_by_name || "-"}</td>
-                        <td>{c.created_at ? new Date(c.created_at).toLocaleDateString() : "-"}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataTable data={items} columns={columns} defaultSortColumn="Created Date" />
           )}
         </div>
       </div>

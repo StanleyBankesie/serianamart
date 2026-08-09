@@ -9,6 +9,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -16,6 +17,7 @@ import { useAuth } from "../../../../auth/AuthContext.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function MaintenanceMaterialRequisitionForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -151,7 +153,7 @@ export default function MaintenanceMaterialRequisitionForm() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link to="/maintenance/material-requisitions" className="btn-success">Back to List</Link>
+              <button onClick={() => window.history.back()} className="btn-success">Back to List</button>
             </div>
           </div>
         </div>
@@ -266,7 +268,7 @@ export default function MaintenanceMaterialRequisitionForm() {
 
             {!readOnly && (
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-                <Link to="/maintenance/material-requisitions" className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</Link>
+                <button onClick={() => window.history.back()} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</button>
                 <button type="submit" className="btn-success" disabled={saving}>
                   {saving ? "Saving..." : "Save"}
                 </button>

@@ -10,6 +10,12 @@ const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDig
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : "—";
 
 export default function CustomerOutstandingReportPage({ backPath = "/finance", backLabel = "Back to Finance" }) {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [asOf, setAsOf] = useState("");
   const [items, setItems] = useState([]);
   const [summary, setSummary] = useState([]);
@@ -44,7 +50,7 @@ export default function CustomerOutstandingReportPage({ backPath = "/finance", b
 
   useEffect(() => {
     loadAccounts();
-  }, []);
+  }, [pollingCounter]);
 
   // Searchable account options
   const accountOptions = useMemo(() => {
@@ -95,7 +101,7 @@ export default function CustomerOutstandingReportPage({ backPath = "/finance", b
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asOf, accountId]);
+  }, [asOf, accountId, pollingCounter]);
 
   const filteredSummary = summary.filter((s) =>
     !customerQuery || String(s.customer_name || "").toLowerCase().includes(customerQuery.toLowerCase())

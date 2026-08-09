@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
+import PendingApprovalTooltip from "@/components/PendingApprovalTooltip.jsx";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
@@ -12,6 +13,8 @@ import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmen
 import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -24,6 +27,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function SupplierServiceRequestsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const { hasExceptional, canReverseApproval } = usePermission();
 
@@ -35,6 +39,7 @@ export default function SupplierServiceRequestsList() {
   const [searchTerm, setSearchTerm] = useState("");
 
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardComments, setForwardComments] = useState("");
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -365,7 +370,8 @@ export default function SupplierServiceRequestsList() {
         amount,
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
-      });
+        comments: forwardComments,
+        });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setItems((prev) =>
         prev.map((x) => (x.id === selectedDoc.id ? { ...x, status: newStatus } : x)),
@@ -378,12 +384,14 @@ export default function SupplierServiceRequestsList() {
       try { await loadData(); } catch {}
     } catch (e1) {
       try {
-        const wfRes = await api.post("/workflows/forward-by-document", {
+        const wfRes = await api.post("/workflows/start", {
           document_type: "GENERAL_REQUISITION",
           document_id: selectedDoc.id,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
           amount,
+        
+          comments: forwardComments || "Forwarded for Approval",
         });
         const newStatus = wfRes?.data?.status || "PENDING_APPROVAL";
         setItems((prev) =>
@@ -442,9 +450,9 @@ export default function SupplierServiceRequestsList() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/service-management" className="text-sm text-brand hover:text-brand-600">
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600">
             ← Back to Service Management
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold mt-2">Purchase Supplier Service Requests</h1>
           <p className="text-sm text-slate-600">Request items for purchase or services to be rendered</p>
         </div>
@@ -483,7 +491,7 @@ export default function SupplierServiceRequestsList() {
 
       <div className="card">
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <SortableHeader label="Req. No" sortKey="requisition_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -494,7 +502,7 @@ export default function SupplierServiceRequestsList() {
                 <SortableHeader label="Priority" sortKey="priority" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <SortableHeader label="Est. Cost" sortKey="total_estimated_cost" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                 <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                <th className="text-right">Actions</th>
+                <th className="text-right whitespace-nowrap">Actions</th>
                 <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                 <SortableHeader label="Created Date" sortKey="created_at" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
               </tr>
@@ -502,19 +510,19 @@ export default function SupplierServiceRequestsList() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-8 text-slate-500">
+                  <td colSpan={11} className="text-center py-8 text-slate-500 whitespace-nowrap">
                     Loading...
                   </td>
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-8 text-red-600">
+                  <td colSpan={11} className="text-center py-8 text-red-600 whitespace-nowrap">
                     {error}
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-8 text-slate-500">
+                  <td colSpan={11} className="text-center py-8 text-slate-500 whitespace-nowrap">
                     No requisitions found
                   </td>
                 </tr>
@@ -525,9 +533,9 @@ export default function SupplierServiceRequestsList() {
                   const displayStatus = autoApproved ? "APPROVED" : nrStatus;
                   return (
                   <tr key={r.id}>
-                    <td className="font-mono text-sm text-brand">{r.requisition_no}</td>
-                    <td className="text-sm">{String(r.requisition_date || "").slice(0, 10)}</td>
-                    <td className="text-xs">
+                    <td className="font-mono text-sm text-brand whitespace-nowrap">{r.requisition_no}</td>
+                    <td className="text-sm whitespace-nowrap">{String(r.requisition_date || "").slice(0, 10)}</td>
+                    <td className="text-xs whitespace-nowrap">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                           r.requisition_type === "SERVICE"
@@ -538,23 +546,23 @@ export default function SupplierServiceRequestsList() {
                         {r.requisition_type}
                       </span>
                     </td>
-                    <td className="text-sm">{r.department || "-"}</td>
-                    <td className="text-sm">{r.requested_by || "-"}</td>
-                    <td>
+                    <td className="text-sm whitespace-nowrap">{r.department || "-"}</td>
+                    <td className="text-sm whitespace-nowrap">{r.requested_by || "-"}</td>
+                    <td className="whitespace-nowrap">
                       <span className="inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-bold uppercase">
                         {r.priority || "-"}
                       </span>
                     </td>
-                    <td className="text-right font-mono text-sm">
+                    <td className="text-right font-mono text-sm whitespace-nowrap">
                       {Number(r.total_estimated_cost || 0).toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
                     </td>
-                    <td>
+                    <td className="whitespace-nowrap">
                       <span className={`badge ${getStatusBadge(displayStatus)}`}>{statusLabel(displayStatus)}</span>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-6 py-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-2">
                         {/* Slot 1: View */}
                         <div className="min-w-[80px]">
@@ -596,9 +604,9 @@ export default function SupplierServiceRequestsList() {
                                 )}
                               </div>
                             ) : r.forwarded_to_username || displayStatus === "PENDING_APPROVAL" ? (
-                              <span className="list-approval-forwarded-pill">
+                              <PendingApprovalTooltip documentType="SERVICE_REQUEST" documentId={r.id}><span className="list-approval-forwarded-pill">
                                 Forwarded to {r.forwarded_to_username || "Approver"}
-                              </span>
+                              </span></PendingApprovalTooltip>
                             ) : ["DRAFT", "REJECTED"].includes(displayStatus) ? (
                               <button
                                 type="button"
@@ -659,8 +667,8 @@ export default function SupplierServiceRequestsList() {
                         </div>
                       </div>
                     </td>
-                    <td>{r.created_by_username || r.created_by_name || "-"}</td>
-                    <td>{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
+                    <td className="whitespace-nowrap">{r.created_by_username || r.created_by_name || "-"}</td>
+                    <td className="whitespace-nowrap">{r.created_at ? new Date(r.created_at).toLocaleDateString() : "-"}</td>
                   </tr>
                 );
                 })
@@ -679,6 +687,7 @@ export default function SupplierServiceRequestsList() {
                 onClick={() => {
                   setShowForwardModal(false);
                   setSelectedDoc(null);
+                    setForwardComments("");
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setTargetApproverId(null);
@@ -765,6 +774,7 @@ export default function SupplierServiceRequestsList() {
                 onClick={() => {
                   setShowForwardModal(false);
                   setSelectedDoc(null);
+                    setForwardComments("");
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setTargetApproverId(null);

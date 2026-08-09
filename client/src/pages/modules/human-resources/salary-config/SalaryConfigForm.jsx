@@ -71,7 +71,7 @@ export default function SalaryConfigForm() {
       <div className="p-4 space-y-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">{isEdit ? 'Edit Salary Config' : 'New Salary Config'}</h1>
-          <Link to="/human-resources/salary-config" className="btn-secondary">Back</Link>
+          <button onClick={() => window.history.back()} className="btn-secondary">Back</button>
         </div>
 
         <form onSubmit={submit} className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
@@ -123,7 +123,7 @@ export default function SalaryConfigForm() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
-            <Link to="/human-resources/salary-config" className="btn-secondary">Cancel</Link>
+            <button onClick={() => window.history.back()} className="btn-secondary">Cancel</button>
             <button className="btn-primary" disabled={loading}>
               {loading ? 'Saving...' : 'Save Config'}
             </button>

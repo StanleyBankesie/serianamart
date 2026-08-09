@@ -177,8 +177,17 @@ export async function cacheGet(key) {
     if (r.status !== 'ready') {
       return null;
     }
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Redis timeout')), 1000));
-    const val = await Promise.race([r.get(key), timeoutPromise]);
+    let timeoutHandle;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(() => reject(new Error('Redis timeout')), 1000);
+    });
+    
+    // Add a catch to the timeoutPromise itself so it doesn't trigger UnhandledPromiseRejection if r.get wins
+    timeoutPromise.catch(() => {});
+    
+    const val = await Promise.race([r.get(key), timeoutPromise]).finally(() => {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    });
     if (val === null || val === undefined) return null;
     return JSON.parse(val);
   } catch (err) {
@@ -261,7 +270,16 @@ export async function cacheDel(...keys) {
  */
 export async function cacheDelPattern(pattern) {
   const r = getRedis();
-  if (!r) return;
+  if (!r) {
+    // MySQL fallback
+    try {
+      const sqlPattern = pattern.replace(/\*/g, '%');
+      await query(`DELETE FROM sys_sessions WHERE id LIKE ?`, [sqlPattern]);
+    } catch (err) {
+      console.error("[Cache Fallback] Error deleting pattern from DB:", err.message);
+    }
+    return;
+  }
   try {
     // r.keys() with keyPrefix set: ioredis prepends the prefix to the pattern
     // but the RETURNED keys from Redis already have the raw prefix baked in.

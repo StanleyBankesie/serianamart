@@ -51,6 +51,7 @@ export default function PurchaseBillsForm() {
   );
   const [taxComponentsByCode, setTaxComponentsByCode] = useState({});
   const [projects, setProjects] = useState([]);
+  const [costCenters, setCostCenters] = useState([]);
   const [poTaxCodeMap, setPoTaxCodeMap] = useState({});
 
   const [formData, setFormData] = useState({
@@ -61,10 +62,11 @@ export default function PurchaseBillsForm() {
     grn_id: "",
     bill_type: billType,
     due_date: "",
-    currency_id: 4,
+    currency_id: "",
     exchange_rate: 1,
     payment_terms: 30,
     project_id: "",
+    cost_center_id: "",
     status: "DRAFT",
 
     discount_amount: 0,
@@ -109,7 +111,7 @@ export default function PurchaseBillsForm() {
               : `PLB-${String(1).padStart(6, "0")}`;
           setFormData((prev) => ({ ...prev, bill_no: initialNo }));
         }
-        const [supRes, poRes, itemsRes, uomsRes, taxesRes, curRes, projRes] =
+        const [supRes, poRes, itemsRes, uomsRes, taxesRes, curRes, projRes, ccRes] =
           await Promise.all([
             api
               .get("/purchase/suppliers")
@@ -127,6 +129,9 @@ export default function PurchaseBillsForm() {
               .catch(() => ({ data: { items: [] } })),
             api
               .get("/projects/projects")
+              .catch(() => ({ data: { items: [] } })),
+            api
+              .get("/finance/cost-centers")
               .catch(() => ({ data: { items: [] } })),
           ]);
 
@@ -153,6 +158,9 @@ export default function PurchaseBillsForm() {
           );
           setProjects(
             Array.isArray(projRes.data?.items) ? projRes.data.items : [],
+          );
+          setCostCenters(
+            Array.isArray(ccRes.data?.items) ? ccRes.data.items : (Array.isArray(ccRes.data?.data?.items) ? ccRes.data.data.items : []),
           );
           // Auto-select the first tax code for new (blank) items
           if (fetchedTaxCodes.length > 0) {
@@ -182,15 +190,13 @@ export default function PurchaseBillsForm() {
               ? curRes.data.items
               : [];
             setFinCurrencies(items);
-            const base = items.find(
-              (c) => Number(c.is_base) === 1 || c.is_base === true,
-            );
+            const base = items.find((c) => Number(c.is_base) === 1 || c.is_base === true);
             setBaseFinCurrencyId(base ? Number(base.id) : null);
 
             if (isNew && !formData.currency_id && base) {
               setFormData((prev) => ({
                 ...prev,
-                currency_id: base.id,
+                currency_id: Number(base.id),
                 exchange_rate: 1,
               }));
             }
@@ -384,6 +390,7 @@ export default function PurchaseBillsForm() {
           freight_charges: Number(h.freight_charges) || 0,
           other_charges: Number(h.other_charges) || 0,
           project_id: h.project_id || "",
+          cost_center_id: h.cost_center_id ? String(h.cost_center_id) : "",
         });
 
         setLines(
@@ -768,7 +775,7 @@ export default function PurchaseBillsForm() {
           }
         }
       } else {
-        setFormData((prev) => ({ ...prev, currency_id: 4 }));
+        setFormData((prev) => ({ ...prev, currency_id: baseFinCurrencyId || "" }));
       }
     }
 
@@ -1015,6 +1022,7 @@ export default function PurchaseBillsForm() {
         currency_id: Number(formData.currency_id),
         exchange_rate: Number(formData.exchange_rate),
         payment_terms: Number(formData.payment_terms),
+        cost_center_id: formData.cost_center_id ? Number(formData.cost_center_id) : null,
         discount_amount: Number(formData.discount_amount),
         freight_charges: Number(formData.freight_charges),
         other_charges: Number(formData.other_charges),
@@ -1084,6 +1092,7 @@ export default function PurchaseBillsForm() {
         currency_id: Number(formData.currency_id),
         exchange_rate: Number(formData.exchange_rate),
         payment_terms: Number(formData.payment_terms),
+        cost_center_id: formData.cost_center_id ? Number(formData.cost_center_id) : null,
         discount_amount: Number(formData.discount_amount),
         freight_charges: Number(formData.freight_charges),
         other_charges: Number(formData.other_charges),
@@ -1133,7 +1142,7 @@ export default function PurchaseBillsForm() {
       po_id: "",
       grn_id: "",
       due_date: "",
-      currency_id: 4,
+      currency_id: baseFinCurrencyId || "",
       exchange_rate: 1,
       payment_terms: 30,
       discount_amount: 0,
@@ -1283,6 +1292,22 @@ export default function PurchaseBillsForm() {
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.project_name || p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="label">Cost Center</label>
+            <select
+              className="input"
+              name="cost_center_id"
+              value={formData.cost_center_id || ""}
+              onChange={handleChange}
+            >
+              <option value="">-- Select Cost Center --</option>
+              {costCenters.map((cc) => (
+                <option key={cc.id} value={cc.id}>
+                  {cc.name} ({cc.code})
                 </option>
               ))}
             </select>

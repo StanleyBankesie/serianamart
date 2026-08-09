@@ -66,7 +66,9 @@ if (!match) {
   process.exit(0);
 }
 
-sw = sw.replace(addAllRe, `$1\n${entriesStr}\n$2`);
-
-writeFileSync(swPath, sw, "utf-8");
-console.log(`inject-sw-cache: rebuilt cache.addAll with ${allEntries.length} entries (${assetUrls.length} assets)`);
+try {
+  writeFileSync(swPath, sw, "utf-8");
+  console.log(`inject-sw-cache: rebuilt cache.addAll with ${allEntries.length} entries (${assetUrls.length} assets)`);
+} catch (err) {
+  console.warn("inject-sw-cache: could not update sw.js (file locked by active server):", err.message);
+}

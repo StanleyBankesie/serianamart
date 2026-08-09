@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
+import PendingApprovalTooltip from "@/components/PendingApprovalTooltip.jsx";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "api/client";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
@@ -12,6 +13,8 @@ import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmen
 import { printDocument, downloadDocumentPdf } from "@/utils/pdfUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -24,6 +27,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function GeneralRequisitionList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const { hasExceptional, canReverseApproval } = usePermission();
 
@@ -35,6 +39,7 @@ export default function GeneralRequisitionList() {
   const [searchTerm, setSearchTerm] = useState("");
 
   const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardComments, setForwardComments] = useState("");
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
@@ -376,7 +381,8 @@ export default function GeneralRequisitionList() {
         amount,
         workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
         target_user_id: targetApproverId || null,
-      });
+        comments: forwardComments,
+        });
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
       setItems((prev) =>
         prev.map((x) => (x.id === selectedDoc.id ? { ...x, status: newStatus } : x)),
@@ -388,12 +394,14 @@ export default function GeneralRequisitionList() {
       }
     } catch (e1) {
       try {
-        const wfRes = await api.post("/workflows/forward-by-document", {
+        const wfRes = await api.post("/workflows/start", {
           document_type: "GENERAL_REQUISITION",
           document_id: selectedDoc.id,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
           amount,
+        
+          comments: forwardComments || "Forwarded for Approval",
         });
         const newStatus = wfRes?.data?.status || "PENDING_APPROVAL";
         setItems((prev) =>
@@ -448,15 +456,18 @@ export default function GeneralRequisitionList() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/purchase" className="text-sm text-brand hover:text-brand-600">
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600">
             ← Back to Purchase
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold mt-2">Purchase Requisitions</h1>
           <p className="text-sm text-slate-600">Request items for purchase or services to be rendered</p>
         </div>
-        <button className="btn btn-primary" onClick={() => navigate("/purchase/general-requisitions/new")}>
-          + New Requisition
-        </button>
+        <div className="flex gap-2 items-center">
+          <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          <button className="btn btn-primary" onClick={() => navigate("/purchase/general-requisitions/new")}>
+            + New Requisition
+          </button>
+        </div>
       </div>
 
       <div className="card">
@@ -489,7 +500,7 @@ export default function GeneralRequisitionList() {
 
       <div className="card">
         <div className="card-body overflow-x-auto">
-          <table className="table">
+          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <SortableHeader label="Req. No" sortKey="requisition_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -602,9 +613,9 @@ export default function GeneralRequisitionList() {
                                 )}
                               </div>
                             ) : r.forwarded_to_username || displayStatus === "PENDING_APPROVAL" ? (
-                              <span className="list-approval-forwarded-pill">
+                              <PendingApprovalTooltip documentType="GENERAL_REQUISITION" documentId={r.id}><span className="list-approval-forwarded-pill">
                                 Forwarded to {r.forwarded_to_username || "Approver"}
-                              </span>
+                              </span></PendingApprovalTooltip>
                             ) : ["DRAFT", "REJECTED"].includes(displayStatus) ? (
                               <button
                                 type="button"
@@ -685,6 +696,7 @@ export default function GeneralRequisitionList() {
                 onClick={() => {
                   setShowForwardModal(false);
                   setSelectedDoc(null);
+                    setForwardComments("");
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setTargetApproverId(null);
@@ -771,6 +783,7 @@ export default function GeneralRequisitionList() {
                 onClick={() => {
                   setShowForwardModal(false);
                   setSelectedDoc(null);
+                    setForwardComments("");
                   setCandidateWorkflow(null);
                   setFirstApprover(null);
                   setTargetApproverId(null);

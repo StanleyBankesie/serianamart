@@ -6,7 +6,8 @@
 import React from "react";
 import { api } from "../../../../api/client.js";
 import { toast } from "react-toastify";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -14,6 +15,8 @@ import { useNavigate } from "react-router-dom";
  * @returns {JSX.Element} The rendered component
  */
 export default function LeaveRequestForm() {
+  const { id } = useParams();
+  const { hasExceptional } = usePermission();
   const navigate = useNavigate();
   const [form, setForm] = React.useState({
     employee_id: "",
@@ -32,8 +35,8 @@ export default function LeaveRequestForm() {
     async function load() {
       try {
         const [tRes, eRes] = await Promise.all([
-          api.get("/hr/leave/types"),
-          api.get("/hr/employees"),
+          api.get("/hr/leave/types").catch(() => ({ data: { items: [] } })),
+          api.get("/hr/employees").catch(() => ({ data: { items: [] } })),
         ]);
         if (mounted) {
           setTypes(tRes?.data?.items || []);
@@ -113,6 +116,8 @@ export default function LeaveRequestForm() {
               onChange={(e) =>
                 setForm((s) => ({ ...s, start_date: e.target.value }))
               }
+            
+              disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
             />
           </div>
           <div>
@@ -124,6 +129,8 @@ export default function LeaveRequestForm() {
               onChange={(e) =>
                 setForm((s) => ({ ...s, end_date: e.target.value }))
               }
+            
+              disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
             />
           </div>
           <div>

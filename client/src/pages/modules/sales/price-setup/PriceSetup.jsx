@@ -1603,12 +1603,10 @@ export default function PriceSetup() {
                 Manage standard, customer, and cost pricing
               </p>
             </div>
-            <Link
-              to="/sales"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-800 transition-colors shrink-0"
+            <button onClick={() => window.history.back()} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-800 transition-colors shrink-0"
             >
               ← Back to Menu
-            </Link>
+            </button>
           </div>
           <div className="p-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

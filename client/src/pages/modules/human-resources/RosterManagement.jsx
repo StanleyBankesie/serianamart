@@ -51,9 +51,9 @@ export default function RosterManagement() {
     setLoading(true);
     try {
       const [empRes, schedRes, leaveRes] = await Promise.all([
-        api.get("/hr/employees?status=ALL"),
-        api.get("/hr/work-schedules"),
-        api.get("/hr/leave/requests"),
+        api.get("/hr/employees?status=ALL").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/work-schedules").catch(() => ({ data: { items: [] } })),
+        api.get("/hr/leave/requests").catch(() => ({ data: { items: [] } })),
       ]);
       setEmployees(empRes.data?.items || []);
       setSchedules(schedRes.data?.items || []);
@@ -148,7 +148,7 @@ export default function RosterManagement() {
     <div className="p-4 space-y-4">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <Link to="/human-resources" className="btn-secondary text-sm">Back</Link>
+        <button onClick={() => window.history.back()} className="btn-secondary text-sm">Back</button>
         <h1 className="text-2xl font-bold flex-1">Roster Management</h1>
         <button onClick={() => window.print()} className="btn-secondary text-sm">🖨 Print</button>
       </div>

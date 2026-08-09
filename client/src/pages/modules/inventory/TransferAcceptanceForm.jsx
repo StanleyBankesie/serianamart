@@ -170,9 +170,9 @@ export default function TransferAcceptanceForm() {
                 Review items and confirm inbound transfer
               </p>
             </div>
-            <Link to="/inventory/transfer-acceptance" className="btn-success">
+            <button onClick={() => window.history.back()} className="btn-success">
               Back to List
-            </Link>
+            </button>
           </div>
         </div>
 

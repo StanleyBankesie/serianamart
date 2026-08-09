@@ -16,8 +16,15 @@ import * as XLSX from "xlsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function ProspectiveCustomerListReportPage() {
+  const [pollingCounter, setPollingCounter] = React.useState(0);
+  React.useEffect(() => {
+    const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
+    return () => clearInterval(__pollId);
+  }, [pollingCounter]);
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [customer, setCustomer] = useState("");
   const [error, setError] = useState("");
 
   async function run() {
@@ -25,7 +32,7 @@ export default function ProspectiveCustomerListReportPage() {
       setLoading(true);
       setError("");
       const res = await api.get("/sales/prospect-customers", {
-        params: { active: "true" }
+        params: { active: "true" , q: customer || undefined }
       });
       setItems(Array.isArray(res?.data?.items) ? res.data.items : []);
     } catch (e) {
@@ -37,7 +44,7 @@ export default function ProspectiveCustomerListReportPage() {
 
   useEffect(() => {
     run();
-  }, []);
+  }, [customer, pollingCounter]);
 
   function exportExcel() {
     if (!items.length) return;
@@ -76,9 +83,9 @@ export default function ProspectiveCustomerListReportPage() {
             <p className="text-xs opacity-90">Export all active prospective customers to Excel</p>
           </div>
           <div className="flex gap-2">
-            <Link to="/sales" className="btn btn-sm bg-white/10 hover:bg-white/20 text-white border-white/20">
+            <button onClick={() => window.history.back()} className="btn btn-sm bg-white/10 hover:bg-white/20 text-white border-white/20">
               Back
-            </Link>
+            </button>
             <button
               onClick={exportExcel}
               disabled={loading || items.length === 0}
@@ -91,8 +98,21 @@ export default function ProspectiveCustomerListReportPage() {
         <div className="card-body p-4 bg-slate-50 dark:bg-slate-900/50">
           {error && <div className="alert alert-error mb-4">{error}</div>}
 
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div>
+              <label className="label">Search Customer</label>
+              <input
+                type="text"
+                className="input w-full"
+                placeholder="Name or code..."
+                value={customer}
+                onChange={(e) => setCustomer(e.target.value)}
+              />
+            </div>
+          </div>
+
           <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-            <table className="table table-compact w-full text-sm">
+            <table className="table table-compact w-full text-sm table-fixed">
               <thead className="bg-slate-50 dark:bg-slate-900/50">
                 <tr>
                   <SortableHeader label="Code" sortKey="code" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-left p-3 border-b" />
@@ -115,7 +135,7 @@ export default function ProspectiveCustomerListReportPage() {
                   </tr>
                 ) : (
                   sorted_items.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/30">
+                    <tr key={r.id || Math.random()} className="hover:bg-slate-50 dark:hover:bg-slate-900/30">
                       <td className="p-3 border-b font-mono text-xs">{r.customer_code || "-"}</td>
                       <td className="p-3 border-b font-medium">{r.customer_name || r.prospect_customer}</td>
                       <td className="p-3 border-b">{r.customer_type || "-"}</td>

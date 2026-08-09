@@ -24,7 +24,7 @@ export default function CampaignHub() {
             <p>Choose a campaign type to manage</p>
           </div>
           <div className="ds-header-actions">
-            <Link to="/sales" className="ds-btn ds-btn-secondary">
+            <Link to="/sales?section=Pricing%20%26%20Discounts" className="ds-btn ds-btn-secondary">
               Return to Menu
             </Link>
           </div>

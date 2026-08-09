@@ -7,6 +7,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../../../../api/client";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { ArrowLeft, Save, Search, Truck, CheckCircle } from "lucide-react";
 
 /**
@@ -18,6 +19,7 @@ export default function DeliveryForm() {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEdit = Boolean(id);
+  const { hasExceptional } = usePermission();
   const { scope } = useAuth();
 
   const [loading, setLoading] = useState(false);
@@ -32,6 +34,7 @@ export default function DeliveryForm() {
     customer_id: "",
     sales_order_id: "",
     invoice_id: "",
+    warehouse_id: "",
     status: "DRAFT",
     remarks: "",
     delivery_instructions: "",
@@ -49,11 +52,13 @@ export default function DeliveryForm() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [invoices, setInvoices] = useState([]);
   const [itemsCatalog, setItemsCatalog] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
 
   useEffect(() => {
     loadCustomers();
     loadInvoices();
     loadItems();
+    loadWarehouses();
     fetchTaxCodes();
     if (isEdit) {
       loadDelivery(id);
@@ -114,6 +119,16 @@ export default function DeliveryForm() {
     }
   }
 
+  
+  async function loadWarehouses() {
+    try {
+      const res = await api.get("/inventory/warehouses");
+      setWarehouses(Array.isArray(res.data?.items) ? res.data.items : []);
+    } catch (err) {
+      console.error("Failed to load warehouses", err);
+    }
+  }
+
   async function loadItems() {
     try {
       const res = await api.get("/inventory/items");
@@ -169,6 +184,7 @@ export default function DeliveryForm() {
         customer_id: header.customer_id || "",
         sales_order_id: header.sales_order_id || "",
         invoice_id: header.invoice_id || "",
+        warehouse_id: header.warehouse_id || "",
         status: header.status || prev.status,
         remarks: header.remarks || "",
         delivery_instructions: header.delivery_instructions || "",
@@ -246,6 +262,7 @@ export default function DeliveryForm() {
         customer_id: invItem.customer_id || prev.customer_id,
         sales_order_id: invItem.sales_order_id || "",
         invoice_id: invItem.id || invoiceId,
+        warehouse_id: invItem.warehouse_id || "",
         total_tax: Number(invItem.tax_amount || 0),
         invoice_amount: Number(invItem.total_amount || 0),
         delivery_instructions: invItem.remarks || "",
@@ -289,6 +306,7 @@ export default function DeliveryForm() {
         company_id: scope?.companyId || 1,
         branch_id: scope?.branchId,
         invoice_id: formData.invoice_id || null,
+        warehouse_id: formData.warehouse_id || null,
         sales_order_id: formData.sales_order_id || null,
         items: formData.items.map((item) => {
           const tax = taxes.find((t) => t.value == item.tax_type);
@@ -424,7 +442,28 @@ export default function DeliveryForm() {
                     setFormData({ ...formData, delivery_date: e.target.value })
                   }
                   className="w-full border rounded p-2"
+                  disabled={isEdit && !hasExceptional("DOCUMENT.EDIT_DATE")}
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Warehouse <span className="text-red-500">*</span>
+                </label>
+                <select
+                  className="w-full border rounded p-2"
+                  required
+                  value={formData.warehouse_id || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, warehouse_id: e.target.value })
+                  }
+                >
+                  <option value="">-- Select Warehouse --</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.warehouse_name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="col-span-2 relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -445,6 +484,7 @@ export default function DeliveryForm() {
                       ...formData,
                       customer_id: "",
                       invoice_id: "",
+    warehouse_id: "",
                       sales_order_id: "",
                       items: [],
                     });
@@ -472,6 +512,7 @@ export default function DeliveryForm() {
                                 ...formData,
                                 customer_id: String(c.id),
                                 invoice_id: "",
+    warehouse_id: "",
                                 sales_order_id: "",
                                 items: [],
                               });
@@ -556,7 +597,7 @@ export default function DeliveryForm() {
               <table className="w-full text-sm text-left">
                 <thead className="bg-gray-50 text-gray-700">
                   <tr>
-                    <th className="p-3">Item</th>
+                    <th className="p-3 w-[40%]">Item</th>
                     <th className="p-3 w-28">Qty</th>
                     <th className="p-3 w-24">UOM</th>
                     <th className="p-3 w-48">Batch</th>

@@ -1,4 +1,5 @@
 import express from "express";
+import { query } from "../db/pool.js";
 import {
   login,
   logout,
@@ -44,5 +45,68 @@ router.post("/forgot-password/request-otp", (req, res, next) =>
 router.post("/forgot-password/reset", (req, res, next) =>
   resetPasswordWithOtp(req, res, next),
 );
+
+
+router.get("/public/upcoming-events", async (req, res, next) => {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        \`key\` VARCHAR(100) NOT NULL UNIQUE,
+        value LONGTEXT NULL,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => {});
+    // Announcements
+    const annRows = await query("SELECT value FROM app_settings WHERE `key` = 'upcoming_announcements' LIMIT 1").catch(() => []);
+    let announcements = [];
+    if (annRows[0]?.value) {
+      try {
+        const parsed = JSON.parse(annRows[0].value);
+        if (Array.isArray(parsed)) {
+          announcements = parsed.filter(Boolean);
+        } else {
+          announcements = [annRows[0].value];
+        }
+      } catch (e) {
+        announcements = [annRows[0].value];
+      }
+    }
+
+    // Birthdays
+    const bdRows = await query(`
+      SELECT full_name, DATE_FORMAT(date_of_birth, '%m-%d') as celebration_date 
+      FROM hr_employees 
+      WHERE date_of_birth IS NOT NULL 
+        AND deleted_at IS NULL 
+        AND is_active = 1
+        AND (
+          (MONTH(date_of_birth) = MONTH(CURDATE()) AND DAY(date_of_birth) >= DAY(CURDATE()) AND DAY(date_of_birth) <= DAY(CURDATE() + INTERVAL 7 DAY))
+          OR
+          (MONTH(CURDATE()) <> MONTH(CURDATE() + INTERVAL 7 DAY) AND MONTH(date_of_birth) = MONTH(CURDATE() + INTERVAL 7 DAY) AND DAY(date_of_birth) <= DAY(CURDATE() + INTERVAL 7 DAY))
+        )
+      ORDER BY MONTH(date_of_birth), DAY(date_of_birth)
+    `).catch(() => []);
+
+    // Anniversaries
+    const anRows = await query(`
+      SELECT full_name, DATE_FORMAT(joining_date, '%m-%d') as celebration_date 
+      FROM hr_employees 
+      WHERE joining_date IS NOT NULL 
+        AND deleted_at IS NULL 
+        AND is_active = 1
+        AND (
+          (MONTH(joining_date) = MONTH(CURDATE()) AND DAY(joining_date) >= DAY(CURDATE()) AND DAY(joining_date) <= DAY(CURDATE() + INTERVAL 7 DAY))
+          OR
+          (MONTH(CURDATE()) <> MONTH(CURDATE() + INTERVAL 7 DAY) AND MONTH(joining_date) = MONTH(CURDATE() + INTERVAL 7 DAY) AND DAY(joining_date) <= DAY(CURDATE() + INTERVAL 7 DAY))
+        )
+      ORDER BY MONTH(joining_date), DAY(joining_date)
+    `).catch(() => []);
+
+    res.json({ announcements, birthdays: bdRows, anniversaries: anRows });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

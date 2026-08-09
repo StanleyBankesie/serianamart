@@ -10,6 +10,8 @@ import { toast } from "react-toastify";
 import "./DiscountSchemeList.css";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -17,6 +19,7 @@ import SortableHeader from "@/components/SortableHeader.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function DiscountSchemeList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   const [schemes, setSchemes] = useState([]);
@@ -78,12 +81,10 @@ export default function DiscountSchemeList() {
             <p>Percentage and fixed-amount discount campaigns</p>
           </div>
           <div className="ds-header-actions">
-            <Link
-              to="/sales/discount-schemes"
-              className="ds-btn ds-btn-secondary"
+            <button onClick={() => window.history.back()} className="ds-btn ds-btn-secondary"
             >
               Back to Campaign Types
-            </Link>
+            </button>
             <button
               className="ds-btn ds-btn-primary"
               onClick={() => navigate("/sales/discount-schemes/discount/new")}
@@ -118,7 +119,10 @@ export default function DiscountSchemeList() {
         </div>
 
         <div style={{ overflowX: "auto" }}>
-          <table className="ds-table">
+          <div className="flex justify-end mb-4">
+            <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          </div>
+          <table className={"ds-table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
               <tr>
                 <SortableHeader

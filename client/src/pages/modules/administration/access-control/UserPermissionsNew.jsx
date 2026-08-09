@@ -46,7 +46,12 @@ export default function UserPermissionsNew() {
     setError("");
     try {
       const res = await api.get("/admin/users");
-      const items = res?.data?.data?.items || [];
+      const d = res?.data;
+      let items = [];
+      if (Array.isArray(d)) items = d;
+      else if (Array.isArray(d?.items)) items = d.items;
+      else if (Array.isArray(d?.data?.items)) items = d.data.items;
+      else if (Array.isArray(d?.data)) items = d.data;
       setUsers(items);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load users");
@@ -144,13 +149,26 @@ export default function UserPermissionsNew() {
           roleFeatSet.has(String(f.feature_key)),
         );
 
-        // Features only (dashboards excluded from user permissions page)
-        const featuresOnly = filteredFeatures.filter((feature) => {
-          const [moduleKey, itemKey] = feature.feature_key.split(":");
-          const moduleInfo = MODULES_REGISTRY[moduleKey];
-          if (!moduleInfo) return true;
-          return !moduleInfo.dashboards.some((d) => d.key === itemKey);
+        // Build registry label map so labels always reflect modulesRegistry.js
+        const registryLabelMap = new Map();
+        Object.entries(MODULES_REGISTRY).forEach(([mKey, mod]) => {
+          (mod.features || []).forEach((f) => {
+            registryLabelMap.set(`${mKey}:${f.key}`, f.label);
+          });
         });
+
+        // Features only (dashboards excluded from user permissions page)
+        const featuresOnly = filteredFeatures
+          .filter((feature) => {
+            const [moduleKey, itemKey] = feature.feature_key.split(":");
+            const moduleInfo = MODULES_REGISTRY[moduleKey];
+            if (!moduleInfo) return true;
+            return !moduleInfo.dashboards?.some((d) => d.key === itemKey);
+          })
+          .map((feature) => {
+            const updatedLabel = registryLabelMap.get(feature.feature_key) || feature.label;
+            return { ...feature, label: updatedLabel };
+          });
 
         // Store role defaults + pages from context for later save (keyed by feature_key)
         const ctxMap = new Map();
@@ -328,8 +346,8 @@ export default function UserPermissionsNew() {
         permissions: payload,
       });
       try {
-        // Non-blocking RBAC refresh (do not delay navigation)
-        refreshPermissions?.();
+        // Await refresh so page-level permission cache is cleared before we reload context
+        await refreshPermissions?.();
         window.dispatchEvent?.(new Event("rbac:changed"));
       } catch {}
 
@@ -589,7 +607,7 @@ export default function UserPermissionsNew() {
           ) : (
             <button
               className="btn btn-secondary"
-              onClick={() => navigate("/administration")}
+              onClick={() => navigate("/administration?section=Audit%20%26%20Logs")}
             >
               Back to Menu
             </button>
@@ -749,16 +767,16 @@ export default function UserPermissionsNew() {
                         Features ({visibleFeatures.length})
                       </h3>
                       <div className="overflow-x-auto">
-                        <table className="table w-full">
+                        <table className="table w-full table-fixed">
                           <thead>
                             <tr>
-                              <th>Feature</th>
-                              <th>Module</th>
-                              <th>Type</th>
-                              <th className="text-center w-24">View</th>
-                              <th className="text-center w-24">Create</th>
-                              <th className="text-center w-24">Edit</th>
-                              <th className="text-center w-24">Delete</th>
+                              <th className="text-center w-[14.28%]">Feature</th>
+                              <th className="text-center w-[14.28%]">Module</th>
+                              <th className="text-center w-[14.28%]">Type</th>
+                              <th className="text-center w-[14.28%]">View</th>
+                              <th className="text-center w-[14.28%]">Create</th>
+                              <th className="text-center w-[14.28%]">Edit</th>
+                              <th className="text-center w-[14.28%]">Delete</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -774,11 +792,11 @@ export default function UserPermissionsNew() {
 
                               return (
                                 <tr key={feature.feature_key}>
-                                  <td className="p-3 font-medium">
+                                  <td className="p-3 font-medium text-center truncate">
                                     {feature.label}
                                   </td>
-                                  <td className="p-3">{feature.module_key}</td>
-                                  <td className="p-3">
+                                  <td className="p-3 text-center truncate">{feature.module_key}</td>
+                                  <td className="p-3 text-center truncate">
                                     <span
                                       className={`px-2 py-1 rounded text-xs font-medium ${
                                         feature.type === "dashboard"

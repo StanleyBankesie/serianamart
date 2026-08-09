@@ -19,6 +19,9 @@ import ReverseApprovalButton from "../../../../components/ReverseApprovalButton.
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import PendingApprovalTooltip from "@/components/PendingApprovalTooltip.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 function StatusBadge({ status }) {
   const cls =
@@ -39,6 +42,7 @@ function StatusBadge({ status }) {
  * @returns {JSX.Element} The rendered component
  */
 export default function SalesVoucherList() {
+  const [viewMode, setViewMode] = useViewMode();
   const { canPerformAction } = usePermission();
   const location = useLocation();
   const [items, setItems] = useState([]);
@@ -63,6 +67,7 @@ export default function SalesVoucherList() {
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [wfLoading, setWfLoading] = useState(false);
   const [wfError, setWfError] = useState("");
+  const [forwardComments, setForwardComments] = useState("");
   const [candidateWorkflow, setCandidateWorkflow] = useState(null);
   const [workflowSteps, setWorkflowSteps] = useState([]);
   const [firstApprover, setFirstApprover] = useState(null);
@@ -104,22 +109,7 @@ export default function SalesVoucherList() {
 
   // Helper to format voucher numbers with correct prefixes
   function formatVoucherNoDisplay(voucherNo, typeCode) {
-    const raw = String(voucherNo || "");
-    const code = String(typeCode || "").toUpperCase();
-
-    // Extract numeric part
-    const numMatch = raw.match(/(\d+)$/);
-    const num = numMatch ? numMatch[1] : raw.replace(/[^\d]/g, "");
-
-    if (!num) return raw;
-
-    // Format based on voucher type
-    if (code === "PAYV") {
-      return `PV${String(num).padStart(6, "0")}`;
-    } else if (code === "PV" || code === "PUV") {
-      return `PB${String(num).padStart(6, "0")}`;
-    }
-    return raw;
+    return String(voucherNo || "");
   }
 
   function initDefaultDates() {
@@ -960,6 +950,7 @@ export default function SalesVoucherList() {
     setSelectedVoucher(v);
     setShowForwardModal(true);
     setWfError("");
+                    setForwardComments("");
     if (!workflowsCache) {
       try {
         setWfLoading(true);
@@ -983,6 +974,7 @@ export default function SalesVoucherList() {
       setFirstApprover(null);
       setWorkflowSteps([]);
       setWfError("");
+                    setForwardComments("");
       return;
     }
     const route = isPV
@@ -1076,6 +1068,7 @@ export default function SalesVoucherList() {
       setFirstApprover(null);
       setWorkflowSteps([]);
       setWfError("");
+                    setForwardComments("");
       return;
     }
     const route = isPV
@@ -1220,6 +1213,7 @@ export default function SalesVoucherList() {
           amount,
           workflow_id: candidateWorkflow ? candidateWorkflow.id : null,
           target_user_id: targetApproverId || null,
+        comments: forwardComments,
         },
       );
       const newStatus = res?.data?.status || "PENDING_APPROVAL";
@@ -1284,7 +1278,7 @@ export default function SalesVoucherList() {
             <p className="text-sm mt-1">List, review, and manage vouchers</p>
           </div>
           <div className="flex gap-2">
-            <Link to="/finance" className="font-sans btn btn-secondary">
+            <Link to="/finance?section=Voucher%20Management" className="font-sans btn btn-secondary">
               Return to Menu
             </Link>
             <button
@@ -1357,8 +1351,13 @@ export default function SalesVoucherList() {
           ) : sortedVouchers.length === 0 ? (
             <div className="text-center py-12">No vouchers found.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table">
+            
+                <>
+<div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+              <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
                 <thead>
                   <tr>
                     <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -1386,7 +1385,13 @@ export default function SalesVoucherList() {
                         {`GH₵ ${Number(v.balanced_amount || v.total_debit || 0).toLocaleString()}`}
                       </td>
                       <td>
-                        <StatusBadge status={v.status} />
+                        {v.status === "PENDING" ? (
+                          <PendingApprovalTooltip documentType="SALES_VOUCHER" documentId={v.id}>
+                            <StatusBadge status={v.status} />
+                          </PendingApprovalTooltip>
+                        ) : (
+                          <StatusBadge status={v.status} />
+                        )}
                       </td>
                       <td className="py-2">
                         <div className="flex items-center justify-end gap-2">
@@ -1478,7 +1483,7 @@ export default function SalesVoucherList() {
                                       </ReverseApprovalButton>
                                     )}
                                   </div>
-                                ) : v.forwarded_to_username ? (
+                                ) : v.forwarded_to_username && !["RETURNED", "DRAFT"].includes(String(v.status || "").toUpperCase()) ? (
                                   <span className="list-approval-forwarded-pill">
                                     Forwarded to {v.forwarded_to_username}
                                   </span>
@@ -1504,7 +1509,9 @@ export default function SalesVoucherList() {
                 </tbody>
               </table>
             </div>
-          )}
+          
+</>
+)}
         </div>
       </div>
       {showForwardModal ? (
@@ -1521,6 +1528,7 @@ export default function SalesVoucherList() {
                   setTargetApproverId(null);
                   setWorkflowSteps([]);
                   setWfError("");
+                    setForwardComments("");
                 }}
                 className="text-white hover:text-slate-200 text-xl font-bold"
               >
@@ -1613,7 +1621,18 @@ export default function SalesVoucherList() {
                 })()}
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
+            
+                <div className="mt-4 p-4 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Comments (Optional)</label>
+                  <textarea
+                    value={forwardComments}
+                    onChange={(e) => setForwardComments(e.target.value)}
+                    className="w-full border-slate-300 rounded-md focus:ring-brand focus:border-brand sm:text-sm"
+                    rows={3}
+                    placeholder="Add any comments for the approver..."
+                  />
+                </div>
+              <div className="p-4 border-t flex justify-end gap-2 bg-gray-50">
               <button
                 type="button"
                 className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
@@ -1625,6 +1644,7 @@ export default function SalesVoucherList() {
                   setTargetApproverId(null);
                   setWorkflowSteps([]);
                   setWfError("");
+                    setForwardComments("");
                 }}
               >
                 Cancel

@@ -39,7 +39,7 @@ function SectionHeader({ emoji, title, subtitle }) {
         {subtitle ? <p className="text-sm mt-1">{subtitle}</p> : null}
       </div>
       <div className="flex gap-2">
-        <Link to="/pos" className="btn btn-secondary">
+        <Link to="/pos?section=Reports" className="btn btn-secondary">
           Return to Menu
         </Link>
       </div>

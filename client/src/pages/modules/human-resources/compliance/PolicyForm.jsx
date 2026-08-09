@@ -136,9 +136,9 @@ export default function PolicyForm() {
             >
               Medical Policy Form
             </Link>
-            <Link to="/human-resources/policies" className="btn-secondary">
+            <button onClick={() => window.history.back()} className="btn-secondary">
               Back
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -209,9 +209,9 @@ export default function PolicyForm() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4">
-            <Link to="/human-resources/policies" className="btn-secondary">
+            <button onClick={() => window.history.back()} className="btn-secondary">
               Cancel
-            </Link>
+            </button>
             <button className="btn-primary" disabled={loading || uploadingFile}>
               {loading || uploadingFile ? "Saving..." : "Save Policy"}
             </button>

@@ -207,7 +207,7 @@ export default function DirectPurchase() {
           setTaxes(mappedTaxes);
           setApprovedItemRequisitions(Array.isArray(reqs) ? reqs : []);
           const base =
-            (cur || []).find((c) => Number(c.is_base) === 1)?.id || null;
+            (cur || []).find((c) => Number(c.is_base) === 1 || c.is_base === true)?.id || null;
           setBaseCurrencyId(base);
           if (base) {
             setForm((prev) =>
@@ -283,6 +283,7 @@ export default function DirectPurchase() {
     if (comps.length > 0) {
       comps.forEach((c) => {
         const rate = Number(c.rate_percent) || 0;
+        if (rate === 0) return;
         const amt = (taxableTotal * rate) / 100;
         components.push({
           name: c.component_name,
@@ -396,6 +397,7 @@ export default function DirectPurchase() {
       if (comps.length > 0) {
         comps.forEach((c) => {
           const rate = Number(c.rate_percent) || 0;
+          if (rate === 0) return;
           const amt = (base * rate) / 100;
           const name = c.component_name;
           if (!compTotals[name]) {
@@ -680,12 +682,10 @@ export default function DirectPurchase() {
               Complete a full purchase in one step
             </p>
           </div>
-          <Link
-            to="/purchase/direct-purchase"
-            className="px-3 py-1.5 rounded bg-white text-brand hover:bg-slate-100"
+          <button onClick={() => window.history.back()} className="px-3 py-1.5 rounded bg-white text-brand hover:bg-slate-100"
           >
             ← Back to List
-          </Link>
+          </button>
         </div>
         <div className="px-6 py-5 space-y-4">
           {error ? <div className="alert alert-error">{error}</div> : null}

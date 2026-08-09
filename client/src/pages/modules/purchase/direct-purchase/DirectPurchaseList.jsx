@@ -13,6 +13,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { Link } from "react-router-dom";
 import DocumentAttachmentsModal from "@/components/attachments/DocumentAttachmentsModal.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 import {
   ListPrintIconButton,
   ListPdfIconButton,
@@ -25,6 +27,7 @@ import {
  * @returns {JSX.Element} The rendered component
  */
 export default function DirectPurchaseList() {
+  const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
   const { canAccessPath, canReverseApproval } = usePermission();
@@ -75,12 +78,10 @@ export default function DirectPurchaseList() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            to="/purchase"
-            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
           >
             ← Back to Purchase
-          </Link>
+          </button>
           <h1 className="text-2xl font-bold mt-2">Direct Purchases</h1>
           <p className="text-sm text-slate-600">
             Single-step purchases created from the Direct Purchase form
@@ -103,8 +104,13 @@ export default function DirectPurchaseList() {
           {loading ? (
             <div>Loading...</div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="table w-full">
+            
+                <>
+<div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+              <table className={ "table w-full " + (viewMode === 'grid' ? 'table-grid-mode' : '') }>
                 <thead>
                   <tr>
                     <SortableHeader label="No" sortKey="dp_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -243,7 +249,9 @@ export default function DirectPurchaseList() {
                 </tbody>
               </table>
             </div>
-          )}
+          
+</>
+)}
         </div>
       </div>
       <DocumentAttachmentsModal

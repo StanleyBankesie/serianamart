@@ -23,6 +23,7 @@ function mapPermissionKeyToModuleAndAction(key) {
     PROJ: "project-management",
     SERVICE: "service-management",
     SVC: "service-management",
+    TRANSPORT: "transport",
   };
   const moduleKey = moduleMap[prefix] || "";
   let action = "view";
@@ -37,6 +38,13 @@ function mapPermissionKeyToModuleAndAction(key) {
 // Middleware to verify if a user has access to a specific module
 export function requireModule(moduleKey) {
   return function composedModule(req, res, next) {
+    const rawId = process.env.LICENSE_SUPER_ADMIN_ID;
+    const superAdminId = rawId ? parseInt(String(rawId).trim(), 10) : 1;
+    const userId = req.user?.sub || req.user?.id;
+    if (userId && Number(userId) === Number(superAdminId)) {
+      return next();
+    }
+
     const mk = String(moduleKey || "");
     // Fallback to next middleware if module key is missing
     if (!mk) return next();
@@ -54,16 +62,14 @@ export function requireModule(moduleKey) {
  */
 export function requirePermission(permissionKey) {
   return function composedMiddleware(req, res, next) {
-    const url = String(req.baseUrl || req.originalUrl || "");
-    // Allow read-only GET requests for specific common modules to bypass strict permission checks
-    if (
-      req.method === "GET" &&
-      (url.includes("/api/sales") ||
-        url.includes("/api/purchase") ||
-        url.includes("/api/finance"))
-    ) {
+    const rawId = process.env.LICENSE_SUPER_ADMIN_ID;
+    const superAdminId = rawId ? parseInt(String(rawId).trim(), 10) : 1;
+    const userId = req.user?.sub || req.user?.id;
+    if (userId && Number(userId) === Number(superAdminId)) {
       return next();
     }
+
+    const url = String(req.baseUrl || req.originalUrl || "");
     // Map the required permission key to a module and action
     const { moduleKey, action } =
       mapPermissionKeyToModuleAndAction(permissionKey);
@@ -84,16 +90,14 @@ export function requireAnyPermission(permissionKeys) {
     ? permissionKeys.filter(Boolean)
     : [permissionKeys].filter(Boolean);
   return async function composedAnyMiddleware(req, res, next) {
-    const url = String(req.baseUrl || req.originalUrl || "");
-    // Allow read-only GET requests for specific common modules to bypass checks
-    if (
-      req.method === "GET" &&
-      (url.includes("/api/sales") ||
-        url.includes("/api/purchase") ||
-        url.includes("/api/finance"))
-    ) {
+    const rawId = process.env.LICENSE_SUPER_ADMIN_ID;
+    const superAdminId = rawId ? parseInt(String(rawId).trim(), 10) : 1;
+    const userId = req.user?.sub || req.user?.id;
+    if (userId && Number(userId) === Number(superAdminId)) {
       return next();
     }
+
+    const url = String(req.baseUrl || req.originalUrl || "");
     if (!keys.length) return next();
     try {
       // Iterate over each permission key to find at least one valid access

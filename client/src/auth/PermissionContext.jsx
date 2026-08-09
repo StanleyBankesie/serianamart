@@ -47,6 +47,9 @@ function readPermissionSnapshot() {
       exceptionalPerms: Array.isArray(data?.exceptionalPerms)
         ? data.exceptionalPerms
         : [],
+      licensedModules: Array.isArray(data?.licensedModules)
+        ? data.licensedModules
+        : [],
     };
   } catch {
     return null;
@@ -74,6 +77,7 @@ export const PermissionProvider = ({ children }) => {
   const [permissions, setPermissions] = useState([]);
   const [roleFeatures, setRoleFeatures] = useState(new Set());
   const [exceptionalPerms, setExceptionalPerms] = useState(new Set());
+  const [licensedModules, setLicensedModules] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [sessionOverrides, setSessionOverrides] = useState(() => new Map());
@@ -130,9 +134,9 @@ export const PermissionProvider = ({ children }) => {
   /**
    * Load user permissions from backend
    */
-  const loadPermissions = async () => {
+  const loadPermissions = async (background = false) => {
     try {
-      setLoading(true);
+      if (!background) setLoading(true);
       setError(null);
 
       if (!initialized || !token) {
@@ -140,6 +144,7 @@ export const PermissionProvider = ({ children }) => {
         setPermissions([]);
         setRoleFeatures(new Set());
         setExceptionalPerms(new Set());
+        setLicensedModules(new Set());
         return;
       }
 
@@ -179,6 +184,13 @@ export const PermissionProvider = ({ children }) => {
               .filter(Boolean),
           ),
         );
+        setLicensedModules(
+          new Set(
+            (snapshot.licensedModules || [])
+              .map((m) => String(m || "").trim())
+              .filter(Boolean),
+          ),
+        );
       }
 
       const res = await api.get("/admin/user-permissions", BACKGROUND_GET_CONFIG);
@@ -189,6 +201,9 @@ export const PermissionProvider = ({ children }) => {
       const feats = Array.isArray(res.data?.role_features)
         ? res.data.role_features
         : [];
+      const licensedMods = Array.isArray(res.data?.licensed_modules)
+        ? res.data.licensed_modules
+        : [];
 
       // Load user-specific overrides and merge (overrides win)
       const userOverridesRes = await api
@@ -197,9 +212,11 @@ export const PermissionProvider = ({ children }) => {
           BACKGROUND_GET_CONFIG,
         )
         .catch(() => ({ data: { items: [] } }));
-      const overrideItems = Array.isArray(userOverridesRes?.data?.items)
-        ? userOverridesRes.data.items
-        : [];
+      const overrideItems = Array.isArray(userOverridesRes?.data?.data?.items)
+        ? userOverridesRes.data.data.items
+        : Array.isArray(userOverridesRes?.data?.items)
+          ? userOverridesRes.data.items
+          : [];
       const overrideByFk = new Map(
         overrideItems.map((it) => [
           String(it.feature_key || "").trim(),
@@ -235,9 +252,8 @@ export const PermissionProvider = ({ children }) => {
         return p;
       });
 
-      setModules(
-        new Set(mods.map((m) => String(m || "").trim()).filter(Boolean)),
-      );
+      const modSet = new Set(mods.map((m) => String(m || "").trim()).filter(Boolean));
+      setModules(modSet);
       // Use merged permissions; include overrides for features not in role perms
       for (const [fk, ov] of overrideByFk.entries()) {
         if (!merged.find((p) => String(p.feature_key || "") === fk)) {
@@ -254,9 +270,8 @@ export const PermissionProvider = ({ children }) => {
       }
 
       setPermissions(merged);
-      setRoleFeatures(
-        new Set(feats.map((f) => String(f || "").trim()).filter(Boolean)),
-      );
+      const featureSet = new Set(feats.map((f) => String(f || "").trim()).filter(Boolean));
+      setRoleFeatures(featureSet);
       try {
         const exRes = await api
           .get(
@@ -284,17 +299,24 @@ export const PermissionProvider = ({ children }) => {
           if (active && isDeny) cur.deny = true;
           byCode.set(code, cur);
         }
-        const set = new Set(
+        const exceptionalSet = new Set(
           Array.from(byCode.entries())
             .filter(([_, v]) => v.allow && !v.deny)
             .map(([k]) => k),
         );
-        setExceptionalPerms(set);
+        setExceptionalPerms(exceptionalSet);
+
+        const licensedSet = new Set(
+          licensedMods.map((m) => String(m || "").trim()).filter(Boolean),
+        );
+        setLicensedModules(licensedSet);
+
         writePermissionSnapshot({
-          modules: mods,
+          modules: Array.from(modSet),
           permissions: merged,
-          roleFeatures: feats,
-          exceptionalPerms: Array.from(set),
+          roleFeatures: Array.from(featureSet),
+          exceptionalPerms: Array.from(exceptionalSet),
+          licensedModules: Array.from(licensedSet),
         });
       } catch {
         setExceptionalPerms(new Set());
@@ -451,7 +473,7 @@ export const PermissionProvider = ({ children }) => {
       parts = parts.slice(0, parts.length - 1);
     }
 
-    if (
+    if(
       parts[0] === "administration" &&
       parts[1] === "access" &&
       parts.length >= 3
@@ -495,18 +517,13 @@ export const PermissionProvider = ({ children }) => {
         next.delete(base);
         return next;
       });
-      try {
-        window.dispatchEvent(new Event("rbac:updated"));
-      } catch {}
       return perms;
     } catch (err) {
-      if (isTransientBackendError(err)) {
-        setPagePermRetryAfter((prev) => {
-          const next = new Map(prev);
-          next.set(base, Date.now() + PAGE_PERM_RETRY_MS);
-          return next;
-        });
-      }
+      setPagePermRetryAfter((prev) => {
+        const next = new Map(prev);
+        next.set(base, Date.now() + (PAGE_PERM_RETRY_MS || 10000));
+        return next;
+      });
       return null;
     } finally {
       setPagePermsPending((prev) => {
@@ -524,6 +541,7 @@ export const PermissionProvider = ({ children }) => {
   };
 
   const canPerformPageAction = (path, action = "view") => {
+    if (isSuper) return true;
     const perms = getPagePerms(path);
     if (!perms) return null;
     const key =
@@ -601,6 +619,7 @@ export const PermissionProvider = ({ children }) => {
   const canViewModule = (moduleKey) => {
     const mk = String(moduleKey || "");
     if (!mk) return false;
+    if (isSuper) return true;
     if (modules.size > 0) return modules.has(mk);
     return isSuper;
   };
@@ -611,6 +630,7 @@ export const PermissionProvider = ({ children }) => {
   const hasExplicitRoleConfig = roleFeatures.size > 0 || permissions.length > 0;
 
   const isFeatureEnabled = (moduleKey, featureKey) => {
+    if (isSuper) return true;
     if (!isModuleEnabled(moduleKey)) return false;
     const fk = `${moduleKey}:${featureKey}`;
     if (hasExplicitRoleConfig) return permByFeatureKey.has(fk);
@@ -622,6 +642,7 @@ export const PermissionProvider = ({ children }) => {
    * Check if dashboard is enabled
    */
   const isDashboardEnabled = (moduleKey, dashboardKey) => {
+    if (isSuper) return true;
     if (!isModuleEnabled(moduleKey)) return false;
     const fk = `${moduleKey}:${dashboardKey}`;
     if (hasExplicitRoleConfig) return permByFeatureKey.has(fk);
@@ -636,7 +657,17 @@ export const PermissionProvider = ({ children }) => {
     const mk = String(moduleKey || "");
     const seg = String(featureKey || "");
     if (!mk || !seg) return false;
+    if (isSuper) return true;
     if (!isModuleEnabled(mk)) return false;
+
+    let isExclusive = false;
+    const moduleInfo = MODULES_REGISTRY[mk];
+    if (moduleInfo && moduleInfo.features) {
+      const feature = moduleInfo.features.find((f) => String(f.key) === seg);
+      if (feature && feature.isExclusive) {
+        isExclusive = true;
+      }
+    }
 
     const allowKey = `${mk}:${seg}`;
     if (roleFeatures.has(allowKey)) return true;
@@ -670,33 +701,49 @@ export const PermissionProvider = ({ children }) => {
         return true;
     }
     if (hasExplicitRoleConfig) return false;
-    return isSuper;
+    return isExclusive ? false : isSuper;
   };
 
   const hasRoleFeature = (allowKey) => {
     const k = String(allowKey || "").trim();
     if (!k) return false;
+    if (isSuper) return true;
     if (hasExplicitRoleConfig)
       return roleFeatures.has(k) || permByFeatureKey.has(k);
-    if (isSuper) return true;
     return roleFeatures.has(k) || permByFeatureKey.has(k);
   };
 
   const canAccessPath = (path, action = "view") => {
     const p = String(path || "");
     if (!p) return false;
+    if (isSuper) return true;
     if (p === "/" || p === "/dashboard") return true;
-    if (hasExplicitRoleConfig && globalOverrides.view) return true;
-    if (!hasExplicitRoleConfig && (isSuper || globalOverrides.view))
-      return true;
-
     const parts = p.split("/").filter(Boolean);
+    const mk = String(parts[0] || "");
+    const seg = String(parts[1] || "");
+
+    let isExclusive = false;
+    if (mk && seg) {
+      const moduleInfo = MODULES_REGISTRY[mk];
+      if (moduleInfo && moduleInfo.features) {
+        const feature = moduleInfo.features.find((f) => String(f.key) === seg);
+        if (feature && feature.isExclusive) {
+          isExclusive = true;
+        }
+      }
+    }
+
+    if (!isExclusive) {
+      if (hasExplicitRoleConfig && globalOverrides.view) return true;
+      if (!hasExplicitRoleConfig && (isSuper || globalOverrides.view))
+        return true;
+    }
+
     if (parts[0] === "home") {
       const k = String(parts[1] || "");
       if (!k) return true;
       return hasRoleFeature(`home:${k}`);
     }
-    const mk = String(parts[0] || "");
     if (!mk) return false;
     if (!isModuleEnabled(mk)) return false;
 
@@ -705,7 +752,6 @@ export const PermissionProvider = ({ children }) => {
     if (parts.length === 1) return true;
 
     const moduleInfo = MODULES_REGISTRY[mk];
-    const seg = String(parts[1] || "");
     if (!seg) {
       return true;
     }
@@ -722,31 +768,8 @@ export const PermissionProvider = ({ children }) => {
   const canPerformAction = (featureKey, action = "view") => {
     const fk = String(featureKey || "").trim();
     if (!fk) return false;
-    if (isSuper && !hasExplicitRoleConfig) return true;
-    try {
-      const path =
-        (typeof window !== "undefined" &&
-          window.location &&
-          window.location.pathname) ||
-        "/";
-      const base = basePathFrom ? basePathFrom(path) : path;
-      if (base && pagePermsByPath && pagePermsByPath.has(base)) {
-        const perms = pagePermsByPath.get(base);
-        const k =
-          action === "view"
-            ? "can_view"
-            : action === "create"
-              ? "can_create"
-              : action === "edit"
-                ? "can_edit"
-                : action === "delete"
-                  ? "can_delete"
-                  : `can_${action}`;
-        if (typeof perms?.[k] === "boolean" && perms[k] === true) {
-          return true;
-        }
-      }
-    } catch {}
+    if (isSuper) return true;
+
     const sess = sessionOverrides.get(fk);
     if (sess) {
       const k =
@@ -914,12 +937,15 @@ export const PermissionProvider = ({ children }) => {
       setPermissions([]);
       setRoleFeatures(new Set());
       setExceptionalPerms(new Set());
+      setLicensedModules(new Set());
       setDashboardViewMap(new Map());
       setDashboardViewLoaded(true);
       setLoading(false);
       return;
     }
-    await loadPermissions();
+    // Clear page-level permission cache so changes take effect immediately
+    setPagePermsByPath(new Map());
+    await loadPermissions(true);
     await loadDashboardPermissions();
   };
 
@@ -1136,6 +1162,7 @@ export const PermissionProvider = ({ children }) => {
 
   const value = {
     modules,
+    licensedModules,
     permissions,
     roleFeatures,
     exceptionalPerms,
@@ -1178,6 +1205,28 @@ export const PermissionProvider = ({ children }) => {
         .replace(/[^a-z0-9-]/g, "");
       if (!dashboardViewLoaded) return false;
       const comp = `${mk}|${t}|${normKey}`;
+
+      if (mk === "home" && t === "card") {
+        let hasHomeCardConfig = false;
+        for (const k of dashboardViewMap.keys()) {
+          if (k.startsWith("home|card|")) {
+            hasHomeCardConfig = true;
+            break;
+          }
+        }
+        if (hasHomeCardConfig) {
+          return dashboardViewMap.get(comp) === true;
+        } else {
+          const defaultCards = [
+            "sales-total-revenue",
+            "sales-pending-orders",
+            "sales-active-customers",
+            "purchase-total-value"
+          ];
+          return defaultCards.includes(normKey);
+        }
+      }
+
       // If this item has an explicit permission entry, respect it
       if (dashboardViewMap.has(comp)) {
         return dashboardViewMap.get(comp) === true;
@@ -1224,7 +1273,12 @@ export const PermissionProvider = ({ children }) => {
       if (!c) return false;
       return exceptionalPerms.has(c);
     },
-    canReverseApproval: () => exceptionalPerms.has("WORKFLOW.APPROVAL.REVERSE"),
+    canReverseApproval: () =>
+      exceptionalPerms.has("WORKFLOW.APPROVAL.REVERSE") ||
+      exceptionalPerms.has("WORKFLOW.PENDING_APPROVAL.REVERSE"),
+    canReversePendingApproval: () =>
+      exceptionalPerms.has("WORKFLOW.PENDING_APPROVAL.REVERSE") ||
+      exceptionalPerms.has("WORKFLOW.APPROVAL.REVERSE"),
     canEditDiscount: () => exceptionalPerms.has("SALES.DISCOUNT.ALLOW"),
   };
 

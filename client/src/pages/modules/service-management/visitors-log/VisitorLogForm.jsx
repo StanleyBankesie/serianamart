@@ -7,6 +7,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../../../api/client.js";
+import { usePermission } from "@/auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -14,6 +15,7 @@ import { api } from "../../../../api/client.js";
  * @returns {JSX.Element} The rendered component
  */
 export default function VisitorLogForm() {
+  const { hasExceptional } = usePermission();
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -157,12 +159,10 @@ export default function VisitorLogForm() {
                 : "Record a new visitor entry"}
             </p>
           </div>
-          <Link
-            to="/service-management/visitors-log"
-            className="btn-success text-sm"
+          <button onClick={() => window.history.back()} className="btn-success text-sm"
           >
             Back to List
-          </Link>
+          </button>
         </div>
       </div>
       <div className="card-body">
@@ -242,6 +242,8 @@ export default function VisitorLogForm() {
                 value={form.visitDate}
                 onChange={(e) => updateField("visitDate", e.target.value)}
                 required
+              
+                disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
               />
             </div>
           </div>
@@ -308,12 +310,10 @@ export default function VisitorLogForm() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Link
-              to="/service-management/visitors-log"
-              className="btn btn-secondary"
+            <button onClick={() => window.history.back()} className="btn btn-secondary"
             >
               Cancel
-            </Link>
+            </button>
             <button
               type="submit"
               className="btn-success"

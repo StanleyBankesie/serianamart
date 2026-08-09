@@ -11,6 +11,8 @@ import { api } from "api/client";
 import { renderHtmlToPdf } from "@/utils/pdfUtils.js";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
+import { usePermission } from "@/auth/PermissionContext.jsx";
+import SearchableOptionInput from "@/components/SearchableOptionInput";
 
 function emptyLine() {
   return {
@@ -31,7 +33,7 @@ function emptyLine() {
 
 /**
  *  component
- * 
+ *
  * @returns {JSX.Element} The rendered component
  */
 export default function CreditNoteForm() {
@@ -41,6 +43,7 @@ export default function CreditNoteForm() {
   const mode = new URLSearchParams(search).get("mode");
   const readOnly = mode === "view";
   const isEdit = Boolean(id);
+  const { hasExceptional } = usePermission();
   const voucherTypeCode = "CN";
   const title = "Credit Note";
   const isJV = false;
@@ -369,7 +372,7 @@ export default function CreditNoteForm() {
     linesManuallyEdited.current = false;
     const acc = accounts.find((a) => String(a.id) === String(cnCustomerId));
     setCnCurrencyCode(String(acc?.currency_code || acc?.currency || ""));
-    
+
     // Fetch balance
     (async () => {
       try {
@@ -384,10 +387,11 @@ export default function CreditNoteForm() {
     if (acc) {
       const accountCode = acc.code || "";
       const customer = payees.find(
-        (p) => p.type === "CUSTOMER" && String(p.code) === String(accountCode)
+        (p) => p.type === "CUSTOMER" && String(p.code) === String(accountCode),
       );
       if (customer) {
-        api.get(`/sales/customers/${customer.id}`)
+        api
+          .get(`/sales/customers/${customer.id}`)
           .then((res) => {
             const custData = res.data?.item || res.data || {};
             if (custData.sales_account_id) {
@@ -401,11 +405,14 @@ export default function CreditNoteForm() {
           });
       } else {
         // Fallback: search customers by name/code directly if payee mapping didn't hit
-        api.get(`/sales/customers?active=true`)
+        api
+          .get(`/sales/customers?active=true`)
           .then((res) => {
             const items = Array.isArray(res.data?.items) ? res.data.items : [];
             const matchingCust = items.find(
-              (c) => String(c.customer_name).toLowerCase() === String(acc.name).toLowerCase()
+              (c) =>
+                String(c.customer_name).toLowerCase() ===
+                String(acc.name).toLowerCase(),
             );
             if (matchingCust && matchingCust.sales_account_id) {
               setCnSalesAccountId(String(matchingCust.sales_account_id));
@@ -446,7 +453,9 @@ export default function CreditNoteForm() {
     const desc = cnDescription || "";
 
     // 1. Line 1: Debtor/Customer Account (Credit)
-    const customerAcc = accounts.find((a) => String(a.id) === String(cnCustomerId));
+    const customerAcc = accounts.find(
+      (a) => String(a.id) === String(cnCustomerId),
+    );
     const line1 = {
       accountId: String(cnCustomerId),
       accountName: customerAcc?.name || "",
@@ -472,7 +481,9 @@ export default function CreditNoteForm() {
           const rateVal = Number(c.rate_percent || 0);
           const taxAmount = Math.round(totalAmount * rateVal) / 100;
           totalTaxAmount += taxAmount;
-          const taxAcc = accounts.find((a) => String(a.id) === String(c.account_id));
+          const taxAcc = accounts.find(
+            (a) => String(a.id) === String(c.account_id),
+          );
           taxLines.push({
             accountId: String(c.account_id),
             accountName: String(c.account_name || ""),
@@ -493,7 +504,9 @@ export default function CreditNoteForm() {
 
     // 3. Line 2: Sales/Revenue Account (Debit)
     const debitAmount = Math.round((totalAmount - totalTaxAmount) * 100) / 100;
-    const salesAcc = accounts.find((a) => String(a.id) === String(cnSalesAccountId));
+    const salesAcc = accounts.find(
+      (a) => String(a.id) === String(cnSalesAccountId),
+    );
     const line2 = {
       accountId: cnSalesAccountId ? String(cnSalesAccountId) : "",
       accountName: salesAcc?.name || "",
@@ -2041,6 +2054,17 @@ export default function CreditNoteForm() {
       if (isEdit) {
         const res = await api.put(`/finance/vouchers/${id}`, payload);
         toast.success(res.data?.message || "Updated voucher");
+        navigate("/finance/credit-note", {
+          state: {
+            refresh: true,
+            highlightId: id ? Number(id) : undefined,
+            highlightRef:
+              voucherNoPreview && String(voucherNoPreview).trim()
+                ? String(voucherNoPreview)
+                : undefined,
+          },
+        });
+        return;
       } else {
         const res = await api.post("/finance/vouchers", payload);
         const newId = Number(res?.data?.id || 0) || null;
@@ -3223,7 +3247,10 @@ export default function CreditNoteForm() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Link to={isCN ? "/finance/credit-note" : ".."} className="btn-success">
+                <Link
+                  to={isCN ? "/finance/credit-note" : ".."}
+                  className="btn-success"
+                >
                   Back
                 </Link>
                 {voucherStatus === "APPROVED" ? (
@@ -3271,7 +3298,7 @@ export default function CreditNoteForm() {
                     value={voucherDate}
                     onChange={(e) => setVoucherDate(e.target.value)}
                     required
-                    disabled={readOnly}
+                    disabled={readOnly || (isEdit && !hasExceptional("DOCUMENT.EDIT_DATE"))}
                   />
                 </div>
                 {/* CN: Customer, Currency and Balance grouped inline horizontally */}
@@ -3719,11 +3746,14 @@ export default function CreditNoteForm() {
                                       {accountLabel || "-"}
                                     </span>
                                   ) : (
-                                    <select
-                                      className="input"
+                                    <SearchableOptionInput
                                       value={l.accountId}
-                                      onChange={(e) => {
-                                        const accId = e.target.value;
+                                      options={accounts.map((a) => ({
+                                        label: isSV || isPV ? a.name : `${a.code} - ${a.name}`,
+                                        value: a.id,
+                                      }))}
+                                      onSelect={(val) => {
+                                        const accId = val;
                                         const acc = accounts.find(
                                           (a) => String(a.id) === String(accId),
                                         );
@@ -3734,18 +3764,9 @@ export default function CreditNoteForm() {
                                         });
                                         autoFetchLineRate(newCId, idx);
                                       }}
-                                      required
                                       disabled={readOnly}
-                                    >
-                                      <option value="">Select account</option>
-                                      {accounts.map((a) => (
-                                        <option key={a.id} value={a.id}>
-                                          {isSV || isPV
-                                            ? a.name
-                                            : `${a.code} - ${a.name}`}
-                                        </option>
-                                      ))}
-                                    </select>
+                                      required={true}
+                                    />
                                   )}
                                 </td>
                                 <td>
@@ -3774,14 +3795,22 @@ export default function CreditNoteForm() {
                                         <span className="text-slate-600 dark:text-slate-400">
                                           {(() => {
                                             const sel = (currencies || []).find(
-                                              (c) => String(c.id) === String(l.currencyId || ""),
+                                              (c) =>
+                                                String(c.id) ===
+                                                String(l.currencyId || ""),
                                             );
-                                            return sel?.code || sel?.currency_code || (() => {
-                                              const acc = accounts.find(
-                                                (a) => String(a.id) === String(l.accountId || ""),
-                                              );
-                                              return acc?.currency_code || "";
-                                            })();
+                                            return (
+                                              sel?.code ||
+                                              sel?.currency_code ||
+                                              (() => {
+                                                const acc = accounts.find(
+                                                  (a) =>
+                                                    String(a.id) ===
+                                                    String(l.accountId || ""),
+                                                );
+                                                return acc?.currency_code || "";
+                                              })()
+                                            );
                                           })()}
                                         </span>
                                       ) : (
@@ -3790,12 +3819,16 @@ export default function CreditNoteForm() {
                                           value={l.currencyId}
                                           onChange={(e) => {
                                             const cId = e.target.value;
-                                            updateLine(idx, { currencyId: cId });
+                                            updateLine(idx, {
+                                              currencyId: cId,
+                                            });
                                             autoFetchLineRate(cId, idx);
                                           }}
                                           disabled={readOnly}
                                         >
-                                          <option value="">Base Currency</option>
+                                          <option value="">
+                                            Base Currency
+                                          </option>
                                           {currencies.map((c) => (
                                             <option key={c.id} value={c.id}>
                                               {c.code || c.currency_code}
@@ -3951,7 +3984,10 @@ export default function CreditNoteForm() {
               </div>
 
               <div className="flex justify-end gap-3">
-                <Link to={isCN ? "/finance/credit-note" : ".."} className="btn-success">
+                <Link
+                  to={isCN ? "/finance/credit-note" : ".."}
+                  className="btn-success"
+                >
                   Cancel
                 </Link>
                 <button

@@ -61,7 +61,7 @@ export default class ErrorBoundary extends React.Component {
             Try Again
           </button>
           {this.state.error && (
-            <details style={{ marginTop: "24px", color: "#999", fontSize: "12px" }}>
+            <details open style={{ marginTop: "24px", color: "#999", fontSize: "12px" }}>
               <summary>Error details</summary>
               <pre style={{ marginTop: "8px", whiteSpace: "pre-wrap" }}>
                 {this.state.error.toString()}

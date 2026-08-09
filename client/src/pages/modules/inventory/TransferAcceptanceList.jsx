@@ -9,6 +9,8 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import { toast } from "react-toastify";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  *  component
@@ -16,6 +18,7 @@ import { toast } from "react-toastify";
  * @returns {JSX.Element} The rendered component
  */
 export default function TransferAcceptanceList() {
+  const [viewMode, setViewMode] = useViewMode();
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -85,7 +88,7 @@ export default function TransferAcceptanceList() {
               </h1>
               <p className="text-sm mt-1">Receive transferred stock</p>
             </div>
-            <Link to="/inventory" className="btn btn-secondary">
+            <Link to="/inventory?section=Stock%20Operations" className="btn btn-secondary">
               Return to Menu
             </Link>
           </div>
@@ -106,8 +109,12 @@ export default function TransferAcceptanceList() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <th>Transfer No</th>

@@ -29,6 +29,7 @@ router.get("/job-orders", ...auth, mc.listJobOrders);
 router.get("/job-orders/:id", ...auth, mc.getJobOrderById);
 router.post("/job-orders", ...auth, mc.createJobOrder);
 router.put("/job-orders/:id", ...auth, mc.updateJobOrder);
+router.post("/job-orders/:id/send-notification", ...auth, mc.sendJobOrderNotification);
 
 // ===== MATERIAL RECEIPTS =====
 router.get("/material-receipts", ...auth, mc.listMaintMaterialReceipts);

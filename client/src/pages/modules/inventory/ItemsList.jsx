@@ -13,6 +13,8 @@ import * as XLSX from "xlsx";
 import { autosizeWorksheetColumns } from "../../../utils/xlsxUtils";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { usePermission } from "@/auth/PermissionContext.jsx";
+import { useViewMode } from "@/hooks/useViewMode";
+import ViewToggle from "@/components/ViewToggle";
 
 /**
  * ItemsList component
@@ -21,6 +23,7 @@ import { usePermission } from "@/auth/PermissionContext.jsx";
  * @returns {JSX.Element} The item list view.
  */
 export default function ItemsList() {
+  const [viewMode, setViewMode] = useViewMode();
   const { hasExceptional } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1102,7 +1105,7 @@ export default function ItemsList() {
               </p>
             </div>
             <div className="flex gap-2 flex-wrap w-full md:w-auto justify-start md:justify-end">
-              <Link to="/inventory" className="btn-secondary">
+              <Link to="/inventory?section=Stock%20Operations" className="btn-secondary">
                 Return to Menu
               </Link>
               <input
@@ -1230,8 +1233,12 @@ export default function ItemsList() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="table">
+          
+                <div className="flex justify-end mb-4">
+                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+                </div>
+                <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
               <thead>
                 <tr>
                   <SortableHeader

@@ -70,6 +70,33 @@ export default function ProtectedRoute({ children }) {
   }
   const path = location.pathname;
   if (path === "/" || path === "/dashboard") return children;
-  if (!canAccessPath(path)) return children;
+  if (!canAccessPath(path)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-6">
+        <div className="max-w-md w-full bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-8 text-center space-y-6">
+          <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mx-auto text-4xl mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Access Restricted</h1>
+            <p className="text-slate-500 dark:text-slate-400">
+              Your current role does not have permission to view this page. If you believe this is a mistake, please contact your administrator.
+            </p>
+          </div>
+          <button 
+            type="button"
+            onClick={() => window.history.back()} 
+            className="btn btn-primary w-full py-2.5"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
   return children;
 }

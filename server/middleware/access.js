@@ -40,15 +40,6 @@ export function checkModuleAccess(moduleKey) {
   return async function (req, res, next) {
     try {
       const url = String(req.originalUrl || req.baseUrl || "");
-      // Allow read-only GETs to common modules to bypass permission checks
-      if (
-        req.method === "GET" &&
-        (url.includes("/api/sales") ||
-          url.includes("/api/purchase") ||
-          url.includes("/api/finance"))
-      ) {
-        return next();
-      }
       // Allow workflow submit for Sales Orders to proceed to permission checks downstream
       // This endpoint also has its own permission gate; skip module gate here to avoid false negatives
       if (url.includes("/api/sales/orders/") && url.includes("/submit")) {
