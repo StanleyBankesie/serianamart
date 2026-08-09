@@ -20,16 +20,23 @@ function parseNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function findEnv(key) {
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.trim().toUpperCase() === key.toUpperCase()) return v;
+  }
+  return undefined;
+}
+
 // Database Configuration
 // Collects and parses configuration settings from environment variables.
 const dbConfig = {
-  host: String(optionalEnv("DB_HOST", "localhost")).trim(),
-  user: String(process.env.DB_USER || process.env.DB_USERNAME || "").trim(),
+  host: String(findEnv("DB_HOST") || optionalEnv("DB_HOST", "localhost")).trim(),
+  user: String(findEnv("DB_USER") || findEnv("DB_USERNAME") || "").trim(),
   password:
-    process.env.DB_PASSWORD !== undefined ? process.env.DB_PASSWORD : (process.env.DB_PASS !== undefined ? process.env.DB_PASS : undefined),
-  database: String(process.env.DB_NAME || process.env.DB_DATABASE || "").trim(),
-  port: parseNumber(process.env.DB_PORT, 3306),
-  connectionLimit: parseNumber(optionalEnv("DB_CONNECTION_LIMIT", 50), 50),
+    findEnv("DB_PASSWORD") !== undefined ? findEnv("DB_PASSWORD") : (findEnv("DB_PASS") !== undefined ? findEnv("DB_PASS") : undefined),
+  database: String(findEnv("DB_NAME") || findEnv("DB_DATABASE") || "").trim(),
+  port: parseNumber(findEnv("DB_PORT") || process.env.DB_PORT, 3306),
+  connectionLimit: parseNumber(findEnv("DB_CONNECTION_LIMIT") || optionalEnv("DB_CONNECTION_LIMIT", 50), 50),
   connectTimeout: parseNumber(
     optionalEnv("DB_CONNECT_TIMEOUT_MS", 10000),
     10000,
