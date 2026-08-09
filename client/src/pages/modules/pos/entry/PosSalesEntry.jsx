@@ -869,8 +869,10 @@ export default function PosSalesEntry() {
 
   useEffect(() => {
     let mounted = true;
+    // Use /pos/customers — does not require SAL.CUSTOMER.VIEW so POS-only
+    // users can still pick customers for on-account sales.
     api
-      .get("/sales/customers")
+      .get("/pos/customers")
       .then((res) => {
         if (!mounted) return;
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
@@ -2779,7 +2781,7 @@ export default function PosSalesEntry() {
                   })
                 )}
               </div>
-              <div className="space-y-2">
+              <div className="flex flex-col gap-3">
                 <button
                   type="button"
                   className="bg-amber-500 hover:bg-amber-600 text-white w-full text-base px-4 py-2 rounded-lg font-semibold transition-colors disabled:opacity-50"
@@ -2819,7 +2821,7 @@ export default function PosSalesEntry() {
                 </button>
                 <Link
                   to="/pos/holds"
-                  className="block text-center text-xs text-brand hover:text-brand-600 dark:text-brand-400 underline mt-1"
+                  className="block text-center text-xs text-brand hover:text-brand-600 dark:text-brand-400 underline pt-1"
                 >
                   Un-Hold Sales
                 </Link>

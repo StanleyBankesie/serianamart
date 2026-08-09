@@ -943,6 +943,31 @@ async function nextSessionNo(companyId) {
 }
 
 
+// Lightweight customer list for POS — does NOT require SAL.CUSTOMER.VIEW
+// so that POS-only users can still pick a customer for on-account sales.
+router.get(
+  "/customers",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const items = await query(
+        `SELECT id, customer_code, customer_name, customer_type, credit_limit,
+                phone, mobile, email, is_active
+           FROM sal_customers
+          WHERE company_id = :companyId AND is_active = 1
+          ORDER BY customer_name ASC`,
+        { companyId }
+      );
+      return res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.get(
   "/analytics/overview",
   requireAuth,
