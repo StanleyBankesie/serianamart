@@ -21,7 +21,9 @@ import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
  */
 
 const PermissionContext = createContext();
-const RBAC_CACHE_KEY = "rbac.permission.snapshot.v1";
+const RBAC_CACHE_KEY = "rbac.permission.snapshot.v2";
+// Clear stale snapshot from old cache key so wildcard bypass does not persist
+try { if (typeof localStorage !== "undefined") localStorage.removeItem("rbac.permission.snapshot.v1"); } catch {}
 const PAGE_PERM_RETRY_MS = 30_000;
 const DASHBOARD_PERM_POLL_MS = 5 * 60_000; // 5 minutes — reduced from 1 min to ease load on slow connections
 const BACKGROUND_GET_CONFIG = { __background: true };
@@ -59,6 +61,9 @@ function readPermissionSnapshot() {
 function writePermissionSnapshot(snapshot) {
   if (typeof localStorage === "undefined") return;
   try {
+    // Never cache a wildcard/super-admin snapshot — force a fresh load each session
+    const mods = snapshot?.modules || [];
+    if (mods.includes("*")) return;
     localStorage.setItem(RBAC_CACHE_KEY, JSON.stringify(snapshot));
   } catch {}
 }
