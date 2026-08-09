@@ -3101,6 +3101,20 @@ export async function ensureRoleModulesTable() {
   `);
 }
 
+export async function ensureAdminPagePermissionsTable() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_admin_page_permissions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id BIGINT UNSIGNED NOT NULL,
+      module_key VARCHAR(100) NOT NULL,
+      feature_key VARCHAR(100) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY idx_user_feature (user_id, feature_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
 export async function ensureRolePermissionsTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS adm_role_permissions (

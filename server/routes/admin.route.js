@@ -36,6 +36,7 @@ import {
   ensureRoleModulesTable,
   ensureRolePermissionsTable,
   ensureRoleFeaturesTable,
+  ensureAdminPagePermissionsTable,
   verifiedTables,
 } from "../utils/dbUtils.js";
 import { ensureUserPermissionCacheAndTriggers } from "../utils/dbUtils.js";
@@ -2645,6 +2646,7 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
     await ensureRoleModulesTable();
     await ensureRolePermissionsTable();
     await ensureRoleFeaturesTable();
+    await ensureAdminPagePermissionsTable().catch(() => {});
 
     const userId = Number(req.user?.sub || req.user?.id);
 
@@ -2728,11 +2730,11 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
         .filter(Boolean),
     );
 
-    // Fetch exclusive permissions for this user
+    // Fetch exclusive permissions for this user (table may not exist on older installs)
     const exclusivePerms = await query(
       `SELECT module_key, feature_key FROM adm_admin_page_permissions WHERE user_id = :userId`,
       { userId }
-    );
+    ).catch(() => []);
     for (const ep of exclusivePerms) {
       const mk = normalizeModuleKey(ep.module_key);
       const fk = normalizeFeatureKey(ep.feature_key, mk);

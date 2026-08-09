@@ -1,40 +1,22 @@
-/**
- * @fileoverview Utility script to check database connectivity using environment variables.
- * @module check_db
- */
+import { pool } from "./db/pool.js";
 
-import mysql from 'mysql2/promise';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
+async function run() {
+  try {
+    const roles = await pool.query("SELECT id, name, company_id FROM adm_roles LIMIT 10");
+    console.log("ROLES:", roles[0]);
+    
+    const modules = await pool.query("SELECT role_id, module_key FROM adm_role_modules LIMIT 20");
+    console.log("ROLE MODULES:", modules[0]);
+    
+    const perms = await pool.query("SELECT role_id, module_key, feature_key FROM adm_role_permissions LIMIT 20");
+    console.log("ROLE PERMS:", perms[0]);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '.env') });
-
-/**
- * Connects to the database and retrieves sample service orders.
- *
- * @async
- * @returns {Promise<void>}
- */
-// Utility function to verify database connectivity using environment variables
-async function check() {
-  // Establish a connection using credentials loaded from .env
-  const conn = await mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'seriana_erp',
-    port: process.env.DB_PORT || 3306,
-  });
-
-  // Query a small sample of recent purchase service orders to test data retrieval
-  const [rows] = await conn.execute(`SELECT id, created_by, created_at FROM pur_service_orders ORDER BY id DESC LIMIT 5`);
-  // Log the retrieved rows
-  console.log(rows);
-  // Gracefully close the connection
-  conn.end();
+    const users = await pool.query("SELECT id, username, role_id, company_id FROM adm_users LIMIT 5");
+    console.log("USERS:", users[0]);
+  } catch (err) {
+    console.error(err);
+  } finally {
+    process.exit(0);
+  }
 }
-// Execute the connectivity check and catch any top-level errors
-check().catch(console.error);
+run();
