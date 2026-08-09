@@ -38,7 +38,7 @@ function attachDevUser(req) {
  * @param {import('express').Response} res - Express response.
  * @param {import('express').NextFunction} next - Express next middleware function.
  */
-export async function requireAuth(req, res, next) { req.user = { id: 1, companyIds: [1], branchIds: [1] }; return next();
+export async function requireAuth(req, res, next) {
   try {
     const cookies = parseCookieHeader(req.headers.cookie || "");
     const sessionId = cookies.omnisuite_session;
