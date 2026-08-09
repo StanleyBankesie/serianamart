@@ -3753,3 +3753,58 @@ export async function ensureTransportTables() {
     `).catch(() => null);
   }
 }
+
+let _brandingTableEnsured = false;
+export async function ensureLoginBrandingTable() {
+  if (_brandingTableEnsured) return;
+  if (!(await hasTable("adm_login_branding"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS adm_login_branding (
+        id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+        background_image LONGBLOB NULL,
+        background_mime VARCHAR(100) NULL,
+        hero_image LONGBLOB NULL,
+        hero_mime VARCHAR(100) NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+  
+  // Ensure missing hero columns exist
+  try {
+    const cols = await query(`SHOW COLUMNS FROM adm_login_branding`);
+    const colNames = cols.map(c => c.Field);
+    if (!colNames.includes('hero_image')) {
+      await query(`ALTER TABLE adm_login_branding ADD COLUMN hero_image LONGBLOB NULL AFTER background_mime`);
+    }
+    if (!colNames.includes('hero_mime')) {
+      await query(`ALTER TABLE adm_login_branding ADD COLUMN hero_mime VARCHAR(100) NULL AFTER hero_image`);
+    }
+  } catch (err) {
+    console.error("Failed to alter adm_login_branding:", err);
+  }
+  _brandingTableEnsured = true;
+}
+
+let _paymentPackagesTableEnsured = false;
+export async function ensurePaymentPackagesTable() {
+  if (_paymentPackagesTableEnsured) return;
+  if (!(await hasTable("adm_payment_packages"))) {
+    await query(`
+      CREATE TABLE IF NOT EXISTS adm_payment_packages (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        plan_name VARCHAR(100) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+        cloud_hosting DECIMAL(10,2) NOT NULL DEFAULT 0,
+        support_maintenance DECIMAL(10,2) NOT NULL DEFAULT 0,
+        software_license DECIMAL(10,2) NOT NULL DEFAULT 0,
+        duration_months INT NOT NULL DEFAULT 12,
+        status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(() => null);
+  }
+  _paymentPackagesTableEnsured = true;
+}
