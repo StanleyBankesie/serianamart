@@ -78,34 +78,39 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* ---------------- ENV ---------------- */
-const prodPath = path.join(__dirname, ".env.production");
-const localPath = path.join(__dirname, ".env.local");
-
-// Pre-load .env.local to get DEV_FORCE_LOCAL_ENV if it exists without polluting process.env
-let forceLocal = false;
-if (fs.existsSync(localPath)) {
-  const parsed = dotenv.parse(fs.readFileSync(localPath));
-  forceLocal = String(parsed.DEV_FORCE_LOCAL_ENV || "").trim() === "1";
-}
-
-dotenv.config({ path: path.join(__dirname, ".env") });
 const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
 
-const originalPort = process.env.PORT;
+if (!isProd) {
+  const prodPath = path.join(__dirname, ".env.production");
+  const localPath = path.join(__dirname, ".env.local");
 
-if (forceLocal && fs.existsSync(localPath)) {
-  dotenv.config({ path: localPath, override: true });
-} else if (isProd && fs.existsSync(prodPath)) {
-  dotenv.config({ path: prodPath, override: true });
-} else if (fs.existsSync(localPath)) {
-  dotenv.config({ path: localPath, override: true });
+  // Pre-load .env.local to get DEV_FORCE_LOCAL_ENV if it exists without polluting process.env
+  let forceLocal = false;
+  if (fs.existsSync(localPath)) {
+    const parsed = dotenv.parse(fs.readFileSync(localPath));
+    forceLocal = String(parsed.DEV_FORCE_LOCAL_ENV || "").trim() === "1";
+  }
+
+  dotenv.config({ path: path.join(__dirname, ".env") });
+
+  const originalPort = process.env.PORT;
+
+  if (forceLocal && fs.existsSync(localPath)) {
+    dotenv.config({ path: localPath, override: true });
+  } else if (fs.existsSync(localPath)) {
+    dotenv.config({ path: localPath, override: true });
+  }
+
+  if (originalPort !== undefined && String(originalPort).trim() !== "") {
+    process.env.PORT = originalPort;
+  }
 }
 
-if (originalPort !== undefined && String(originalPort).trim() !== "") {
-  process.env.PORT = originalPort;
-}
-
+// SMTP settings need to be loaded from .env.production if Plesk doesn't provide them.
+// But the user requested ignoring .env files. We will keep this try block but comment out the execution.
+/*
 try {
+  const prodPath = path.join(__dirname, ".env.production");
   if (fs.existsSync(prodPath)) {
     const parsed = dotenv.parse(fs.readFileSync(prodPath, "utf8")) || {};
     [
@@ -113,13 +118,12 @@ try {
       "SMTP_PORT",
       "SMTP_USER",
       "SMTP_PASS",
-      "SMTP_FROM",
-      "SMTP_SECURE",
     ].forEach((k) => {
       if (parsed[k]) process.env[k] = parsed[k];
     });
   }
 } catch {}
+*/
 
 const serveFrontendFlag = (() => {
   const v1 = String(process.env.SERVE_FRONTEND || "").toLowerCase();
