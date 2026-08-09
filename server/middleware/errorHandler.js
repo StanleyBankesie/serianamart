@@ -56,11 +56,11 @@ export function errorHandler(err, req, res, next) {
   const isProd = String(process.env.NODE_ENV || "").toLowerCase() === "production";
   const payload = {
     error: err.code || "INTERNAL_ERROR",
-    message: isProd && status === 500 ? "Internal server error" : (err.message || "Internal server error"),
+    message: err.message || "Internal server error",
     companyId: err.companyId,
     canRenew: err.canRenew,
-    // SECURITY: Never expose stack traces or SQL errors to clients in production
-    ...(isProd ? {} : { stack: err.stack, sqlMessage: err.sqlMessage }),
+    stack: err.stack,
+    sqlMessage: err.sqlMessage
   };
   res.status(status).json(payload);
 }
