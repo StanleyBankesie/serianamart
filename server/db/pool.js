@@ -23,12 +23,12 @@ function parseNumber(value, fallback) {
 // Database Configuration
 // Collects and parses configuration settings from environment variables.
 const dbConfig = {
-  host: String(optionalEnv("DB_HOST", "")).trim(),
-  user: String(optionalEnv("DB_USER", "")).trim(),
+  host: String(optionalEnv("DB_HOST", "localhost")).trim(),
+  user: String(process.env.DB_USER || process.env.DB_USERNAME || "").trim(),
   password:
-    process.env.DB_PASSWORD === undefined ? undefined : process.env.DB_PASSWORD,
-  database: String(optionalEnv("DB_NAME", "")).trim(),
-  port: parseNumber(optionalEnv("DB_PORT", 3306), 3306),
+    process.env.DB_PASSWORD !== undefined ? process.env.DB_PASSWORD : (process.env.DB_PASS !== undefined ? process.env.DB_PASS : undefined),
+  database: String(process.env.DB_NAME || process.env.DB_DATABASE || "").trim(),
+  port: parseNumber(process.env.DB_PORT, 3306),
   connectionLimit: parseNumber(optionalEnv("DB_CONNECTION_LIMIT", 50), 50),
   connectTimeout: parseNumber(
     optionalEnv("DB_CONNECT_TIMEOUT_MS", 10000),
@@ -335,6 +335,10 @@ async function ensurePool(forceReconnect = false) {
   if (!isConfigured()) {
     // Fail early if database config is incomplete
     const missing = getMissingConfigFields();
+    if (!dbConfig.database) {
+      const availableDbVars = Object.keys(process.env).filter(k => k.startsWith('DB_')).join(', ') || 'None';
+      throw new Error(`Database not configured: missing DB_NAME. Available DB env vars: ${availableDbVars}`);
+    }
     const configError = new Error(
       `Database not configured: missing ${missing.join(", ")}`,
     );
