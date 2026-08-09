@@ -67,7 +67,6 @@ import {
   ensurePMInvoiceTables,
   ensureSocialFeedTables,
   ensureTransportTables,
-  ensurePaymentPackagesTable,
 } from "./utils/dbUtils.js";
 import { seedDefaultTemplates } from "./services/seed-defaults.js";
 import { ensureIndexes } from "./utils/ensureIndexes.js";
@@ -1294,7 +1293,6 @@ if (process.env.NODE_ENV !== "test") {
             ["pm invoices", () => ensurePMInvoiceTables()],
             ["social feed tables", () => ensureSocialFeedTables()],
             ["transport tables", () => ensureTransportTables()],
-            ["payment packages table", () => ensurePaymentPackagesTable()],
           ];
           for (const [name, fn] of steps) {
             try {
