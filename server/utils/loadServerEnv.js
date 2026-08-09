@@ -38,6 +38,13 @@ export function loadServerEnv(metaUrl = import.meta.url) {
   const runtimeNodeEnv = String(process.env.NODE_ENV || "").toLowerCase();
   const runtimeIsProd = runtimeNodeEnv === "production";
 
+  // Per user request: completely ignore all .env files in production
+  // Rely strictly on Plesk Node.js console environment variables.
+  if (runtimeIsProd) {
+    loaded = true;
+    return;
+  }
+
   const serverRoot = resolveServerRoot(metaUrl);
 
   // Define file paths for base, local, and production environment configurations
