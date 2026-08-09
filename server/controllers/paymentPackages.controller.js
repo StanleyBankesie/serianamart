@@ -1,10 +1,8 @@
 import { query } from "../db/pool.js";
-import { ensurePaymentPackagesTable } from "../utils/dbUtils.js";
 
 // Get all payment packages
 export const getPaymentPackages = async (req, res, next) => {
   try {
-    await ensurePaymentPackagesTable();
     const packages = await query("SELECT * FROM adm_payment_packages ORDER BY amount ASC");
     res.json(packages);
   } catch (error) {
@@ -16,7 +14,6 @@ export const getPaymentPackages = async (req, res, next) => {
 // Create a new payment package
 export const createPaymentPackage = async (req, res, next) => {
   try {
-    await ensurePaymentPackagesTable();
     const { plan_name, amount, cloud_hosting, support_maintenance, software_license, duration_months, status } = req.body;
     if (!plan_name || amount == null || duration_months == null) {
       return res.status(400).json({ error: "Missing required fields." });
@@ -36,7 +33,6 @@ export const createPaymentPackage = async (req, res, next) => {
 // Update an existing payment package
 export const updatePaymentPackage = async (req, res, next) => {
   try {
-    await ensurePaymentPackagesTable();
     const { id } = req.params;
     const { plan_name, amount, cloud_hosting, support_maintenance, software_license, duration_months, status } = req.body;
     if (!plan_name || amount == null || duration_months == null) {
@@ -57,7 +53,6 @@ export const updatePaymentPackage = async (req, res, next) => {
 // Delete a payment package
 export const deletePaymentPackage = async (req, res, next) => {
   try {
-    await ensurePaymentPackagesTable();
     const { id } = req.params;
     await query("DELETE FROM adm_payment_packages WHERE id = ?", [id]);
     res.json({ success: true, message: "Payment package deleted successfully." });

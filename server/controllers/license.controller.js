@@ -6,7 +6,6 @@ import {
   generateLicenseKey,
   invalidateLicenseCache,
 } from "../services/license.service.js";
-import { ensurePaymentPackagesTable } from "../utils/dbUtils.js";
 
 /**
  * Get company license details
@@ -396,8 +395,7 @@ export async function verifyPaystackPayment(req, res) {
 
     if (renewalEntryRow && renewalEntryRow.length > 0) {
       renewalEntry = renewalEntryRow[0];
-      if (renewalEntry && renewalEntry.plan_name) {
-        await ensurePaymentPackagesTable();
+      if (renewalEntry.plan_name) {
         const pkgRow = await query(`SELECT duration_months FROM adm_payment_packages WHERE plan_name = ? LIMIT 1`, [renewalEntry.plan_name]);
         if (pkgRow && pkgRow.length > 0 && pkgRow[0].duration_months) {
           durationMonths = parseInt(pkgRow[0].duration_months) || durationMonths;

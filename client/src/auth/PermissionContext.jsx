@@ -21,9 +21,7 @@ import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
  */
 
 const PermissionContext = createContext();
-const RBAC_CACHE_KEY = "rbac.permission.snapshot.v2";
-// Clear stale snapshot from old cache key so wildcard bypass does not persist
-try { if (typeof localStorage !== "undefined") localStorage.removeItem("rbac.permission.snapshot.v1"); } catch {}
+const RBAC_CACHE_KEY = "rbac.permission.snapshot.v1";
 const PAGE_PERM_RETRY_MS = 30_000;
 const DASHBOARD_PERM_POLL_MS = 5 * 60_000; // 5 minutes — reduced from 1 min to ease load on slow connections
 const BACKGROUND_GET_CONFIG = { __background: true };
@@ -61,9 +59,6 @@ function readPermissionSnapshot() {
 function writePermissionSnapshot(snapshot) {
   if (typeof localStorage === "undefined") return;
   try {
-    // Never cache a wildcard/super-admin snapshot — force a fresh load each session
-    const mods = snapshot?.modules || [];
-    if (mods.includes("*")) return;
     localStorage.setItem(RBAC_CACHE_KEY, JSON.stringify(snapshot));
   } catch {}
 }
@@ -1200,7 +1195,6 @@ export const PermissionProvider = ({ children }) => {
     canPerformPageAction,
     basePathFrom,
     canViewDashboardElement: (moduleKey, type, key) => {
-      if (isSuper) return true; // Super admins see everything by default
       const mk = String(moduleKey || "");
       const t = String(type || "");
       const rawKey = String(key || "");
@@ -1212,11 +1206,36 @@ export const PermissionProvider = ({ children }) => {
       if (!dashboardViewLoaded) return false;
       const comp = `${mk}|${t}|${normKey}`;
 
+      if (mk === "home" && t === "card") {
+        let hasHomeCardConfig = false;
+        for (const k of dashboardViewMap.keys()) {
+          if (k.startsWith("home|card|")) {
+            hasHomeCardConfig = true;
+            break;
+          }
+        }
+        if (hasHomeCardConfig) {
+          return dashboardViewMap.get(comp) === true;
+        } else {
+          const defaultCards = [
+            "sales-total-revenue",
+            "sales-pending-orders",
+            "sales-active-customers",
+            "purchase-total-value"
+          ];
+          return defaultCards.includes(normKey);
+        }
+      }
+
+      // If this item has an explicit permission entry, respect it
       if (dashboardViewMap.has(comp)) {
         return dashboardViewMap.get(comp) === true;
       }
-      // Strictly enforce RBAC: if not explicitly granted and not super admin, hide it.
-      return false;
+      // No explicit config for this item — fall back to module-level RBAC
+      if (mk) {
+        return canAccessPath(`/${mk}`);
+      }
+      return isSuper;
     },
     setActionSessionOverride: (fk, action, value) => {
       const key =

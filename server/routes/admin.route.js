@@ -37,7 +37,6 @@ import {
   ensureRolePermissionsTable,
   ensureRoleFeaturesTable,
   verifiedTables,
-  ensureLoginBrandingTable,
 } from "../utils/dbUtils.js";
 import { ensureUserPermissionCacheAndTriggers } from "../utils/dbUtils.js";
 import {
@@ -1700,6 +1699,34 @@ const loginBackgroundUpload = multer({
   },
 });
 
+let _brandingTableEnsured = false;
+async function ensureLoginBrandingTable() {
+  if (_brandingTableEnsured) return;
+  await query(`
+    CREATE TABLE IF NOT EXISTS adm_login_branding (
+      id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+      background_image LONGBLOB NULL,
+      background_mime VARCHAR(100) NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  
+  // Ensure missing hero columns exist
+  try {
+    const cols = await query(`SHOW COLUMNS FROM adm_login_branding`);
+    const colNames = cols.map(c => c.Field);
+    if (!colNames.includes('hero_image')) {
+      await query(`ALTER TABLE adm_login_branding ADD COLUMN hero_image LONGBLOB NULL AFTER background_mime`);
+    }
+    if (!colNames.includes('hero_mime')) {
+      await query(`ALTER TABLE adm_login_branding ADD COLUMN hero_mime VARCHAR(100) NULL AFTER hero_image`);
+    }
+  } catch (err) {
+    console.error("Failed to alter adm_login_branding:", err);
+  }
+  _brandingTableEnsured = true;
+}
+
 // Get login background metadata
 router.get("/settings/login-bg-info", async (req, res, next) => {
   try {
@@ -2725,9 +2752,7 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
 
     const companyId = Number(roleResult?.[0]?.company_id || 0);
     let licensedModules = null;
-    if (companyId === 1) {
-      licensedModules = new Set(["*"]);
-    } else if (companyId) {
+    if (companyId) {
       const licenseQuery = await query(`SELECT id FROM adm_company_licenses WHERE company_id = :companyId ORDER BY id DESC LIMIT 1`, { companyId });
       if (licenseQuery && licenseQuery.length > 0) {
         const licenseId = licenseQuery[0].id;
