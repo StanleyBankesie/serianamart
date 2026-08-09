@@ -372,9 +372,6 @@ const allowedOrigins = (() => {
     : [];
 
   // Always allow the production frontend domain by default
-  if (!origins.includes("https://seranamart.omnisuite-erp.com")) {
-    origins.push("https://serianamart.omnisuite-erp.com");
-  }
   if (!origins.includes("https://serianamart.omnisuite-erp.com")) {
     origins.push("https://serianamart.omnisuite-erp.com");
   }

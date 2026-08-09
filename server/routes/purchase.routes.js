@@ -3954,8 +3954,8 @@ async function ensurePurchaseReturnTables() {
       CONSTRAINT fk_pur_return_details_header FOREIGN KEY (return_id) REFERENCES pur_returns(id) ON DELETE CASCADE
     )
   `).catch(() => null);
-}
-await query(`
+
+  await query(`
     CREATE TABLE IF NOT EXISTS pur_return_rejection_reasons (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
@@ -3967,6 +3967,7 @@ await query(`
       UNIQUE KEY uq_pur_reason_code (company_id, reason_code)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `).catch(() => null);
+}
 
 async function nextPurchaseReturnNo(companyId, branchId) {
   const rows = await query(
