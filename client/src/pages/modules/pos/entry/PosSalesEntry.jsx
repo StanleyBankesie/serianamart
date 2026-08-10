@@ -349,13 +349,14 @@ export default function PosSalesEntry() {
           links = Array.isArray(cachedLinks?.data) ? cachedLinks.data : [];
         }
 
+        const isAdmin = Boolean(user?.is_super_admin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.id === 1);
         const assignedIds = new Set(
           links
             .filter((x) => Number(x?.user_id) === Number(uid))
             .map((x) => Number(x?.terminal_id))
             .filter((n) => Number.isFinite(n) && n > 0),
         );
-        const assigned = allTerminals.filter((t) =>
+        const assigned = isAdmin ? allTerminals : allTerminals.filter((t) =>
           assignedIds.has(Number(t?.id)),
         );
         const code =
@@ -2352,7 +2353,7 @@ export default function PosSalesEntry() {
                     Open today’s POS Day before making sales.
                   </div>
                 </div>
-                <Link to="/pos/day-management" className="btn btn-primary">
+                <Link to="/pos/day-management" className="btn btn-primary" data-rbac-exempt="true">
                   Open Day
                 </Link>
               </div>
@@ -2427,6 +2428,7 @@ export default function PosSalesEntry() {
                   to="/pos/day-management"
                   className="btn btn-primary"
                   title="Go to Start/End Business Day"
+                  data-rbac-exempt="true"
                 >
                   Close Day
                 </Link>
@@ -2643,6 +2645,7 @@ export default function PosSalesEntry() {
                     <button
                       type="button"
                       className="px-4 py-2 bg-[#0E3646] text-white font-semibold rounded-lg shadow hover:bg-[#092530] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-[#0E3646]"
+                      data-rbac-exempt="true"
                       onClick={() => {
                         setAmountPaid("");
                         setSplitPrimaryAmount(0);
@@ -2923,6 +2926,7 @@ export default function PosSalesEntry() {
               <button
                 type="button"
                 className="flex-1 bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
+                data-rbac-exempt="true"
                 onClick={newSale}
               >
                 New Sale

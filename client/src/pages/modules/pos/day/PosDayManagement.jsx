@@ -231,13 +231,14 @@ export default function PosDayManagement() {
         const links = Array.isArray(linksRes.data?.items)
           ? linksRes.data.items
           : [];
+        const isAdmin = Boolean(user?.is_super_admin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.id === 1);
         const assignedTerminalIds = new Set(
           links
             .filter((x) => Number(x?.user_id) === Number(userId))
             .map((x) => Number(x?.terminal_id))
             .filter((n) => Number.isFinite(n) && n > 0),
         );
-        const assigned = allTerminals.filter((t) =>
+        const assigned = isAdmin ? allTerminals : allTerminals.filter((t) =>
           assignedTerminalIds.has(Number(t?.id)),
         );
         setTerminalOptions(assigned);
@@ -1061,7 +1062,7 @@ export default function PosDayManagement() {
 
                 {/* Opening Checklist removed as requested; proceed directly to Open Day */}
 
-                <button type="submit" className="btn-success w-full">
+                <button type="submit" className="btn-success w-full" data-rbac-exempt="true">
                   🌅 Open Day
                 </button>
               </form>
@@ -1306,6 +1307,7 @@ export default function PosDayManagement() {
                   <button
                     type="button"
                     className="btn-danger flex-1 px-4 py-2"
+                    data-rbac-exempt="true"
                     onClick={async () => {
                       if (!dayOpen) {
                         toast.error("Open the day first");
