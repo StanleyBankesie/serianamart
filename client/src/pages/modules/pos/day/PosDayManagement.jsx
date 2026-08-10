@@ -70,6 +70,7 @@ export default function PosDayManagement() {
     return String(name);
   }, [user]);
   const [dayOpen, setDayOpen] = useState(false);
+  const [dayStatusLoading, setDayStatusLoading] = useState(true);
   const [openData, setOpenData] = useState({
     dateTime: toLocalInputDateTime(new Date()),
     float: "",
@@ -334,7 +335,11 @@ export default function PosDayManagement() {
   useEffect(() => {
     let cancelled = false;
     const term = terminalId;
-    if (!term) return undefined;
+    if (!term) {
+      setDayStatusLoading(false);
+      return undefined;
+    }
+    setDayStatusLoading(true);
     api
       .get("/pos/day/status", { params: { terminal: term } })
       .then((res) => {
@@ -435,7 +440,10 @@ export default function PosDayManagement() {
           isOpen ? "Day is currently open" : "Last day is closed",
         );
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setDayStatusLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -975,7 +983,11 @@ export default function PosDayManagement() {
             <div className="text-2xl">🌅</div>
           </div>
           <div className="card-body">
-            {!dayOpen && (
+            {terminalsLoading || dayStatusLoading ? (
+              <div className="flex justify-center p-8">
+                <div className="animate-spin h-8 w-8 border-4 border-brand border-t-transparent rounded-full"></div>
+              </div>
+            ) : !dayOpen ? (
               <form onSubmit={handleOpenSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -1053,8 +1065,7 @@ export default function PosDayManagement() {
                   🌅 Open Day
                 </button>
               </form>
-            )}
-            {dayOpen && (
+            ) : (
               <div className="space-y-4">
                 <div className="alert-success rounded-lg p-4 flex items-center gap-2">
                   <span>✓</span>
@@ -1111,7 +1122,11 @@ export default function PosDayManagement() {
             <div className="text-2xl">🌙</div>
           </div>
           <div className="card-body">
-            {!dayOpen ? (
+            {terminalsLoading || dayStatusLoading ? (
+              <div className="flex justify-center p-8">
+                <div className="animate-spin h-8 w-8 border-4 border-brand border-t-transparent rounded-full"></div>
+              </div>
+            ) : !dayOpen ? (
               <div className="alert-success rounded-lg p-4 flex items-center gap-2">
                 <span>✓</span>
                 <div>Day is closed. Open a new day to start a new session.</div>
