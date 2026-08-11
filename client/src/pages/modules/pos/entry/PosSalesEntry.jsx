@@ -2581,6 +2581,7 @@ export default function PosSalesEntry() {
                                   <button
                                     type="button"
                                     className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                                    data-rbac-exempt="true"
                                     onClick={() => updateQuantity(it.id, -1)}
                                   >
                                     -
@@ -2591,6 +2592,7 @@ export default function PosSalesEntry() {
                                   <button
                                     type="button"
                                     className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                                    data-rbac-exempt="true"
                                     onClick={() => updateQuantity(it.id, 1)}
                                   >
                                     +
