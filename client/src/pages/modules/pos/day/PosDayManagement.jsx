@@ -74,6 +74,7 @@ export default function PosDayManagement() {
   const [openData, setOpenData] = useState({
     dateTime: toLocalInputDateTime(new Date()),
     float: "",
+    shift: "Morning Shift",
     supervisor: "",
     notes: "",
   });
@@ -378,6 +379,7 @@ export default function PosDayManagement() {
         setOpenData({
           dateTime: toLocalInputDateTime(item.open_datetime || ""),
           float: suggestedOpenFloat,
+          shift: item.shift || "Morning Shift",
           notes: item.open_notes || "",
         });
         if (isOpen) {
@@ -498,6 +500,7 @@ export default function PosDayManagement() {
         terminal: terminalId,
         openingDateTime: openData.dateTime,
         openingFloat: Number(openData.float || 0),
+        shift: openData.shift,
         supervisor: undefined,
         notes: openData.notes,
         momoOpeningMain: Number(momoOpeningMain || 0),
@@ -514,6 +517,7 @@ export default function PosDayManagement() {
             item.opening_float === null || item.opening_float === undefined
               ? String(openData.float || "")
               : String(item.opening_float),
+          shift: item.shift || openData.shift,
           notes: item.open_notes || openData.notes,
         });
         setSessionHistory([
@@ -1003,7 +1007,20 @@ export default function PosDayManagement() {
                       required
                     />
                   </div>
-                  <div className="md:ml-4">
+                  <div>
+                    <label className="label">Shift</label>
+                    <select
+                      className="input w-full"
+                      value={openData.shift}
+                      onChange={(e) =>
+                        setOpenData((p) => ({ ...p, shift: e.target.value }))
+                      }
+                    >
+                      <option value="Morning Shift">Morning Shift</option>
+                      <option value="Afternoon Shift">Afternoon Shift</option>
+                    </select>
+                  </div>
+                  <div>
                     <label className="label">Opening Float (₵)</label>
                     <input
                       type="number"
@@ -1078,8 +1095,14 @@ export default function PosDayManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
                     <div className="text-xs text-slate-600">Opened At</div>
-                    <div className="font-semibold">
+                    <div className="text-sm font-medium">
                       {fmtTime(openData.dateTime)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-600">Shift</div>
+                    <div className="text-sm font-medium">
+                      {openData.shift || "-"}
                     </div>
                   </div>
                   <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
@@ -1274,7 +1297,7 @@ export default function PosDayManagement() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="label">Enter float for next sales</label>
+                    <label className="label">Closing Float (₵)</label>
                     <input
                       type="number"
                       className="input"

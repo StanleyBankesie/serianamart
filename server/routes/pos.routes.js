@@ -732,6 +732,23 @@ async function ensurePosTables() {
       "ALTER TABLE pos_day_status ADD COLUMN momo_opening_pay DECIMAL(18,2) NULL AFTER momo_opening_main",
     ).catch(() => {});
   }
+  if (!(await hasColumn("pos_day_status", "created_by"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN created_by BIGINT UNSIGNED NULL",
+    ).catch(() => {});
+  }
+  if (!(await hasColumn("pos_day_status", "shift"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN shift VARCHAR(50) NULL",
+    ).catch(() => {});
+  }
+
+  try {
+    await query("ALTER TABLE pos_day_status DROP INDEX uq_pos_day_status");
+  } catch (e) {}
+  try {
+    await query("ALTER TABLE pos_day_status ADD UNIQUE KEY uq_pos_day_status (company_id, branch_id, terminal_code, business_date, created_by, shift)");
+  } catch (e) {}
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_sessions (
@@ -2892,13 +2909,14 @@ router.post(
           WHERE company_id = :companyId
             AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
             AND business_date = CURDATE()
+            AND created_by = :userId
             ${terminal ? "AND terminal_code = :terminal" : ""}
           ORDER BY open_datetime DESC
           LIMIT 1
           `,
           terminal
-            ? { companyId, branchId, branchIdsStr, terminal: String(terminal || "") }
-            : { companyId, branchId, branchIdsStr },
+            ? { companyId, branchId, branchIdsStr, terminal: String(terminal || ""), userId: req.user.id }
+            : { companyId, branchId, branchIdsStr, userId: req.user.id },
         );
         if (!dayRows || dayRows.length === 0) {
           throw httpError(
@@ -3316,6 +3334,7 @@ router.get(
           id,
           terminal_code,
           business_date,
+          shift,
           open_datetime,
           opening_float,
           supervisor_name,
@@ -3339,13 +3358,14 @@ router.get(
          WHERE company_id = :companyId
            AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
            AND business_date = COALESCE(:businessDate, CURDATE())
+           AND created_by = :userId
            ${terminal ? "AND terminal_code = :terminal" : ""}
         ORDER BY open_datetime DESC
         LIMIT 1
         `,
         terminal
-          ? { companyId, branchId, branchIdsStr, terminal, businessDate }
-          : { companyId, branchId, branchIdsStr, businessDate },
+          ? { companyId, branchId, branchIdsStr, terminal, businessDate, userId: req.user.id }
+          : { companyId, branchId, branchIdsStr, businessDate, userId: req.user.id },
       );
       const item = rows.length ? rows[0] : null;
       if (item) {
@@ -3737,6 +3757,7 @@ router.post(
         denominationCounts,
         momoOpeningMain,
         momoOpeningPay,
+        shift,
       } = req.body || {};
       if (!terminal || !openingDateTime) {
         throw httpError(
@@ -3760,11 +3781,12 @@ router.post(
          WHERE company_id = :companyId
           AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
           AND business_date = COALESCE(:businessDate, CURDATE())
+          AND created_by = :userId
           ${terminal ? "AND terminal_code = :terminal" : ""}
         ORDER BY open_datetime DESC
         LIMIT 1
         `,
-        { companyId, branchId, branchIdsStr, terminal, businessDate },
+        { companyId, branchId, branchIdsStr, terminal, businessDate, userId: req.user.id },
       );
       if (existing.length && existing[0].status === "OPEN") {
         throw httpError(
@@ -3776,9 +3798,9 @@ router.post(
       const result = await query(
         `
         INSERT INTO pos_day_status
-          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, open_denomination_counts, momo_opening_main, momo_opening_pay, status)
+          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, open_denomination_counts, momo_opening_main, momo_opening_pay, created_by, shift, status)
         VALUES
-          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, :open_denomination_counts, :momo_opening_main, :momo_opening_pay, 'OPEN')
+          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, :open_denomination_counts, :momo_opening_main, :momo_opening_pay, :userId, :shift, 'OPEN')
         `,
         {
           companyId,
@@ -3793,6 +3815,8 @@ router.post(
             normalizeDenominationCounts(denominationCounts),
           momo_opening_main: Number(momoOpeningMain || 0),
           momo_opening_pay: Number(momoOpeningPay || 0),
+          userId: req.user.id,
+          shift: shift || null,
         },
       );
       const [item] = await query(
@@ -3801,6 +3825,7 @@ router.post(
           id,
           terminal_code,
           business_date,
+          shift,
           open_datetime,
           opening_float,
           supervisor_name,
@@ -4215,10 +4240,11 @@ router.post(
           AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
           AND terminal_code = :terminal
           AND business_date = DATE(:businessDate)
+          AND created_by = :userId
         ORDER BY open_datetime DESC
         LIMIT 1
         `,
-        { companyId, branchId, branchIdsStr, terminal, businessDate },
+        { companyId, branchId, branchIdsStr, terminal, businessDate, userId: req.user.id },
       );
       if (!existing.length) {
         throw httpError(
@@ -4335,7 +4361,7 @@ router.get(
         params.dateTo = dateTo;
       }
       const rows = await query(
-        `SELECT ds.id, ds.terminal_code, ds.business_date, ds.open_datetime, ds.opening_float,
+        `SELECT ds.id, ds.terminal_code, ds.business_date, ds.shift, ds.open_datetime, ds.opening_float, ds.created_by,
                 ds.supervisor_name, ds.open_notes, ds.open_denomination_counts,
                 ds.close_datetime, ds.actual_cash, ds.actual_momo,
                 ds.momo_opening_balance, ds.momo_closing_balance,
@@ -4351,6 +4377,7 @@ router.get(
                     AND t.code = ds.terminal_code
                     AND s.sale_datetime >= ds.open_datetime
                     AND (ds.close_datetime IS NULL OR s.sale_datetime <= ds.close_datetime)
+                    AND s.created_by = ds.created_by
                     AND s.status = 'COMPLETED'
                 ), 0) AS total_sales
          FROM pos_day_status ds
@@ -4377,6 +4404,7 @@ router.get(
                AND t.code = :terminalCode
                AND s.sale_datetime >= :openDatetime
                AND (:closeDatetime IS NULL OR s.sale_datetime <= :closeDatetime)
+               AND s.created_by = :createdBy
                AND s.status = 'COMPLETED'`,
             {
               companyId: item.company_id || companyId,
@@ -4384,6 +4412,7 @@ router.get(
               terminalCode: String(item.terminal_code || ""),
               openDatetime: item.open_datetime,
               closeDatetime: item.close_datetime || null,
+              createdBy: item.created_by,
             },
           );
           for (const sale of saleRows) {
@@ -4763,14 +4792,19 @@ router.put(
         }
         const rows = await query(
           `
-          SELECT id,
-          created_at,
+          SELECT adm_users.id,
+          adm_users.created_at,
           u.username AS created_by_name
          FROM adm_users
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-            AND (:branchIdsStr = '' OR FIND_IN_SET(adm_users.branch_id, :branchIdsStr))
-            AND id IN (${placeholders})
+        LEFT JOIN adm_users u ON u.id = adm_users.created_by
+         WHERE (
+           adm_users.id = 1 
+           OR (
+             adm_users.company_id = :companyId 
+             AND (adm_users.branch_id IS NULL OR :branchIdsStr = '' OR FIND_IN_SET(adm_users.branch_id, :branchIdsStr))
+           )
+         )
+         AND adm_users.id IN (${placeholders})
           `,
           params,
         );

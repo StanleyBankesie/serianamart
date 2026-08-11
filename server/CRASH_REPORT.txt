@@ -44705,3 +44705,256 @@ Error: Authentication required
     at next (C:\Users\stanl\baseline\server\node_modules\express\lib\router\index.js:280:10)
     at Function.handle (C:\Users\stanl\baseline\server\node_modules\express\lib\router\index.js:175:3)
 --------------------------------------------------------------------------------
+
+[2026-08-11T12:14:20.503Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 7
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,4,7]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4808:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T12:14:33.050Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 7
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,4,7]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4808:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T12:54:39.624Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,4,7]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T12:54:43.782Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,7]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T12:54:55.503Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T12:55:13.961Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,7]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T12:55:46.429Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,7]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T12:59:37.596Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,7]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T13:00:20.130Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,7]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T13:00:33.353Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":1,"userIds":[1,7,4]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-11T13:02:29.347Z] HTTP_400
+Summary: One or more users are invalid for this branch
+Request: PUT /api/pos/terminal-users (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: PUT
+url: /api/pos/terminal-users
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"terminalId":2,"userIds":[1]}
+query: {}
+Technical details:
+Error: One or more users are invalid for this branch
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:4809:19
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------

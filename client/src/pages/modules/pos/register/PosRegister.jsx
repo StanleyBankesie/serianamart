@@ -181,6 +181,7 @@ export default function PosRegister() {
             no: `DAY-${String(item.id || "").padStart(6, "0")}`,
             terminal: String(item.terminal_code || term || ""),
             cashier: String(item.created_by_name || cashierName),
+            shift: String(item.shift || "-"),
             start: item.open_datetime ? new Date(item.open_datetime).toLocaleString() : "-",
             startTime: item.open_datetime || null,
             end: item.close_datetime ? new Date(item.close_datetime).toLocaleString() : "-",
@@ -569,6 +570,7 @@ export default function PosRegister() {
                   <th>Session #</th>
                   <th>Terminal</th>
                   <th>Cashier</th>
+                  <th>Shift</th>
                   <th>Start Time</th>
                   <th>End Time</th>
                   <th>Total Sales</th>
@@ -598,6 +600,7 @@ export default function PosRegister() {
                       <td className="p-2">{h.no}</td>
                       <td className="p-2">{h.terminal}</td>
                       <td className="p-2">{h.cashier}</td>
+                      <td className="p-2">{h.shift}</td>
                       <td className="p-2">{h.start}</td>
                       <td className="p-2">{h.end}</td>
                       <td className="p-2">{fmtCurrency(Number(h.sales || 0))}</td>
