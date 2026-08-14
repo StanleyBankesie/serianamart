@@ -2181,21 +2181,29 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     try {
       const fk = String(page?.feature_key || "").trim() || null;
       if (fk) {
+        const parts = fk.split(":");
+        const fkShort = parts.length > 1 ? parts.slice(1).join(":") : fk;
+        const mk = parts.length > 1 ? parts[0] : (page?.module || "").toLowerCase();
+
         const agg = await query(
           `SELECT 
              MAX(rp.can_view)   AS can_view,
              MAX(rp.can_create) AS can_create,
              MAX(rp.can_edit)   AS can_edit,
              MAX(rp.can_delete) AS can_delete,
-          rp.created_at,
-          uc.username AS created_by_name
-         FROM adm_role_permissions rp
-           JOIN adm_users u ON u.role_id = rp.role_id
-        LEFT JOIN adm_users uc ON uc.id = rp.created_by
-         WHERE u.id = :uid
-             AND (rp.feature_key = :fk OR rp.feature_key LIKE CONCAT(:fk, ':%'))
-           LIMIT 1`,
-          { uid: userId, fk },
+           rp.created_at,
+           uc.username AS created_by_name
+          FROM adm_role_permissions rp
+            JOIN adm_users u ON u.role_id = rp.role_id
+         LEFT JOIN adm_users uc ON uc.id = rp.created_by
+          WHERE u.id = :uid
+             AND (
+               rp.feature_key = :fk 
+               OR rp.feature_key LIKE CONCAT(:fk, ':%')
+               OR (rp.feature_key = :fkShort AND (rp.module_key = :mk OR rp.module_key = ''))
+             )
+            LIMIT 1`,
+          { uid: userId, fk, fkShort, mk },
         );
         if (agg.length) {
           roleDefaults = {
