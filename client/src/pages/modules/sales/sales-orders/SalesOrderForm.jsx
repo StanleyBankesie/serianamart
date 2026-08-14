@@ -48,7 +48,7 @@ export default function SalesOrderForm() {
   const { id } = useParams();
   const isEditMode = !!id;
   const { user } = useAuth();
-  const { canEditDiscount, canAccessPath, hasExceptional } = usePermission();
+  const { canEditDiscount, canAccessPath, canPerformAction, hasExceptional } = usePermission();
   const { getExchangeRate } = useExchangeRate();
   const [searchParams] = useSearchParams();
   const isViewMode =
@@ -2485,7 +2485,7 @@ export default function SalesOrderForm() {
               <button type="button" className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50" onClick={() => setShowCustomerModal(false)}>Back</button>
               <button type="button" className="px-4 py-2 text-sm rounded-lg bg-brand-900 text-white hover:bg-brand-800" onClick={() => {
                 setShowCustomerModal(false);
-                if (!canAccessPath("/sales/customers/new")) {
+                if (!canPerformAction("sales:customers", "create")) {
                   setShowPermModal(true);
                 } else {
                   navigate("/sales/customers/new");

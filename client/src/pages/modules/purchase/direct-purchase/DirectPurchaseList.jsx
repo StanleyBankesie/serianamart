@@ -30,7 +30,7 @@ export default function DirectPurchaseList() {
   const [viewMode, setViewMode] = useViewMode();
   const navigate = useNavigate();
   const location = useLocation();
-  const { canAccessPath, canReverseApproval } = usePermission();
+  const { canAccessPath, canCreateOnPage, canReverseApproval } = usePermission();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -88,7 +88,7 @@ export default function DirectPurchaseList() {
           </p>
         </div>
         <div className="flex gap-2">
-          {canAccessPath("/purchase/direct-purchase/new") && (
+          {canCreateOnPage() && (
             <button
               className="btn btn-primary"
               onClick={() => navigate("/purchase/direct-purchase/new")}

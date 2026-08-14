@@ -1372,7 +1372,7 @@ export default function PosSalesEntry() {
 
   function handleRegisterItem() {
     setShowItemNotFound(false);
-    if (canAccessPath("/inventory/items/new")) {
+    if (canPerformAction("inventory:items", "create")) {
       navigate("/inventory/items/new", { state: { from: "/pos/sales-entry" } });
     } else {
       setShowNoPermission(true);

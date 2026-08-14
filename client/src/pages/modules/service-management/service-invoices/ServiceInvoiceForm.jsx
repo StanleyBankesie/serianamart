@@ -24,7 +24,7 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function InvoiceForm() {
-  const { canEditDiscount, canAccessPath, hasExceptional } = usePermission();
+  const { canEditDiscount, canAccessPath, canPerformAction, hasExceptional } = usePermission();
   const navigate = useNavigate();
   const { id } = useParams();
   const { getExchangeRate } = useExchangeRate();
@@ -2823,7 +2823,7 @@ export default function InvoiceForm() {
                 className="btn btn-primary"
                 onClick={() => {
                   setShowCustomerModal(false);
-                  if (!canAccessPath("/sales/customers/new")) {
+                  if (!canPerformAction("sales:customers", "create")) {
                     setShowPermModal(true);
                   } else {
                     navigate("/sales/customers/new");
