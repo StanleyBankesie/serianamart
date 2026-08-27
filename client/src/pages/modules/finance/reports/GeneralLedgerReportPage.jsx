@@ -26,21 +26,63 @@ export default function GeneralLedgerReportPage() {
   }, [pollingCounter]);
 
   const [searchParams] = useSearchParams();
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [accountId, setAccountId] = useState("");
+  const [from, setFrom] = useState(() => {
+    const qp = new URLSearchParams(window.location.search).get("from");
+    if (qp) return qp;
+    const today = new Date();
+    return new Date(today.getFullYear(), 0, 1).toISOString().slice(0, 10);
+  });
+  const [to, setTo] = useState(() => {
+    const qp = new URLSearchParams(window.location.search).get("to");
+    if (qp) return qp;
+    return new Date().toISOString().slice(0, 10);
+  });
+  const [accountId, setAccountId] = useState(() => {
+    return new URLSearchParams(window.location.search).get("accountId") || "";
+  });
   const [accounts, setAccounts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState("");
   const [accountQuery, setAccountQuery] = useState("");
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [opening, setOpening] = useState(0);
+  const [accountOpeningBalances, setAccountOpeningBalances] = useState({});
+  const [reportCurrencyCode, setReportCurrencyCode] = useState("GHS");
+  const [reportExchangeRate, setReportExchangeRate] = useState(1.0);
   const [items, setItems] = useState([]);
   const [accountMeta, setAccountMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [controlBreak, setControlBreak] = useState(true);
   const accountInputRef = useRef(null);
   const accountDropdownRef = useRef(null);
+
+  function setDatePreset(preset) {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth();
+    const todayStr = today.toISOString().slice(0, 10);
+
+    if (preset === "today") {
+      setFrom(todayStr);
+      setTo(todayStr);
+    } else if (preset === "month") {
+      const startOfMonth = new Date(y, m, 1).toISOString().slice(0, 10);
+      setFrom(startOfMonth);
+      setTo(todayStr);
+    } else if (preset === "quarter") {
+      const qStartMonth = Math.floor(m / 3) * 3;
+      const startOfQ = new Date(y, qStartMonth, 1).toISOString().slice(0, 10);
+      setFrom(startOfQ);
+      setTo(todayStr);
+    } else if (preset === "year") {
+      const startOfYear = new Date(y, 0, 1).toISOString().slice(0, 10);
+      setFrom(startOfYear);
+      setTo(todayStr);
+    } else if (preset === "all") {
+      setFrom("");
+      setTo("");
+    }
+  }
 
   function getVoucherPath(row) {
     const code = String(row?.voucher_type_code || "").toUpperCase();
@@ -99,6 +141,9 @@ export default function GeneralLedgerReportPage() {
       const res = await api.get("/finance/reports/general-ledger", { params });
       setOpening(Number(res.data?.opening_balance || 0));
       setAccountMeta(res.data?.account || null);
+      setAccountOpeningBalances(res.data?.account_opening_balances || {});
+      setReportCurrencyCode(res.data?.currency_code || "GHS");
+      setReportExchangeRate(Number(res.data?.exchange_rate || 1.0));
       setItems(res.data?.items || []);
     } catch (e) {
       toast.error(
@@ -110,20 +155,7 @@ export default function GeneralLedgerReportPage() {
   }
 
   useEffect(() => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const jan1 = new Date(year, 0, 1);
-    // Check for query params from trial balance drill-down
-    const qpFrom = searchParams.get("from");
-    const qpTo = searchParams.get("to");
-    const qpAccountId = searchParams.get("accountId");
-    setFrom(qpFrom || jan1.toISOString().slice(0, 10));
-    setTo(qpTo || today.toISOString().slice(0, 10));
-    if (qpAccountId) {
-      setAccountId(qpAccountId);
-    }
     Promise.all([loadAccounts(), loadGroups()]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -132,6 +164,7 @@ export default function GeneralLedgerReportPage() {
       if (hit) setAccountQuery(String(hit.name || ""));
     }
   }, [accountId, accounts]);
+
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,7 +199,7 @@ export default function GeneralLedgerReportPage() {
     sortKey,
     sortDir,
     toggle,
-  } = useSort(items, "voucher_date", "desc");
+  } = useSort(items, "voucher_date", "asc");
 
   const groupedItems = useMemo(() => {
     if (!controlBreak) return null;
@@ -263,8 +296,8 @@ export default function GeneralLedgerReportPage() {
 
       <div className="card">
         <div className="card-body">
-          <div className="flex flex-wrap items-end gap-6 mb-6">
-            <div className="flex-1 min-w-[250px]">
+          <div className="flex flex-wrap items-end gap-4 mb-6">
+            <div className="flex-1 min-w-[240px]">
               <label className="label">Account</label>
               <div className="relative">
                 <input
@@ -321,10 +354,10 @@ export default function GeneralLedgerReportPage() {
                 ) : null}
               </div>
             </div>
-            <div className="w-48">
+            <div className="w-48 min-w-[160px]">
               <label className="label">Account Group</label>
               <select
-                className="input"
+                className="input w-full"
                 value={groupId}
                 onChange={(e) => setGroupId(e.target.value)}
               >
@@ -336,24 +369,60 @@ export default function GeneralLedgerReportPage() {
                 ))}
               </select>
             </div>
-            <div style={{ width: '1px', alignSelf: 'stretch', background: 'transparent', marginLeft: '1rem', marginRight: '1rem' }} />
-            <div className="w-48">
+            <div className="w-44 min-w-[140px]">
               <label className="label">From</label>
               <input
-                className="input"
+                className="input w-full"
                 type="date"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
               />
             </div>
-            <div className="w-40">
+            <div className="w-44 min-w-[140px]">
               <label className="label">To</label>
               <input
-                className="input"
+                className="input w-full"
                 type="date"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
               />
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("today")}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("month")}
+              >
+                This Month
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("quarter")}
+              >
+                This Quarter
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("year")}
+              >
+                This Year
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("all")}
+              >
+                All Time
+              </button>
             </div>
             <div className="flex items-end gap-3 shrink-0 ml-auto">
               <label className="flex items-center gap-2 mr-4 cursor-pointer border px-3 py-1.5 rounded-lg border-slate-200 hover:bg-slate-50 transition-colors">
@@ -441,28 +510,42 @@ export default function GeneralLedgerReportPage() {
           </div>
 
           {accountId ? (
-            <div className="p-4 rounded-lg border border-slate-200 dark:border-slate-700 mb-4">
-              <div className="text-sm">Opening Balance</div>
-              <div className="text-xl font-semibold">
-                {Number(opening || 0).toLocaleString()}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 mb-5">
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Opening Balance {from ? `(As of ${new Date(from).toLocaleDateString()})` : "(B/F)"}
+                </div>
+                <div className="text-xl font-extrabold text-brand-600 dark:text-brand-400 mt-1">
+                  {Math.abs(Number(opening || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+                  <span className={opening >= 0 ? "text-blue-600 font-bold" : "text-red-600 font-bold"}>
+                    {opening >= 0 ? "Dr" : "Cr"}
+                  </span>
+                </div>
               </div>
-              <div className="text-sm mt-2">
-                Balance Type:{" "}
-                {String(
-                  accountMeta?.current_balance_type ||
-                    accountMeta?.balance_type ||
-                    "-",
-                )}
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Normal Balance Nature</div>
+                <div className="text-base font-semibold text-slate-800 dark:text-slate-200 mt-1">
+                  <span className="px-2.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-xs font-bold">
+                    {String(accountMeta?.current_balance_type || accountMeta?.balance_type || "DEBIT")}
+                  </span>
+                </div>
               </div>
-              <div className="text-sm">
-                Current Balance:{" "}
-                {Number(accountMeta?.current_balance || 0).toLocaleString()}
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  {to ? `Closing Balance (As of ${new Date(to).toLocaleDateString()})` : "Current Ledger Balance"}
+                </div>
+                <div className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
+                  {Math.abs(Number(opening || 0) + (items || []).reduce((acc, r) => acc + Number(r.debit || 0) - Number(r.credit || 0), 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+                  <span className={(Number(opening || 0) + (items || []).reduce((acc, r) => acc + Number(r.debit || 0) - Number(r.credit || 0), 0)) >= 0 ? "text-blue-600 font-bold" : "text-red-600 font-bold"}>
+                    {(Number(opening || 0) + (items || []).reduce((acc, r) => acc + Number(r.debit || 0) - Number(r.credit || 0), 0)) >= 0 ? "Dr" : "Cr"}
+                  </span>
+                </div>
               </div>
             </div>
           ) : null}
 
           <div className="overflow-x-auto">
-            <table className="table">
+            <table className="table table-fixed w-full min-w-[1100px]">
               <thead className="sticky top-0 z-10">
                 <tr>
                   {!accountId && !controlBreak ? (
@@ -472,6 +555,7 @@ export default function GeneralLedgerReportPage() {
                       currentKey={sortKey}
                       direction={sortDir}
                       onToggle={toggle}
+                      className="w-[11.11%] min-w-[130px]"
                     />
                   ) : null}
                   <SortableHeader
@@ -480,6 +564,7 @@ export default function GeneralLedgerReportPage() {
                     currentKey={sortKey}
                     direction={sortDir}
                     onToggle={toggle}
+                    className="w-[12.5%] min-w-[130px]"
                   />
                   <SortableHeader
                     label="Voucher No"
@@ -487,6 +572,7 @@ export default function GeneralLedgerReportPage() {
                     currentKey={sortKey}
                     direction={sortDir}
                     onToggle={toggle}
+                    className="w-[12.5%] min-w-[130px]"
                   />
                   <SortableHeader
                     label="Description"
@@ -494,6 +580,7 @@ export default function GeneralLedgerReportPage() {
                     currentKey={sortKey}
                     direction={sortDir}
                     onToggle={toggle}
+                    className="w-[12.5%] min-w-[130px]"
                   />
                   <SortableHeader
                     label="Debit"
@@ -501,7 +588,7 @@ export default function GeneralLedgerReportPage() {
                     currentKey={sortKey}
                     direction={sortDir}
                     onToggle={toggle}
-                    className="text-right"
+                    className="text-right w-[12.5%] min-w-[130px]"
                   />
                   <SortableHeader
                     label="Credit"
@@ -509,7 +596,7 @@ export default function GeneralLedgerReportPage() {
                     currentKey={sortKey}
                     direction={sortDir}
                     onToggle={toggle}
-                    className="text-right"
+                    className="text-right w-[12.5%] min-w-[130px]"
                   />
                   <SortableHeader
                     label="Currency"
@@ -517,7 +604,7 @@ export default function GeneralLedgerReportPage() {
                     currentKey={sortKey}
                     direction={sortDir}
                     onToggle={toggle}
-                    className="text-right"
+                    className="text-right w-[12.5%] min-w-[130px]"
                   />
                   <SortableHeader
                     label="Exch. Rate"
@@ -525,7 +612,7 @@ export default function GeneralLedgerReportPage() {
                     currentKey={sortKey}
                     direction={sortDir}
                     onToggle={toggle}
-                    className="text-right"
+                    className="text-right w-[12.5%] min-w-[130px]"
                   />
                   <SortableHeader
                     label="Balance (Dr/Cr)"
@@ -533,7 +620,7 @@ export default function GeneralLedgerReportPage() {
                     currentKey={sortKey}
                     direction={sortDir}
                     onToggle={toggle}
-                    className="text-right"
+                    className="text-right w-[12.5%] min-w-[130px]"
                   />
                 </tr>
               </thead>
@@ -541,13 +628,36 @@ export default function GeneralLedgerReportPage() {
                 Object.entries(groupedItems).map(([accountName, rows]) => {
                   const totalDr = rows.reduce((acc, r) => acc + Number(r.debit || 0), 0);
                   const totalCr = rows.reduce((acc, r) => acc + Number(r.credit || 0), 0);
-                  const lastBalance = rows.length > 0 ? Number(rows[rows.length - 1].balance || 0) : 0;
-                  const balanceType = lastBalance >= 0 ? "Dr" : "Cr";
+                  const accId = rows[0]?.account_id || (accounts || []).find(a => a.name === accountName || a.code === accountName)?.id;
+                  const accOb = (accId && accountOpeningBalances) ? (accountOpeningBalances[accId] || accountOpeningBalances[String(accId)] || null) : null;
+                  const obBalance = accOb ? Number(accOb.opening_balance || 0) : 0;
+                  const obDate = from ? new Date(from).toLocaleDateString() : (accOb?.opening_date ? new Date(accOb.opening_date).toLocaleDateString() : "Opening");
+                  const obCurrency = accOb?.currency_code || rows[0]?.currency_code || reportCurrencyCode || "GHS";
+                  const obRate = Number(accOb?.exchange_rate || rows[0]?.exchange_rate || reportExchangeRate || 1.0);
+                  const closingBal = obBalance + totalDr - totalCr;
+                  const closingType = closingBal >= 0 ? "Dr" : "Cr";
                   return (
                     <tbody key={accountName} className="border-b-[8px] border-slate-200/50">
                       <tr className="bg-slate-100 dark:bg-slate-800">
                         <td colSpan="8" className="font-bold text-slate-700 dark:text-slate-200 py-3 px-4">
                           Account: <span className="text-brand-600 dark:text-brand-400">{accountName}</span>
+                        </td>
+                      </tr>
+                      <tr className="bg-slate-50/90 dark:bg-slate-800/60 font-semibold border-b border-slate-200 dark:border-slate-700">
+                        <td>{obDate}</td>
+                        <td className="font-mono text-xs font-bold text-slate-500 dark:text-slate-400">OPENING</td>
+                        <td className="italic text-slate-700 dark:text-slate-300 break-words whitespace-normal">{from ? `Opening Balance (As of ${new Date(from).toLocaleDateString()})` : "Opening Balance B/F"}</td>
+                        <td className="text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                          {obBalance > 0 ? Number(obBalance).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
+                        </td>
+                        <td className="text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                          {obBalance < 0 ? Math.abs(obBalance).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
+                        </td>
+                        <td className="text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-300">{obCurrency}</td>
+                        <td className="text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-300">{Number(obRate || 1).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 6 })}</td>
+                        <td className="text-right font-mono font-bold">
+                          {Math.abs(obBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                          <span className={obBalance >= 0 ? "text-blue-600" : "text-red-600"}>{obBalance >= 0 ? "Dr" : "Cr"}</span>
                         </td>
                       </tr>
                       {rows.map((r, idx) => {
@@ -562,14 +672,14 @@ export default function GeneralLedgerReportPage() {
                                 {r.voucher_no}
                               </Link>
                             </td>
-                            <td>{r.description || "-"}</td>
-                            <td className="text-right">{Number(r.debit || 0).toLocaleString()}</td>
-                            <td className="text-right">{Number(r.credit || 0).toLocaleString()}</td>
+                            <td className="break-words whitespace-normal leading-relaxed">{r.description || "-"}</td>
+                            <td className="text-right">{Number(r.debit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            <td className="text-right">{Number(r.credit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             <td className="text-right">{r.currency_code || "-"}</td>
-                            <td className="text-right">{Number(r.exchange_rate || 1).toLocaleString()}</td>
+                            <td className="text-right">{Number(r.exchange_rate || 1).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 6 })}</td>
                             <td className="text-right">
                               <span className="font-medium">
-                                {displayBalance.toLocaleString()}{" "}
+                                {displayBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
                                 <span className={balance >= 0 ? "text-blue-600" : "text-red-600"}>{rBalanceType}</span>
                               </span>
                             </td>
@@ -578,11 +688,11 @@ export default function GeneralLedgerReportPage() {
                       })}
                       <tr className="bg-slate-50 dark:bg-slate-800/50 font-semibold border-t-2 border-slate-200">
                         <td colSpan="3" className="text-right pr-4 py-3">Totals for {accountName}:</td>
-                        <td className="text-right text-brand-600 py-3">{totalDr.toLocaleString()}</td>
-                        <td className="text-right text-brand-600 py-3">{totalCr.toLocaleString()}</td>
+                        <td className="text-right text-brand-600 py-3">{totalDr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="text-right text-brand-600 py-3">{totalCr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td colSpan="2" className="py-3"></td>
                         <td className="text-right text-brand-600 py-3">
-                           {Math.abs(lastBalance).toLocaleString()} <span className={lastBalance >= 0 ? "text-blue-600" : "text-red-600"}>{balanceType}</span>
+                           {Math.abs(closingBal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className={closingBal >= 0 ? "text-blue-600" : "text-red-600"}>{closingType}</span>
                         </td>
                       </tr>
                     </tbody>
@@ -590,6 +700,25 @@ export default function GeneralLedgerReportPage() {
                 })
               ) : (
                 <tbody>
+                  {accountId && (
+                    <tr className="bg-slate-50/90 dark:bg-slate-800/60 font-semibold border-b border-slate-200 dark:border-slate-700">
+                      <td>{from ? new Date(from).toLocaleDateString() : "Opening"}</td>
+                      <td className="font-mono text-xs font-bold text-slate-500 dark:text-slate-400">OPENING</td>
+                      <td className="italic text-slate-700 dark:text-slate-300 break-words whitespace-normal">{from ? `Opening Balance (As of ${new Date(from).toLocaleDateString()})` : "Opening Balance B/F"}</td>
+                      <td className="text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                        {opening > 0 ? Number(opening).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
+                      </td>
+                      <td className="text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                        {opening < 0 ? Math.abs(opening).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
+                      </td>
+                      <td className="text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-300">{reportCurrencyCode || "GHS"}</td>
+                      <td className="text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-300">{Number(reportExchangeRate || 1).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 6 })}</td>
+                      <td className="text-right font-mono font-bold">
+                        {Math.abs(opening).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                        <span className={opening >= 0 ? "text-blue-600" : "text-red-600"}>{opening >= 0 ? "Dr" : "Cr"}</span>
+                      </td>
+                    </tr>
+                  )}
                   {sortedItems.map((r, idx) => {
                     const balance = Number(r.balance || 0);
                     const balanceType = balance >= 0 ? "Dr" : "Cr";
@@ -608,22 +737,22 @@ export default function GeneralLedgerReportPage() {
                             {r.voucher_no}
                           </Link>
                         </td>
-                        <td>{r.description || "-"}</td>
+                        <td className="break-words whitespace-normal leading-relaxed">{r.description || "-"}</td>
                         <td className="text-right">
-                          {Number(r.debit || 0).toLocaleString()}
+                          {Number(r.debit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="text-right">
-                          {Number(r.credit || 0).toLocaleString()}
+                          {Number(r.credit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="text-right">
                           {r.currency_code || "-"}
                         </td>
                         <td className="text-right">
-                          {Number(r.exchange_rate || 1).toLocaleString()}
+                          {Number(r.exchange_rate || 1).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 6 })}
                         </td>
                         <td className="text-right">
                           <span className="font-medium">
-                            {displayBalance.toLocaleString()}{" "}
+                            {displayBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
                             <span
                               className={
                                 balance >= 0 ? "text-blue-600" : "text-red-600"

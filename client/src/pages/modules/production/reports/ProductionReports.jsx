@@ -14,7 +14,8 @@ import {
   Calendar,
   Layers,
   Activity,
-  ChevronRight
+  ChevronRight,
+  Warehouse
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -43,6 +44,27 @@ const ReportCard = ({ title, description, icon, path, color }) => (
  */
 export default function ProductionReports() {
   const reports = [
+    {
+      title: "Detailed Production Report",
+      description: "Breakdown by Production Date, Unit, Machine, Shift, Process, Manufacturing Date, Item, Planned and Produced Qty.",
+      icon: <BarChart3 className="text-emerald-600" />,
+      path: "/production/reports/production-detail",
+      color: "bg-emerald-50 dark:bg-emerald-900/30"
+    },
+    {
+      title: "Production & Material Executive Summary",
+      description: "Comprehensive summary covering total production output, consumption, completed and pending orders.",
+      icon: <FileText className="text-purple-600" />,
+      path: "/production/reports/summary",
+      color: "bg-purple-50 dark:bg-purple-900/30"
+    },
+    {
+      title: "Warehouse Stock Availability",
+      description: "Real-time available quantities of raw materials and WIP across all production warehouses.",
+      icon: <Warehouse className="text-emerald-600" />,
+      path: "/production/reports/warehouse-stock",
+      color: "bg-emerald-50 dark:bg-emerald-900/30"
+    },
     {
       title: "Production Efficiency",
       description: "Comparison of planned quantities versus actual production output by item.",
@@ -76,7 +98,7 @@ export default function ProductionReports() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <div className="flex items-center gap-4">
-        <Link to="/production?section=Intelligence%20%26%20Analytics" className="btn btn-secondary p-2">
+        <Link to="/production?section=Reports%20%26%20Costing" className="btn btn-secondary p-2">
           <ArrowLeft size={20} />
         </Link>
         <div>

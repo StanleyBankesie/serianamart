@@ -82,7 +82,7 @@ export default function MachineList() {
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          <Link to="/production?section=Manufacturing%20Masters" className="btn btn-secondary p-2">
+          <Link to="/production?section=Manufacturing%20Masters%20%26%20Setup" className="btn btn-secondary p-2">
             <ArrowLeft size={20} />
           </Link>
           <div>
@@ -112,7 +112,7 @@ export default function MachineList() {
             <thead>
               <tr>
                 <th>Machine Details</th>
-                <th>Code</th>
+                <th>Serial Number</th>
                 <th className="text-center">Status</th>
                 <th className="text-right">Actions</th>
               </tr>
@@ -197,13 +197,13 @@ export default function MachineList() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">Code / Asset ID</label>
+                <label className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">Serial Number</label>
                 <input 
                   type="text" 
                   className="input py-3 w-full font-bold font-mono"
                   value={currentMachine.machine_code}
                   onChange={e => setCurrentMachine({...currentMachine, machine_code: e.target.value})}
-                  placeholder="e.g. MAC-001"
+                  placeholder="e.g. SN-994021"
                 />
               </div>
               <div className="flex items-center gap-3 py-1">

@@ -161,7 +161,7 @@ export async function requireAuth(req, res, next) {
  * @param {import('express').Response} res - Express response.
  * @param {import('express').NextFunction} next - Express next middleware function.
  */
-export function requireCompanyScope(req, res, next) {
+export async function requireCompanyScope(req, res, next) {
   if (!req.user) {
     return next(httpError(401, "UNAUTHORIZED", "Authentication required"));
   }
@@ -193,7 +193,14 @@ export function requireCompanyScope(req, res, next) {
 
   // Validate that user has access to the requested company
   if (allowedCompanies.length > 0 && !allowedCompanies.includes(requestedCompanyId)) {
-    return next(httpError(403, "FORBIDDEN", "Company access denied"));
+    // Fallback: Check database dynamically in case the JWT payload is stale
+    const [rows] = await query(
+      "SELECT 1 FROM adm_user_branches WHERE user_id = :userId AND company_id = :companyId LIMIT 1",
+      { userId: req.user.id || req.user.sub, companyId: requestedCompanyId }
+    );
+    if (!rows || !rows.length) {
+      return next(httpError(403, "FORBIDDEN", "Company access denied"));
+    }
   }
 
   req.scope.companyId = requestedCompanyId;
@@ -247,7 +254,14 @@ export async function requireBranchScope(req, res, next) {
       : [];
 
     if (allowedBranches.length && !allowedBranches.includes(Number(branchId))) {
-      return next(httpError(403, "FORBIDDEN", "Branch access denied"));
+      // Fallback: Check database dynamically in case the JWT payload is stale
+      const [rows] = await query(
+        "SELECT 1 FROM adm_user_branches WHERE user_id = :userId AND branch_id = :branchId LIMIT 1",
+        { userId: req.user.id || req.user.sub, branchId: Number(branchId) }
+      );
+      if (!rows || !rows.length) {
+        return next(httpError(403, "FORBIDDEN", "Branch access denied"));
+      }
     }
 
     req.scope.branchIdsStr = String(branchId);

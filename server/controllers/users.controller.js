@@ -43,7 +43,7 @@ export const getUsers = async (req, res, next) => {
       params.branch_id = Number(branch_id);
     }
     if (typeof active !== "undefined" && active !== "") {
-      clauses.push("(u.is_active = :is_active OR u.id = 1)");
+      clauses.push("u.is_active = :is_active");
       const raw = String(active).trim().toLowerCase();
       if (raw === "1" || raw === "true") {
         params.is_active = 1;
@@ -61,11 +61,11 @@ export const getUsers = async (req, res, next) => {
       );
     }
     if (scopeCompanyId) {
-      clauses.push("(u.company_id = :scopeCompanyId OR u.id = 1)");
+      clauses.push("u.company_id = :scopeCompanyId");
       params.scopeCompanyId = scopeCompanyId;
     }
     if (branchIdsStr) {
-      clauses.push("(:branchIdsStr = '' OR u.branch_id IS NULL OR FIND_IN_SET(u.branch_id, :branchIdsStr) > 0 OR u.id = 1)");
+      clauses.push("(:branchIdsStr = '' OR u.branch_id IS NULL OR FIND_IN_SET(u.branch_id, :branchIdsStr) > 0)");
       params.branchIdsStr = branchIdsStr;
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -80,20 +80,7 @@ export const getUsers = async (req, res, next) => {
       LEFT JOIN adm_branches b ON u.branch_id = b.id
       LEFT JOIN adm_users uc ON u.created_by = uc.id
       ${where}
-      
-      UNION
-      
-      SELECT u.id, u.company_id, u.branch_id, u.username, u.full_name, u.email, 
-             u.is_active, u.created_at,
-             c.name as company_name, b.name as branch_name,
-             uc.username as created_by_name
-      FROM adm_users u
-      LEFT JOIN adm_companies c ON u.company_id = c.id
-      LEFT JOIN adm_branches b ON u.branch_id = b.id
-      LEFT JOIN adm_users uc ON u.created_by = uc.id
-      WHERE u.id = 1
-      
-      ORDER BY username ASC
+      ORDER BY u.username ASC
       LIMIT ${lim}
     `;
     const items = await query(sql, params);

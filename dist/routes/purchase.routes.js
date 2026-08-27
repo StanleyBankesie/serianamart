@@ -21,6 +21,7 @@ import {
 import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { updateItemAverageCostTx } from "../services/costing.service.js";
+import { checkAndSendAutomaticNotification } from "../utils/externalNotification.js";
 import {
   recordMovementTx,
   ensureStockBalancesWarehouseInfrastructure,
@@ -1271,13 +1272,13 @@ async function postGrnAccrualTx(
   { companyId, branchId, branchIdsStr, grnId, inventoryAccountRef, grnClearingAccountRef },
 ) {
   const safeCompanyId = toNumber(companyId);
-  const safeBranchId = toNumber(branchId);
+  const safeBranchId = toNumber(branchId) || null;
   const safeGrnId = toNumber(grnId);
-  if (!safeCompanyId || !safeBranchId || !safeGrnId) {
+  if (!safeCompanyId || !safeGrnId) {
     throw httpError(
       400,
       "VALIDATION_ERROR",
-      "companyId, branchId, branchIdsStr and grnId are required",
+      "companyId and grnId are required",
     );
   }
   companyId = safeCompanyId;
@@ -1459,19 +1460,27 @@ async function postGrnAccrualTx(
   return { voucherId, voucherNo, amount: inventoryValue };
 }
 
-async function nextSequentialNo(table, column, prefix) {
-  const rows = await query(`
-    SELECT ${column} AS no,
-          created_at,
+async function nextSequentialNo(table, column, prefix, connObj = null) {
+  const executor = connObj || { query };
+  let sql = `
+    SELECT ${table}.${column} AS no,
+          ${table}.created_at,
           u.username AS created_by_name
          FROM ${table}
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE ${column} REGEXP '^${prefix}-[0-9]{6}$'
-    ORDER BY CAST(SUBSTRING(${column}, ${prefix.length + 2}) AS UNSIGNED) DESC
+        LEFT JOIN adm_users u ON u.id = ${table}.created_by
+         WHERE ${table}.${column} REGEXP '^${prefix}-[0-9]{6}$'
+    ORDER BY CAST(SUBSTRING(${table}.${column}, ${prefix.length + 2}) AS UNSIGNED) DESC
     LIMIT 1
-    `);
+  `;
+  if (connObj) sql += " FOR UPDATE";
+  
+  const executeQuery = connObj 
+    ? connObj.execute(sql).then(r => r[0]).catch(() => []) 
+    : query(sql).catch(() => []);
+    
+  const rows = await executeQuery;
   let nextNum = 1;
-  if (rows.length > 0) {
+  if (rows && rows.length > 0) {
     const prev = String(rows[0].no || "");
     const numPart = prev.slice(prefix.length + 1);
     const n = parseInt(numPart, 10);
@@ -1878,14 +1887,14 @@ async function postPurchaseBillVoucherTx(
   { companyId, branchId, branchIdsStr, billId, userId, isDirectPurchase = false },
 ) {
   const safeCompanyId = toNumber(companyId);
-  const safeBranchId = toNumber(branchId);
+  const safeBranchId = toNumber(branchId) || null;
   const safeBillId = toNumber(billId);
   const safeUserId = toNumber(userId) || null;
-  if (!safeCompanyId || !safeBranchId || !safeBillId) {
+  if (!safeCompanyId || !safeBillId) {
     throw httpError(
       400,
       "VALIDATION_ERROR",
-      "companyId, branchId, branchIdsStr and billId are required",
+      "companyId and billId are required",
     );
   }
   companyId = safeCompanyId;
@@ -2638,6 +2647,7 @@ router.put(
         "inv_goods_receipt_notes",
         "grn_no",
         "GRN",
+        conn
       );
       const [grnHdr] = await conn.execute(
         `INSERT INTO inv_goods_receipt_notes
@@ -2781,7 +2791,7 @@ router.put(
           inventoryAccountRef: "1200",
           grnClearingAccountRef: "2100",
         });
-      const billNo = await nextSequentialNo("pur_bills", "bill_no", "PBL");
+      const billNo = await nextSequentialNo("pur_bills", "bill_no", "PBL", conn);
       const [billHdr] = await conn.execute(
         `INSERT INTO pur_bills
           (company_id, branch_id, bill_no, bill_date, supplier_id, po_id, grn_id, bill_type,
@@ -3603,7 +3613,7 @@ router.post(
       await conn.beginTransaction();
       const orderNo =
         String(body.order_no || "").trim() ||
-        (await nextSequentialNo("pur_service_orders", "order_no", "SVO"));
+        (await nextSequentialNo("pur_service_orders", "order_no", "SVO", conn));
       const orderDate =
         String(body.order_date || "").trim() || toYmd(new Date());
       const orderType = String(body.order_type || "INTERNAL").toUpperCase();
@@ -3705,6 +3715,55 @@ router.post(
       conn.release();
     }
   },
+);
+
+router.post(
+  "/service-orders/:id/send-notification",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchIdsStr = "" } = req.scope || {};
+      const id = Number(req.params.id);
+      const { type } = req.body;
+      if (!Number.isFinite(id)) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      if (!["email", "sms", "whatsapp", "all"].includes(type)) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid notification type");
+      }
+
+      const { sendExternalNotification } = await import("../utils/externalNotification.js");
+
+      const [order] = await query(
+        `SELECT o.id, o.order_no, o.total_amount, s.supplier_name, s.email AS supplier_email, s.phone AS supplier_phone
+         FROM pur_service_orders o
+         LEFT JOIN pur_suppliers s ON s.id = o.supplier_id
+         WHERE o.id = :id AND o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
+         LIMIT 1`,
+        { id, companyId, branchIdsStr }
+      );
+
+      if (!order) throw httpError(404, "NOT_FOUND", "Service Order not found");
+
+      const subject = `Service Order ${order.order_no} from OmniSuite`;
+      const text = `Dear ${order.supplier_name || 'Supplier'},\n\nPlease find the details regarding Service Order ${order.order_no} for the amount of ${order.total_amount}.\n\nThank you!`;
+      const html = `<p>Dear ${order.supplier_name || 'Supplier'},</p><p>Please find the details regarding Service Order <strong>${order.order_no}</strong> for the amount of ${order.total_amount}.</p><p>Thank you!</p>`;
+
+      const results = await sendExternalNotification({
+        type,
+        recipientEmail: order.supplier_email,
+        recipientPhone: order.supplier_phone,
+        subject,
+        text,
+        html
+      });
+
+      res.json(results);
+    } catch (e) {
+      next(e);
+    }
+  }
 );
 
 router.put(
@@ -5329,7 +5388,7 @@ router.post(
           dwId: instanceId,
           stepOrder: first.step_order,
           actor: req.user.sub,
-          comments: "",
+          comments: req.body?.comments || "",
         },
       );
 
@@ -5938,12 +5997,6 @@ router.post(
         }
       }
       if (!supplierCode) {
-        supplierCode = await getNextNumericCode(conn, {
-          companyId,
-          table: "fin_accounts",
-          nature: "LIABILITY",
-        });
-        if (!supplierCode) {
           const [mxRows] = await conn.execute(
             `
             SELECT MAX(CAST(SUBSTRING(supplier_code, 4) AS UNSIGNED)) AS maxnum
@@ -5968,7 +6021,6 @@ router.post(
           );
           const nextNum = currentMax + 1;
           supplierCode = `SU-${String(nextNum).padStart(6, "0")}`;
-        }
       }
 
       const [resHeader] = await conn.execute(
@@ -8463,6 +8515,14 @@ router.post(
           `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
           { id, companyId, branchId, branchIdsStr },
         );
+        
+        await checkAndSendAutomaticNotification({
+          companyId,
+          moduleCode: "PURCHASE_ORDER",
+          statusTrigger: "APPROVED",
+          documentId: id,
+        }).catch(err => console.error(err));
+
         return res.json({ status: "APPROVED" });
       }
 
@@ -8480,6 +8540,14 @@ router.post(
           `UPDATE pur_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
           { id, companyId, branchId, branchIdsStr },
         );
+        
+        await checkAndSendAutomaticNotification({
+          companyId,
+          moduleCode: "PURCHASE_ORDER",
+          statusTrigger: "APPROVED",
+          documentId: id,
+        }).catch(err => console.error(err));
+
         return res.json({ status: "APPROVED" });
       }
 
@@ -8563,7 +8631,7 @@ router.post(
           dwId: instanceId,
           stepOrder: first.step_order,
           actor: req.user.sub,
-          comments: "",
+          comments: req.body?.comments || "",
         },
       );
 
@@ -8678,6 +8746,55 @@ router.get(
       next(err);
     }
   },
+);
+
+router.post(
+  "/orders/:id/send-notification",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  requireAnyPermission(["PURCHASE.ORDER.VIEW", "PURCHASE.ORDER.MANAGE"]),
+  async (req, res, next) => {
+    try {
+      const { companyId, branchIdsStr = "" } = req.scope || {};
+      const id = Number(req.params.id);
+      const { type } = req.body; // 'email', 'sms', 'whatsapp', 'all'
+      if (!Number.isFinite(id)) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      if (!["email", "sms", "whatsapp", "all"].includes(type)) {
+        throw httpError(400, "VALIDATION_ERROR", "Invalid notification type");
+      }
+
+      const { sendExternalNotification } = await import("../utils/externalNotification.js");
+
+      const [order] = await query(
+        `SELECT o.id, o.po_no, o.total_amount, s.supplier_name, s.email AS supplier_email, s.phone AS supplier_phone
+         FROM pur_orders o
+         LEFT JOIN pur_suppliers s ON s.id = o.supplier_id
+         WHERE o.id = :id AND o.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(o.branch_id, :branchIdsStr))
+         LIMIT 1`,
+        { id, companyId, branchIdsStr }
+      );
+
+      if (!order) throw httpError(404, "NOT_FOUND", "Purchase Order not found");
+
+      const subject = `Purchase Order ${order.po_no} from OmniSuite`;
+      const text = `Dear ${order.supplier_name || 'Supplier'},\n\nPlease find the details regarding Purchase Order ${order.po_no} for the amount of ${order.total_amount}.\n\nThank you!`;
+      const html = `<p>Dear ${order.supplier_name || 'Supplier'},</p><p>Please find the details regarding Purchase Order <strong>${order.po_no}</strong> for the amount of ${order.total_amount}.</p><p>Thank you!</p>`;
+
+      const results = await sendExternalNotification({
+        type,
+        recipientEmail: order.supplier_email,
+        recipientPhone: order.supplier_phone,
+        subject,
+        text,
+        html
+      });
+
+      res.json(results);
+    } catch (e) {
+      next(e);
+    }
+  }
 );
 
 router.put(
@@ -9749,7 +9866,7 @@ router.post(
           dwId: instanceId,
           stepOrder: first.step_order,
           actor: req.user.sub,
-          comments: "",
+          comments: req.body?.comments || "",
         },
       );
       await query(
@@ -9905,7 +10022,7 @@ router.post(
         ? String(body.bill_type).toUpperCase()
         : "LOCAL";
       const billPrefix = billType === "IMPORT" ? "PBI" : "PBL";
-      const billNo = await nextSequentialNo("pur_bills", "bill_no", billPrefix);
+      const billNo = await nextSequentialNo("pur_bills", "bill_no", billPrefix, conn);
       const billDate = body.bill_date;
       const supplierId = toNumber(body.supplier_id);
       const poId = toNumber(body.po_id);
@@ -9920,6 +10037,7 @@ router.post(
       const discountAmount = Number(body.discount_amount) || 0;
       const freightCharges = Number(body.freight_charges) || 0;
       const otherCharges = Number(body.other_charges) || 0;
+      const costCenterId = toNumber(body.cost_center_id) || null;
 
       const details = Array.isArray(body.details) ? body.details : [];
 
@@ -9983,12 +10101,12 @@ router.post(
           (company_id, branch_id, bill_no, bill_date, supplier_id, po_id, grn_id, bill_type, 
            due_date, currency_id, exchange_rate, payment_terms,
            total_amount, discount_amount, tax_amount, freight_charges, other_charges, net_amount, 
-           status, created_by)
+           status, created_by, cost_center_id)
         VALUES
           (:companyId, :branchId, :billNo, :billDate, :supplierId, :poId, :grnId, :billType,
            :dueDate, :currencyId, :exchangeRate, :paymentTerms,
            :totalAmount, :discountAmount, :taxAmount, :freightCharges, :otherCharges, :netAmount,
-           :status, :createdBy)
+           :status, :createdBy, :costCenterId)
         `,
         {
           companyId,
@@ -10011,6 +10129,7 @@ router.post(
           netAmount,
           status,
           createdBy,
+          costCenterId,
         },
       );
       const billId = hdr.insertId;
@@ -10108,6 +10227,7 @@ router.put(
       const discountAmount = Number(body.discount_amount) || 0;
       const freightCharges = Number(body.freight_charges) || 0;
       const otherCharges = Number(body.other_charges) || 0;
+      const costCenterId = toNumber(body.cost_center_id) || null;
 
       const details = Array.isArray(body.details) ? body.details : [];
 
@@ -10183,7 +10303,8 @@ router.put(
             freight_charges = :freightCharges,
             other_charges = :otherCharges,
             net_amount = :netAmount,
-            status = :status
+            status = :status,
+            cost_center_id = :costCenterId
         WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
         `,
         {
@@ -10206,6 +10327,7 @@ router.put(
           otherCharges,
           netAmount,
           status,
+          costCenterId,
         },
       );
       if (!upd.affectedRows)
@@ -10282,14 +10404,12 @@ router.get(
       const purchaseRows = await query(
         `
         SELECT COUNT(*) AS count,
-               COALESCE(SUM(total_amount), 0) AS total,
-          created_at,
-          u.username AS created_by_name
-         FROM pur_orders
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
+               COALESCE(SUM(net_amount), 0) AS total
+         FROM pur_bills
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
-          AND po_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND status = 'POSTED'
+          AND (bill_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) OR (bill_date IS NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)))
         `,
         { companyId, branchId, branchIdsStr },
       );
@@ -10298,12 +10418,9 @@ router.get(
 
       const activePoRows = await query(
         `
-        SELECT COUNT(*) AS count,
-          created_at,
-          u.username AS created_by_name
+        SELECT COUNT(*) AS count
          FROM pur_orders
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND status NOT IN ('RECEIVED', 'CANCELLED', 'CLOSED', 'REJECTED')
         `,
@@ -10313,12 +10430,9 @@ router.get(
 
       const supplierRows = await query(
         `
-        SELECT COUNT(*) AS count,
-          created_at,
-          u.username AS created_by_name
+        SELECT COUNT(*) AS count
          FROM pur_suppliers
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND is_active = 1
         `,
         { companyId },
@@ -10327,12 +10441,9 @@ router.get(
 
       const pendingRows = await query(
         `
-        SELECT COUNT(*) AS count,
-          dw.created_at,
-          u.username AS created_by_name
+        SELECT COUNT(*) AS count
          FROM adm_document_workflows dw
-        LEFT JOIN adm_users u ON u.id = dw.created_by
-         WHERE dw.company_id = :companyId
+         WHERE (dw.company_id = :companyId OR dw.company_id IS NULL)
           AND dw.status = 'PENDING'
           AND dw.assigned_to_user_id = :userId
           AND (
@@ -10350,14 +10461,12 @@ router.get(
         SELECT COALESCE(
                  SUM(GREATEST(COALESCE(net_amount, 0) - COALESCE(amount_paid, 0), 0)),
                  0
-               ) AS total,
-          created_at,
-          u.username AS created_by_name
+               ) AS total
          FROM pur_bills
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND status = 'POSTED'
+          AND payment_status IN ('UNPAID', 'PARTIALLY PAID', 'PARTIALLY_PAID', 'PARTIAL')
           AND COALESCE(amount_paid, 0) < COALESCE(net_amount, 0)
         `,
         { companyId, branchId, branchIdsStr },
@@ -10833,9 +10942,102 @@ router.get(
   }
 );
 
+router.post(
+  "/direct-purchase/:id/cancel",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+      const [rows] = await conn.execute(
+        "SELECT * FROM pur_direct_purchase_hdr WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) FOR UPDATE",
+        { id, companyId, branchId, branchIdsStr }
+      );
+      const dp = rows?.[0];
+      if (!dp) throw httpError(404, "NOT_FOUND", "Direct purchase not found");
+      if (dp.status === "CANCELLED") {
+        return res.json({ message: "Already cancelled" });
+      }
+
+      await conn.beginTransaction();
+
+      if (dp.bill_id) {
+         await conn.execute("UPDATE pur_bills SET status = 'CANCELLED' WHERE id = :billId", { billId: dp.bill_id });
+      }
+
+      if (dp.grn_id) {
+         await conn.execute("UPDATE inv_goods_receipt_notes SET status = 'CANCELLED' WHERE id = :grnId", { grnId: dp.grn_id });
+      }
+
+      const dpNo = String(dp.dp_no || "").trim();
+      if (dpNo) {
+        const [vRows] = await conn.execute(
+          `SELECT DISTINCT v.id AS voucher_id
+             FROM fin_vouchers v
+             JOIN fin_voucher_lines l ON l.voucher_id = v.id
+            WHERE v.company_id = :companyId
+              AND l.reference_no = :referenceNo`,
+          { companyId, referenceNo: dpNo }
+        ).catch(() => [[]]);
+        const voucherIds = vRows.map((r) => Number(r.voucher_id)).filter((n) => Number.isFinite(n) && n > 0);
+        if (voucherIds.length > 0) {
+          const inList = voucherIds.join(",");
+          await conn.execute(`DELETE FROM fin_voucher_lines WHERE voucher_id IN (${inList})`).catch(() => null);
+          await conn.execute(`DELETE FROM fin_vouchers WHERE id IN (${inList})`).catch(() => null);
+        }
+      }
+
+      await conn.execute(
+        "UPDATE pur_direct_purchase_hdr SET status = 'CANCELLED' WHERE id = :id",
+        { id }
+      );
+
+      await conn.commit();
+      res.json({ message: "Cancelled successfully" });
+    } catch (err) {
+      if (conn) await conn.rollback();
+      next(err);
+    } finally {
+      if (conn) conn.release();
+    }
+  }
+);
+
+router.post("/bills/fix-voucher/:id", async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+        const id = Number(req.params.id);
+        const [rows] = await conn.execute("SELECT id, company_id, branch_id FROM pur_bills WHERE id = :id OR bill_no = :id", { id: req.params.id });
+        if (rows.length) {
+            const bill = rows[0];
+            await conn.beginTransaction();
+            const vRes = await postPurchaseBillVoucherTx(conn, { billId: bill.id, companyId: bill.company_id, branchId: bill.branch_id, branchIdsStr: '' });
+            if (vRes?.voucherId) {
+                await conn.execute("UPDATE pur_bills SET voucher_id = :vid WHERE id = :bid", { vid: vRes.voucherId, bid: bill.id });
+                await conn.commit();
+                return res.json({ success: true, voucherNo: vRes.voucherNo });
+            }
+            await conn.commit();
+            res.json({ success: true, message: "No voucher returned" });
+        } else {
+            res.status(404).json({ error: "Not found" });
+        }
+    } catch(e) {
+        if (conn) await conn.rollback();
+        next(e);
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
 export default router;
 
-export { createDebitNoteForReturnTx, createDebitNoteForReturnApprovalTx };
+export { createDebitNoteForReturnTx, createDebitNoteForReturnApprovalTx, postPurchaseBillVoucherTx };
 // Direct Purchase
 async function ensureDirectPurchaseTables() {
   await pool.query(`
@@ -11011,7 +11213,7 @@ router.post(
       await ensureUnitConversionsTable();
       const dpNo =
         body.dp_no ||
-        (await nextSequentialNo("pur_direct_purchase_hdr", "dp_no", "DP"));
+        (await nextSequentialNo("pur_direct_purchase_hdr", "dp_no", "DP", conn));
 
       let subtotal = 0;
       let totalDiscount = 0;
@@ -11127,6 +11329,7 @@ router.post(
         "inv_goods_receipt_notes",
         "grn_no",
         "GRN",
+        conn
       );
       await ensureGrnMfgExpColumns();
       const [grnHdr] = await conn.execute(
@@ -11172,10 +11375,19 @@ router.post(
           purchaseUnitCost: d.unitPrice,
         });
       }
-      const grnVoucherId = null;
-      const grnVoucherNo = null;
+      let grnVoucherId = null;
+      let grnVoucherNo = null;
+      try {
+         const gRes = await postGrnAccrualTx(conn, { grnId, companyId, branchId, branchIdsStr });
+         if (gRes?.voucherId) {
+             grnVoucherId = gRes.voucherId;
+             grnVoucherNo = gRes.voucherNo;
+         }
+      } catch(e) {
+         console.error("Direct Purchase GRN Voucher Error:", e);
+      }
 
-      const billNo = await nextSequentialNo("pur_bills", "bill_no", "PBL");
+      const billNo = await nextSequentialNo("pur_bills", "bill_no", "PBL", conn);
       const [billHdr] = await conn.execute(
         `INSERT INTO pur_bills
           (company_id, branch_id, bill_no, bill_date, supplier_id, po_id, grn_id, bill_type,
@@ -11227,12 +11439,21 @@ router.post(
         );
       }
 
-      const billVoucherId = null;
-      const billVoucherNo = null;
+      let billVoucherId = null;
+      let billVoucherNo = null;
       await conn.execute(
         "UPDATE pur_bills SET status = 'POSTED' WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))",
         { id: billId, companyId, branchId, branchIdsStr },
       );
+      try {
+        const vRes = await postPurchaseBillVoucherTx(conn, { billId, companyId, branchId, branchIdsStr });
+        if (vRes?.voucherId) {
+          billVoucherId = vRes.voucherId;
+          billVoucherNo = vRes.voucherNo;
+        }
+      } catch(e) {
+         console.error("Direct Purchase Bill Voucher Error:", e);
+      }
 
       await conn.execute(
         `UPDATE pur_direct_purchase_hdr

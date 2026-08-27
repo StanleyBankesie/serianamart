@@ -5,6 +5,7 @@
 
 import React from "react";
 import PostCard from "./PostCard";
+import ErrorBoundary from "../ErrorBoundary";
 import "./PostList.css";
 
 /**
@@ -21,17 +22,22 @@ export default function PostList({
   setPosts,
   defaultShowComments = false,
   forceOpenComments = false,
+  setModalPostId,
 }) {
   return (
     <div className="post-list">
       {posts.map((post) => (
-        <PostCard
-          key={post.id}
-          post={post}
-          setPosts={setPosts}
-          defaultShowComments={defaultShowComments}
-          forceOpenComments={forceOpenComments}
-        />
+        <div key={post.id}>
+          <ErrorBoundary>
+            <PostCard
+              post={post}
+              setPosts={setPosts}
+              defaultShowComments={defaultShowComments}
+              forceOpenComments={forceOpenComments}
+              setModalPostId={setModalPostId}
+            />
+          </ErrorBoundary>
+        </div>
       ))}
     </div>
   );

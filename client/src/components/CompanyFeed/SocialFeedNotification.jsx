@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSocket } from "../../hooks/useSocket";
+import { useAuth } from "../../auth/AuthContext";
 import "./SocialFeedNotification.css";
 
 /**
@@ -17,6 +18,7 @@ export default function SocialFeedNotification() {
   const [showModal, setShowModal] = useState(false);
   const socket = useSocket();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   // Socket.io listeners for real-time updates
   useEffect(() => {
@@ -24,6 +26,9 @@ export default function SocialFeedNotification() {
 
     // Listen for new posts
     socket.on("new_post", (newPost) => {
+      const currentUserId = Number(user?.sub || user?.id);
+      if (Number(newPost.user_id) === currentUserId) return;
+      
       setUnreadItems((prev) => [
         ...prev,
         {
@@ -68,7 +73,7 @@ export default function SocialFeedNotification() {
       socket.off("new_post");
       socket.off("post_commented");
     };
-  }, [socket]);
+  }, [socket, user]);
 
   /**
    * Handles clicking on the notification badge.

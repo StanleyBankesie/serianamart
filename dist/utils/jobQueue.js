@@ -25,6 +25,14 @@ export function getLowStockQueue(jobHandler) {
     const redis = getRawRedis();
     if (!redis) return null;
 
+    // Upstash Redis charges 1 request per blocking command (BLPOP/BZPOPMIN).
+    // BullMQ relies heavily on these for polling, which rapidly consumes the 
+    // Upstash request limits. We fall back to setInterval if Upstash is detected.
+    if (redis.options && redis.options.host && redis.options.host.includes('upstash.io')) {
+      console.warn("[JobQueue] Upstash Redis detected. BullMQ disabled to save request limits. Using setInterval fallback.");
+      return null;
+    }
+
     if (!lowStockQueue) {
       const connection = redis;
 

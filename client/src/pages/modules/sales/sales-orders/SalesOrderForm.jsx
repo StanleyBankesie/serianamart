@@ -48,7 +48,7 @@ export default function SalesOrderForm() {
   const { id } = useParams();
   const isEditMode = !!id;
   const { user } = useAuth();
-  const { canEditDiscount, canAccessPath, canPerformAction, hasExceptional } = usePermission();
+  const { canEditDiscount, canAccessPath, hasExceptional } = usePermission();
   const { getExchangeRate } = useExchangeRate();
   const [searchParams] = useSearchParams();
   const isViewMode =
@@ -69,7 +69,7 @@ export default function SalesOrderForm() {
     sales_person_id: "",
     salesperson: "",
     warehouse_id: "",
-    price_type: "",
+    price_type: "RETAIL",
     payment_type: "CASH",
     payment_terms: "",
     priority: "MEDIUM",
@@ -505,9 +505,20 @@ export default function SalesOrderForm() {
   const fetchPriceTypes = async () => {
     try {
       const response = await api.get("/sales/price-types");
-      setPriceTypes(
-        Array.isArray(response.data?.items) ? response.data.items : [],
-      );
+      const list = Array.isArray(response.data?.items) ? response.data.items : [];
+      setPriceTypes(list);
+      if (isNew) {
+        setFormData((prev) => {
+          if (prev.price_type && prev.price_type !== "RETAIL") return prev;
+          const retailPt = list.find(
+            (pt) => String(pt.name || pt.price_type || "").toUpperCase() === "RETAIL",
+          );
+          return {
+            ...prev,
+            price_type: retailPt ? retailPt.name || retailPt.id || "RETAIL" : "RETAIL",
+          };
+        });
+      }
     } catch (error) {
       console.error("Error fetching price types:", error);
     }
@@ -1677,7 +1688,7 @@ export default function SalesOrderForm() {
 
                   {/* New Item Input */}
                   <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200 print:hidden">
-                    <div className="grid grid-cols-1 md:grid-cols-7 gap-3 mb-3">
+                    <div className="grid grid-cols-1 md:grid-cols-9 gap-3 mb-3">
                       <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-gray-700 mb-1">
                           Item *
@@ -1818,50 +1829,18 @@ export default function SalesOrderForm() {
                           min="1"
                         />
                       </div>
-                      <div className="flex items-end">
-                        {(() => {
-                          const it = inventoryItems.find(
-                            (p) => String(p.id) === String(newItem.item_id),
-                          );
-                          const defaultUom =
-                            (it?.uom && String(it.uom)) ||
-                            (newItem.uom && String(newItem.uom)) ||
-                            (defaultUomCode ? String(defaultUomCode) : "");
-                          const nonDefaults = (
-                            Array.isArray(unitConversions)
-                              ? unitConversions
-                              : []
-                          )
-                            .filter(
-                              (c) =>
-                                Number(c.is_active) &&
-                                String(c.to_uom) === defaultUom &&
-                                Number(c.item_id) === Number(newItem.item_id),
-                            )
-                            .map((c) => String(c.from_uom));
-                          const preferredUom = nonDefaults[0] || "";
-                          const hasConv =
-                            nonDefaults.length > 0 &&
-                            preferredUom &&
-                            preferredUom !== defaultUom;
-                          return hasConv ? (
-                            <button
-                              type="button"
-                              className="ml-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
-                              onClick={() =>
-                                setConvModal({
-                                  open: true,
-                                  itemId: newItem.item_id,
-                                  defaultUom: defaultUom,
-                                  currentUom: preferredUom,
-                                  rowId: null,
-                                })
-                              }
-                            >
-                              {`number of ${preferredUom}`}
-                            </button>
-                          ) : null;
-                        })()}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Price *
+                        </label>
+                        <input
+                          type="number"
+                          name="unit_price"
+                          value={newItem.unit_price}
+                          onChange={handleNewItemChange}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                          step="0.01"
+                        />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -1880,14 +1859,16 @@ export default function SalesOrderForm() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">
-                          Price *
+                          Total
                         </label>
                         <input
-                          type="number"
-                          name="unit_price"
-                          value={newItem.unit_price}
-                          onChange={handleNewItemChange}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                          type="text"
+                          value={(
+                            (Number(newItem.qty || 0) * Number(newItem.unit_price || 0)) ||
+                            0
+                          ).toFixed(2)}
+                          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 font-semibold text-slate-800"
+                          readOnly
                         />
                       </div>
                       <div
@@ -2116,7 +2097,7 @@ export default function SalesOrderForm() {
             </fieldset>
 
             {/* Form Actions */}
-            <div className="flex justify-end gap-3 mt-8 pt-6 border-t print:hidden">
+            <div className="flex justify-end gap-3 mt-8 pt-6 border-t pb-28 print:hidden">
               <button onClick={() => window.history.back()} className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
               >
                 Cancel
@@ -2485,7 +2466,7 @@ export default function SalesOrderForm() {
               <button type="button" className="px-4 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50" onClick={() => setShowCustomerModal(false)}>Back</button>
               <button type="button" className="px-4 py-2 text-sm rounded-lg bg-brand-900 text-white hover:bg-brand-800" onClick={() => {
                 setShowCustomerModal(false);
-                if (!canPerformAction("sales:customers", "create")) {
+                if (!canAccessPath("/sales/customers/new")) {
                   setShowPermModal(true);
                 } else {
                   navigate("/sales/customers/new");

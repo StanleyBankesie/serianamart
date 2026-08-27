@@ -42,7 +42,11 @@ export default function PaymentVoucherForm() {
   const mode = new URLSearchParams(search).get("mode");
   const readOnly = mode === "view";
   const isEdit = Boolean(id);
-  const { hasExceptional } = usePermission();
+  const { hasExceptional, canAccessPath, isModuleEnabled } = usePermission();
+  const canAccessProjects = Boolean(
+    canAccessPath?.("/project-management") ||
+      (typeof isModuleEnabled === "function" && isModuleEnabled("project-management")),
+  );
   const voucherTypeCode = "PAYV";
   const title = "Make Payment";
   const isJV = false;
@@ -1868,7 +1872,7 @@ export default function PaymentVoucherForm() {
                       .join(" | ")
                   : narration,
         lines: cleaned,
-        projectId: projectId || null,
+        projectId: canAccessProjects && projectId ? projectId : null,
         costCenterId: costCenterId || null,
       };
 
@@ -3696,22 +3700,24 @@ export default function PaymentVoucherForm() {
                     disabled={readOnly}
                   />
                 </div>
-                <div>
-                  <label className="label">Project</label>
-                  <select
-                    className="input"
-                    value={projectId}
-                    onChange={(e) => setProjectId(e.target.value)}
-                    disabled={readOnly}
-                  >
-                    <option value="">-- Select Project --</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.project_name || p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {canAccessProjects && (
+                  <div>
+                    <label className="label">Project</label>
+                    <select
+                      className="input"
+                      value={projectId}
+                      onChange={(e) => setProjectId(e.target.value)}
+                      disabled={readOnly || !canAccessProjects}
+                    >
+                      <option value="">-- Select Project --</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.project_name || p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="label">Cost Center</label>
                   <select
@@ -4633,7 +4639,7 @@ export default function PaymentVoucherForm() {
                 />
               </div>
 
-              <div className="flex flex-col md:flex-row justify-end gap-2 mt-4">
+              <div className="flex flex-col md:flex-row justify-end gap-2 mt-4 pb-28">
                 <button onClick={() => window.history.back()} className="btn-success">
                   Cancel
                 </button>

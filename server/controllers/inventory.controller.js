@@ -3,7 +3,7 @@
  * @description Manages inventory items, stock balances, warehouses, and related configurations.
  * Handles item creation, updates, and bulk stock adjustments.
  */
-import { query } from "../db/pool.js";
+import { query, pool } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { cacheGet, cacheSet, cacheDelPattern } from "../utils/redis.js";
 
@@ -1466,4 +1466,601 @@ export const createUom = async (req, res, next) => {
     next(err);
   }
 };
+
+/**
+ * inv_getStockBalances
+ * Fetches comprehensive item stock balances with warehouse breakdowns,
+ * inventory valuation, batch information, and status levels.
+ */
+export const inv_getStockBalances = async (req, res, next) => {
+  try {
+    const companyId = req.scope?.companyId || req.user?.company_id || req.user?.companyId || 1;
+    const { 
+      warehouse_id, 
+      warehouseId, 
+      warehouse_type, 
+      warehouseType, 
+      item_type,
+      itemType, 
+      group_id,
+      groupId,
+      status, 
+      search, 
+      q,
+      module
+    } = req.query;
+
+    const finalWhId = warehouse_id || warehouseId || null;
+    const finalWhType = (warehouse_type || warehouseType || '').toUpperCase();
+    const finalItemType = item_type || itemType || null;
+    const finalGroupId = group_id || groupId || null;
+    const finalSearch = String(search || q || '').trim().toLowerCase();
+    const finalStatus = (status || '').toUpperCase();
+    const finalModule = (module || '').toLowerCase();
+
+    let sql = `
+      SELECT 
+        sb.id as balance_id,
+        sb.item_id,
+        sb.warehouse_id,
+        sb.qty,
+        COALESCE(sb.reserved_qty, 0) as reserved_qty,
+        GREATEST(COALESCE(sb.qty, 0) - COALESCE(sb.reserved_qty, 0), 0) as available_qty,
+        sb.batch_no,
+        sb.serial_no,
+        sb.expiry_date,
+        sb.entry_date,
+        sb.updated_at,
+        i.item_code,
+        i.item_name,
+        COALESCE(i.uom, 'PCS') as uom,
+        COALESCE(i.cost_price, 0) as cost_price,
+        COALESCE(i.selling_price, 0) as selling_price,
+        COALESCE(i.reorder_level, 0) as reorder_level,
+        COALESCE(i.min_stock_level, 0) as min_stock_level,
+        COALESCE(i.max_stock_level, 0) as max_stock_level,
+        i.item_type,
+        i.is_production_item,
+        ig.group_name,
+        COALESCE(w.warehouse_name, pw.warehouse_name, 'General Warehouse') as warehouse_name,
+        COALESCE(w.warehouse_code, pw.code, 'WH-GEN') as warehouse_code,
+        CASE 
+          WHEN pw.id IS NOT NULL THEN 'PRODUCTION'
+          ELSE 'INVENTORY'
+        END as warehouse_type,
+        (COALESCE(sb.qty, 0) * COALESCE(i.cost_price, 0)) as total_stock_value
+      FROM inv_stock_balances sb
+      JOIN inv_items i ON sb.item_id = i.id
+      LEFT JOIN inv_warehouses w ON sb.warehouse_id = w.id
+      LEFT JOIN prod_warehouses pw ON sb.warehouse_id = pw.id
+      LEFT JOIN inv_item_groups ig ON i.item_group_id = ig.id
+      WHERE (sb.company_id = :companyId OR sb.company_id IS NULL)
+    `;
+
+    const params = { companyId };
+
+    if (finalWhId) {
+      sql += " AND sb.warehouse_id = :finalWhId";
+      params.finalWhId = finalWhId;
+    }
+
+    if (finalWhType === 'PRODUCTION' || finalModule === 'production') {
+      sql += " AND (pw.id IS NOT NULL OR i.is_production_item = 1 OR i.item_type IN ('RAW_MATERIAL', 'WIP', 'FINISHED_GOOD'))";
+    } else if (finalWhType === 'INVENTORY') {
+      sql += " AND pw.id IS NULL";
+    }
+
+    if (finalItemType) {
+      sql += " AND i.item_type = :finalItemType";
+      params.finalItemType = finalItemType;
+    }
+
+    if (finalGroupId) {
+      sql += " AND i.item_group_id = :finalGroupId";
+      params.finalGroupId = finalGroupId;
+    }
+
+    if (finalSearch) {
+      sql += " AND (LOWER(i.item_name) LIKE :searchLike OR LOWER(i.item_code) LIKE :searchLike OR LOWER(COALESCE(sb.batch_no, '')) LIKE :searchLike OR LOWER(COALESCE(w.warehouse_name, pw.warehouse_name, '')) LIKE :searchLike)";
+      params.searchLike = `%${finalSearch}%`;
+    }
+
+    if (finalStatus === 'LOW_STOCK') {
+      sql += " AND sb.qty > 0 AND sb.qty <= COALESCE(i.reorder_level, 0)";
+    } else if (finalStatus === 'OUT_OF_STOCK') {
+      sql += " AND sb.qty <= 0";
+    } else if (finalStatus === 'IN_STOCK') {
+      sql += " AND sb.qty > 0";
+    }
+
+    sql += " ORDER BY sb.updated_at DESC, i.item_name ASC";
+
+    const rows = await query(sql, params);
+
+    // Compute stats
+    let totalItems = 0;
+    let totalQty = 0;
+    let totalValue = 0;
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
+    const itemIdsSeen = new Set();
+
+    (rows || []).forEach(r => {
+      const qtyNum = Number(r.qty || 0);
+      const costNum = Number(r.cost_price || 0);
+      const reorderNum = Number(r.reorder_level || 0);
+
+      totalQty += qtyNum;
+      totalValue += qtyNum * costNum;
+      if (!itemIdsSeen.has(r.item_id)) {
+        itemIdsSeen.add(r.item_id);
+        totalItems++;
+      }
+
+      if (qtyNum <= 0) {
+        outOfStockCount++;
+        r.health_status = 'OUT_OF_STOCK';
+      } else if (reorderNum > 0 && qtyNum <= reorderNum) {
+        lowStockCount++;
+        r.health_status = 'LOW_STOCK';
+      } else {
+        r.health_status = 'ADEQUATE';
+      }
+    });
+
+    res.json({
+      items: rows || [],
+      stats: {
+        total_items: totalItems,
+        total_qty: totalQty,
+        total_value: totalValue,
+        low_stock_count: lowStockCount,
+        out_of_stock_count: outOfStockCount,
+        total_records: rows.length
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * inv_getStockLedger
+ * Fetches transaction history for an item across warehouses.
+ */
+export const inv_getStockLedger = async (req, res, next) => {
+  try {
+    const companyId = req.scope?.companyId || req.user?.company_id || req.user?.companyId || 1;
+    const { itemId } = req.params;
+    const { warehouseId } = req.query;
+
+    let sql = `
+      SELECT 
+        l.*,
+        i.item_code,
+        i.item_name,
+        COALESCE(i.uom, 'PCS') as uom,
+        COALESCE(w.warehouse_name, pw.warehouse_name, 'General Warehouse') as warehouse_name,
+        u.username as created_by_name
+      FROM inv_stock_ledger l
+      JOIN inv_items i ON l.item_id = i.id
+      LEFT JOIN inv_warehouses w ON l.warehouse_id = w.id
+      LEFT JOIN prod_warehouses pw ON l.warehouse_id = pw.id
+      LEFT JOIN adm_users u ON l.created_by = u.id
+      WHERE (l.company_id = :companyId OR l.company_id IS NULL)
+        AND l.item_id = :itemId
+    `;
+    const params = { companyId, itemId };
+
+    if (warehouseId) {
+      sql += " AND l.warehouse_id = :warehouseId";
+      params.warehouseId = warehouseId;
+    }
+
+    sql += " ORDER BY l.transaction_date DESC, l.id DESC LIMIT 100";
+
+    const rows = await query(sql, params);
+    res.json({ items: rows || [] });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * inv_getWarehouseStockSummary
+ * Aggregates stock by warehouse.
+ */
+export const inv_getWarehouseStockSummary = async (req, res, next) => {
+  try {
+    const companyId = req.scope?.companyId || req.user?.company_id || req.user?.companyId || 1;
+
+    const invWh = await query(
+      `SELECT w.id, w.warehouse_name, w.warehouse_code, 'INVENTORY' as warehouse_type,
+              COUNT(DISTINCT sb.item_id) as total_items,
+              COALESCE(SUM(sb.qty), 0) as total_qty,
+              COALESCE(SUM(sb.qty * i.cost_price), 0) as total_value
+       FROM inv_warehouses w
+       LEFT JOIN inv_stock_balances sb ON sb.warehouse_id = w.id
+       LEFT JOIN inv_items i ON sb.item_id = i.id
+       WHERE (w.company_id = :companyId OR w.company_id IS NULL)
+       GROUP BY w.id, w.warehouse_name, w.warehouse_code`,
+      { companyId }
+    );
+
+    const prodWh = await query(
+      `SELECT pw.id, pw.warehouse_name, pw.code as warehouse_code, 'PRODUCTION' as warehouse_type,
+              COUNT(DISTINCT sb.item_id) as total_items,
+              COALESCE(SUM(sb.qty), 0) as total_qty,
+              COALESCE(SUM(sb.qty * i.cost_price), 0) as total_value
+       FROM prod_warehouses pw
+       LEFT JOIN inv_stock_balances sb ON sb.warehouse_id = pw.id
+       LEFT JOIN inv_items i ON sb.item_id = i.id
+       WHERE (pw.company_id = :companyId OR pw.company_id IS NULL)
+       GROUP BY pw.id, pw.warehouse_name, pw.code`,
+      { companyId }
+    );
+
+    res.json({
+      inventory_warehouses: invWh || [],
+      production_warehouses: prodWh || [],
+      all: [...(invWh || []), ...(prodWh || [])]
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * inv_getStockOverviewStats
+ * Summary KPI numbers across all stock.
+ */
+export const inv_getStockOverviewStats = async (req, res, next) => {
+  try {
+    const companyId = req.scope?.companyId || req.user?.company_id || req.user?.companyId || 1;
+
+    const stats = await query(
+      `SELECT 
+        COUNT(DISTINCT sb.item_id) as total_items,
+        COALESCE(SUM(sb.qty), 0) as total_qty,
+        COALESCE(SUM(sb.reserved_qty), 0) as total_reserved,
+        COALESCE(SUM(sb.qty * i.cost_price), 0) as total_value,
+        SUM(CASE WHEN sb.qty <= COALESCE(i.reorder_level, 0) AND sb.qty > 0 THEN 1 ELSE 0 END) as low_stock_count,
+        SUM(CASE WHEN sb.qty <= 0 THEN 1 ELSE 0 END) as out_of_stock_count
+       FROM inv_stock_balances sb
+       JOIN inv_items i ON sb.item_id = i.id
+       WHERE (sb.company_id = :companyId OR sb.company_id IS NULL)`,
+      { companyId }
+    );
+
+    res.json(stats?.[0] || {
+      total_items: 0,
+      total_qty: 0,
+      total_reserved: 0,
+      total_value: 0,
+      low_stock_count: 0,
+      out_of_stock_count: 0
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * inv_getNextStockJournalNo
+ * Returns the next formatted journal number (e.g., ISJ-000001)
+ */
+export const inv_getNextStockJournalNo = async (req, res, next) => {
+  try {
+    const companyId = req.scope?.companyId || req.user?.company_id || req.user?.companyId || 1;
+    const rows = await query(
+      `SELECT journal_no FROM inv_stock_journals 
+       WHERE company_id = :companyId 
+       ORDER BY id DESC LIMIT 1`,
+      { companyId }
+    );
+    let nextNum = 1;
+    if (rows && rows.length > 0) {
+      const match = String(rows[0].journal_no).match(/\d+/);
+      if (match) {
+        nextNum = parseInt(match[0], 10) + 1;
+      }
+    }
+    const nextNo = `ISJ-${String(nextNum).padStart(6, '0')}`;
+    res.json({ next_no: nextNo });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * inv_listStockJournals
+ * Lists inventory stock journal records with active base currency from fin_currencies.
+ */
+export const inv_listStockJournals = async (req, res, next) => {
+  try {
+    const companyId = req.scope?.companyId || req.user?.company_id || req.user?.companyId || 1;
+    const { journal_type, search, warehouse_id } = req.query;
+
+    let sql = `
+      SELECT 
+        j.*,
+        sw.warehouse_name as source_warehouse_name,
+        dw.warehouse_name as destination_warehouse_name,
+        u.username as created_by_name,
+        (SELECT COUNT(*) FROM inv_stock_journal_items WHERE journal_id = j.id) as item_count
+      FROM inv_stock_journals j
+      LEFT JOIN inv_warehouses sw ON j.source_warehouse_id = sw.id
+      LEFT JOIN inv_warehouses dw ON j.destination_warehouse_id = dw.id
+      LEFT JOIN adm_users u ON j.created_by = u.id
+      WHERE (j.company_id = :companyId OR j.company_id IS NULL)
+    `;
+    const params = { companyId };
+
+    if (journal_type && journal_type !== 'ALL') {
+      sql += " AND j.journal_type = :journal_type";
+      params.journal_type = journal_type;
+    }
+
+    if (warehouse_id && warehouse_id !== 'ALL') {
+      sql += " AND (j.source_warehouse_id = :warehouse_id OR j.destination_warehouse_id = :warehouse_id)";
+      params.warehouse_id = warehouse_id;
+    }
+
+    if (search) {
+      sql += " AND (LOWER(j.journal_no) LIKE :searchLike OR LOWER(COALESCE(j.remarks, '')) LIKE :searchLike)";
+      params.searchLike = `%${String(search).toLowerCase()}%`;
+    }
+
+    sql += " ORDER BY j.journal_date DESC, j.id DESC";
+
+    const [rows, currRows] = await Promise.all([
+      query(sql, params),
+      query(
+        `SELECT code, symbol, name FROM fin_currencies 
+         WHERE (company_id = :companyId OR company_id IS NULL) AND is_base = 1 AND is_active = 1 
+         LIMIT 1`,
+        { companyId }
+      ).catch(() => [])
+    ]);
+
+    const baseCurrency = currRows?.[0] || { code: "USD", symbol: "$", name: "US Dollar" };
+
+    res.json({ 
+      items: rows || [],
+      currency: {
+        code: baseCurrency.code,
+        symbol: baseCurrency.symbol || baseCurrency.code || "$",
+        name: baseCurrency.name
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * inv_getStockJournalById
+ * Fetches single journal voucher with all issue and receipt items and base currency.
+ */
+export const inv_getStockJournalById = async (req, res, next) => {
+  try {
+    const companyId = req.scope?.companyId || req.user?.company_id || req.user?.companyId || 1;
+    const { id } = req.params;
+
+    const [journals, currRows] = await Promise.all([
+      query(
+        `SELECT 
+          j.*,
+          sw.warehouse_name as source_warehouse_name,
+          dw.warehouse_name as destination_warehouse_name,
+          u.username as created_by_name
+         FROM inv_stock_journals j
+         LEFT JOIN inv_warehouses sw ON j.source_warehouse_id = sw.id
+         LEFT JOIN inv_warehouses dw ON j.destination_warehouse_id = dw.id
+         LEFT JOIN adm_users u ON j.created_by = u.id
+         WHERE (j.company_id = :companyId OR j.company_id IS NULL)
+           AND j.id = :id`,
+        { companyId, id }
+      ),
+      query(
+        `SELECT code, symbol, name FROM fin_currencies 
+         WHERE (company_id = :companyId OR company_id IS NULL) AND is_base = 1 AND is_active = 1 
+         LIMIT 1`,
+        { companyId }
+      ).catch(() => [])
+    ]);
+
+    if (!journals || journals.length === 0) {
+      throw httpError(404, "NOT_FOUND", "Stock journal not found");
+    }
+
+    const journal = journals[0];
+
+    const items = await query(
+      `SELECT 
+        ji.*,
+        i.item_code,
+        i.item_name,
+        COALESCE(ji.uom, i.uom, 'PCS') as uom,
+        w.warehouse_name
+       FROM inv_stock_journal_items ji
+       JOIN inv_items i ON ji.item_id = i.id
+       LEFT JOIN inv_warehouses w ON ji.warehouse_id = w.id
+       WHERE ji.journal_id = :id
+       ORDER BY ji.entry_type ASC, ji.id ASC`,
+      { id }
+    );
+
+    journal.items = items || [];
+    journal.issue_items = (items || []).filter(i => i.entry_type === 'ISSUE');
+    journal.receipt_items = (items || []).filter(i => i.entry_type === 'RECEIPT');
+
+    const baseCurrency = currRows?.[0] || { code: "USD", symbol: "$", name: "US Dollar" };
+
+    res.json({ 
+      journal,
+      currency: {
+        code: baseCurrency.code,
+        symbol: baseCurrency.symbol || baseCurrency.code || "$",
+        name: baseCurrency.name
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * inv_createStockJournal
+ * Creates and posts an inventory stock journal voucher, updating balances & ledger.
+ */
+export const inv_createStockJournal = async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const companyId = req.scope?.companyId || req.user?.company_id || req.user?.companyId || 1;
+    const branchId = req.scope?.branchId || req.user?.branch_id || req.user?.branchId || 1;
+    const userId = req.user?.id || 1;
+
+    const {
+      journal_no: userJournalNo,
+      journal_type = 'GENERAL',
+      journal_date = new Date().toISOString().split('T')[0],
+      source_warehouse_id,
+      destination_warehouse_id,
+      remarks,
+      items = []
+    } = req.body;
+
+    if (!items || items.length === 0) {
+      throw httpError(400, "VALIDATION_ERROR", "Journal must contain at least one Stock Issue or Stock Receipt line item.");
+    }
+
+    // Determine journal number
+    let journal_no = userJournalNo;
+    if (!journal_no) {
+      const [lastRow] = await conn.execute(
+        "SELECT journal_no FROM inv_stock_journals WHERE company_id = ? ORDER BY id DESC LIMIT 1",
+        [companyId]
+      );
+      let nextNum = 1;
+      if (lastRow && lastRow.length > 0) {
+        const match = String(lastRow[0].journal_no).match(/\d+/);
+        if (match) nextNum = parseInt(match[0], 10) + 1;
+      }
+      journal_no = `ISJ-${String(nextNum).padStart(6, '0')}`;
+    }
+
+    let totalIssueQty = 0;
+    let totalReceiptQty = 0;
+    let totalValuation = 0;
+
+    items.forEach(it => {
+      const q = Number(it.qty || 0);
+      const cost = Number(it.unit_cost || 0);
+      if (it.entry_type === 'ISSUE') totalIssueQty += q;
+      if (it.entry_type === 'RECEIPT') totalReceiptQty += q;
+      totalValuation += q * cost;
+    });
+
+    const finalSrcWh = source_warehouse_id && Number(source_warehouse_id) > 0 ? Number(source_warehouse_id) : null;
+    const finalDstWh = destination_warehouse_id && Number(destination_warehouse_id) > 0 ? Number(destination_warehouse_id) : null;
+    const finalRemarks = remarks && String(remarks).trim() !== '' ? String(remarks).trim() : null;
+
+    const [insertHeader] = await conn.execute(
+      `INSERT INTO inv_stock_journals 
+        (company_id, branch_id, journal_no, journal_type, journal_date, source_warehouse_id, destination_warehouse_id, remarks, total_issue_qty, total_receipt_qty, total_valuation, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'POSTED', ?)`,
+      [
+        companyId,
+        branchId,
+        journal_no,
+        journal_type,
+        journal_date,
+        finalSrcWh,
+        finalDstWh,
+        finalRemarks,
+        totalIssueQty,
+        totalReceiptQty,
+        totalValuation,
+        userId
+      ]
+    );
+
+    const journalId = insertHeader.insertId;
+
+    for (const item of items) {
+      const entryType = (item.entry_type || 'ISSUE').toUpperCase();
+      const itemId = Number(item.item_id);
+      const whId = item.warehouse_id && Number(item.warehouse_id) > 0 
+        ? Number(item.warehouse_id) 
+        : (entryType === 'ISSUE' ? finalSrcWh : finalDstWh);
+      const qtyNum = Number(item.qty || 0);
+      const uomVal = item.uom && String(item.uom).trim() !== '' ? String(item.uom).trim() : 'PCS';
+      const batchVal = item.batch_no && String(item.batch_no).trim() !== '' ? String(item.batch_no).trim() : null;
+      const expiryVal = item.expiry_date && String(item.expiry_date).trim() !== '' ? item.expiry_date : null;
+      const unitCost = Number(item.unit_cost || 0);
+      const totalCost = qtyNum * unitCost;
+      const itemRemarks = item.remarks && String(item.remarks).trim() !== '' ? String(item.remarks).trim() : null;
+
+      // Insert line item
+      await conn.execute(
+        `INSERT INTO inv_stock_journal_items
+          (journal_id, entry_type, item_id, warehouse_id, qty, uom, batch_no, expiry_date, unit_cost, total_cost, remarks)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [journalId, entryType, itemId, whId, qtyNum, uomVal, batchVal, expiryVal, unitCost, totalCost, itemRemarks]
+      );
+
+      // Update Stock Balances and Stock Ledger
+      if (whId) {
+        const qtyChange = entryType === 'ISSUE' ? -qtyNum : qtyNum;
+        const txType = entryType === 'ISSUE' ? 'JOURNAL_ISSUE' : 'JOURNAL_RECEIPT';
+
+        // Check existing balance
+        const [existingBal] = await conn.execute(
+          `SELECT id, qty FROM inv_stock_balances 
+           WHERE company_id = ? AND warehouse_id = ? AND item_id = ?
+           LIMIT 1`,
+          [companyId, whId, itemId]
+        );
+
+        if (existingBal && existingBal.length > 0) {
+          await conn.execute(
+            `UPDATE inv_stock_balances 
+             SET qty = qty + ?, updated_at = NOW()
+             WHERE id = ?`,
+            [qtyChange, existingBal[0].id]
+          );
+        } else {
+          await conn.execute(
+            `INSERT INTO inv_stock_balances 
+              (company_id, branch_id, warehouse_id, item_id, qty, reserved_qty, batch_no, expiry_date, entry_date, source_type, source_id, created_by)
+             VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+            [companyId, branchId, whId, itemId, Math.max(0, qtyChange), batchVal, expiryVal, journal_date, txType, journalId, userId]
+          );
+        }
+
+        // Record stock ledger transaction
+        await conn.execute(
+          `INSERT INTO inv_stock_ledger 
+            (company_id, branch_id, warehouse_id, item_id, transaction_type, transaction_date, qty_change, batch_no, expiry_date, source_ref, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [companyId, branchId, whId, itemId, txType, journal_date, qtyChange, batchVal, expiryVal, journal_no, userId]
+        );
+      }
+    }
+
+    await conn.commit();
+    res.json({ id: journalId, journal_no, message: `Inventory Stock Journal ${journal_no} posted successfully.` });
+  } catch (err) {
+    await conn.rollback();
+    console.error("Error in inv_createStockJournal:", err);
+    next(err);
+  } finally {
+    conn.release();
+  }
+};
+
+
 

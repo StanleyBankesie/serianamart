@@ -24,7 +24,11 @@ import { usePermission } from "../../../../auth/PermissionContext.jsx";
  * @returns {JSX.Element} The rendered component
  */
 export default function InvoiceForm() {
-  const { canEditDiscount, canAccessPath, canPerformAction, hasExceptional } = usePermission();
+  const { canEditDiscount, canAccessPath, hasExceptional, isModuleEnabled } = usePermission();
+  const canAccessProjects = Boolean(
+    canAccessPath?.("/project-management") ||
+      (typeof isModuleEnabled === "function" && isModuleEnabled("project-management")),
+  );
   const navigate = useNavigate();
   const { id } = useParams();
   const { getExchangeRate } = useExchangeRate();
@@ -48,6 +52,7 @@ export default function InvoiceForm() {
   const [currencies, setCurrencies] = useState([]);
   const [taxes, setTaxes] = useState([]);
   const [priceTypes, setPriceTypes] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [form, setForm] = useState({
     invoice_no: "",
     invoice_date: new Date().toISOString().split("T")[0],
@@ -55,7 +60,7 @@ export default function InvoiceForm() {
     sales_order_id: "",
     status: "POSTED",
     warehouse_id: "",
-    price_type: "",
+    price_type: "RETAIL",
     currency_id: "",
     exchange_rate: 1,
     address: "",
@@ -67,6 +72,12 @@ export default function InvoiceForm() {
     remarks: "",
     project_id: "",
     salesperson: "",
+    auto_receipt: false,
+    payment_method: "Cash",
+    deposit_account_id: "",
+    payment_reference: "",
+    cheque_date: "",
+    paid_amount: "",
   });
 
   const [lines, setLines] = useState([]);
@@ -185,10 +196,12 @@ export default function InvoiceForm() {
   };
 
   const fetchAvailable = async (warehouseId, itemId) => {
-    if (!warehouseId || !itemId) return 0;
+    const whId =
+      warehouseId || form.warehouse_id || (warehouses && warehouses[0]?.id);
+    if (!whId || !itemId) return 0;
     try {
       const resp = await api.get(
-        `/inventory/stock/available?warehouse_id=${warehouseId}&item_id=${itemId}`,
+        `/inventory/stock/available?warehouse_id=${whId}&item_id=${itemId}`,
       );
       return Number(resp.data?.qty || 0);
     } catch {
@@ -381,9 +394,18 @@ export default function InvoiceForm() {
   const fetchWarehouses = async () => {
     try {
       const response = await api.get("/inventory/warehouses");
-      setWarehouses(
-        Array.isArray(response.data?.items) ? response.data.items : [],
-      );
+      const list = Array.isArray(response.data?.items) ? response.data.items : [];
+      setWarehouses(list);
+      if (!isEdit) {
+        setForm((prev) => {
+          if (prev.warehouse_id) return prev;
+          const defaultWh = list.find((w) => w.is_default || w.is_primary) || list[0];
+          return {
+            ...prev,
+            warehouse_id: defaultWh ? defaultWh.id : "",
+          };
+        });
+      }
     } catch (error) {
       console.error("Error fetching warehouses:", error);
     }
@@ -417,9 +439,20 @@ export default function InvoiceForm() {
   const fetchPriceTypes = async () => {
     try {
       const response = await api.get("/sales/price-types");
-      setPriceTypes(
-        Array.isArray(response.data?.items) ? response.data.items : [],
-      );
+      const list = Array.isArray(response.data?.items) ? response.data.items : [];
+      setPriceTypes(list);
+      if (!isEdit) {
+        setForm((prev) => {
+          if (prev.price_type && prev.price_type !== "RETAIL") return prev;
+          const retailPt = list.find(
+            (pt) => String(pt.name || pt.price_type || "").toUpperCase() === "RETAIL",
+          );
+          return {
+            ...prev,
+            price_type: retailPt ? retailPt.name || retailPt.id || "RETAIL" : "RETAIL",
+          };
+        });
+      }
     } catch (error) {
       console.error("Error fetching price types:", error);
     }
@@ -560,6 +593,74 @@ export default function InvoiceForm() {
       grand,
     };
   };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get("/finance/accounts");
+        const list = Array.isArray(res.data?.items)
+          ? res.data.items
+          : Array.isArray(res.data)
+            ? res.data
+            : [];
+        setAccounts(list);
+      } catch {
+        setAccounts([]);
+      }
+    })();
+  }, []);
+
+  const canRecordDirectPayment = useMemo(() => {
+    return (
+      hasExceptional("SALES.INVOICE.AUTO_RECEIPT") ||
+      hasExceptional("PURCHASE.DIRECT_PURCHASE.AUTO_PAYMENT")
+    );
+  }, [hasExceptional]);
+
+  const isChequeLike = useMemo(
+    () =>
+      ["Cheque", "Bank Transfer", "Credit Card"].includes(
+        form.payment_method || "",
+      ),
+    [form.payment_method],
+  );
+
+  const selectableDepositAccounts = useMemo(() => {
+    const list = Array.isArray(accounts) ? accounts : [];
+    return list.filter((a) => {
+      const gc = String(a.group_code || "").toUpperCase();
+      const gn = String(a.group_name || "").toUpperCase();
+      return isChequeLike
+        ? gc === "AST_BANK" || gn === "BANK ACCOUNTS"
+        : gc === "AST_CASH" || gn === "CASH AND CASH EQUIVALENTS";
+    });
+  }, [accounts, isChequeLike]);
+
+  useEffect(() => {
+    if (!form.auto_receipt) return;
+    const acc = accounts.find(
+      (a) => String(a.id) === String(form.deposit_account_id || ""),
+    );
+    if (!acc) return;
+    const gc = String(acc.group_code || "").toUpperCase();
+    const gn = String(acc.group_name || "").toUpperCase();
+    const wantsBank = isChequeLike;
+    const ok = wantsBank
+      ? gc === "AST_BANK" || gn === "BANK ACCOUNTS"
+      : gc === "AST_CASH" || gn === "CASH AND CASH EQUIVALENTS";
+    if (!ok) setForm((p) => ({ ...p, deposit_account_id: "" }));
+  }, [form.auto_receipt, isChequeLike, accounts, form.deposit_account_id]);
+
+  const computedGrandTotal = calcAggregates().grand;
+  useEffect(() => {
+    if (form.auto_receipt) {
+      setForm((prev) => ({
+        ...prev,
+        paid_amount: computedGrandTotal > 0 ? computedGrandTotal.toFixed(2) : "",
+      }));
+    }
+  }, [computedGrandTotal, form.auto_receipt]);
+
   useEffect(() => {
     const key = String(newItem.tax_type || "");
     if (!key || key in taxComponentsByCode) return;
@@ -959,7 +1060,7 @@ export default function InvoiceForm() {
               tax_rate: undefined,
             }));
           });
-        const wh = form.warehouse_id;
+        const wh = form.warehouse_id || (warehouses && warehouses[0]?.id);
         if (wh) {
           fetchAvailable(wh, Number(value)).then((aq) =>
             setNewItem((prev) => ({ ...prev, available_qty: aq })),
@@ -1140,7 +1241,7 @@ export default function InvoiceForm() {
   }
 
   useEffect(() => {
-    const wh = form.warehouse_id;
+    const wh = form.warehouse_id || (warehouses && warehouses[0]?.id);
     if (!wh) {
       setLines((prev) => prev.map((l) => ({ ...l, available_qty: undefined })));
       setNewItem((prev) => ({ ...prev, available_qty: undefined }));
@@ -1159,7 +1260,7 @@ export default function InvoiceForm() {
         setNewItem((prev) => ({ ...prev, available_qty: aq }));
       }
     })();
-  }, [form.warehouse_id]);
+  }, [form.warehouse_id, newItem.item_id]);
 
   function calcGrandTotal() {
     const sub = lines.reduce((s, l) => s + Number(l.net || 0), 0);
@@ -1214,6 +1315,16 @@ export default function InvoiceForm() {
         setLoading(false);
         return;
       }
+      if (form.auto_receipt) {
+        if (!form.deposit_account_id) {
+          toast.error("Please select a receiving / deposit account for Paid Upon Invoicing.");
+          return;
+        }
+        if (!(Number(form.paid_amount || 0) > 0)) {
+          toast.error("Please enter a valid Amount Paid for Paid Upon Invoicing.");
+          return;
+        }
+      }
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
       let invoiceNo = form.invoice_no;
       if (!invoiceNo) {
@@ -1241,6 +1352,16 @@ export default function InvoiceForm() {
         total_amount: Math.round(Number(sums.total || 0) * 100) / 100,
         tax_amount: Math.round(Number(sums.tax || 0) * 100) / 100,
         net_amount: Math.round(Number(sums.sub || 0) * 100) / 100,
+        project_id: canAccessProjects && form.project_id ? Number(form.project_id) : null,
+        auto_delivery: Boolean(autoDelivery),
+        auto_receipt: Boolean(form.auto_receipt),
+        payment_method: form.auto_receipt ? form.payment_method : null,
+        deposit_account_id: form.auto_receipt ? Number(form.deposit_account_id) : null,
+        payment_account_id: form.auto_receipt ? Number(form.deposit_account_id) : null,
+        payment_reference: form.auto_receipt ? form.payment_reference : null,
+        cheque_date: form.auto_receipt && isChequeLike && form.cheque_date ? toYmd(form.cheque_date) : null,
+        paid_amount: form.auto_receipt ? Number(form.paid_amount || sums.total) : null,
+        received_amount: form.auto_receipt ? Number(form.paid_amount || sums.total) : null,
         ...(form.sales_order_id
           ? { sales_order_id: Number(form.sales_order_id) }
           : {}),
@@ -1255,71 +1376,41 @@ export default function InvoiceForm() {
                 String(t.label || "").toUpperCase() ===
                 String(rawTax || "").toUpperCase(),
             );
-            if (byLabel) effTaxId = Number(byLabel.value);
+            if (byLabel && byLabel.value) {
+              effTaxId = Number(byLabel.value);
+            }
           }
-          const effRate =
-            taxes.find((t) => Number(t.value) === Number(effTaxId))?.rate || 0;
           return {
-            item_id: l.item_id,
+            item_id: Number(l.item_id),
             quantity: Math.round(Number(l.qty || 0) * 100) / 100,
             unit_price: Math.round(Number(l.unit_price || 0) * 100) / 100,
             discount_percent:
               Math.round(Number(l.discount_percent || 0) * 100) / 100,
-            tax_id: effTaxId || null,
-            tax_rate: effRate,
-            tax_amount: Math.round(Number(l.taxAmt || 0) * 100) / 100,
-            total_amount: Math.round(Number(l.total || 0) * 100) / 100,
-            net_amount: Math.round(Number(l.net || 0) * 100) / 100,
+            tax_type: effTaxId || null,
+            tax_rate: Number(l.tax_rate || 0),
             uom: String(l.uom || defaultUomCode),
+            remarks: l.remarks || "",
           };
         }),
       };
-      let savedId = 0;
+      let resp;
+      let savedId = id;
       if (isEdit) {
-        const resp = await api.put(`/sales/invoices/${id}`, payload);
+        resp = await api.put(`/sales/invoices/${id}`, payload);
         savedId = Number(resp?.data?.id || id);
       } else {
-        const resp = await api.post("/sales/invoices", payload);
-        savedId = Number(resp?.data?.id || 0);
+        resp = await api.post("/sales/invoices", payload);
       }
       
-      toast.success(`Invoice ${invoiceNo} saved successfully`);
-      if (autoDelivery) {
-        try {
-          const nextNoResp = await api.get("/sales/deliveries/next-no");
-          const nextNo = nextNoResp?.data?.nextNo || "";
-          const dPayload = {
-            delivery_no: nextNo || `DN${String(Date.now()).slice(-6)}`,
-            delivery_date: toYmd(form.invoice_date),
-            customer_id: Number(form.customer_id),
-            sales_order_id: form.sales_order_id
-              ? Number(form.sales_order_id)
-              : null,
-            invoice_id: savedId || null,
-            remarks: `Auto delivery for invoice ${invoiceNo}`,
-            status: "DELIVERED",
-            items: workingLines.map((l) => ({
-              item_id: Number(l.item_id),
-              quantity: Math.round(Number(l.qty || 0) * 100) / 100,
-              unit_price: Math.round(Number(l.unit_price || 0) * 100) / 100,
-              uom: String(l.uom || defaultUomCode),
-            })),
-          };
-          const dResp = await api.post("/sales/deliveries", dPayload);
-          const createdNo = nextNo || dPayload.delivery_no;
-          if (dResp?.data?.item?.delivery_no) {
-            toast.success(
-              `Delivery ${dResp.data.item.delivery_no} created automatically`,
-            );
-          } else {
-            toast.success(`Delivery ${createdNo} created automatically`);
-          }
-        } catch (delErr) {
-          const dmsg =
-            delErr?.response?.data?.message ||
-            "Failed to create delivery note";
-          toast.error(dmsg);
-        }
+      if (resp?.data?.receipt_voucher_no) {
+        toast.success(
+          `Invoice ${invoiceNo} saved & Receipt Voucher ${resp.data.receipt_voucher_no} created (${resp.data.receipt_voucher_status || "APPROVED"})`,
+        );
+      } else {
+        toast.success(`Invoice ${invoiceNo} saved successfully`);
+      }
+      if (resp?.data?.delivery_no) {
+        toast.success(`Delivery ${resp.data.delivery_no} created automatically`);
       }
       navigate("/sales/invoices");
     } catch (err) {
@@ -1614,27 +1705,29 @@ export default function InvoiceForm() {
                   <option value="">Select Warehouse</option>
                   {warehouses.map((w) => (
                     <option key={w.id} value={w.id}>
-                      {w.warehouse_code} - {w.warehouse_name}
+                      {w.warehouse_name}
                     </option>
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="label">Project</label>
-                <select
-                  className="input w-56"
-                  value={form.project_id}
-                  onChange={(e) => update("project_id", e.target.value)}
-                  disabled={readOnly}
-                >
-                  <option value="">-- Select Project --</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.project_name || p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {canAccessProjects && (
+                <div>
+                  <label className="label">Project</label>
+                  <select
+                    className="input w-56"
+                    value={form.project_id}
+                    onChange={(e) => update("project_id", e.target.value)}
+                    disabled={readOnly || !canAccessProjects}
+                  >
+                    <option value="">-- Select Project --</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.project_name || p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="label">Salesperson</label>
                 <select
@@ -1804,7 +1897,7 @@ export default function InvoiceForm() {
                 <div className="font-semibold">Invoice Items</div>
               </div>
               <div className="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
-                <div className="grid grid-cols-1 md:grid-cols-7 gap-3 mb-3">
+                <div className="grid grid-cols-1 md:grid-cols-9 gap-3 mb-3">
                   <div className="md:col-span-2">
                     <label className="block text-xs font-medium text-gray-700 mb-1">
                       Item *
@@ -1855,13 +1948,13 @@ export default function InvoiceForm() {
                         const query = itemQuery.trim();
                         const results = query
                           ? filterByPrefix(itemsCatalog, {
-                              query,
-                              searchFields: [
-                                "item_code",
-                                "item_name",
-                                "barcode",
-                              ],
-                            })
+                            query,
+                            searchFields: [
+                              "item_code",
+                              "item_name",
+                              "barcode",
+                            ],
+                          })
                           : [];
                         return results.length && !newItem.item_id
                           ? (() => {
@@ -1971,48 +2064,20 @@ export default function InvoiceForm() {
                       step="1"
                     />
                   </div>
-                  <div className="flex items-end">
-                    {(() => {
-                      const it = itemsCatalog.find(
-                        (p) => String(p.id) === String(newItem.item_id),
-                      );
-                      const defaultUom =
-                        (it?.uom && String(it.uom)) ||
-                        (newItem.uom && String(newItem.uom)) ||
-                        (defaultUomCode ? String(defaultUomCode) : "");
-                      const nonDefaults = (
-                        Array.isArray(unitConversions) ? unitConversions : []
-                      )
-                        .filter(
-                          (c) =>
-                            Number(c.is_active) &&
-                            String(c.to_uom) === defaultUom &&
-                            Number(c.item_id) === Number(newItem.item_id),
-                        )
-                        .map((c) => String(c.from_uom));
-                      const preferredUom = nonDefaults[0] || "";
-                      const hasConv =
-                        nonDefaults.length > 0 &&
-                        preferredUom &&
-                        preferredUom !== defaultUom;
-                      return hasConv ? (
-                        <button
-                          type="button"
-                          className="ml-2 px-2 py-1 text-xs border border-brand text-brand rounded hover:bg-brand hover:text-white transition-colors"
-                          onClick={() =>
-                            setConvModal({
-                              open: true,
-                              itemId: newItem.item_id,
-                              defaultUom: defaultUom,
-                              currentUom: preferredUom,
-                              rowId: null,
-                            })
-                          }
-                        >
-                          {`number of ${preferredUom}`}
-                        </button>
-                      ) : null;
-                    })()}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                      Price *
+                    </label>
+                    <input
+                      type="number"
+                      name="unit_price"
+                      value={
+                        newItem.unit_price === "" ? "" : newItem.unit_price
+                      }
+                      onChange={handleNewItemChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
+                      step="0.01"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -2031,17 +2096,16 @@ export default function InvoiceForm() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">
-                      Price *
+                      Total
                     </label>
                     <input
-                      type="number"
-                      name="unit_price"
-                      value={
-                        newItem.unit_price === "" ? "" : newItem.unit_price
-                      }
-                      onChange={handleNewItemChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0E3646]"
-                      step="1"
+                      type="text"
+                      value={(
+                        (Number(newItem.qty || 0) * Number(newItem.unit_price || 0)) ||
+                        0
+                      ).toFixed(2)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50 font-semibold text-slate-800"
+                      readOnly
                     />
                   </div>
                   <div
@@ -2472,7 +2536,112 @@ export default function InvoiceForm() {
               />
             </div>
 
-            <div className="flex justify-end gap-3">
+            {/* Paid Upon Invoicing (Direct Settlement) Section - Placed at the bottom */}
+            {canRecordDirectPayment && (
+              <div className="bg-gradient-to-r from-emerald-50/70 to-teal-50/70 dark:from-emerald-950/20 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-800 rounded-xl p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-emerald-200/60 dark:border-emerald-800/60 pb-3">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="auto_receipt"
+                      className="w-5 h-5 rounded border-emerald-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      checked={form.auto_receipt}
+                      onChange={(e) => update("auto_receipt", e.target.checked)}
+                      disabled={readOnly || loading}
+                    />
+                    <label
+                      htmlFor="auto_receipt"
+                      className="font-bold text-slate-800 dark:text-slate-100 text-base cursor-pointer select-none"
+                    >
+                      Paid Upon Invoicing
+                    </label>
+                  </div>
+                </div>
+
+                {form.auto_receipt && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+                    <div>
+                      <label className="label">Payment Method *</label>
+                      <select
+                        className="input"
+                        value={form.payment_method}
+                        onChange={(e) => update("payment_method", e.target.value)}
+                        disabled={readOnly || loading}
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Credit Card">Credit Card</option>
+                        <option value="Mobile Money">Mobile Money</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="label">Receiving / Deposit Account *</label>
+                      <select
+                        className="input"
+                        value={form.deposit_account_id}
+                        onChange={(e) => update("deposit_account_id", e.target.value)}
+                        disabled={readOnly || loading}
+                        required
+                      >
+                        <option value="">-- Select Receiving Account --</option>
+                        {selectableDepositAccounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.code ? `${acc.code} - ` : ""}
+                            {acc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="label">
+                        {isChequeLike ? "Cheque / Ref No" : "Payment Reference"}
+                      </label>
+                      <input
+                        type="text"
+                        className="input"
+                        value={form.payment_reference || ""}
+                        onChange={(e) => update("payment_reference", e.target.value)}
+                        placeholder="e.g. TR-9481 / Cheque #"
+                        disabled={readOnly || loading}
+                      />
+                    </div>
+
+                    {isChequeLike && (
+                      <div>
+                        <label className="label">Cheque Date</label>
+                        <input
+                          type="date"
+                          className="input"
+                          value={form.cheque_date}
+                          onChange={(e) => update("cheque_date", e.target.value)}
+                          disabled={readOnly || loading}
+                        />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="label">Amount Paid *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="input font-semibold text-slate-800 dark:text-slate-100"
+                        value={form.paid_amount}
+                        onChange={(e) => update("paid_amount", e.target.value)}
+                        placeholder="0.00"
+                        disabled={readOnly || loading}
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pb-28">
               <button onClick={() => window.history.back()} className="btn-success">
                 Cancel
               </button>
@@ -2833,7 +3002,7 @@ export default function InvoiceForm() {
                 className="btn btn-primary"
                 onClick={() => {
                   setShowCustomerModal(false);
-                  if (!canPerformAction("sales:customers", "create")) {
+                  if (!canAccessPath("/sales/customers/new")) {
                     setShowPermModal(true);
                   } else {
                     navigate("/sales/customers/new");

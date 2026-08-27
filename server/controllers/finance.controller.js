@@ -1993,7 +1993,7 @@ export const listVouchers = async (req, res, next) => {
     const total = Number(countRes[0]?.total || 0);
 
     const items = await query(
-      `SELECT v.id, v.voucher_no, v.voucher_date, v.status, v.project_id,
+      `SELECT v.id, v.voucher_no, v.voucher_date, COALESCE(NULLIF(TRIM(v.status), ''), 'APPROVED') AS status, v.project_id,
               COALESCE(
                 (
                   SELECT l.description
@@ -2043,7 +2043,7 @@ export const getVoucherById = async (req, res, next) => {
     const id = Number(req.params.id || 0);
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
     const headerRows = await query(
-      `SELECT v.id, v.voucher_no, v.voucher_date, v.status, v.project_id, v.cost_center_id,
+      `SELECT v.id, v.voucher_no, v.voucher_date, COALESCE(NULLIF(TRIM(v.status), ''), 'APPROVED') AS status, v.project_id, v.cost_center_id,
               v.narration AS remarks, v.narration, v.total_debit, v.total_credit, v.balanced_amount,
               v.total_debit AS total_amount,
               v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
@@ -3132,7 +3132,7 @@ export const outstandingReceivableReport = async (req, res, next) => {
 
 export const trialBalanceReport = async (req, res, next) => {
   try {
-    const { companyId = null } = req.scope || {};
+    const { companyId = null, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const groupId = req.query.groupId ? Number(req.query.groupId) : null;
@@ -3140,7 +3140,7 @@ export const trialBalanceReport = async (req, res, next) => {
 
     // Build WHERE clauses dynamically for optional filters
     let whereClause = "WHERE a.company_id = :companyId";
-    const params = { companyId };
+    const params = { companyId, branchId, branchIdsStr };
 
     if (from) {
       params.from = from;
@@ -3182,7 +3182,9 @@ export const trialBalanceReport = async (req, res, next) => {
       FROM fin_accounts a
       JOIN fin_account_groups ag ON ag.id = a.group_id
       LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
-      LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id AND v.status = 'POSTED'
+      LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
+        AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')
+        AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
       LEFT JOIN fin_account_opening_balances ob ON ob.account_id = a.id AND ob.company_id = a.company_id
       ${whereClause}
       GROUP BY a.id, a.code, a.name, ag.name, ag.nature, ob.opening_debit, ob.opening_credit
@@ -3771,21 +3773,30 @@ export const closeFiscalYear = async (req, res, next) => {
 
 export const listOpeningBalances = async (req, res, next) => {
   try {
-    const companyId = req.scope.companyId;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const fiscalYearId = req.query.fiscalYearId
       ? Number(req.query.fiscalYearId)
       : null;
     const items = await query(
       `SELECT ob.id, ob.fiscal_year_id, fy.code AS fiscal_year_code,
               ob.account_id, a.code AS account_code, a.name AS account_name,
-              ob.branch_id, ob.opening_debit, ob.opening_credit
+              ob.branch_id,
+              COALESCE(ob.currency_id, base_c.id) AS currency_id,
+              COALESCE(c.code, base_c.code) AS currency_code,
+              COALESCE(c.symbol, base_c.symbol) AS currency_symbol,
+              COALESCE(ob.exchange_rate, 1.000000) AS exchange_rate,
+              COALESCE(ob.opening_date, fy.start_date) AS opening_date,
+              ob.opening_debit, ob.opening_credit
          FROM fin_account_opening_balances ob
          JOIN fin_fiscal_years fy ON fy.id = ob.fiscal_year_id
          JOIN fin_accounts a ON a.id = ob.account_id
+         LEFT JOIN fin_currencies c ON c.id = ob.currency_id
+         LEFT JOIN fin_currencies base_c ON base_c.company_id = ob.company_id AND base_c.is_base = 1
         WHERE ob.company_id = :companyId
           AND (:fiscalYearId IS NULL OR ob.fiscal_year_id = :fiscalYearId)
-        ORDER BY a.code ASC`,
-      { companyId, fiscalYearId },
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(ob.branch_id, :branchIdsStr)) OR ob.branch_id IS NULL)
+        ORDER BY a.code ASC, ob.id DESC`,
+      { companyId, branchId, branchIdsStr, fiscalYearId },
     );
     res.json({ items });
   } catch (e) {
@@ -3795,8 +3806,8 @@ export const listOpeningBalances = async (req, res, next) => {
 
 export const upsertOpeningBalance = async (req, res, next) => {
   try {
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
-    const { fiscalYearId, accountId, openingDebit, openingCredit } =
+    const { companyId, branchId = null } = req.scope || {};
+    const { fiscalYearId, accountId, currencyId, exchangeRate, openingDate, openingDebit, openingCredit } =
       req.body || {};
     if (!fiscalYearId || !accountId)
       throw httpError(
@@ -3804,20 +3815,37 @@ export const upsertOpeningBalance = async (req, res, next) => {
         "VALIDATION_ERROR",
         "fiscalYearId, accountId are required",
       );
-    const result = await query(
-      `INSERT INTO fin_account_opening_balances (company_id, fiscal_year_id, account_id, branch_id, opening_debit, opening_credit)
-       VALUES (:companyId, :fiscalYearId, :accountId, :branchId, :openingDebit, :openingCredit)
-       ON DUPLICATE KEY UPDATE opening_debit = VALUES(opening_debit), opening_credit = VALUES(opening_credit)`,
-      {
-        companyId,
-        fiscalYearId: Number(fiscalYearId),
-        accountId: Number(accountId),
-        branchId, branchIdsStr,
-        openingDebit: Number(openingDebit || 0),
-        openingCredit: Number(openingCredit || 0),
-      },
+    await query(
+      `DELETE FROM fin_account_opening_balances
+        WHERE company_id = :companyId
+          AND fiscal_year_id = :fiscalYearId
+          AND account_id = :accountId`,
+      { companyId, fiscalYearId: Number(fiscalYearId), accountId: Number(accountId) },
     );
-    res.status(201).json({ id: result.insertId || null });
+    const deb = Number(openingDebit || 0);
+    const cred = Number(openingCredit || 0);
+    const curId = currencyId ? Number(currencyId) : null;
+    const rate = Number(exchangeRate || 1) > 0 ? Number(exchangeRate) : 1;
+    let insertId = null;
+    if (deb > 0 || cred > 0) {
+      const result = await query(
+        `INSERT INTO fin_account_opening_balances (company_id, fiscal_year_id, account_id, branch_id, currency_id, exchange_rate, opening_date, opening_debit, opening_credit)
+         VALUES (:companyId, :fiscalYearId, :accountId, :branchId, :curId, :rate, :openingDate, :openingDebit, :openingCredit)`,
+        {
+          companyId,
+          fiscalYearId: Number(fiscalYearId),
+          accountId: Number(accountId),
+          branchId: branchId || null,
+          curId,
+          rate,
+          openingDate: openingDate || null,
+          openingDebit: deb,
+          openingCredit: cred,
+        },
+      );
+      insertId = result.insertId || null;
+    }
+    res.status(201).json({ id: insertId, success: true });
   } catch (e) {
     next(e);
   }
@@ -3827,7 +3855,7 @@ export const bulkUpsertOpeningBalances = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
-    const { fiscalYearId, items } = req.body || {};
+    const { fiscalYearId, items, openingDate } = req.body || {};
     if (!fiscalYearId || !Array.isArray(items))
       throw httpError(
         400,
@@ -3835,34 +3863,63 @@ export const bulkUpsertOpeningBalances = async (req, res, next) => {
         "fiscalYearId and items[] are required",
       );
     await conn.beginTransaction();
+
+    let effectiveDate = openingDate || null;
+    if (!effectiveDate) {
+      const [fyRow] = await conn.execute(
+        "SELECT start_date FROM fin_fiscal_years WHERE id = :fiscalYearId AND company_id = :companyId LIMIT 1",
+        { fiscalYearId: Number(fiscalYearId), companyId }
+      );
+      effectiveDate = fyRow?.[0]?.start_date || new Date().toISOString().slice(0, 10);
+    }
+
     let affected = 0;
     for (const it of items) {
       const accountId = Number(it?.accountId);
       const openingDebit = Number(it?.openingDebit || 0);
       const openingCredit = Number(it?.openingCredit || 0);
+      const currencyId = it?.currencyId ? Number(it.currencyId) : null;
+      const exchangeRate = Number(it?.exchangeRate || 1) > 0 ? Number(it.exchangeRate) : 1;
+      const itemDate = it?.openingDate || effectiveDate;
       if (!Number.isFinite(accountId) || accountId <= 0) continue;
+
+      // Ensure exact 1 row exists for this account/fiscal year
       await conn.execute(
-        `INSERT INTO fin_account_opening_balances
-           (company_id, fiscal_year_id, account_id, branch_id, opening_debit, opening_credit)
-         VALUES
-           (:companyId, :fiscalYearId, :accountId, :branchId, :openingDebit, :openingCredit)
-         ON DUPLICATE KEY UPDATE
-           opening_debit = VALUES(opening_debit),
-           opening_credit = VALUES(opening_credit)`,
+        `DELETE FROM fin_account_opening_balances
+          WHERE company_id = :companyId
+            AND fiscal_year_id = :fiscalYearId
+            AND account_id = :accountId`,
         {
           companyId,
           fiscalYearId: Number(fiscalYearId),
           accountId,
-          branchId, branchIdsStr,
-          openingDebit,
-          openingCredit,
         },
       );
+
+      if (openingDebit > 0 || openingCredit > 0) {
+        await conn.execute(
+          `INSERT INTO fin_account_opening_balances
+             (company_id, fiscal_year_id, account_id, branch_id, currency_id, exchange_rate, opening_date, opening_debit, opening_credit)
+           VALUES
+             (:companyId, :fiscalYearId, :accountId, :branchId, :currencyId, :exchangeRate, :itemDate, :openingDebit, :openingCredit)`,
+          {
+            companyId,
+            fiscalYearId: Number(fiscalYearId),
+            accountId,
+            branchId: branchId || null,
+            currencyId: currencyId || null,
+            exchangeRate,
+            itemDate,
+            openingDebit,
+            openingCredit,
+          },
+        );
+      }
       affected++;
     }
     await conn.commit();
     await cacheDelPattern(`taxes:company:${companyId}:*`).catch(() => {});
-    res.status(201).json({ id: ins.insertId });
+    res.status(201).json({ upserted: affected, success: true });
   } catch (e) {
     try {
       await conn.rollback();
@@ -4781,7 +4838,17 @@ export const generalLedgerReport = async (req, res, next) => {
 
     let account = null;
     let openingBalance = 0;
+    let initialOpeningBalance = 0;
+    let accountOpeningDate = null;
+    let accountOpeningCurrency = null;
+    let accountOpeningRate = 1.0;
     let currentNet = 0;
+
+    const baseCurRows = await query(
+      `SELECT code FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1`,
+      { companyId }
+    );
+    const baseCurCode = baseCurRows?.[0]?.code || "GHS";
 
     if (accountId) {
       const accountRows = await query(
@@ -4796,30 +4863,54 @@ export const generalLedgerReport = async (req, res, next) => {
       );
       account = accountRows?.[0] || null;
 
+      // 1. Initial Opening Balance configured in Opening Balances page (fin_account_opening_balances)
+      const initObRows = await query(
+        `SELECT COALESCE(SUM((ob.opening_debit - ob.opening_credit) * COALESCE(ob.exchange_rate, 1.000000)), 0) AS init_ob,
+                COALESCE(SUM(ob.opening_debit * COALESCE(ob.exchange_rate, 1.000000)), 0) AS init_debit,
+                COALESCE(SUM(ob.opening_credit * COALESCE(ob.exchange_rate, 1.000000)), 0) AS init_credit,
+                COALESCE(MIN(ob.opening_date), MIN(fy.start_date)) AS opening_date,
+                COALESCE(MIN(c.code), :baseCurCode) AS currency_code,
+                COALESCE(MIN(ob.exchange_rate), 1.000000) AS exchange_rate
+           FROM fin_account_opening_balances ob
+           LEFT JOIN fin_fiscal_years fy ON fy.id = ob.fiscal_year_id
+           LEFT JOIN fin_currencies c ON c.id = ob.currency_id
+          WHERE ob.company_id = :companyId
+            AND ob.account_id = :accountId
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(ob.branch_id, :branchIdsStr)) OR ob.branch_id IS NULL)`,
+        { companyId, branchId, branchIdsStr, accountId, baseCurCode },
+      );
+      initialOpeningBalance = Number(initObRows?.[0]?.init_ob || 0);
+      accountOpeningDate = initObRows?.[0]?.opening_date || null;
+      accountOpeningCurrency = initObRows?.[0]?.currency_code || baseCurCode;
+      accountOpeningRate = Number(initObRows?.[0]?.exchange_rate || 1.0);
+
+      // 2. Voucher movements prior to 'from' date
       const openingRows = await query(
-        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS opening_balance
+        `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS voucher_prior
            FROM fin_vouchers v
            JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
           WHERE v.company_id = :companyId
-            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
             AND (:from IS NULL OR v.voucher_date < :from)
             AND vl.account_id = :accountId
             AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
         { companyId, branchId, branchIdsStr, from, accountId },
       );
-      openingBalance = Number(openingRows?.[0]?.opening_balance || 0);
+      const voucherPrior = Number(openingRows?.[0]?.voucher_prior || 0);
+
+      openingBalance = initialOpeningBalance + voucherPrior;
 
       const netRows = await query(
         `SELECT COALESCE(SUM(vl.debit - vl.credit), 0) AS current_net
            FROM fin_vouchers v
            JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
           WHERE v.company_id = :companyId
-            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
             AND vl.account_id = :accountId
             AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')`,
         { companyId, branchId, branchIdsStr, accountId },
       );
-      currentNet = Number(netRows?.[0]?.current_net || 0);
+      currentNet = initialOpeningBalance + Number(netRows?.[0]?.current_net || 0);
 
       await query(
         `INSERT INTO fin_account_balances
@@ -4840,9 +4931,53 @@ export const generalLedgerReport = async (req, res, next) => {
       );
     }
 
+    // Fetch all initial opening balances from fin_account_opening_balances
+    const allInitObRows = await query(
+      `SELECT ob.account_id,
+              COALESCE(SUM((ob.opening_debit - ob.opening_credit) * COALESCE(ob.exchange_rate, 1.000000)), 0) AS init_ob,
+              COALESCE(MIN(ob.opening_date), MIN(fy.start_date)) AS opening_date,
+              COALESCE(MIN(c.code), :baseCurCode) AS currency_code,
+              COALESCE(MIN(ob.exchange_rate), 1.000000) AS exchange_rate
+         FROM fin_account_opening_balances ob
+         LEFT JOIN fin_fiscal_years fy ON fy.id = ob.fiscal_year_id
+         LEFT JOIN fin_currencies c ON c.id = ob.currency_id
+        WHERE ob.company_id = :companyId
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(ob.branch_id, :branchIdsStr)) OR ob.branch_id IS NULL)
+        GROUP BY ob.account_id`,
+      { companyId, branchId, branchIdsStr, baseCurCode },
+    );
+    const obMap = new Map();
+    (allInitObRows || []).forEach((r) => {
+      obMap.set(Number(r.account_id), {
+        balance: Number(r.init_ob || 0),
+        opening_date: r.opening_date || null,
+        currency_code: r.currency_code || baseCurCode,
+        exchange_rate: Number(r.exchange_rate || 1.0),
+      });
+    });
+
+    let priorMovementsMap = new Map();
+    if (from) {
+      const priorRows = await query(
+        `SELECT vl.account_id,
+                COALESCE(SUM(vl.debit - vl.credit), 0) AS prior_net
+           FROM fin_vouchers v
+           JOIN fin_voucher_lines vl ON vl.voucher_id = v.id
+          WHERE v.company_id = :companyId
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+            AND v.voucher_date < :from
+            AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED')
+          GROUP BY vl.account_id`,
+        { companyId, branchId, branchIdsStr, from },
+      );
+      (priorRows || []).forEach((r) => {
+        priorMovementsMap.set(Number(r.account_id), Number(r.prior_net || 0));
+      });
+    }
+
     const itemsRaw = await query(
       `SELECT v.id AS voucher_id, vt.code AS voucher_type_code, v.voucher_date, v.voucher_no,
-              vl.line_no, a.code AS account_code, a.name AS account_name,
+              vl.line_no, a.id AS account_id, a.code AS account_code, a.name AS account_name,
               vl.description, vl.debit, vl.credit, vl.id,
               COALESCE(vl.currency_id, v.currency_id) AS currency_id,
               COALESCE(lc.code, c.code) AS currency_code,
@@ -4855,7 +4990,7 @@ export const generalLedgerReport = async (req, res, next) => {
          LEFT JOIN fin_currencies c ON c.id = v.currency_id AND c.company_id = v.company_id
          LEFT JOIN fin_currencies lc ON lc.id = vl.currency_id AND lc.company_id = v.company_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)
           ${accountFilter}
@@ -4872,15 +5007,42 @@ export const generalLedgerReport = async (req, res, next) => {
         return { ...row, balance: running };
       }
       if (row.account_code !== lastAccount) {
-        running = 0;
+        const accId = Number(row.account_id);
+        const initData = obMap.get(accId);
+        running = (initData?.balance || 0) + (priorMovementsMap.get(accId) || 0);
         lastAccount = row.account_code;
       }
       running += Number(row.debit || 0) - Number(row.credit || 0);
       return { ...row, balance: running };
     });
 
+    const accountOpeningBalances = {};
+    const allAccountIds = new Set();
+    if (accountId) allAccountIds.add(Number(accountId));
+    (itemsRaw || []).forEach((r) => allAccountIds.add(Number(r.account_id)));
+    (allInitObRows || []).forEach((r) => allAccountIds.add(Number(r.account_id)));
+
+    for (const accId of allAccountIds) {
+      const initData = obMap.get(accId);
+      const prior = priorMovementsMap.get(accId) || 0;
+      const initOb = initData?.balance || 0;
+      const totalOb = initOb + prior;
+      accountOpeningBalances[accId] = {
+        opening_balance: totalOb,
+        initial_opening_balance: initOb,
+        opening_date: initData?.opening_date || from || null,
+        currency_code: initData?.currency_code || baseCurCode,
+        exchange_rate: initData?.exchange_rate || 1.0,
+      };
+    }
+
     res.json({
       opening_balance: openingBalance,
+      initial_opening_balance: initialOpeningBalance,
+      opening_date: accountOpeningDate || from || null,
+      currency_code: accountOpeningCurrency || baseCurCode,
+      exchange_rate: accountOpeningRate || 1.0,
+      account_opening_balances: accountOpeningBalances,
       items,
       account: account
         ? {

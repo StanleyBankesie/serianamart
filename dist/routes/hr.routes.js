@@ -198,6 +198,12 @@ router.get(
   requireCompanyScope,
   hrController.listPromotions,
 );
+router.get(
+  "/promotions/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getPromotion,
+);
 router.post(
   "/promotions",
   requireAuth,
@@ -302,6 +308,18 @@ router.get(
   requireAuth,
   requireCompanyScope,
   hrController.listAttendance,
+);
+router.post(
+  "/attendance",
+  requireAuth,
+  requireCompanyScope,
+  hrController.saveAttendance,
+);
+router.get(
+  "/attendance/:id",
+  requireAuth,
+  requireCompanyScope,
+  hrController.getAttendance,
 );
 router.get("/attendance/bulk", requireAuth, requireCompanyScope, (req, res) =>
   res.json({ ok: true }),

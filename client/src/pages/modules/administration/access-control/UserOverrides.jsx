@@ -26,6 +26,14 @@ export default function UserOverrides() {
     { code: "SALES.QUOTATION.CANCEL", label: "Sales Quotation Cancellation" },
     { code: "PURCHASE.ORDER.CANCEL", label: "Purchase Order Cancellations" },
     { code: "SALES.INVOICE.CANCEL", label: "Invoice Cancellations" },
+    {
+      code: "PURCHASE.DIRECT_PURCHASE.AUTO_PAYMENT",
+      label: "Direct Purchase - Paid Upon Purchase (Immediate Settlement)",
+    },
+    {
+      code: "SALES.INVOICE.AUTO_RECEIPT",
+      label: "Sales Invoice - Paid Upon Invoicing (Immediate Settlement)",
+    },
     { code: "PURCHASE.GRN.REVERSE", label: "GRN Reversal" },
     { code: "PURCHASE.BILL.CANCEL", label: "Purchase Bill Cancellation" },
     { code: "MAINTENANCE.BILL.CANCEL", label: "Maintenance Bill Cancellation" },

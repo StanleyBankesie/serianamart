@@ -1,139 +1,125 @@
-/**
- * @fileoverview MaterialReceiptList component.
- * Provides functionality for MaterialReceiptList.
- */
-
-import React, { useState, useEffect } from "react";
-import { 
-  Plus, 
-  Search, 
-  Loader2,
-  Calendar,
-  ArrowLeft,
-  PackageCheck,
-  ChevronRight,
-  ClipboardList
-} from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Plus, RefreshCw } from "lucide-react";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import { filterAndSort } from "@/utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { useViewMode } from "@/hooks/useViewMode";
 import ViewToggle from "@/components/ViewToggle";
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
 export default function MaterialReceiptList() {
   const [viewMode, setViewMode] = useViewMode();
+  const [searchTerm, setSearchTerm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
-
-  const fetchReceipts = async () => {
-    try {
-      const res = await api.get("/production/execution/material-receipt");
-      setItems(res.data?.items || []);
-    } catch (error) {
-      toast.error("Failed to load material receipts");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [pendingIssues, setPendingIssues] = useState(0);
 
   useEffect(() => {
-    fetchReceipts();
+    loadData();
   }, []);
 
-  const { sorted: sortedItems, sortKey, sortDir, toggle } = useSort(items, "created_at", "desc");
+  const loadData = async () => {
+    let mounted = true;
+    setLoading(true);
+    try {
+      const [res, pendRes] = await Promise.all([
+        api.get("/production/execution/material-receipt"),
+        api.get("/projects/issue-to-requirement/pm").catch(() => ({ data: { items: [] } }))
+      ]);
+      if (mounted) {
+        setItems(Array.isArray(res.data?.items) ? res.data.items : []);
+        const allPending = Array.isArray(pendRes.data?.items) ? pendRes.data.items : [];
+        const prodPending = allPending.filter(
+          (iss) => (iss.department_name || "").toLowerCase().includes("production"),
+        );
+        setPendingIssues(prodPending.length);
+      }
+    } catch (e) {
+      if (mounted) setError(e?.response?.data?.message || "Failed to load");
+    } finally {
+      if (mounted) setLoading(false);
+    }
+    return () => { mounted = false; };
+  };
+
+  const filtered = useMemo(() => {
+    if (!searchTerm.trim()) return items.slice();
+    return filterAndSort(items, { query: searchTerm, getKeys: (r) => [r.receipt_no, r.warehouse_name, r.department_name, r.plan_no] });
+  }, [items, searchTerm]);
+
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, "created_at", "desc");
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex items-center gap-4">
-          <Link to="/production?section=Intelligence%20%26%20Analytics" className="btn btn-secondary p-2">
-            <ArrowLeft size={20} />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">Material Receipts</h1>
-            <p className="text-slate-500 text-sm">Track raw material inflow for production runs</p>
+    <div className="space-y-4">
+      <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold dark:text-brand-300">Material Receipts</h1>
+              <p className="text-sm mt-1">Receive materials issued from Inventory to Production</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => window.history.back()} className="btn btn-secondary">Back</button>
+              <button onClick={loadData} className="btn btn-secondary p-2" title="Refresh"><RefreshCw size={16} /></button>
+              <Link to="/production/execution/material-receipt/new" className="btn-success flex items-center gap-2">
+                <Plus size={16} />Receive{pendingIssues > 0 ? ` (${pendingIssues})` : ""}
+              </Link>
+            </div>
           </div>
         </div>
-        <Link 
-          to="/production/execution/material-receipt/new"
-          className="btn-success flex items-center gap-2"
-        >
-          <Plus size={20} />
-          Record Receipt
-        </Link>
       </div>
 
-      <div className="card overflow-hidden shadow-sm">
-        
-                <div className="flex justify-end mb-4">
-                  <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
-                </div>
-                <div className="overflow-x-auto">
-          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
-            <thead>
-              <tr>
-                <SortableHeader label="Receipt No" sortKey="receipt_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                <SortableHeader label="Plan Association" sortKey="plan_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                <SortableHeader label="Date" sortKey="receipt_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                <th className="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
-              {loading ? (
+      <div className="card">
+        <div className="card-body">
+          <div className="flex flex-col md:flex-row gap-4 mb-6">
+            <div className="flex-1">
+              <input type="text" placeholder="Search receipts..." className="input"
+                value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="flex justify-end mb-4">
+            <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
+              <thead>
                 <tr>
-                  <td colSpan="4" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Syncing logs...</td>
+                  <SortableHeader label="Receipt No" sortKey="receipt_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <SortableHeader label="Date" sortKey="receipt_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <th>Warehouse</th>
+                  <th>Department / Plan</th>
+                  <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <th className="text-center">Actions</th>
                 </tr>
-              ) : sortedItems.length > 0 ? sortedItems.map((item) => (
-                <tr key={item.id} className="group">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-brand-600">
-                        <PackageCheck size={18} />
-                      </div>
-                      <span className="font-bold text-brand-700 dark:text-brand-300">{item.receipt_no}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 text-sm font-bold text-brand-600">
-                      <ClipboardList size={14} className="opacity-50" />
-                      {item.plan_no || <span className="text-slate-400 italic font-medium">General Receipt</span>}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
-                      <Calendar size={14} className="opacity-50" />
-                      {new Date(item.receipt_date).toLocaleDateString()}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors">
-                        <ChevronRight size={20} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan="4" className="px-6 py-20 text-center">
-                    <div className="flex flex-col items-center gap-3 text-slate-400">
-                      <PackageCheck size={48} className="opacity-20" />
-                      <p className="font-medium">No material receipts recorded</p>
-                      <Link to="/production/execution/material-receipt/new" className="btn-success btn-sm">New receipt</Link>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan="6" className="text-center py-8 text-slate-400">Loading...</td></tr>
+                ) : sorted.length > 0 ? sorted.map(r => (
+                  <tr key={r.id}>
+                    <td className="font-medium text-sm text-brand-700 dark:text-brand-300">{r.receipt_no}</td>
+                    <td className="text-sm whitespace-nowrap">{r.receipt_date ? new Date(r.receipt_date).toLocaleDateString() : "—"}</td>
+                    <td className="text-sm">{r.warehouse_name || "—"}</td>
+                    <td className="text-sm">{r.plan_no || r.department_name || "—"}</td>
+                    <td><span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">{r.status || "COMPLETED"}</span></td>
+                    <td className="text-center">
+                      <Link to={`/production/execution/material-receipt/${r.id}`}
+                        className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 inline-block">View</Link>
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan="6" className="text-center py-8 text-slate-400">
+                    {pendingIssues > 0 ? `${pendingIssues} pending issue(s) from inventory. Create a receipt to receive them.` : "No receipts found."}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

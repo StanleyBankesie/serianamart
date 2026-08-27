@@ -25,8 +25,17 @@ export default function TrialBalanceReportPage() {
     return () => clearInterval(__pollId);
   }, [pollingCounter]);
 
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(() => {
+    const qp = new URLSearchParams(window.location.search).get("from");
+    if (qp) return qp;
+    const today = new Date();
+    return new Date(today.getFullYear(), 0, 1).toISOString().slice(0, 10);
+  });
+  const [to, setTo] = useState(() => {
+    const qp = new URLSearchParams(window.location.search).get("to");
+    if (qp) return qp;
+    return new Date().toISOString().slice(0, 10);
+  });
   const [groupId, setGroupId] = useState("");
   const [groups, setGroups] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -34,6 +43,34 @@ export default function TrialBalanceReportPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [controlBreak, setControlBreak] = useState(true);
+
+  function setDatePreset(preset) {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = today.getMonth();
+    const todayStr = today.toISOString().slice(0, 10);
+
+    if (preset === "today") {
+      setFrom(todayStr);
+      setTo(todayStr);
+    } else if (preset === "month") {
+      const startOfMonth = new Date(y, m, 1).toISOString().slice(0, 10);
+      setFrom(startOfMonth);
+      setTo(todayStr);
+    } else if (preset === "quarter") {
+      const qStartMonth = Math.floor(m / 3) * 3;
+      const startOfQ = new Date(y, qStartMonth, 1).toISOString().slice(0, 10);
+      setFrom(startOfQ);
+      setTo(todayStr);
+    } else if (preset === "year") {
+      const startOfYear = new Date(y, 0, 1).toISOString().slice(0, 10);
+      setFrom(startOfYear);
+      setTo(todayStr);
+    } else if (preset === "all") {
+      setFrom("");
+      setTo("");
+    }
+  }
 
   async function run() {
     try {
@@ -77,14 +114,9 @@ export default function TrialBalanceReportPage() {
   }
 
   useEffect(() => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const jan1 = new Date(year, 0, 1);
-    setFrom(jan1.toISOString().slice(0, 10));
-    setTo(today.toISOString().slice(0, 10));
-    Promise.all([loadGroups(), loadAccounts()]).then(run);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    Promise.all([loadGroups(), loadAccounts()]);
   }, []);
+
   useEffect(() => {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,7 +190,7 @@ export default function TrialBalanceReportPage() {
       <div className="card">
         <div className="card-body">
           <div className="flex flex-wrap items-end gap-4 mb-6">
-            <div>
+            <div className="w-44">
               <label className="label">From</label>
               <input
                 className="input"
@@ -167,7 +199,7 @@ export default function TrialBalanceReportPage() {
                 onChange={(e) => setFrom(e.target.value)}
               />
             </div>
-            <div>
+            <div className="w-44">
               <label className="label">To</label>
               <input
                 className="input"
@@ -175,6 +207,43 @@ export default function TrialBalanceReportPage() {
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
               />
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("today")}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("month")}
+              >
+                This Month
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("quarter")}
+              >
+                This Quarter
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("year")}
+              >
+                This Year
+              </button>
+              <button
+                type="button"
+                className="px-2.5 py-1 text-xs font-medium rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/30 transition-colors"
+                onClick={() => setDatePreset("all")}
+              >
+                All Time
+              </button>
             </div>
             <div>
               <label className="label">Account Group</label>

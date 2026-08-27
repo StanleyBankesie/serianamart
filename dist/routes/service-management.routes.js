@@ -1,4 +1,4 @@
-﻿import express from "express";
+import express from "express";
 import {
   requireAuth,
   requireCompanyScope,
@@ -686,7 +686,7 @@ router.post(
           dwId: instanceId,
           stepOrder: first.step_order,
           actor: req.user.sub,
-          comments: "",
+          comments: req.body?.comments || "",
         },
       );
       await query(
@@ -718,5 +718,82 @@ router.post(
   },
 );
 
+// ===== SERVICE MANAGEMENT HOME DASHBOARD STATS =====
+router.get(
+  "/dashboard-stats",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchIdsStr = "" } = req.scope || {};
+      const branchFilter =
+        "(:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))";
+      const p = { companyId, branchIdsStr };
+
+      // Open (non-terminal) customer service requests
+      const [reqRow] = await query(
+        `SELECT
+           COUNT(*) AS open_requests,
+           SUM(CASE WHEN MONTH(request_date)=MONTH(CURDATE()) AND YEAR(request_date)=YEAR(CURDATE()) THEN 1 ELSE 0 END) AS mtd_requests
+         FROM pur_service_requests
+         WHERE company_id = :companyId AND ${branchFilter}
+           AND status NOT IN ('CLOSED','CANCELLED','COMPLETED')`,
+        p,
+      ).catch(() => [{ open_requests: 0, mtd_requests: 0 }]);
+
+      // Open service orders
+      const [ordRow] = await query(
+        `SELECT
+           COUNT(*) AS open_orders,
+           SUM(CASE WHEN MONTH(order_date)=MONTH(CURDATE()) AND YEAR(order_date)=YEAR(CURDATE()) THEN 1 ELSE 0 END) AS mtd_orders
+         FROM pur_service_orders
+         WHERE company_id = :companyId AND ${branchFilter}
+           AND status NOT IN ('COMPLETED','CLOSED','CANCELLED')`,
+        p,
+      ).catch(() => [{ open_orders: 0, mtd_orders: 0 }]);
+
+      // Service executions (YTD and MTD)
+      const [execRow] = await query(
+        `SELECT
+           COUNT(*) AS ytd_executions,
+           SUM(CASE WHEN MONTH(created_at)=MONTH(CURDATE()) THEN 1 ELSE 0 END) AS mtd_executions
+         FROM pur_service_executions
+         WHERE company_id = :companyId AND ${branchFilter}
+           AND YEAR(created_at) = YEAR(CURDATE())`,
+        p,
+      ).catch(() => [{ ytd_executions: 0, mtd_executions: 0 }]);
+
+      // Service confirmations (YTD and MTD)
+      const [confRow] = await query(
+        `SELECT
+           COUNT(*) AS ytd_confirmations,
+           SUM(CASE WHEN MONTH(confirmation_date)=MONTH(CURDATE()) THEN 1 ELSE 0 END) AS mtd_confirmations
+         FROM inv_service_confirmations
+         WHERE company_id = :companyId AND ${branchFilter}
+           AND YEAR(confirmation_date) = YEAR(CURDATE())`,
+        p,
+      ).catch(() => [{ ytd_confirmations: 0, mtd_confirmations: 0 }]);
+
+      res.json({
+        success: true,
+        data: {
+          open_requests: Number(reqRow?.open_requests ?? 0),
+          mtd_requests: Number(reqRow?.mtd_requests ?? 0),
+          open_orders: Number(ordRow?.open_orders ?? 0),
+          mtd_orders: Number(ordRow?.mtd_orders ?? 0),
+          ytd_executions: Number(execRow?.ytd_executions ?? 0),
+          mtd_executions: Number(execRow?.mtd_executions ?? 0),
+          ytd_confirmations: Number(confRow?.ytd_confirmations ?? 0),
+          mtd_confirmations: Number(confRow?.mtd_confirmations ?? 0),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 export default router;
+
 

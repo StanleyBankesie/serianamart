@@ -58,6 +58,9 @@ import MaterialReturnReportPage from "./reports/MaterialReturnReportPage.jsx";
 import StockAdjustmentReportPage from "./reports/StockAdjustmentReportPage.jsx";
 import LowStockNotificationsPage from "./LowStockNotificationsPage.jsx";
 import InventoryReportsPage from "./reports/InventoryReportsPage.jsx";
+import StockBalancesPage from "./StockBalancesPage.jsx";
+import StockJournalList from "./StockJournalList.jsx";
+import StockJournalForm from "./StockJournalForm.jsx";
 // Removed Sales Return from Inventory, and moved Purchase Return to Purchase module
 
 function InventoryFeaturePage({ title, description }) {
@@ -79,6 +82,15 @@ export const inventorySections = [
     title: "Stock Operations",
     features: [
       {
+        name: "Stock Balances & Overview",
+        path: "/inventory/stock",
+        actions: [
+          { label: "View Stock", path: "/inventory/stock", type: "primary" }
+        ],
+        description: "Live warehouse stock balances, valuation & ledger",
+        icon: "📦",
+      },
+      {
         name: "Material Requisition",
         path: "/inventory/material-requisitions",
         actions: [
@@ -89,24 +101,14 @@ export const inventorySections = [
         icon: "📝",
       },
       {
-        name: "Stock Upload",
-        path: "/inventory/stock-upload",
+        name: "Stock Journal",
+        path: "/inventory/stock-journal",
         actions: [
-          { label: "View", path: "/inventory/stock-upload", type: "outline" },
-          { label: "New", path: "/inventory/stock-upload/new", type: "primary" }
+          { label: "View", path: "/inventory/stock-journal", type: "outline" },
+          { label: "New", path: "/inventory/stock-journal/new", type: "primary" }
         ],
-        description: "Bulk update stock via Excel",
-        icon: "⬆️",
-      },
-      {
-        name: "Items / Master Data",
-        path: "/inventory/items",
-        actions: [
-          { label: "View", path: "/inventory/items", type: "outline" },
-          { label: "New", path: "/inventory/items/new", type: "primary" }
-        ],
-        description: "Manage items catalog and SKUs",
-        icon: "📦",
+        description: "Register stock movements and consumption entries",
+        icon: "📖",
       },
       {
         name: "Stock Transfers",
@@ -136,16 +138,6 @@ export const inventorySections = [
         ],
         description: "Set initial stock balances",
         icon: "🏁",
-      },
-      {
-        name: "Warehouses / Locations",
-        path: "/inventory/warehouses",
-        actions: [
-          { label: "View", path: "/inventory/warehouses", type: "outline" },
-          { label: "New", path: "/inventory/warehouses/new", type: "primary" }
-        ],
-        description: "Manage warehouses, bins, and storage locations",
-        icon: "🏬",
       },
       {
         name: "Physical Inventory (Stock Take)",
@@ -278,24 +270,14 @@ export const inventorySections = [
     title: "Setup & Parameters",
     features: [
       {
-        name: "Inventory Setup",
-        path: "/inventory/setup",
+        name: "Items / Master Data",
+        path: "/inventory/items",
         actions: [
-          { label: "View", path: "/inventory/setup", type: "outline" }
+          { label: "View", path: "/inventory/items", type: "outline" },
+          { label: "New", path: "/inventory/items/new", type: "primary" }
         ],
-        description: "Configure valuation methods and defaults",
-        icon: "⚙️",
-      },
-
-      {
-        name: "Item Attributes",
-        path: "/inventory/item-attributes",
-        actions: [
-          { label: "View", path: "/inventory/item-attributes", type: "outline" },
-          { label: "New", path: "/inventory/item-attributes/new", type: "primary" }
-        ],
-        description: "Custom item parameters and specs",
-        icon: "🎨",
+        description: "Manage items catalog and SKUs",
+        icon: "📦",
       },
       {
         name: "Item Groups & Sub Groups",
@@ -308,6 +290,26 @@ export const inventorySections = [
         icon: "🗂️",
       },
       {
+        name: "Warehouses / Locations",
+        path: "/inventory/warehouses",
+        actions: [
+          { label: "View", path: "/inventory/warehouses", type: "outline" },
+          { label: "New", path: "/inventory/warehouses/new", type: "primary" }
+        ],
+        description: "Manage warehouses, bins, and storage locations",
+        icon: "🏬",
+      },
+      {
+        name: "Stock Upload",
+        path: "/inventory/stock-upload",
+        actions: [
+          { label: "View", path: "/inventory/stock-upload", type: "outline" },
+          { label: "New", path: "/inventory/stock-upload/new", type: "primary" }
+        ],
+        description: "Bulk update stock via Excel",
+        icon: "⬆️",
+      },
+      {
         name: "Unit Conversion",
         path: "/inventory/unit-conversions",
         actions: [
@@ -316,16 +318,6 @@ export const inventorySections = [
         ],
         description: "Define unit conversion rates",
         icon: "🔄",
-      },
-      {
-        name: "Warehouse Setup",
-        path: "/inventory/warehouses",
-        actions: [
-          { label: "View", path: "/inventory/warehouses", type: "outline" },
-          { label: "New", path: "/inventory/warehouses/new", type: "primary" }
-        ],
-        description: "Configure warehouse locations",
-        icon: "🏬",
       },
       {
         name: "Item Batches",
@@ -787,6 +779,14 @@ export default function InventoryHome() {
     <ModuleLayout sections={inventorySections} moduleKey="inventory">
       <Routes>
         <Route index element={<InventoryHomeIndex />} />
+        <Route path="stock" element={<StockBalancesPage />} />
+        <Route path="stock-balances" element={<StockBalancesPage />} />
+        <Route path="stock-journal" element={<StockJournalList />} />
+        <Route path="stock-journal/new" element={<StockJournalForm />} />
+        <Route path="stock-journal/:id" element={<StockJournalForm />} />
+        <Route path="inventory/journal" element={<StockJournalList />} />
+        <Route path="inventory/journal/new" element={<StockJournalForm />} />
+        <Route path="inventory/journal/:id" element={<StockJournalForm />} />
       <Route path="stock-ops" element={<StockUpdationAndVerificationPage />} />
       <Route
         path="dashboard"

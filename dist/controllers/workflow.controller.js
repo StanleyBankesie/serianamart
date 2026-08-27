@@ -6,9 +6,12 @@ import {
 } from "../services/stock.service.js";
 import { applyStockVerificationApprovalTx } from "../services/stock-verification.service.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
+import { isSMSConfigured, sendSMS } from "../utils/sms.js";
+import { isWhatsAppConfigured, sendWhatsApp } from "../utils/whatsapp.js";
 import { sendDocumentForwardNotification } from "../utils/documentNotification.js";
+import { checkAndSendAutomaticNotification } from "../utils/externalNotification.js";
 import { sendPushToUser } from "../routes/push.routes.js";
-import { createCreditNoteForReturnApprovalTx } from "../routes/sales.route.js";
+import { createCreditNoteForReturnApprovalTx, createPostedSalesVoucherForInvoiceTx } from "../routes/sales.route.js";
 import { createDebitNoteForReturnApprovalTx } from "../routes/purchase.routes.js";
 
 const toNumber = (v, fallback = null) => {
@@ -133,6 +136,19 @@ async function applyAutoApprovalToLinkedDocument(instance) {
       `UPDATE fin_vouchers SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
       { id: documentId, companyId },
     );
+    if (docType === "PAYMENT_VOUCHER" || docType === "PAYMENT VOUCHER" || docType === "PV") {
+      try {
+        await query(
+          `UPDATE trans_expense_logs 
+           SET status = 'PAID' 
+           WHERE id IN (
+             SELECT expense_log_id FROM trn_transport_expenses 
+             WHERE voucher_id = :id AND company_id = :companyId AND expense_log_id IS NOT NULL
+           ) AND company_id = :companyId`,
+          { id: documentId, companyId }
+        );
+      } catch (e) {}
+    }
     return;
   }
 
@@ -320,6 +336,8 @@ const ensureWorkflowTables = async () => {
       max_amount DECIMAL(18,2) DEFAULT NULL,
       default_behavior VARCHAR(20) DEFAULT NULL,
       email_notify TINYINT(1) NOT NULL DEFAULT 1,
+      sms_notify TINYINT(1) NOT NULL DEFAULT 1,
+      whatsapp_notify TINYINT(1) NOT NULL DEFAULT 1,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -358,6 +376,16 @@ const ensureWorkflowTables = async () => {
   if (!(await hasColumn("adm_workflows", "email_notify"))) {
     await query(
       `ALTER TABLE adm_workflows ADD COLUMN email_notify TINYINT(1) NOT NULL DEFAULT 1`,
+    );
+  }
+  if (!(await hasColumn("adm_workflows", "sms_notify"))) {
+    await query(
+      `ALTER TABLE adm_workflows ADD COLUMN sms_notify TINYINT(1) NOT NULL DEFAULT 1`,
+    );
+  }
+  if (!(await hasColumn("adm_workflows", "whatsapp_notify"))) {
+    await query(
+      `ALTER TABLE adm_workflows ADD COLUMN whatsapp_notify TINYINT(1) NOT NULL DEFAULT 1`,
     );
   }
   await query(`
@@ -472,7 +500,7 @@ export const reverseApproval = async (req, res, next) => {
          FROM adm_exceptional_permissions
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid 
-         AND permission_code = 'WORKFLOW.APPROVAL.REVERSE'
+         AND permission_code IN ('WORKFLOW.APPROVAL.REVERSE', 'WORKFLOW.PENDING_APPROVAL.REVERSE')
          AND is_active = 1 
          AND UPPER(effect) = 'ALLOW'
        LIMIT 1`,
@@ -506,27 +534,30 @@ export const reverseApproval = async (req, res, next) => {
         comments: "Approval reversed by exceptional permission",
       },
     );
-    // Set workflow state to returned and unassign
+    const isTargetDraft = req.body?.target_status === "DRAFT" || instance.status === "PENDING" || instance.status === "PENDING_APPROVAL";
+    const newStatus = isTargetDraft ? "DRAFT" : "REVERSED";
+
+    // Set workflow state to returned/draft and unassign
     await query(
-      `UPDATE adm_document_workflows SET status = 'RETURNED', assigned_to_user_id = NULL WHERE id = :id`,
-      { id: instance.id },
+      `UPDATE adm_document_workflows SET status = :status, assigned_to_user_id = NULL WHERE id = :id`,
+      { id: instance.id, status: isTargetDraft ? "RETURNED" : "RETURNED" },
     );
-    // Mirror document status updates same as RETURN action
+    // Mirror document status updates
     if (
       instance.document_type === "STOCK_ADJUSTMENT" ||
       instance.document_type === "Stock Adjustment"
     ) {
       await query(
-        `UPDATE inv_stock_adjustments SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
-        { id: instance.document_id, companyId: instance.company_id },
+        `UPDATE inv_stock_adjustments SET status = :status WHERE id = :id AND company_id = :companyId`,
+        { id: instance.document_id, companyId: instance.company_id, status: newStatus },
       );
     } else if (
       instance.document_type === "PURCHASE_ORDER" ||
       instance.document_type === "Purchase Order"
     ) {
       await query(
-        `UPDATE pur_orders SET status = 'REVERSED' WHERE id = :id AND company_id = :companyId`,
-        { id: instance.document_id, companyId: instance.company_id },
+        `UPDATE pur_orders SET status = :status WHERE id = :id AND company_id = :companyId`,
+        { id: instance.document_id, companyId: instance.company_id, status: newStatus },
       );
     } else if (
       instance.document_type === "GOODS_RECEIPT" ||
@@ -767,7 +798,7 @@ export const reverseByDocument = async (req, res, next) => {
          FROM adm_exceptional_permissions
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE user_id = :uid 
-         AND permission_code = 'WORKFLOW.APPROVAL.REVERSE'
+         AND permission_code IN ('WORKFLOW.APPROVAL.REVERSE', 'WORKFLOW.PENDING_APPROVAL.REVERSE')
          AND is_active = 1 
          AND UPPER(effect) = 'ALLOW'
        LIMIT 1`,
@@ -796,8 +827,32 @@ export const reverseByDocument = async (req, res, next) => {
         ...Object.fromEntries(docTypes.map((v, i) => [`t${i}`, v])),
       },
     );
-    if (!instances.length)
+    if (!instances.length) {
+      const tableMap = {
+        SALES_ORDER: "sal_orders",
+        SALES_INVOICE: "sal_invoices",
+        SALES_QUOTATION: "sal_quotations",
+        SALES_RETURN: "sal_returns",
+        PURCHASE_ORDER: "pur_orders",
+        PURCHASE_VOUCHER: "pur_vouchers",
+        PURCHASE_RETURN: "pur_returns",
+        GOODS_RECEIPT: "inv_goods_receipt_hdr",
+        GOODS_ISSUE: "inv_goods_issues",
+        MATERIAL_REQUISITION: "inv_material_requisitions",
+        STOCK_UPDATION: "inv_stock_adjustments",
+        STOCK_VERIFICATION: "inv_stock_verifications",
+        GENERAL_REQUISITION: "pur_general_requisitions",
+        SERVICE_REQUEST: "srv_service_requests",
+        CUSTOMER_PROSPECT: "sal_prospect_customers"
+      };
+      const tableName = tableMap[docTypeRaw.toUpperCase()];
+      if (tableName) {
+        // Fallback for manually approved documents without workflow
+        await query(`UPDATE ${tableName} SET status = 'DRAFT' WHERE id = :docId AND company_id = :companyId`, { docId, companyId });
+        return res.json({ message: "Document reversed to DRAFT (manual approval)" });
+      }
       throw httpError(404, "NOT_FOUND", "Workflow instance not found");
+    }
     req.params.instanceId = instances[0].id;
     return reverseApproval(req, res, next);
   } catch (err) {
@@ -889,7 +944,7 @@ export const debugWorkflowEmailStatus = async (req, res, next) => {
     const { companyId = null } = req.scope || {};
     if (!instanceId) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
     const instRows = await query(
-      `SELECT dw.*, w.email_notify, w.workflow_name,
+      `SELECT dw.*, w.email_notify, w.sms_notify, w.whatsapp_notify, w.workflow_name,
           dw.created_at,
           u.username AS created_by_name
          FROM adm_document_workflows dw
@@ -988,8 +1043,8 @@ export const createWorkflow = async (req, res, next) => {
 
     const result = await query(
       `INSERT INTO adm_workflows 
-       (company_id, workflow_code, workflow_name, module_key, document_type, document_route, default_behavior, email_notify, is_active)
-       VALUES (:companyId, :workflow_code, :workflow_name, :module_key, :document_type, :document_route, :default_behavior, :email_notify, :is_active)`,
+       (company_id, workflow_code, workflow_name, module_key, document_type, document_route, default_behavior, email_notify, sms_notify, whatsapp_notify, is_active)
+       VALUES (:companyId, :workflow_code, :workflow_name, :module_key, :document_type, :document_route, :default_behavior, :email_notify, :sms_notify, :whatsapp_notify, :is_active)`,
       {
         companyId,
         workflow_code:
@@ -1011,10 +1066,9 @@ export const createWorkflow = async (req, res, next) => {
           )
             ? default_behavior.toUpperCase()
             : null,
-        email_notify:
-          req.body?.email_notify == null
-            ? 1
-            : Number(Boolean(req.body.email_notify)),
+        email_notify: parseBoolFlag(req.body?.email_notify),
+        sms_notify: parseBoolFlag(req.body?.sms_notify),
+        whatsapp_notify: parseBoolFlag(req.body?.whatsapp_notify),
         is_active: is_active === undefined ? 1 : Number(Boolean(is_active)),
       },
     );
@@ -1102,6 +1156,8 @@ export const updateWorkflow = async (req, res, next) => {
            document_route = :document_route,
            default_behavior = :default_behavior,
            email_notify = :email_notify,
+           sms_notify = :sms_notify,
+           whatsapp_notify = :whatsapp_notify,
            is_active = :is_active
        WHERE id = :id`,
       {
@@ -1121,10 +1177,9 @@ export const updateWorkflow = async (req, res, next) => {
           )
             ? default_behavior.toUpperCase()
             : null,
-        email_notify:
-          req.body?.email_notify == null
-            ? 1
-            : Number(Boolean(req.body.email_notify)),
+        email_notify: parseBoolFlag(req.body?.email_notify),
+        sms_notify: parseBoolFlag(req.body?.sms_notify),
+        whatsapp_notify: parseBoolFlag(req.body?.whatsapp_notify),
         is_active: nextIsActive,
       },
     );
@@ -1214,7 +1269,7 @@ export const startWorkflow = async (req, res, next) => {
   try {
     await ensureWorkflowTables();
     const { companyId = null } = req.scope || {};
-    const { workflow_id, document_id, document_type, target_user_id } =
+    const { workflow_id, document_id, document_type, target_user_id, comments } =
       req.body;
 
     const workflows = await query(
@@ -1304,38 +1359,50 @@ export const startWorkflow = async (req, res, next) => {
 
     await query(
       `INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
-       VALUES (:id, :step, 'SUBMIT', :userId, 'Workflow started')`,
+       VALUES (:id, :step, 'SUBMIT', :userId, :comments)`,
       {
         id: result.insertId,
         step: firstStep.step_order,
         userId: req.user.sub,
+        comments: comments || 'Workflow started'
       },
     );
-    // Send unified notifications when workflow starts
-    try {
-      if (firstAssigned) {
-        const { notifyWorkflowForward } =
-          await import("../services/notifications/workflowNotify.js");
-        await notifyWorkflowForward({
-          companyId: req.scope.companyId,
-          userId: firstAssigned,
-          workflowInstanceId: result.insertId,
-          documentId: document_id,
-          documentType: document_type || workflow.document_type,
-          title: "Document Forwarded For Approval",
-          message: `Document #${document_id} has been forwarded to you for your approval.`,
-          action: "APPROVE",
-          senderName: req.user?.name || req.user?.username || "System",
-        });
-      }
-    } catch (err) {
-      console.error("Error sending workflow start notifications:", err);
-    }
+    // Global interception in pool.js handles workflow forwarding notifications automatically
 
     res.status(201).json({
       message: "Workflow started",
       instanceId: result.insertId,
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getLatestComment = async (req, res, next) => {
+  try {
+    const { documentType, documentId } = req.params;
+    const { companyId = null } = req.scope || {};
+
+    const logs = await query(
+      `SELECT l.comments 
+       FROM adm_workflow_logs l
+       JOIN adm_document_workflows w ON w.id = l.document_workflow_id
+       WHERE w.document_type = :documentType 
+         AND w.document_id = :documentId
+         AND w.company_id = :companyId
+         AND l.comments IS NOT NULL
+         AND l.comments != ''
+         AND l.comments != 'Workflow started'
+       ORDER BY l.id DESC
+       LIMIT 1`,
+      { documentType, documentId, companyId }
+    );
+
+    if (logs.length > 0) {
+      res.json({ comment: logs[0].comments });
+    } else {
+      res.json({ comment: null });
+    }
   } catch (err) {
     next(err);
   }
@@ -1356,7 +1423,7 @@ export const getPendingApprovals = async (req, res, next) => {
           dw.created_at as submitted_at,
           w.workflow_name,
           ws.step_name,
-          COALESCE(so.order_no, fv.voucher_no, po.po_no, mr.requisition_no, rts.rts_no, sa.adjustment_no, grn.grn_no, pm_ord.order_no, pm_pr.requisition_no, gr.requisition_no) as doc_ref,
+          COALESCE(so.order_no, fv.voucher_no, po.po_no, mr.requisition_no, rts.rts_no, sa.adjustment_no, grn.grn_no, pm_ord.order_no, pm_pr.requisition_no, gr.requisition_no, inv.invoice_no) as doc_ref,
           po.po_type as po_type,
           u.username as initiator,
           (
@@ -1367,6 +1434,9 @@ export const getPendingApprovals = async (req, res, next) => {
          FROM adm_document_workflows dw
          JOIN adm_workflows w ON dw.workflow_id = w.id
          JOIN adm_workflow_steps ws ON w.id = ws.workflow_id AND dw.current_step_order = ws.step_order
+         LEFT JOIN sal_invoices inv
+           ON (dw.document_type = 'SALES_INVOICE' OR dw.document_type = 'Sales Invoice')
+          AND inv.id = dw.document_id
          LEFT JOIN sal_orders so
            ON (dw.document_type = 'SALES_ORDER' OR dw.document_type = 'Sales Order')
           AND so.id = dw.document_id
@@ -1445,11 +1515,8 @@ export const getApprovalInstanceDetail = async (req, res, next) => {
       `SELECT dw.*, 
                w.workflow_name, w.workflow_code,
                ws.step_name, ws.approver_user_id, ws.approval_limit,
-               (SELECT COUNT(*),
-          created_at,
-          u.username AS created_by_name
+               (SELECT COUNT(*)
          FROM adm_workflow_steps
-        LEFT JOIN adm_users u ON u.id = created_by
          WHERE workflow_id = w.id AND step_order > dw.current_step_order) = 0 as is_last_step
         FROM adm_document_workflows dw
         JOIN adm_workflows w ON dw.workflow_id = w.id
@@ -1490,11 +1557,9 @@ export const getApprovalInstanceDetail = async (req, res, next) => {
     }
     const logs = await query(
       `SELECT l.*, u.username as actor_name,
-          l.created_at,
-          u.username AS created_by_name
+          l.created_at
          FROM adm_workflow_logs l
        LEFT JOIN adm_users u ON l.actor_user_id = u.id
-        LEFT JOIN adm_users u ON u.id = l.created_by
          WHERE l.document_workflow_id = :instanceId
        ORDER BY l.created_at DESC`,
       { instanceId },
@@ -1647,180 +1712,158 @@ export const performAction = async (req, res, next) => {
     };
     const notifyUser = async (targetUserId, title, message) => {
       if (!targetUserId) return;
-      await query(
-        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read) 
-           VALUES (:companyId, :userId, :title, :message, :link, 0)`,
-        {
-          companyId: req.scope.companyId,
-          userId: targetUserId,
-          title,
-          message,
-          link: `/administration/workflows/approvals/${instance.id}`,
-        },
-      );
-
-      // Send push notification
       try {
-        const pushPayload = {
-          title: title || "Workflow Action Required",
-          message: message || "A workflow document requires your attention.",
-          type: "workflow",
-          link: `/administration/workflows/approvals/${instance.id}`,
-          icon: "/OMNISUITE_ICON_CLEAR.png",
-          badge: "/OMNISUITE_ICON_CLEAR.png",
-          tag: `workflow-${instance.id}`,
-          timestamp: new Date().toISOString(),
-        };
-        await sendPushToUser(targetUserId, pushPayload);
-      } catch (err) {
-        console.error("Error sending push notification:", err);
-      }
-
-      // Send email notification for workflow status updates
-      const wfRows = await query(
-        "SELECT email_notify FROM adm_workflows WHERE id = :id LIMIT 1",
-        { id: instance.workflow_id },
-      ).catch(() => []);
-      const emailFlag = wfRows.length ? wfRows[0].email_notify : 1;
-      const emailEnabled =
-        (emailFlag === null || emailFlag === undefined
-          ? 1
-          : Number(emailFlag)) === 1;
-      const forceEmail = envTrue(process.env.WORKFLOW_FORCE_EMAIL);
-      if (!emailEnabled && !forceEmail) {
-        // Email disabled, skip
-        return;
-      }
-
-      let userEmailEnabled = 1;
-      try {
-        const prefRows = await query(
-          `
-          SELECT email_enabled,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_notification_prefs
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE user_id = :uid AND pref_key IN ('workflow-approvals','workflow')
-          ORDER BY CASE pref_key WHEN 'workflow-approvals' THEN 0 ELSE 1 END
-          LIMIT 1
-          `,
-          { uid: targetUserId },
-        );
-        if (prefRows.length) {
-          userEmailEnabled = Number(prefRows[0].email_enabled) === 1 ? 1 : 0;
-        }
-      } catch (err) {
-        console.warn(
-          `Error fetching notification prefs for user ${targetUserId}:`,
-          err,
-        );
-      }
-
-      if (!userEmailEnabled && !forceEmail) {
-        try {
-          await query(
-            `INSERT INTO adm_system_logs (company_id, user_id, module_name, action, message, url_path)
-             VALUES (:companyId, :userId, 'Workflow', 'EMAIL_SKIPPED', 'Email disabled by user preference', :url)`,
-            {
-              companyId: req.scope.companyId,
-              userId: targetUserId,
-              url: `/administration/workflows/approvals/${instance.id}`,
-            },
-          );
-        } catch (err) {
-          console.warn("Error logging email skip:", err);
-        }
-        return;
-      }
-
-      const userRes = await query(
-        "SELECT username, email FROM adm_users WHERE id = :id AND company_id = :companyId AND is_active = 1 LIMIT 1",
-        { id: targetUserId, companyId: req.scope.companyId },
-      ).catch(() => []);
-
-      if (!userRes.length || !userRes[0].email) {
-        console.log(
-          `[notifyUser] User ${targetUserId} has no email, skipping email`,
-        );
-        return;
-      }
-
-      const to = userRes[0].email;
-      const subject = "Workflow Document - Action Required";
-      const docType = instance.document_type || "Workflow Document";
-      const refNo =
-        instance.document_id != null ? String(instance.document_id) : "-";
-
-      const senderRows = await query(
-        "SELECT username AS name FROM adm_users WHERE id = :id LIMIT 1",
-        { id: req.user?.sub || null },
-      ).catch(() => []);
-      const senderName = senderRows.length ? senderRows[0].name : "System";
-
-      const actionLabel = /approval/i.test(title)
-        ? "Approval"
-        : /review/i.test(title)
-          ? "Review"
-          : "Action Required";
-
-      const linkAbs = `${req.protocol}://${req.headers.host}/administration/workflows/approvals/${instance.id}`;
-      const nowStr = new Date().toISOString();
-
-      const textContent =
-        `Hello,\n\n` +
-        `${message}\n\n` +
-        `Document Type: ${docType}\n` +
-        `Reference No: ${refNo}\n` +
-        `Sent By: ${senderName}\n` +
-        `Action Required: ${actionLabel}\n` +
-        `Date & Time: ${nowStr}\n\n` +
-        `Open Document:\n${linkAbs}\n\n` +
-        `Thank you.\nERP Notification System`;
-
-      const htmlContent =
-        `<p>Hello,</p>` +
-        `<p>${message}</p>` +
-        `<div style="background-color: #f5f5f5; padding: 12px; border-radius: 4px; margin: 16px 0;">` +
-        `<p><strong>Document Type:</strong> ${docType}<br/>` +
-        `<strong>Reference No:</strong> ${refNo}<br/>` +
-        `<strong>Sent By:</strong> ${senderName}<br/>` +
-        `<strong>Action Required:</strong> ${actionLabel}<br/>` +
-        `<strong>Date & Time:</strong> ${nowStr}</p>` +
-        `</div>` +
-        `<p><a href="${linkAbs}" style="background-color: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">View Document</a></p>` +
-        `<p>Thank you.<br/>ERP Notification System</p>`;
-
-      try {
-        await sendMail({
-          to,
-          subject,
-          text: textContent,
-          html: htmlContent,
-          meta: {
+        await query(
+          `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read) 
+             VALUES (:companyId, :userId, :title, :message, :link, 0)`,
+          {
             companyId: req.scope.companyId,
             userId: targetUserId,
-            moduleName: "Workflow",
-            action: "EMAIL_SENT",
-            refNo: refNo,
-            urlPath: `/administration/workflows/approvals/${instance.id}`,
+            title: title || "Workflow Notification",
+            message: message || "A workflow action requires your attention.",
+            link: `/administration/workflows/approvals/${instance.id}`,
           },
-        });
+        );
       } catch (err) {
-        console.error("Error sending workflow email:", err);
+        console.error("Error inserting notification DB record:", err);
       }
 
-      await query(
-        `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
-         VALUES (:companyId, :userId, :title, :message, :link, 0)`,
-        {
-          companyId: req.scope.companyId,
-          userId: targetUserId,
-          title: title || "Document Update",
-          message: message || `A ${docType} ${refNo} requires your action.`,
-          link: `/administration/workflows/approvals/${instance.id}`,
-        },
-      );
+      // Send push, email, SMS, WhatsApp notifications asynchronously via setImmediate background task
+      setImmediate(async () => {
+        try {
+          const pushPayload = {
+            title: title || "Workflow Action Required",
+            message: message || "A workflow document requires your attention.",
+            type: "workflow",
+            link: `/administration/workflows/approvals/${instance.id}`,
+            icon: "/OMNISUITE_ICON_CLEAR.png",
+            badge: "/OMNISUITE_ICON_CLEAR.png",
+            tag: `workflow-${instance.id}`,
+            timestamp: new Date().toISOString(),
+          };
+          await sendPushToUser(targetUserId, pushPayload);
+        } catch (err) {
+          console.error("Error sending push notification:", err);
+        }
+
+        try {
+          const wfRows = await query(
+            "SELECT email_notify, sms_notify, whatsapp_notify FROM adm_workflows WHERE id = :id LIMIT 1",
+            { id: instance.workflow_id },
+          ).catch(() => []);
+          const emailFlag = wfRows.length ? wfRows[0].email_notify : 1;
+          const smsFlag = wfRows.length ? wfRows[0].sms_notify : 1;
+          const whatsappFlag = wfRows.length ? wfRows[0].whatsapp_notify : 1;
+          const emailEnabled = (emailFlag === null || emailFlag === undefined ? 1 : Number(emailFlag)) === 1;
+          const smsEnabled = (smsFlag === null || smsFlag === undefined ? 1 : Number(smsFlag)) === 1;
+          const whatsappEnabled = (whatsappFlag === null || whatsappFlag === undefined ? 1 : Number(whatsappFlag)) === 1;
+          const forceEmail = envTrue(process.env.WORKFLOW_FORCE_EMAIL);
+
+          if (!emailEnabled && !forceEmail) return;
+
+          let userEmailEnabled = 1;
+          let userSmsEnabled = 1;
+          let userWhatsappEnabled = 1;
+          try {
+            const prefRows = await query(
+              `SELECT email_enabled, sms_enabled, whatsapp_enabled FROM adm_notification_prefs WHERE user_id = :uid AND pref_key IN ('workflow-approvals','workflow') ORDER BY CASE pref_key WHEN 'workflow-approvals' THEN 0 ELSE 1 END LIMIT 1`,
+              { uid: targetUserId },
+            );
+            if (prefRows.length) {
+              userEmailEnabled = Number(prefRows[0].email_enabled) === 1 ? 1 : 0;
+              userSmsEnabled = Number(prefRows[0].sms_enabled) === 1 ? 1 : 0;
+              userWhatsappEnabled = Number(prefRows[0].whatsapp_enabled) === 1 ? 1 : 0;
+            }
+          } catch {}
+
+          if (!userEmailEnabled && !forceEmail) return;
+
+          const userRes = await query(
+            "SELECT username, email, telephone FROM adm_users WHERE id = :id AND company_id = :companyId AND is_active = 1 LIMIT 1",
+            { id: targetUserId, companyId: req.scope.companyId },
+          ).catch(() => []);
+
+          if (!userRes.length || !userRes[0].email) return;
+
+          const to = userRes[0].email;
+          const subject = "Workflow Document - Action Required";
+          const docType = instance.document_type || "Workflow Document";
+          const refNo = instance.document_id != null ? String(instance.document_id) : "-";
+
+          const senderRows = await query(
+            "SELECT username AS name FROM adm_users WHERE id = :id LIMIT 1",
+            { id: req.user?.sub || null },
+          ).catch(() => []);
+          const senderName = senderRows.length ? senderRows[0].name : "System";
+
+          const actionLabel = /approval/i.test(title)
+            ? "Approval"
+            : /review/i.test(title)
+              ? "Review"
+              : "Action Required";
+
+          let baseUrl = process.env.APP_URL;
+          if (!baseUrl && req.headers?.origin) baseUrl = req.headers.origin;
+          if (!baseUrl) baseUrl = "http://localhost:3000";
+          const linkAbs = `${baseUrl}/administration/workflows/approvals/${instance.id}`;
+          const nowStr = new Date().toISOString();
+
+          const textContent =
+            `Hello,\n\n${message}\n\n` +
+            `Document Type: ${docType}\nReference No: ${refNo}\nSent By: ${senderName}\nAction Required: ${actionLabel}\nDate & Time: ${nowStr}\n\nOpen Document:\n${linkAbs}\n\nThank you.\nERP Notification System`;
+
+          const htmlContent =
+            `<p>Hello,</p><p>${message}</p>` +
+            `<div style="background-color: #f5f5f5; padding: 12px; border-radius: 4px; margin: 16px 0;">` +
+            `<p><strong>Document Type:</strong> ${docType}<br/>` +
+            `<strong>Reference No:</strong> ${refNo}<br/>` +
+            `<strong>Sent By:</strong> ${senderName}<br/>` +
+            `<strong>Action Required:</strong> ${actionLabel}<br/>` +
+            `<strong>Date & Time:</strong> ${nowStr}</p></div>` +
+            `<p><a href="${linkAbs}" style="background-color: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">View Document</a></p>` +
+            `<p>Thank you.<br/>ERP Notification System</p>`;
+
+          try {
+            await sendMail({
+              to,
+              subject,
+              text: textContent,
+              html: htmlContent,
+              meta: {
+                companyId: req.scope.companyId,
+                userId: targetUserId,
+                moduleName: "Workflow",
+                action: "EMAIL_SENT",
+                refNo: refNo,
+                urlPath: `/administration/workflows/approvals/${instance.id}`,
+              },
+            });
+          } catch (err) {
+            console.error("Error sending workflow email:", err);
+          }
+
+          const phone = userRes[0].telephone;
+          if (phone && isSMSConfigured() && smsEnabled && userSmsEnabled) {
+            try {
+              const smsText = `Action Required: ${docType} ${refNo} needs your ${actionLabel}. View: ${linkAbs}`;
+              await sendSMS({ to: phone, message: smsText });
+            } catch (err) {
+              console.error("Error sending workflow SMS:", err);
+            }
+          }
+
+          if (phone && isWhatsAppConfigured() && whatsappEnabled && userWhatsappEnabled) {
+            try {
+              const waText = `*Action Required*\n${docType} ${refNo} needs your ${actionLabel}.\n\nView Document:\n${linkAbs}`;
+              await sendWhatsApp({ to: phone, message: waText });
+            } catch (err) {
+              console.error("Error sending workflow WhatsApp:", err);
+            }
+          }
+        } catch (err) {
+          console.error("Error in background notifyUser async task:", err);
+        }
+      });
     };
     if (action === "APPROVE") {
       const nextSteps = await query(
@@ -1899,34 +1942,37 @@ export const performAction = async (req, res, next) => {
             assigned_to: nextAssigned,
           },
         );
-        await notifyUser(
-          nextAssigned,
-          "Approval Required",
-          `Document #${instance.document_id} requires your approval.`,
-        );
-        // Unified forward notifications
-        try {
-          const { notifyWorkflowForward } =
-            await import("../services/notifications/workflowNotify.js");
-          const senderRows = await query(
-            "SELECT username AS name FROM adm_users WHERE id = :id LIMIT 1",
-            { id: req.user?.sub || null },
-          ).catch(() => []);
-          const senderName = senderRows.length ? senderRows[0].name : "System";
-          await notifyWorkflowForward({
-            companyId: req.scope.companyId,
-            userId: nextAssigned,
-            workflowInstanceId: instance.id,
-            documentId: instance.document_id,
-            documentType: instance.document_type,
-            title: "Document Forwarded For Approval",
-            message: `Document #${instance.document_id} has been forwarded to you for approval.`,
-            action: "APPROVE",
-            senderName,
-          });
-        } catch (err) {
-          console.error("Error sending forward notifications:", err);
-        }
+        setImmediate(() => {
+          notifyUser(
+            nextAssigned,
+            "Approval Required",
+            `Document #${instance.document_id} requires your approval.`,
+          ).catch((err) => console.error("Error in background notifyUser:", err));
+
+          import("../services/notifications/workflowNotify.js")
+            .then(({ notifyWorkflowForward }) => {
+              query("SELECT username AS name FROM adm_users WHERE id = :id LIMIT 1", {
+                id: req.user?.sub || null,
+              })
+                .then((senderRows) => {
+                  const senderName = senderRows.length ? senderRows[0].name : "System";
+                  return notifyWorkflowForward({
+                    companyId: req.scope.companyId,
+                    userId: nextAssigned,
+                    workflowInstanceId: instance.id,
+                    documentId: instance.document_id,
+                    documentType: instance.document_type,
+                    title: "Document Forwarded For Approval",
+                    message: `Document #${instance.document_id} has been forwarded to you for approval.`,
+                    action: "APPROVE",
+                    senderName,
+                    req: req,
+                  });
+                })
+                .catch((err) => console.error("Error sending forward notifications:", err));
+            })
+            .catch((err) => console.error("Error importing workflowNotify:", err));
+        });
       } else {
         await query(
           `UPDATE adm_document_workflows SET status = 'APPROVED', assigned_to_user_id = NULL WHERE id = :id`,
@@ -1972,12 +2018,126 @@ export const performAction = async (req, res, next) => {
             { id: instance.document_id, companyId: instance.company_id },
           );
         }
-        const initiatorId = await getInitiator();
-        await notifyUser(
-          initiatorId,
-          "Document Approved",
-          `Your document #${instance.document_id} has been fully approved.`,
-        );
+        if (
+          instance.document_type === "SALES_ORDER" ||
+          instance.document_type === "Sales Order"
+        ) {
+          await query(
+            `UPDATE sal_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
+            { id: instance.document_id, companyId: instance.company_id },
+          );
+        }
+        if (
+          instance.document_type === "SALES_INVOICE" ||
+          instance.document_type === "Sales Invoice"
+        ) {
+          const conn = await pool.getConnection();
+          try {
+            const invoiceId = instance.document_id;
+            const companyId = instance.company_id;
+            const invoices = await query(
+              "SELECT id, invoice_no, invoice_date, customer_id, branch_id, net_amount, balance_amount, status, currency_id, exchange_rate, remarks, tax_components FROM sal_invoices WHERE id = :id AND company_id = :companyId LIMIT 1",
+              { id: invoiceId, companyId }
+            );
+            if (invoices.length) {
+              const inv = invoices[0];
+              const branchId = inv.branch_id || null;
+              const branchIdsStr = branchId ? String(branchId) : '';
+              const details = await query(
+                "SELECT item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type FROM sal_invoice_details WHERE invoice_id = :id",
+                { id: invoiceId }
+              );
+              
+              let subTotal = 0;
+              let taxTotal = 0;
+              let grandTotal = 0;
+              let discountTotal = 0;
+              for (const l of details) {
+                const qty = Number(l.quantity || 0);
+                const price = Number(l.unit_price || 0);
+                const discPct = Number(l.discount_percent || 0);
+                const gross = qty * price;
+                const discount = (gross * discPct) / 100;
+                const net = gross - discount;
+                const taxAmt = Number(l.tax_amount || 0);
+                subTotal += net;
+                taxTotal += taxAmt;
+                grandTotal += net + taxAmt;
+                discountTotal += discount;
+              }
+
+              const bal = Number(inv.balance_amount || inv.net_amount || grandTotal);
+              const paymentStatus = bal <= 0 ? "PAID" : bal > 0 ? "UNPAID" : "PARTIALLY_PAID";
+
+              await conn.beginTransaction();
+              await conn.execute(
+                `UPDATE sal_invoices
+                   SET status = 'POSTED',
+                       payment_status = :paymentStatus,
+                       balance_amount = :balance,
+                       total_amount = :totalAmount,
+                       net_amount = :netAmount,
+                       tax_amount = :taxAmount
+                 WHERE id = :id AND company_id = :companyId`,
+                {
+                  id: invoiceId,
+                  companyId,
+                  paymentStatus,
+                  balance: bal,
+                  totalAmount: grandTotal,
+                  netAmount: grandTotal,
+                  taxAmount: taxTotal,
+                }
+              );
+
+              let parsedTaxes = [];
+              try { parsedTaxes = JSON.parse(inv.tax_components || "[]"); } catch (e) {}
+
+              await createPostedSalesVoucherForInvoiceTx(conn, {
+                companyId,
+                branchId, branchIdsStr,
+                invoiceId,
+                invoiceNo: String(inv.invoice_no || ""),
+                invoiceDate: inv.invoice_date || new Date().toISOString().slice(0, 10),
+                customerId: Number(inv.customer_id || 0),
+                grandTotal,
+                baseTotal: subTotal,
+                taxTotal,
+                discountTotal,
+                currencyId: inv.currency_id || null,
+                exchangeRate: inv.exchange_rate || 1,
+                createdBy: userId || null,
+                lineTaxes: parsedTaxes,
+                itemLines: details.map((d) => ({
+                  item_id: d.item_id,
+                  quantity: d.quantity,
+                  unit_price: d.unit_price,
+                  discount_percent: d.discount_percent,
+                })),
+                remarks: inv.remarks || null,
+              });
+
+              await conn.commit();
+            }
+          } catch (e) {
+            console.error("Error creating sales voucher from workflow approval:", e);
+            try { await conn.rollback(); } catch {}
+            throw e;
+          } finally {
+            conn.release();
+          }
+        }
+        getInitiator().then((initiatorId) => {
+          if (initiatorId) {
+            setImmediate(() => {
+              notifyUser(
+                initiatorId,
+                "Document Approved",
+                `Your document #${instance.document_id} has been fully approved.`,
+              ).catch((err) => console.error("Error in background notifyUser:", err));
+            });
+          }
+        }).catch(() => {});
       }
     } else if (action === "REJECT") {
       await query(
@@ -2046,6 +2206,14 @@ export const performAction = async (req, res, next) => {
       ) {
         await query(
           `UPDATE sal_orders SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
+          { id: instance.document_id, companyId: instance.company_id },
+        );
+      } else if (
+        instance.document_type === "SALES_INVOICE" ||
+        instance.document_type === "Sales Invoice"
+      ) {
+        await query(
+          `UPDATE sal_invoices SET status = 'REJECTED' WHERE id = :id AND company_id = :companyId`,
           { id: instance.document_id, companyId: instance.company_id },
         );
       } else if (
@@ -2956,14 +3124,17 @@ export const performAction = async (req, res, next) => {
                 `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
                 { id: wf.document_id, companyId: wf.company_id },
               );
-              await query(
-                `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
-                { id: wf.document_id, companyId: wf.company_id },
-              );
-              await query(
-                `UPDATE fin_pdc_postings SET status = 'POSTED' WHERE voucher_id = :id AND company_id = :companyId`,
-                { id: wf.document_id, companyId: wf.company_id },
-              );
+              try {
+                await query(
+                  `UPDATE trans_expense_logs 
+                   SET status = 'PAID' 
+                   WHERE id IN (
+                     SELECT expense_log_id FROM trn_transport_expenses 
+                     WHERE voucher_id = :id AND company_id = :companyId AND expense_log_id IS NOT NULL
+                   ) AND company_id = :companyId`,
+                  { id: wf.document_id, companyId: wf.company_id }
+                );
+              } catch (e) {}
             }
           }
         } catch (e) {}
@@ -2982,9 +3153,9 @@ export const performAction = async (req, res, next) => {
           WHERE id = :docId AND company_id = :companyId LIMIT 1`,
             { docId: wf.document_id, companyId: wf.company_id },
           );
-          if (rows.length && rows[0].status !== "CONFIRMED") {
+          if (rows.length && rows[0].status !== "APPROVED") {
             await query(
-              `UPDATE sal_orders SET status = 'CONFIRMED' WHERE id = :id AND company_id = :companyId`,
+              `UPDATE sal_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
           }
@@ -3000,9 +3171,9 @@ export const performAction = async (req, res, next) => {
              WHERE id = :docId AND company_id = :companyId LIMIT 1`,
             { docId: wf.document_id, companyId: wf.company_id },
           );
-          if (rows.length && rows[0].status !== "CONFIRMED") {
+          if (rows.length && rows[0].status !== "APPROVED") {
             await query(
-              `UPDATE pm_orders SET status = 'CONFIRMED' WHERE id = :id AND company_id = :companyId`,
+              `UPDATE pm_orders SET status = 'APPROVED' WHERE id = :id AND company_id = :companyId`,
               { id: wf.document_id, companyId: wf.company_id },
             );
           }
@@ -3128,6 +3299,26 @@ export const performAction = async (req, res, next) => {
         }
       }
     }
+    const finalStatusCheck = await query(
+      `SELECT status, document_type, document_id, company_id FROM adm_document_workflows WHERE id = :id`,
+      { id: instance.id }
+    );
+    const finalWf = finalStatusCheck[0];
+
+    if (finalWf.status === "APPROVED" || finalWf.status === "POSTED") {
+      // In workflow finalization, document_type can be "SALES_ORDER", "Sales Order", etc.
+      let normalizedModuleCode = String(finalWf.document_type || "").toUpperCase().replace(/ /g, '_');
+      let triggerStat = finalWf.status;
+      if (normalizedModuleCode === "PAYMENT_VOUCHER" || normalizedModuleCode === "RECEIPT_VOUCHER") triggerStat = "POSTED";
+      
+      await checkAndSendAutomaticNotification({
+        companyId: finalWf.company_id,
+        moduleCode: normalizedModuleCode,
+        statusTrigger: triggerStat,
+        documentId: finalWf.document_id,
+      }).catch(err => console.error("Auto notification error:", err));
+    }
+
     res.json({ message: "Action processed successfully" });
   } catch (err) {
     next(err);

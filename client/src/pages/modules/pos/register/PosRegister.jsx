@@ -9,6 +9,7 @@ import api from "../../../../api/client.js";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
 import { filterAndSort } from "@/utils/searchUtils.js";
+import { getAllLocalSales } from "../../../../offline/posStore.js";
 
 function FilterableSelect({
   value,
@@ -168,20 +169,22 @@ export default function PosRegister() {
           const mobileSales = Number(item.mobile_amount || 0);
           const momoOpenMain = Number(item.momo_opening_main || 0);
           const momoOpenPay = Number(item.momo_opening_pay || 0);
-          const storedActualMoMo = item.actual_momo === null || item.actual_momo === undefined ? null : Number(item.actual_momo || 0);
+          const momoOpeningTotal =
+            item.momo_opening_balance !== null && item.momo_opening_balance !== undefined
+              ? Number(item.momo_opening_balance)
+              : momoOpenMain + momoOpenPay;
+          const storedActualMoMo = item.actual_momo === null || item.actual_momo === undefined ? null : Number(item.actual_momo);
           let expectedMoMo = null;
           let momoVariance = null;
           if (!isOpen && storedActualMoMo !== null) {
-            expectedMoMo = momoOpenMain + momoOpenPay + mobileSales;
+            expectedMoMo = momoOpeningTotal + mobileSales;
             momoVariance = storedActualMoMo - expectedMoMo;
           }
-          const momoClosingTotal = Number(item.momo_closing_balance || 0);
           return {
             dayStatusId: Number(item.id || 0) || null,
             no: `DAY-${String(item.id || "").padStart(6, "0")}`,
             terminal: String(item.terminal_code || term || ""),
             cashier: String(item.created_by_name || cashierName),
-            shift: String(item.shift || "-"),
             start: item.open_datetime ? new Date(item.open_datetime).toLocaleString() : "-",
             startTime: item.open_datetime || null,
             end: item.close_datetime ? new Date(item.close_datetime).toLocaleString() : "-",
@@ -193,7 +196,8 @@ export default function PosRegister() {
             expectedCash,
             actualCash,
             cashVariance,
-            openingMoMo: momoClosingTotal,
+            openingMoMo: momoOpeningTotal,
+            totalMomoSales: mobileSales,
             expectedMoMo,
             actualMoMo: storedActualMoMo,
             momoVariance,
@@ -269,13 +273,14 @@ export default function PosRegister() {
 
   useEffect(() => {
     let cancelled = false;
-    const params = terminalCode ? { params: { terminal: terminalCode } } : {};
-    api
-      .get("/pos/sales", params)
-      .then((res) => {
-        if (cancelled) return;
+
+    async function loadTransactions() {
+      let serverMapped = [];
+      try {
+        const params = terminalCode ? { params: { terminal: terminalCode } } : {};
+        const res = await api.get("/pos/sales", params);
         const rows = Array.isArray(res.data?.items) ? res.data.items : [];
-        const mapped = rows.map((it) => {
+        serverMapped = rows.map((it) => {
           const dt = String(it.sale_date || "");
           const date = dt.slice(0, 10);
           const time = dt.includes("T") ? dt.split("T")[1].slice(0, 8) : "";
@@ -306,12 +311,47 @@ export default function PosRegister() {
             has_returns: Boolean(it.has_returns),
           };
         });
-        setTransactions(mapped);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setTransactions([]);
-      });
+      } catch {}
+
+      let localMapped = [];
+      try {
+        const localSales = await getAllLocalSales();
+        const pendingLocal = localSales.filter(
+          (s) => s.status === "pending" || s.syncStatus === "pending" || s.status === "failed",
+        );
+        localMapped = pendingLocal.map((ls) => {
+          const dt = ls.createdAt ? new Date(ls.createdAt).toISOString() : new Date().toISOString();
+          const date = dt.slice(0, 10);
+          const time = dt.includes("T") ? dt.split("T")[1].slice(0, 8) : "";
+          const totalAmt = Number(ls.net_amount || ls.gross_amount || 0) ||
+            (ls.items || []).reduce((sum, i) => sum + Number(i.unit_price || 0) * Number(i.quantity || 0), 0);
+          return {
+            id: ls.id,
+            receiptNo: String(ls.receipt_no || ls.id || "OFFLINE"),
+            date,
+            time,
+            customer: String(ls.customer_name || "Walk-in"),
+            phone: "",
+            payment: String(ls.payment_mode || "cash").toLowerCase(),
+            status: "pending (offline)",
+            items: ls.items || [],
+            total_amount: totalAmt,
+            net_after_returns: totalAmt,
+            return_total: 0,
+            items_count: (ls.items || []).length,
+            has_returns: false,
+            isOffline: true,
+          };
+        });
+      } catch {}
+
+      if (!cancelled) {
+        setTransactions([...localMapped, ...serverMapped]);
+      }
+    }
+
+    loadTransactions();
+
     return () => {
       cancelled = true;
     };
@@ -439,10 +479,12 @@ export default function PosRegister() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <Link
+            to="/pos?section=Transactions"
+            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 inline-flex items-center gap-1"
           >
             ← Back to POS
-          </button>
+          </Link>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             POS Register
           </h1>
@@ -570,7 +612,6 @@ export default function PosRegister() {
                   <th>Session #</th>
                   <th>Terminal</th>
                   <th>Cashier</th>
-                  <th>Shift</th>
                   <th>Start Time</th>
                   <th>End Time</th>
                   <th>Total Sales</th>
@@ -579,6 +620,7 @@ export default function PosRegister() {
                   <th>Actual Cash</th>
                   <th>Cash Variance</th>
                   <th>Opening MoMo</th>
+                  <th>Total MoMo Sales</th>
                   <th>Actual MoMo</th>
                   <th>MoMo Variance</th>
                   <th>Status</th>
@@ -588,7 +630,7 @@ export default function PosRegister() {
               <tbody>
                 {!sessionHistory.length ? (
                   <tr>
-                    <td colSpan="15">
+                    <td colSpan="16">
                       <div className="text-center text-slate-600 py-6">
                         No session history found
                       </div>
@@ -600,7 +642,6 @@ export default function PosRegister() {
                       <td className="p-2">{h.no}</td>
                       <td className="p-2">{h.terminal}</td>
                       <td className="p-2">{h.cashier}</td>
-                      <td className="p-2">{h.shift}</td>
                       <td className="p-2">{h.start}</td>
                       <td className="p-2">{h.end}</td>
                       <td className="p-2">{fmtCurrency(Number(h.sales || 0))}</td>
@@ -617,10 +658,13 @@ export default function PosRegister() {
                         ) : "-"}
                       </td>
                       <td className="p-2">
-                        {h.openingMoMo ? fmtCurrency(h.openingMoMo) : "-"}
+                        {h.openingMoMo !== null && h.openingMoMo !== undefined ? fmtCurrency(h.openingMoMo) : "-"}
                       </td>
                       <td className="p-2">
-                        {h.actualMoMo !== null ? fmtCurrency(h.actualMoMo) : "-"}
+                        {fmtCurrency(Number(h.totalMomoSales || 0))}
+                      </td>
+                      <td className="p-2">
+                        {h.actualMoMo !== null && h.actualMoMo !== undefined ? fmtCurrency(h.actualMoMo) : "-"}
                       </td>
                       <td className="p-2">
                         {h.momoVariance !== null ? (

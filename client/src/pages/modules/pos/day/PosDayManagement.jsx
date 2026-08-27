@@ -70,11 +70,9 @@ export default function PosDayManagement() {
     return String(name);
   }, [user]);
   const [dayOpen, setDayOpen] = useState(false);
-  const [dayStatusLoading, setDayStatusLoading] = useState(true);
   const [openData, setOpenData] = useState({
     dateTime: toLocalInputDateTime(new Date()),
     float: "",
-    shift: "Morning Shift",
     supervisor: "",
     notes: "",
   });
@@ -232,14 +230,13 @@ export default function PosDayManagement() {
         const links = Array.isArray(linksRes.data?.items)
           ? linksRes.data.items
           : [];
-        const isAdmin = Boolean(user?.is_super_admin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.id === 1);
         const assignedTerminalIds = new Set(
           links
             .filter((x) => Number(x?.user_id) === Number(userId))
             .map((x) => Number(x?.terminal_id))
             .filter((n) => Number.isFinite(n) && n > 0),
         );
-        const assigned = isAdmin ? allTerminals : allTerminals.filter((t) =>
+        const assigned = allTerminals.filter((t) =>
           assignedTerminalIds.has(Number(t?.id)),
         );
         setTerminalOptions(assigned);
@@ -337,17 +334,19 @@ export default function PosDayManagement() {
   useEffect(() => {
     let cancelled = false;
     const term = terminalId;
-    if (!term) {
-      setDayStatusLoading(false);
-      return undefined;
-    }
-    setDayStatusLoading(true);
+    if (!term) return undefined;
     api
       .get("/pos/day/status", { params: { terminal: term } })
       .then((res) => {
         if (cancelled) return;
         const item = res?.data?.item;
         const suggestedNext = Number(res?.data?.nextOpeningFloat ?? 0);
+        const suggestedNextMomoMain = Number(
+          res?.data?.nextMomoOpeningMain ?? item?.momo_closing_main ?? 0,
+        );
+        const suggestedNextMomoPay = Number(
+          res?.data?.nextMomoOpeningPay ?? item?.momo_closing_pay ?? 0,
+        );
         if (!item) {
           setDayOpen(false);
           setOpenData((prev) => ({
@@ -357,8 +356,8 @@ export default function PosDayManagement() {
                 ? String(suggestedNext)
                 : prev.float,
           }));
-          setMomoOpeningMain(0);
-          setMomoOpeningPay(0);
+          setMomoOpeningMain(suggestedNextMomoMain);
+          setMomoOpeningPay(suggestedNextMomoPay);
           setSessionHistory([]);
           return;
         }
@@ -379,12 +378,14 @@ export default function PosDayManagement() {
         setOpenData({
           dateTime: toLocalInputDateTime(item.open_datetime || ""),
           float: suggestedOpenFloat,
-          shift: item.shift || "Morning Shift",
           notes: item.open_notes || "",
         });
         if (isOpen) {
           setMomoOpeningMain(Number(item.momo_opening_main || 0));
           setMomoOpeningPay(Number(item.momo_opening_pay || 0));
+        } else {
+          setMomoOpeningMain(suggestedNextMomoMain);
+          setMomoOpeningPay(suggestedNextMomoPay);
         }
         setCloseDenomCounts(
           parseDenominationCounts(item.close_denomination_counts),
@@ -443,10 +444,7 @@ export default function PosDayManagement() {
           isOpen ? "Day is currently open" : "Last day is closed",
         );
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setDayStatusLoading(false);
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -500,7 +498,6 @@ export default function PosDayManagement() {
         terminal: terminalId,
         openingDateTime: openData.dateTime,
         openingFloat: Number(openData.float || 0),
-        shift: openData.shift,
         supervisor: undefined,
         notes: openData.notes,
         momoOpeningMain: Number(momoOpeningMain || 0),
@@ -517,7 +514,6 @@ export default function PosDayManagement() {
             item.opening_float === null || item.opening_float === undefined
               ? String(openData.float || "")
               : String(item.opening_float),
-          shift: item.shift || openData.shift,
           notes: item.open_notes || openData.notes,
         });
         setSessionHistory([
@@ -598,13 +594,16 @@ export default function PosDayManagement() {
         Number(momoOpeningMain || 0) + Number(momoOpeningPay || 0);
       const momoCloseTotal =
         Number(momoClosingRef.current.main || 0) + Number(momoClosingRef.current.pay || 0);
+      const effectiveActualMoMo = momoCloseTotal;
       const payload = {
         terminal: terminalId,
         closingDateTime: closing.dateTime,
         actualCash: effectiveActualCash,
-        actualMoMo: Number(actualMoMo || 0),
+        actualMoMo: effectiveActualMoMo,
         momoOpeningBalance: momoOpenTotal,
         momoClosingBalance: momoCloseTotal,
+        momoClosingMain: Number(momoClosingRef.current.main || 0),
+        momoClosingPay: Number(momoClosingRef.current.pay || 0),
         nextOpeningFloat: Number(closing.nextOpeningFloat || 0),
         notes: closing.notes,
         denominationCounts: closeDenomCounts,
@@ -652,8 +651,10 @@ export default function PosDayManagement() {
           );
           const momoOpenMain = Number(item.momo_opening_main ?? base.momoOpeningMain ?? momoOpeningMain ?? 0);
           const momoOpenPay = Number(item.momo_opening_pay ?? base.momoOpeningPay ?? momoOpeningPay ?? 0);
-          const momoExpected = momoOpenMain + momoOpenPay + Number(endSummary.mobileAmount || 0);
-          const momoActual = Number(item.actual_momo ?? actualMoMo ?? 0);
+          const momoOpening = momoOpenMain + momoOpenPay;
+          const totalMomoSales = Number(endSummary.mobileAmount || 0);
+          const momoExpected = momoOpening + totalMomoSales;
+          const momoActual = Number(item.actual_momo ?? effectiveActualMoMo ?? 0);
           const updated = {
             ...base,
             dayStatusId: Number(item.id || base.dayStatusId || 0) || null,
@@ -681,7 +682,8 @@ export default function PosDayManagement() {
             cashVariance: actualCash - expectedAtClose,
             momoOpeningMain: momoOpenMain,
             momoOpeningPay: momoOpenPay,
-            openingMoMo: momoCloseTotal,
+            openingMoMo: momoOpening,
+            totalMomoSales,
             expectedMoMo: momoExpected,
             actualMoMo: momoActual,
             momoVariance: momoActual - momoExpected,
@@ -911,10 +913,12 @@ export default function PosDayManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <Link
+            to="/pos?section=Transactions"
+            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 inline-flex items-center gap-1"
           >
             ← Back to POS
-          </button>
+          </Link>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">
             POS Day Management
           </h1>
@@ -988,11 +992,7 @@ export default function PosDayManagement() {
             <div className="text-2xl">🌅</div>
           </div>
           <div className="card-body">
-            {terminalsLoading || dayStatusLoading ? (
-              <div className="flex justify-center p-8">
-                <div className="animate-spin h-8 w-8 border-4 border-brand border-t-transparent rounded-full"></div>
-              </div>
-            ) : !dayOpen ? (
+            {!dayOpen && (
               <form onSubmit={handleOpenSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -1007,20 +1007,7 @@ export default function PosDayManagement() {
                       required
                     />
                   </div>
-                  <div>
-                    <label className="label">Shift</label>
-                    <select
-                      className="input w-full"
-                      value={openData.shift}
-                      onChange={(e) =>
-                        setOpenData((p) => ({ ...p, shift: e.target.value }))
-                      }
-                    >
-                      <option value="Morning Shift">Morning Shift</option>
-                      <option value="Afternoon Shift">Afternoon Shift</option>
-                    </select>
-                  </div>
-                  <div>
+                  <div className="md:ml-4">
                     <label className="label">Opening Float (₵)</label>
                     <input
                       type="number"
@@ -1079,11 +1066,12 @@ export default function PosDayManagement() {
 
                 {/* Opening Checklist removed as requested; proceed directly to Open Day */}
 
-                <button type="submit" className="btn-success w-full" data-rbac-exempt="true">
+                <button type="submit" className="btn-success w-full">
                   🌅 Open Day
                 </button>
               </form>
-            ) : (
+            )}
+            {dayOpen && (
               <div className="space-y-4">
                 <div className="alert-success rounded-lg p-4 flex items-center gap-2">
                   <span>✓</span>
@@ -1095,14 +1083,8 @@ export default function PosDayManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
                     <div className="text-xs text-slate-600">Opened At</div>
-                    <div className="text-sm font-medium">
+                    <div className="font-semibold">
                       {fmtTime(openData.dateTime)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-600">Shift</div>
-                    <div className="text-sm font-medium">
-                      {openData.shift || "-"}
                     </div>
                   </div>
                   <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
@@ -1146,11 +1128,7 @@ export default function PosDayManagement() {
             <div className="text-2xl">🌙</div>
           </div>
           <div className="card-body">
-            {terminalsLoading || dayStatusLoading ? (
-              <div className="flex justify-center p-8">
-                <div className="animate-spin h-8 w-8 border-4 border-brand border-t-transparent rounded-full"></div>
-              </div>
-            ) : !dayOpen ? (
+            {!dayOpen ? (
               <div className="alert-success rounded-lg p-4 flex items-center gap-2">
                 <span>✓</span>
                 <div>Day is closed. Open a new day to start a new session.</div>
@@ -1297,7 +1275,7 @@ export default function PosDayManagement() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="label">Closing Float (₵)</label>
+                    <label className="label">Enter float for next sales</label>
                     <input
                       type="number"
                       className="input"
@@ -1330,7 +1308,6 @@ export default function PosDayManagement() {
                   <button
                     type="button"
                     className="btn-danger flex-1 px-4 py-2"
-                    data-rbac-exempt="true"
                     onClick={async () => {
                       if (!dayOpen) {
                         toast.error("Open the day first");

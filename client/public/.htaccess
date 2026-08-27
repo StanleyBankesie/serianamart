@@ -8,8 +8,18 @@
   RewriteCond %{REQUEST_URI} ^/socket.io/ [NC]
   RewriteRule ^ - [L]
 
-  # SPA Fallback for frontend
+  # Return real 404 for missing static assets instead of serving index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_URI} \.(js|mjs|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map|json|webmanifest)$ [NC]
+  RewriteRule ^ - [R=404,L]
+
+  # SPA Fallback for frontend client routes only
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule ^ index.html [QSA,L]
+</IfModule>
+
+<IfModule mod_mime.c>
+  AddType application/javascript .js .mjs
+  AddType text/css .css
 </IfModule>

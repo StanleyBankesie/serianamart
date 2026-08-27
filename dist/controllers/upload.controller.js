@@ -48,21 +48,18 @@ async function getSystemSetting(key, companyId = null, branchId = null) {
     `);
   } catch {}
   const rows = await query(`
-    SELECT setting_value,
-          created_at,
-          u.username AS created_by_name
+    SELECT setting_value
          FROM adm_system_settings
-        LEFT JOIN adm_users u ON u.id = created_by
          WHERE setting_key = :key 
       AND (company_id = :companyId OR company_id IS NULL)
-      AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
+      AND (branch_id = :branchId OR branch_id IS NULL)
     ORDER BY company_id DESC, branch_id DESC
     LIMIT 1
     `,
     {
       key,
       companyId: companyId ?? null,
-      branchId: branchId ?? null, branchIdsStr,
+      branchId: branchId ?? null,
     },
   ).catch(() => []);
   return rows?.[0]?.setting_value || null;
@@ -77,23 +74,18 @@ async function getSystemSetting(key, companyId = null, branchId = null) {
 async function getCloudinaryConfig(scope) {
   const companyId = scope?.companyId ?? null;
   const branchId = scope?.branchId ?? null;
-  const cloud_name = await getSystemSetting(
-    "CLOUDINARY_CLOUD_NAME",
-    companyId,
-    branchId,
-  );
-  const api_key = await getSystemSetting(
-    "CLOUDINARY_API_KEY",
-    companyId,
-    branchId,
-  );
-  const api_secret = await getSystemSetting(
-    "CLOUDINARY_API_SECRET",
-    companyId,
-    branchId,
-  );
+  const cloud_name =
+    process.env.CLOUDINARY_CLOUD_NAME ||
+    (await getSystemSetting("CLOUDINARY_CLOUD_NAME", companyId, branchId));
+  const api_key =
+    process.env.CLOUDINARY_API_KEY ||
+    (await getSystemSetting("CLOUDINARY_API_KEY", companyId, branchId));
+  const api_secret =
+    process.env.CLOUDINARY_API_SECRET ||
+    (await getSystemSetting("CLOUDINARY_API_SECRET", companyId, branchId));
   const folder =
-    (await getSystemSetting("CLOUDINARY_UPLOAD_FOLDER", companyId, branchId, branchIdsStr)) ||
+    process.env.CLOUDINARY_UPLOAD_FOLDER ||
+    (await getSystemSetting("CLOUDINARY_UPLOAD_FOLDER", companyId, branchId)) ||
     null;
   if (cloud_name && api_key && api_secret) {
     return { cloud_name, api_key, api_secret, folder };
@@ -102,7 +94,7 @@ async function getCloudinaryConfig(scope) {
 }
 
 /**
- * Handles file uploads, preferring Cloudinary if configured, otherwise falls back or fails.
+ * Handles file uploads, preferring Cloudinary if configured, otherwise falls back to local uploads directory.
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -114,7 +106,8 @@ export const uploadFile = async (req, res, next) => {
       return res.status(400).json({ message: "No file uploaded" });
     }
     const reqFolder = req.body?.folder || req.query?.folder || null;
-    // Try Cloudinary first if configured
+    
+    // Attempt Cloudinary upload if configured
     const cfg = await getCloudinaryConfig(req.scope || {});
     if (cfg) {
       try {
@@ -169,12 +162,22 @@ export const uploadFile = async (req, res, next) => {
         } catch {}
         return;
       } catch (e) {
-        next(e);
-        return;
+        console.warn("Cloudinary upload failed, falling back to local file storage:", e.message);
       }
     }
-    return next(new Error("Cloudinary is not configured"));
+    
+    // Fallback: local file storage
+    const fileUrl = `/uploads/${req.file.filename}`;
+    return res.json({
+      message: "File uploaded successfully",
+      url: fileUrl,
+      path: fileUrl,
+      filename: req.file.originalname || req.file.filename,
+    });
   } catch (e) {
+    if (req.file) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+    }
     next(e);
   }
 };

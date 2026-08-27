@@ -20,7 +20,7 @@ import { DASHBOARD_CARDS } from "../../data/dashboardCards.js";
  * @returns {JSX.Element} The home page view.
  */
 export default function HomePage() {
-  const { user, token } = useAuth();
+  const { user, token, scope } = useAuth();
   const {
     canAccessPath,
     hasRoleFeature,
@@ -52,6 +52,7 @@ export default function HomePage() {
   const [allFeatures, setAllFeatures] = useState([]);
   const [activeModule, setActiveModule] = useState(null);
   const [profileData, setProfileData] = useState(null);
+  const [userBranches, setUserBranches] = useState([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
   const photoInputRef = useRef(null);
@@ -338,10 +339,32 @@ export default function HomePage() {
         if (cancelled) return;
         setProfileData(null);
       });
+    client
+      .get("/auth/user-branches")
+      .then((res) => {
+        if (cancelled) return;
+        setUserBranches(Array.isArray(res.data?.items) ? res.data.items : []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setUserBranches([]);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const activeBranch = useMemo(() => {
+    if (!Array.isArray(userBranches) || userBranches.length === 0) return null;
+    const targetId = Number(scope?.branchId);
+    if (targetId) {
+      return userBranches.find((b) => Number(b.id) === targetId) || null;
+    }
+    return userBranches[0] || null;
+  }, [userBranches, scope?.branchId]);
+
+  const displayCompanyName = activeBranch?.company_name || profileData?.company_name || user?.companyName || "";
+  const displayBranchName = activeBranch?.name || profileData?.branch_name || user?.branchName || "";
 
   const normalizeType = (s) =>
     String(s || "")
@@ -668,8 +691,8 @@ export default function HomePage() {
     if (checked.length > 0) {
       return checked.slice(0, 4);
     }
-    // Return empty if no explicit toggle set and not super admin
-    return [];
+    // Fallback to first 4 default metrics if no explicit toggle set
+    return allPossibleMetrics.slice(0, 4);
   }, [allPossibleMetrics, canViewDashboardElement]);
 
   // Quick Actions section removed per request
@@ -702,6 +725,13 @@ export default function HomePage() {
       ),
     [notifications],
   );
+  const postNotificationsAll = useMemo(
+    () =>
+      notifications.filter((n) =>
+        String(n.link || "").startsWith("/social-feed")
+      ),
+    [notifications],
+  );
   const otherNotificationsUnread = useMemo(
     () =>
       notifications.filter(
@@ -711,39 +741,13 @@ export default function HomePage() {
       ),
     [notifications],
   );
-  const extractPostIdFromLink = (link) => {
-    const s = String(link || "");
-    const m = s.match(/social-feed\/(\d+)/);
-    return m ? Number(m[1]) : null;
-  };
   const loadPostAlerts = async () => {
-    const ids = Array.from(
-      new Set(
-        postNotificationsUnread
-          .map((n) => extractPostIdFromLink(n.link))
-          .filter((id) => Number.isFinite(id) && id > 0),
-      ),
-    );
-    if (ids.length === 0) {
-      setPostAlerts([]);
-      return;
-    }
     try {
       setPostAlertsLoading(true);
-      const uid = Number(user?.sub || user?.id) || "";
-      const res = await fetch(`/api/social-feed?offset=0&limit=200`, {
-        headers: {
-          "x-user-id": String(uid),
-        },
-      });
-      if (!res.ok) throw new Error("Failed to load posts");
-      const data = await res.json();
+      const res = await client.get(`/social-feed?offset=0&limit=200`);
+      const data = res?.data || {};
       const items = Array.isArray(data.data) ? data.data : [];
-      const byId = new Map(items.map((p) => [Number(p.id), p]));
-      const matched = ids
-        .map((id) => byId.get(id))
-        .filter((p) => p && typeof p.content === "string");
-      setPostAlerts(matched);
+      setPostAlerts(items);
     } catch {
       setPostAlerts([]);
     } finally {
@@ -851,9 +855,9 @@ export default function HomePage() {
                   {profileData.role_name}
                 </p>
               )}
-              {(user?.companyName || user?.branchName) && (
+              {(displayCompanyName || displayBranchName) && (
                 <p className="hidden sm:block mt-1 text-brand-200 text-sm">
-                  {[user?.companyName, user?.branchName]
+                  {[displayCompanyName, displayBranchName]
                     .filter(Boolean)
                     .join(" — ")}
                 </p>

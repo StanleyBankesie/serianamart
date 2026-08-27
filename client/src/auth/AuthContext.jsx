@@ -263,6 +263,10 @@ export function AuthProvider({ children }) {
       setToken(null);
       setUser(null);
       sessionStorage.removeItem("license_alert_dismissed");
+      if (typeof localStorage !== "undefined") {
+        localStorage.removeItem("active_branch_id");
+        localStorage.removeItem("active_company_id");
+      }
       window.location.href = "/login";
     }
   };

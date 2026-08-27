@@ -80,6 +80,7 @@ import {
   Home,
 } from "lucide-react";
 import FloatingChat from "../components/chat/FloatingChat.jsx";
+import BanksAiFloating from "../components/ai/BanksAiFloating.jsx";
 import FloatingCreateButton from "../components/FloatingCreateButton.jsx";
 import useSocket from "../hooks/useSocket.js";
 
@@ -1070,9 +1071,13 @@ export default function AppShell() {
   }, []);
   const currentBranchName = useMemo(() => {
     const targetId = Number(scope?.branchId ?? selectedBranchId);
-    const found =
-      branchOptions.find((b) => Number(b.id) === targetId) ||
-      (branchOptions.length ? branchOptions[0] : null);
+    let found = null;
+    if (targetId) {
+      found = branchOptions.find((b) => Number(b.id) === targetId);
+    }
+    if (!found) {
+      found = branchOptions.find((b) => b.name === profile.branchName) || (branchOptions.length ? branchOptions[0] : null);
+    }
     if (found) {
       const comp = found.company_name || `Company #${found.company_id}`;
       return `${found.name} (${comp})`;
@@ -2009,6 +2014,7 @@ export default function AppShell() {
       ) : null}
       <PaymentPackageModal isOpen={showPaymentModal} onClose={() => setShowPaymentModal(false)} companyId={user?.company_id || user?.companyIds?.[0]} />
       <FloatingChat />
+      <BanksAiFloating />
     </div>
   );
 }

@@ -8,9 +8,10 @@ import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { api } from "../../../../api/client.js";
 import { Link } from "react-router-dom";
-import { Package, Layers, ShieldAlert, CheckCircle2, Download, Printer, RefreshCw, Search } from "lucide-react";
+import { Package, Layers, ShieldAlert, CheckCircle2, Download, Printer, RefreshCw, Search, Boxes } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import { formatPackagingBreakdown } from "@/utils/uomConversion.js";
 
 export default function StockBalancesReportPage() {
   const [pollingCounter, setPollingCounter] = React.useState(0);
@@ -21,6 +22,7 @@ export default function StockBalancesReportPage() {
 
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
+  const [unitConversions, setUnitConversions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
@@ -35,12 +37,14 @@ export default function StockBalancesReportPage() {
       api.get("/inventory/warehouses"),
       api.get("/inventory/stock-balances"),
       api.get("/inventory/items"),
+      api.get("/inventory/unit-conversions").catch(() => ({ data: { items: [] } })),
     ])
-      .then(([whRes, sbRes, itRes]) => {
+      .then(([whRes, sbRes, itRes, ucRes]) => {
         if (!mounted) return;
         setWarehouses(Array.isArray(whRes?.data?.items) ? whRes.data.items : []);
         setItems(Array.isArray(sbRes?.data?.items) ? sbRes.data.items : []);
         setItemOptions(Array.isArray(itRes?.data?.items) ? itRes.data.items : []);
+        setUnitConversions(Array.isArray(ucRes?.data?.items) ? ucRes.data.items : []);
       })
       .catch((e) => {
         if (!mounted) return;
@@ -253,6 +257,7 @@ export default function StockBalancesReportPage() {
                 <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
                   <SortableHeader label="Item Code" sortKey="item_code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                   <SortableHeader label="Item Name" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
+                  <th className="py-3 px-4 text-xs font-bold text-slate-600 dark:text-slate-300">Packaging Breakdown (Boxes + Pcs)</th>
                   <SortableHeader label="Total Qty" sortKey="total_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                   <SortableHeader label="Reserve Qty" sortKey="reserve_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                   <SortableHeader label="Available Qty" sortKey="available_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
@@ -260,25 +265,39 @@ export default function StockBalancesReportPage() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan="5" className="text-center py-8 text-slate-400">Loading stock balances...</td></tr>
+                  <tr><td colSpan="6" className="text-center py-8 text-slate-400">Loading stock balances...</td></tr>
                 ) : sortedItems.length > 0 ? (
-                  sortedItems.map((it) => (
-                    <tr key={it.id || it.item_code} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 transition-colors">
-                      <td className="py-3 px-4 font-mono text-xs font-bold text-brand">{it.item_code}</td>
-                      <td className="py-3 px-4 text-xs font-semibold text-slate-800 dark:text-slate-200">{it.item_name}</td>
-                      <td className="py-3 px-4 text-xs font-mono font-bold text-right text-slate-900 dark:text-slate-100">
-                        {Number(it.total_qty || 0).toLocaleString()}
-                      </td>
-                      <td className="py-3 px-4 text-xs font-mono font-semibold text-right text-amber-600 dark:text-amber-400">
-                        {Number(it.reserve_qty || 0).toLocaleString()}
-                      </td>
-                      <td className="py-3 px-4 text-xs font-mono font-bold text-right text-emerald-600 dark:text-emerald-400">
-                        {Number(it.available_qty || 0).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))
+                  sortedItems.map((it) => {
+                    const itConvs = unitConversions.filter((c) => String(c.item_id) === String(it.item_id));
+                    const packInfo = formatPackagingBreakdown(it.available_qty, it.uom || "PCS", itConvs);
+                    return (
+                      <tr key={it.id || it.item_code} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800 transition-colors">
+                        <td className="py-3 px-4 font-mono text-xs font-bold text-brand">{it.item_code}</td>
+                        <td className="py-3 px-4 text-xs font-semibold text-slate-800 dark:text-slate-200">{it.item_name}</td>
+                        <td className="py-3 px-4 text-xs font-medium">
+                          {packInfo.breakdownText ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
+                              <Boxes size={13} />
+                              {packInfo.breakdownText}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-xs font-mono font-bold text-right text-slate-900 dark:text-slate-100">
+                          {Number(it.total_qty || 0).toLocaleString()} {it.uom || "PCS"}
+                        </td>
+                        <td className="py-3 px-4 text-xs font-mono font-semibold text-right text-amber-600 dark:text-amber-400">
+                          {Number(it.reserve_qty || 0).toLocaleString()}
+                        </td>
+                        <td className="py-3 px-4 text-xs font-mono font-bold text-right text-emerald-600 dark:text-emerald-400">
+                          {Number(it.available_qty || 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
-                  <tr><td colSpan="5" className="text-center py-10 text-slate-400">No stock balance records found</td></tr>
+                  <tr><td colSpan="6" className="text-center py-10 text-slate-400">No stock balance records found</td></tr>
                 )}
               </tbody>
             </table>

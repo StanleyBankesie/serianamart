@@ -23,7 +23,10 @@ export default function DirectPurchase() {
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams();
-  const { canEditDiscount } = usePermission();
+  const { canEditDiscount, hasExceptional } = usePermission();
+  const canRecordDirectPayment = hasExceptional(
+    "PURCHASE.DIRECT_PURCHASE.AUTO_PAYMENT",
+  );
   const { getExchangeRate } = useExchangeRate();
   const dpId = params?.id ? Number(params.id) : null;
   const isViewMode =
@@ -37,6 +40,7 @@ export default function DirectPurchase() {
   const [selectedGeneralRequisitionId, setSelectedGeneralRequisitionId] =
     useState("");
   const [currencies, setCurrencies] = useState([]);
+  const [accounts, setAccounts] = useState([]);
   const [form, setForm] = useState({
     supplier_id: "",
     purchase_date: new Date().toISOString().slice(0, 10),
@@ -48,6 +52,12 @@ export default function DirectPurchase() {
     payment_type: "CASH",
     payment_terms: "",
     remarks: "",
+    auto_payment: false,
+    payment_account_id: "",
+    payment_method: "Cash",
+    payment_reference: "",
+    cheque_date: "",
+    paid_amount: "",
   });
   const baseCurrencyCode = useMemo(() => {
     return (
@@ -165,7 +175,7 @@ export default function DirectPurchase() {
     let mounted = true;
     async function load() {
       try {
-        const [sup, wh, it, cur, std, conv, tax, reqs] = await Promise.all([
+        const [sup, wh, it, cur, std, conv, tax, reqs, accs] = await Promise.all([
           api.get("/purchase/suppliers").then((r) => r.data.items || []),
           api.get("/inventory/warehouses").then((r) => r.data.items || []),
           api.get("/inventory/items").then((r) => r.data.items || []),
@@ -191,12 +201,17 @@ export default function DirectPurchase() {
               },
             })
             .then((r) => r.data.items || []),
+          api
+            .get("/finance/accounts")
+            .catch(() => ({ data: { items: [] } }))
+            .then((r) => r.data.items || []),
         ]);
         if (mounted) {
           setSuppliers(sup);
           setWarehouses(wh);
           setItems(it);
           setCurrencies(cur);
+          setAccounts(Array.isArray(accs) ? accs : []);
           setStandardPrices(Array.isArray(std) ? std : []);
           setUnitConversions(Array.isArray(conv) ? conv : []);
           const mappedTaxes = (Array.isArray(tax) ? tax : []).map((t) => ({
@@ -436,6 +451,40 @@ export default function DirectPurchase() {
 
     return { subtotal, totalDiscount, totalTax, grandTotal, components };
   }, [lines, taxComponentsByCode]);
+
+  const isChequeLike = useMemo(
+    () =>
+      ["Cheque", "Bank Transfer", "Credit Card"].includes(
+        form.payment_method || "",
+      ),
+    [form.payment_method],
+  );
+
+  const selectablePaymentAccounts = useMemo(() => {
+    const list = Array.isArray(accounts) ? accounts : [];
+    return list.filter((a) => {
+      const gc = String(a.group_code || "").toUpperCase();
+      const gn = String(a.group_name || "").toUpperCase();
+      return isChequeLike
+        ? gc === "AST_BANK" || gn === "BANK ACCOUNTS"
+        : gc === "AST_CASH" || gn === "CASH AND CASH EQUIVALENTS";
+    });
+  }, [accounts, isChequeLike]);
+
+  useEffect(() => {
+    if (!form.auto_payment) return;
+    const acc = accounts.find(
+      (a) => String(a.id) === String(form.payment_account_id || ""),
+    );
+    if (!acc) return;
+    const gc = String(acc.group_code || "").toUpperCase();
+    const gn = String(acc.group_name || "").toUpperCase();
+    const wantsBank = isChequeLike;
+    const ok = wantsBank
+      ? gc === "AST_BANK" || gn === "BANK ACCOUNTS"
+      : gc === "AST_CASH" || gn === "CASH AND CASH EQUIVALENTS";
+    if (!ok) updateForm("payment_account_id", "");
+  }, [form.auto_payment, isChequeLike, accounts, form.payment_account_id]);
   const totalInCurrentCurrency = useMemo(
     () =>
       Number(totals.subtotal || 0) +
@@ -458,6 +507,15 @@ export default function DirectPurchase() {
       ) > 0.000001,
     [totalInBaseCurrency, totalInCurrentCurrency],
   );
+
+  useEffect(() => {
+    if (form.auto_payment) {
+      updateForm(
+        "paid_amount",
+        totalInCurrentCurrency > 0 ? String(totalInCurrentCurrency) : "",
+      );
+    }
+  }, [totalInCurrentCurrency, form.auto_payment]);
 
   function updateForm(k, v) {
     if (k === "payment_type") {
@@ -597,6 +655,16 @@ export default function DirectPurchase() {
     });
   }
 
+  async function fetchAccountBalance(accountId) {
+    if (!accountId) return null;
+    try {
+      const res = await api.get(`/finance/accounts/${accountId}/balance`);
+      return res.data?.balance ?? res.data?.item?.balance ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async function submit(action) {
     setSaving(true);
     setError("");
@@ -616,6 +684,18 @@ export default function DirectPurchase() {
         payment_terms: form.payment_terms ? Number(form.payment_terms) : null,
         remarks: form.remarks || null,
         status: action === "post" ? "POSTED" : "DRAFT",
+        auto_payment: Boolean(canRecordDirectPayment && form.auto_payment),
+        payment_account_id: form.auto_payment
+          ? Number(form.payment_account_id) || null
+          : null,
+        payment_method: form.auto_payment ? form.payment_method || "Cash" : null,
+        payment_reference: form.auto_payment
+          ? form.payment_reference || null
+          : null,
+        cheque_date: form.auto_payment ? form.cheque_date || null : null,
+        paid_amount: form.auto_payment
+          ? Number(form.paid_amount || totalInCurrentCurrency || 0)
+          : null,
         details: lines
           .filter((l) => Number(l.item_id) && Number(l.qty))
           .map((l) => ({
@@ -645,6 +725,26 @@ export default function DirectPurchase() {
         setError("Add at least one item with quantity");
         setSaving(false);
         return;
+      }
+      if (payload.auto_payment) {
+        if (!payload.payment_account_id) {
+          setError("Payment Account is required for Paid Upon Purchase");
+          setSaving(false);
+          return;
+        }
+        const bal = await fetchAccountBalance(payload.payment_account_id);
+        if (
+          bal !== null &&
+          bal !== undefined &&
+          Number(bal) < Number(payload.paid_amount || 0)
+        ) {
+          const msg =
+            "Insufficient funds in the selected payment account to settle this purchase amount.";
+          setError(msg);
+          toast.error(msg);
+          setSaving(false);
+          return;
+        }
       }
       const resp = dpId
         ? await api.put(`/purchase/direct-purchases/${dpId}`, payload)
@@ -929,7 +1029,7 @@ export default function DirectPurchase() {
             <h3 className="text-sm font-semibold text-[#0E3646] mb-3">
               Add Item
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-3">
               <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Item *
@@ -1062,6 +1162,17 @@ export default function DirectPurchase() {
                   value={newItem.unit_price}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Total
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  className="input w-32 bg-slate-100 dark:bg-slate-800 font-mono font-bold text-brand-700 dark:text-brand-300"
+                  value={(Number(newItem.qty || 0) * Number(newItem.unit_price || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 />
               </div>
               <div>
@@ -1344,8 +1455,144 @@ export default function DirectPurchase() {
             ) : null}
           </div>
 
+          {canRecordDirectPayment && !isViewMode && (
+            <div className="bg-brand/5 border border-brand/20 rounded-lg p-5 mt-5">
+              <div className="flex items-center justify-between pb-3 border-b border-brand/15">
+                <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 text-brand rounded border-gray-300 focus:ring-brand"
+                    checked={Boolean(form.auto_payment)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      updateForm("auto_payment", checked);
+                      if (checked) {
+                        updateForm(
+                          "paid_amount",
+                          totalInCurrentCurrency > 0
+                            ? String(totalInCurrentCurrency)
+                            : "",
+                        );
+                      }
+                    }}
+                  />
+                  <span className="font-bold text-base text-brand dark:text-brand-300">
+                    Paid Upon Purchase
+                  </span>
+                </label>
+              </div>
+
+              {form.auto_payment && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 pt-1">
+                  <div className="flex flex-col gap-1">
+                    <label className="label font-medium">
+                      Payment Method *
+                    </label>
+                    <select
+                      className="input w-full"
+                      value={form.payment_method || "Cash"}
+                      onChange={(e) => {
+                        updateForm("payment_method", e.target.value);
+                        updateForm("payment_account_id", "");
+                      }}
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Cheque">Cheque</option>
+                      <option value="Mobile Money">Mobile Money</option>
+                      <option value="Credit Card">Credit Card</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="label font-medium">
+                      Payment Account *
+                    </label>
+                    <select
+                      className="input w-full"
+                      value={form.payment_account_id || ""}
+                      onChange={(e) =>
+                        updateForm("payment_account_id", e.target.value)
+                      }
+                      required
+                    >
+                      <option value="">-- Select Payment Account --</option>
+                      {selectablePaymentAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} - {a.name}{" "}
+                          {a.currency_code ? `(${a.currency_code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="label font-medium">
+                      {isChequeLike ? "Cheque / Ref No" : "Payment Reference"}
+                    </label>
+                    <input
+                      className="input w-full"
+                      placeholder="e.g. TR-9481 / Cheque #"
+                      value={form.payment_reference || ""}
+                      onChange={(e) =>
+                        updateForm("payment_reference", e.target.value)
+                      }
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="label font-medium">
+                      Amount Paid *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="input w-full font-semibold"
+                        placeholder="0.00"
+                        value={
+                          form.paid_amount !== ""
+                            ? form.paid_amount
+                            : totalInCurrentCurrency > 0
+                              ? totalInCurrentCurrency
+                              : ""
+                        }
+                        onChange={(e) =>
+                          updateForm("paid_amount", e.target.value)
+                        }
+                      />
+                    </div>
+                    <span className="text-[11px] text-gray-500">
+                      Default: Total Bill Amount (
+                      {selectedCurrencyCode || baseCurrencyCode}{" "}
+                      {Number(totalInCurrentCurrency || 0).toLocaleString(
+                        undefined,
+                        { minimumFractionDigits: 2 },
+                      )}
+                      )
+                    </span>
+                  </div>
+
+                  {isChequeLike && (
+                    <div className="flex flex-col gap-1">
+                      <label className="label font-medium">Cheque Date</label>
+                      <input
+                        type="date"
+                        className="input w-full"
+                        value={form.cheque_date || ""}
+                        onChange={(e) =>
+                          updateForm("cheque_date", e.target.value)
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {!isViewMode ? (
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex justify-end gap-3 pb-28">
               <button
                 className="btn btn-primary"
                 disabled={saving}

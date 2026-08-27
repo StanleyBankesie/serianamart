@@ -1,5 +1,5 @@
 import cors from "cors";
-import dotenv from "dotenv";
+import "./utils/loadServerEnv.js";
 import fs from "fs";
 import express from "express";
 import path from "path";
@@ -38,6 +38,8 @@ import authRoutes from "./routes/auth.routes.js";
 import executiveRoutes from "./routes/executive.routes.js";
 import { logDbError, query, testDbConnection } from "./db/pool.js";
 import { isMailerConfigured, verifyMailer, sendMail } from "./utils/mailer.js";
+import { isSMSConfigured, sendSMS } from "./utils/sms.js";
+import { isWhatsAppConfigured, sendWhatsApp } from "./utils/whatsapp.js";
 import { closeRedis, getRedis } from "./utils/redis.js";
 import { getLowStockQueue, closeJobQueues } from "./utils/jobQueue.js";
 import pushRoutes, {
@@ -49,6 +51,7 @@ import documentsRoutes from "./routes/documents.routes.js";
 import socialFeedRoutes from "./routes/social-feed.routes.js";
 import accessRoutes from "./routes/access.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
+import aiRoutes from "./routes/ai.routes.js";
 import emailTestRoutes from "./routes/email-test.routes.js";
 import visitorsRoutes from "./routes/visitors.routes.js";
 import licenseRoutes from "./routes/license.routes.js";
@@ -62,6 +65,7 @@ import {
   ensureUserPermissionCacheAndTriggers,
   ensureUserBranchMapping,
   ensurePagesTable,
+  hasColumn,
   verifiedTables,
   ensurePMQuotationTables,
   ensurePMInvoiceTables,
@@ -76,52 +80,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* ---------------- ENV ---------------- */
-const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
-
-if (!isProd) {
-  const prodPath = path.join(__dirname, ".env.production");
-  const localPath = path.join(__dirname, ".env.local");
-
-  // Pre-load .env.local to get DEV_FORCE_LOCAL_ENV if it exists without polluting process.env
-  let forceLocal = false;
-  if (fs.existsSync(localPath)) {
-    const parsed = dotenv.parse(fs.readFileSync(localPath));
-    forceLocal = String(parsed.DEV_FORCE_LOCAL_ENV || "").trim() === "1";
-  }
-
-  dotenv.config({ path: path.join(__dirname, ".env") });
-
-  const originalPort = process.env.PORT;
-
-  if (forceLocal && fs.existsSync(localPath)) {
-    dotenv.config({ path: localPath, override: true });
-  } else if (fs.existsSync(localPath)) {
-    dotenv.config({ path: localPath, override: true });
-  }
-
-  if (originalPort !== undefined && String(originalPort).trim() !== "") {
-    process.env.PORT = originalPort;
-  }
-}
-
-// SMTP settings need to be loaded from .env.production if Plesk doesn't provide them.
-// But the user requested ignoring .env files. We will keep this try block but comment out the execution.
-/*
-try {
-  const prodPath = path.join(__dirname, ".env.production");
-  if (fs.existsSync(prodPath)) {
-    const parsed = dotenv.parse(fs.readFileSync(prodPath, "utf8")) || {};
-    [
-      "SMTP_HOST",
-      "SMTP_PORT",
-      "SMTP_USER",
-      "SMTP_PASS",
-    ].forEach((k) => {
-      if (parsed[k]) process.env[k] = parsed[k];
-    });
-  }
-} catch {}
-*/
+import { loadServerEnv } from "./utils/loadServerEnv.js";
+loadServerEnv(import.meta.url);
 
 const serveFrontendFlag = (() => {
   const v1 = String(process.env.SERVE_FRONTEND || "").toLowerCase();
@@ -379,6 +339,9 @@ const allowedOrigins = (() => {
   if (!origins.includes("https://serianamart.omnisuite-erp.com")) {
     origins.push("https://serianamart.omnisuite-erp.com");
   }
+  if (!origins.includes("https://serianaserver.omnisuite-erp.com")) {
+    origins.push("https://serianaserver.omnisuite-erp.com");
+  }
   return origins;
 })();
 
@@ -386,6 +349,19 @@ const corsOptions = {
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
+    // Allow local development networks, Expo Go, and physical mobile phone requests
+    if (
+      origin.includes("localhost") ||
+      origin.includes("127.0.0.1") ||
+      origin.includes("192.168.") ||
+      origin.includes("10.") ||
+      origin.includes("172.") ||
+      origin.startsWith("exp://") ||
+      origin.startsWith("http://") ||
+      origin.startsWith("https://")
+    ) {
+      return cb(null, true);
+    }
     return cb(null, false);
   },
   credentials: true,
@@ -932,12 +908,10 @@ const _activeFrontendPaths = [];
 for (const candidate of _frontendCandidates) {
   if (fs.existsSync(candidate)) {
     _activeFrontendPaths.push(candidate);
-    if (serveFrontendFlag) {
-      app.use(express.static(candidate, _staticOpts));
-      const assetsSubdir = path.join(candidate, "assets");
-      if (fs.existsSync(assetsSubdir)) {
-        app.use("/assets", express.static(assetsSubdir, _staticOpts));
-      }
+    app.use(express.static(candidate, _staticOpts));
+    const assetsSubdir = path.join(candidate, "assets");
+    if (fs.existsSync(assetsSubdir)) {
+      app.use("/assets", express.static(assetsSubdir, _staticOpts));
     }
     if (
       !_earlyFrontendPath &&
@@ -1040,6 +1014,7 @@ const apiPaths = [
   { path: "/social-feed", router: socialFeedRoutes },
   { path: "/access", router: accessRoutes },
   { path: "/chat", router: chatRoutes },
+  { path: "/ai", router: aiRoutes },
   { path: "/email-test", router: emailTestRoutes },
   { path: "/visitors", router: visitorsRoutes },
 ];
@@ -1390,21 +1365,37 @@ if (process.env.NODE_ENV !== "test") {
                 pref_key VARCHAR(100) NOT NULL,
                 push_enabled TINYINT(1) NOT NULL DEFAULT 0,
                 email_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                sms_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                whatsapp_enabled TINYINT(1) NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (user_id, pref_key),
                 INDEX idx_pref_key (pref_key)
               ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             `);
+            if (!(await hasColumn("adm_notification_prefs", "sms_enabled"))) {
+              await query(
+                "ALTER TABLE adm_notification_prefs ADD COLUMN sms_enabled TINYINT(1) NOT NULL DEFAULT 0",
+              );
+            }
+            if (
+              !(await hasColumn("adm_notification_prefs", "whatsapp_enabled"))
+            ) {
+              await query(
+                "ALTER TABLE adm_notification_prefs ADD COLUMN whatsapp_enabled TINYINT(1) NOT NULL DEFAULT 0",
+              );
+            }
             verifiedTables.add("adm_notification_prefs");
           }
           const recipients = await query(
-            `SELECT u.id, u.email, np.push_enabled, np.email_enabled
+            `SELECT u.id, u.username, u.email, COALESCE(u.telephone, '') AS phone,
+                    np.push_enabled, np.email_enabled, np.sms_enabled, np.whatsapp_enabled
              FROM adm_users u
              JOIN adm_notification_prefs np ON np.user_id = u.id AND np.pref_key = 'low-stock'
              WHERE u.is_active = 1 
                AND u.company_id = :companyId 
-               AND u.branch_id = :branchId`,
+               AND u.branch_id = :branchId
+               AND (np.push_enabled = 1 OR np.email_enabled = 1 OR np.sms_enabled = 1 OR np.whatsapp_enabled = 1)`,
             { companyId, branchId },
           );
           for (const u of recipients) {
@@ -1441,6 +1432,8 @@ if (process.env.NODE_ENV !== "test") {
               )
               .join("");
             const html = `<p>${count} items are at or below reorder levels.</p><table border="1" cellpadding="6" cellspacing="0"><thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Reorder</th></tr></thead><tbody>${htmlRows}</tbody></table><p><a href="/inventory/alerts/low-stock">Open Alerts</a></p>`;
+
+            // Email Channel
             if (
               Number(u?.email_enabled) === 1 &&
               isMailerConfigured() &&
@@ -1465,11 +1458,46 @@ if (process.env.NODE_ENV !== "test") {
               } catch (e) {
                 console.log(`[EMAIL ERROR] ${e?.message || e}`);
               }
-            } else {
+            } else if (Number(u?.email_enabled) === 1) {
               console.log(
                 `[MOCK ERROR] To: ${u.email || "(none)"} | Subject: ${subject}`,
               );
             }
+
+            // SMS Channel
+            if (Number(u?.sms_enabled) === 1 && u.phone) {
+              try {
+                const smsText = `Low Stock Alert: ${count} item${count === 1 ? "" : "s"} at/below reorder limit. Check ERP /inventory/alerts/low-stock`;
+                await sendSMS({
+                  to: u.phone,
+                  message: smsText,
+                });
+              } catch (e) {
+                console.log(`[SMS ERROR] ${e?.message || e}`);
+              }
+            }
+
+            // WhatsApp Channel
+            if (Number(u?.whatsapp_enabled) === 1 && u.phone) {
+              try {
+                const sampleLines = items
+                  .slice(0, 5)
+                  .map(
+                    (it) =>
+                      `• ${it.item_code} ${it.item_name}: ${Number(it.qty || 0)} left (reorder ${Number(it.reorder_level || 0)})`,
+                  )
+                  .join("\n");
+                const waText = `⚠️ *Low Stock Alert*\n${count} items are at or below reorder levels.\n\n${sampleLines}${count > 5 ? `\n...and ${count - 5} more items` : ""}\n\nOpen ERP: /inventory/alerts/low-stock`;
+                await sendWhatsApp({
+                  to: u.phone,
+                  message: waText,
+                });
+              } catch (e) {
+                console.log(`[WHATSAPP ERROR] ${e?.message || e}`);
+              }
+            }
+
+            // In-App Push Channel
             if (Number(u?.push_enabled) === 1) {
               await query(
                 `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)

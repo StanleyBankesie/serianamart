@@ -20,26 +20,19 @@ function parseNumber(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function findEnv(key) {
-  for (const [k, v] of Object.entries(process.env)) {
-    if (k.trim().toUpperCase() === key.toUpperCase()) return v;
-  }
-  return undefined;
-}
-
 // Database Configuration
 // Collects and parses configuration settings from environment variables.
 const dbConfig = {
-  host: String(findEnv("DB_HOST") || optionalEnv("DB_HOST", "localhost")).trim(),
-  user: String(findEnv("DB_USER") || findEnv("DB_USERNAME") || "").trim(),
+  host: String(optionalEnv("DB_HOST", "")).trim(),
+  user: String(optionalEnv("DB_USER", "")).trim(),
   password:
-    findEnv("DB_PASSWORD") !== undefined ? findEnv("DB_PASSWORD") : (findEnv("DB_PASS") !== undefined ? findEnv("DB_PASS") : undefined),
-  database: String(findEnv("DB_NAME") || findEnv("DB_DATABASE") || "").trim(),
-  port: parseNumber(findEnv("DB_PORT") || process.env.DB_PORT, 3306),
-  connectionLimit: parseNumber(findEnv("DB_CONNECTION_LIMIT") || optionalEnv("DB_CONNECTION_LIMIT", 50), 50),
+    process.env.DB_PASSWORD === undefined ? undefined : process.env.DB_PASSWORD,
+  database: String(optionalEnv("DB_NAME", "")).trim(),
+  port: parseNumber(optionalEnv("DB_PORT", 3306), 3306),
+  connectionLimit: parseNumber(optionalEnv("DB_CONNECTION_LIMIT", 50), 50),
   connectTimeout: parseNumber(
-    optionalEnv("DB_CONNECT_TIMEOUT_MS", 10000),
-    10000,
+    optionalEnv("DB_CONNECT_TIMEOUT_MS", 30000),
+    30000,
   ),
   queryTimeout: parseNumber(optionalEnv("DB_QUERY_TIMEOUT_MS", 15000), 15000),
   reconnectCooldownMs: parseNumber(
@@ -243,7 +236,6 @@ function createPoolInstance() {
     waitForConnections: true,
     connectionLimit: dbConfig.connectionLimit,
     queueLimit: 0,
-    acquireTimeout: 10000,
     namedPlaceholders: true,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
@@ -342,10 +334,6 @@ async function ensurePool(forceReconnect = false) {
   if (!isConfigured()) {
     // Fail early if database config is incomplete
     const missing = getMissingConfigFields();
-    if (!dbConfig.database) {
-      const availableDbVars = Object.keys(process.env).filter(k => k.startsWith('DB_')).join(', ') || 'None';
-      throw new Error(`Database not configured: missing DB_NAME. Available DB env vars: ${availableDbVars}`);
-    }
     const configError = new Error(
       `Database not configured: missing ${missing.join(", ")}`,
     );

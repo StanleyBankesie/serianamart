@@ -21,6 +21,7 @@ export default function PaymentPackageModal({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    if (!isOpen) return;
     async function fetchPackages() {
       try {
         const res = await api.get("/subscription-plans");
@@ -32,22 +33,24 @@ export default function PaymentPackageModal({
           }
         }
       } catch (err) {
-        console.error("Failed to fetch payment packages", err);
+        console.warn("Could not fetch payment packages:", err?.message || err);
       }
     }
-    fetchPackages();
-  }, []);
+    if (plans.length === 0) {
+      fetchPackages();
+    }
+  }, [isOpen, plans.length]);
 
   useEffect(() => {
     if (isOpen) {
       setName(user?.full_name || user?.name || defaultName);
       setEmail(user?.email || defaultEmail);
       setMobile(defaultMobile || "");
-      if (plans.length > 0) {
+      if (plans.length > 0 && !selectedPlan) {
         setSelectedPlan(plans[plans.length - 1]);
       }
     }
-  }, [isOpen, user, defaultName, defaultEmail, defaultMobile, plans]);
+  }, [isOpen, user, defaultName, defaultEmail, defaultMobile, plans, selectedPlan]);
 
   if (!isOpen) return null;
   if (plans.length === 0) {

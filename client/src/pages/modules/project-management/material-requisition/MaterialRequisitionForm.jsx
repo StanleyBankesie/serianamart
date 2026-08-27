@@ -288,7 +288,7 @@ export default function MaterialRequisitionForm() {
                 <select className="input" value={formData.warehouseId}
                   onChange={e => setFormData({ ...formData, warehouseId: e.target.value })}>
                   <option value="">Select Warehouse</option>
-                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name}</option>)}
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name || w.name}</option>)}
                 </select>
               </div>
               <div>
@@ -296,7 +296,7 @@ export default function MaterialRequisitionForm() {
                 <select className="input" value={formData.departmentId}
                   onChange={e => setFormData({ ...formData, departmentId: e.target.value })}>
                   <option value="">Select Department</option>
-                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.department_name || d.name}</option>)}
                 </select>
               </div>
               <div>
@@ -304,7 +304,7 @@ export default function MaterialRequisitionForm() {
                 <select className="input" value={formData.requestedBy}
                   onChange={e => setFormData({ ...formData, requestedBy: e.target.value })} required>
                   <option value="">Select User</option>
-                  {users.map(u => <option key={u.id} value={u.username}>{u.username}</option>)}
+                  {users.map(u => <option key={u.id} value={u.id || u.username}>{u.full_name || u.username || `User #${u.id}`}</option>)}
                 </select>
               </div>
             </div>

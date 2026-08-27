@@ -448,7 +448,9 @@ async function resolvePurchaseOrderCurrencyBindings({
 }
 
 async function userHasExceptionalAllow(userId, permissionCode = null) {
-  const params = { uid: userId };
+  const uid = Number(userId || 0);
+  if (uid === 1) return true;
+  const params = { uid };
   if (permissionCode) params.code = permissionCode;
   const rows = await query(
     `
@@ -2227,6 +2229,302 @@ async function postPurchaseBillVoucherTx(
   }
 
   return { voucherId, voucherNo };
+}
+
+async function postDirectPurchasePaymentVoucherTx(
+  conn,
+  {
+    companyId,
+    branchId,
+    branchIdsStr,
+    dpId,
+    billId,
+    supplierId,
+    paymentAccountId,
+    paymentMethod = "Cash",
+    paymentReference = null,
+    chequeDate = null,
+    paidAmount = 0,
+    userId = null,
+    voucherDate = null,
+  },
+) {
+  const safePaidAmount = Math.max(0, Number(paidAmount || 0));
+  if (!(safePaidAmount > 0) || !paymentAccountId) {
+    return { voucherId: null, voucherNo: null, status: null };
+  }
+
+  // Check account balance if paying from Cash/Bank
+  const [balRows] = await conn
+    .execute(
+      `SELECT balance_amount FROM fin_account_balances WHERE account_id = :paymentAccountId AND company_id = :companyId LIMIT 1`,
+      { paymentAccountId, companyId },
+    )
+    .catch(() => [[]]);
+  const [ledg] = await conn
+    .execute(
+      `SELECT COALESCE(SUM(vl.debit), 0) - COALESCE(SUM(vl.credit), 0) AS ledger_balance
+       FROM fin_voucher_lines vl
+       INNER JOIN fin_vouchers v ON v.id = vl.voucher_id
+       WHERE vl.account_id = :paymentAccountId 
+         AND v.company_id = :companyId 
+         AND v.status IN ('POSTED', 'APPROVED')`,
+      { paymentAccountId, companyId },
+    )
+    .catch(() => [[{ ledger_balance: 0 }]]);
+
+  const currBal =
+    balRows?.[0]?.balance_amount !== undefined &&
+    balRows?.[0]?.balance_amount !== null
+      ? Number(balRows[0].balance_amount)
+      : Number(ledg?.[0]?.ledger_balance || 0);
+
+  if (currBal < safePaidAmount) {
+    throw httpError(
+      400,
+      "INSUFFICIENT_FUNDS",
+      "Insufficient funds in the selected payment account to settle this purchase amount.",
+    );
+  }
+
+  // 1. Ensure/Resolve PAYV voucher type
+  let payvTypeId = await resolveVoucherTypeIdByCode(conn, {
+    code: "PAYV",
+    companyId,
+  });
+  if (!payvTypeId) {
+    await conn
+      .execute(
+        `INSERT INTO fin_voucher_types
+        (company_id, code, name, category, prefix, next_number, requires_approval, is_active)
+       VALUES
+        (:companyId, 'PAYV', 'Payment Voucher', 'PAYMENT', 'PV', 1, 0, 1)`,
+        { companyId },
+      )
+      .catch(() => null);
+    payvTypeId = await resolveVoucherTypeIdByCode(conn, {
+      code: "PAYV",
+      companyId,
+    });
+  }
+
+  const fiscalYearId = await resolveOpenFiscalYearId(conn, { companyId });
+  const voucherNo = await nextVoucherNoTx(conn, {
+    voucherTypeId: payvTypeId,
+    companyId,
+  });
+
+  // 2. Resolve supplier account & supplier name
+  const supplierAccountId = await ensureSupplierFinAccountIdTx(conn, {
+    companyId,
+    supplierId,
+  });
+  const [supRows] = await conn.execute(
+    `SELECT supplier_name FROM pur_suppliers WHERE id = :supplierId AND company_id = :companyId LIMIT 1`,
+    { supplierId, companyId },
+  );
+  const supplierName = supRows?.[0]?.supplier_name || "Supplier";
+
+  // 3. Resolve Direct Purchase & Bill info
+  const [dpRows] = await conn.execute(
+    `SELECT dp_no, dp_date, currency_id, exchange_rate, net_amount FROM pur_direct_purchase_hdr WHERE id = :dpId LIMIT 1`,
+    { dpId },
+  );
+  const dpHdr = dpRows?.[0] || {};
+  const [billRows] = await conn.execute(
+    `SELECT bill_no, net_amount, amount_paid FROM pur_bills WHERE id = :billId LIMIT 1`,
+    { billId },
+  );
+  const billHdr = billRows?.[0] || {};
+
+  const effectiveVoucherDate = voucherDate || dpHdr.dp_date || toYmd(new Date());
+  const exchangeRate = Number(dpHdr.exchange_rate || 1) || 1;
+  const currencyId = dpHdr.currency_id || null;
+
+  // 4. Workflow resolution for PAYMENT_VOUCHER
+  const { activeWorkflow: activeWf, inactiveWorkflow } = await resolveWorkflowSelection({
+    companyId,
+    docRouteBase: "/finance/payment-voucher",
+    typeSynonyms: ["PAYMENT_VOUCHER", "Payment Voucher", "PAYV", "PV"],
+    amount: safePaidAmount,
+  });
+
+  let voucherStatus = "APPROVED";
+  let requiresWorkflow = false;
+  let firstStep = null;
+  let assignedToUserId = null;
+
+  if (activeWf) {
+    const [stepRows] = await conn.execute(
+      `SELECT * FROM adm_workflow_steps WHERE workflow_id = :wfId ORDER BY step_order ASC LIMIT 1`,
+      { wfId: activeWf.id },
+    );
+    if (stepRows && stepRows.length > 0 && stepRows[0].approver_user_id) {
+      firstStep = stepRows[0];
+      assignedToUserId = Number(firstStep.approver_user_id);
+      requiresWorkflow = true;
+      voucherStatus = "PENDING_APPROVAL";
+    }
+  } else {
+    const behavior = getInactiveWorkflowBehavior(inactiveWorkflow);
+    if (behavior === "REJECT") {
+      throw httpError(
+        400,
+        "WORKFLOW_INACTIVE",
+        "Payment Voucher approval workflow is inactive and rejecting submissions.",
+      );
+    } else if (behavior === "PENDING" || behavior === "DRAFT") {
+      voucherStatus = behavior === "PENDING" ? "PENDING_APPROVAL" : "DRAFT";
+      requiresWorkflow = true;
+    } else {
+      voucherStatus = "APPROVED";
+      requiresWorkflow = false;
+    }
+  }
+
+  const narration = `Direct Payment for Purchase ${dpHdr.dp_no || ""} (${billHdr.bill_no || ""}) to ${supplierName}${paymentReference ? ` | Ref: ${paymentReference}` : ""}`;
+
+  // 5. Insert fin_vouchers
+  const [vIns] = await conn.execute(
+    `INSERT INTO fin_vouchers
+      (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, balanced_amount, status, created_by, approved_by, posted_by)
+     VALUES
+      (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, :exchangeRate, :totalDebit, :totalCredit, :balancedAmount, :status, :createdBy, :approvedBy, :postedBy)`,
+    {
+      companyId,
+      branchId,
+      fiscalYearId: fiscalYearId || null,
+      voucherTypeId: payvTypeId,
+      voucherNo,
+      voucherDate: effectiveVoucherDate,
+      narration,
+      currencyId,
+      exchangeRate,
+      totalDebit: safePaidAmount,
+      totalCredit: safePaidAmount,
+      balancedAmount: safePaidAmount,
+      status: voucherStatus,
+      createdBy: userId || null,
+      approvedBy: requiresWorkflow ? null : userId || null,
+      postedBy: requiresWorkflow ? null : userId || null,
+    },
+  );
+  const voucherId = Number(vIns?.insertId || 0) || 0;
+
+  // 6. Insert lines: Debit Supplier (reducing payable), Credit Payment Account (Bank/Cash)
+  // Line 1: DEBIT Supplier AP
+  await conn.execute(
+    `INSERT INTO fin_voucher_lines
+      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method, currency_id, exchange_rate)
+     VALUES
+      (:companyId, :voucherId, 1, :accountId, :description, :debit, 0, NULL, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod, :currencyId, :exchangeRate)`,
+    {
+      companyId,
+      voucherId,
+      accountId: supplierAccountId,
+      description: `Payment to ${supplierName} for ${dpHdr.dp_no || billHdr.bill_no || ""}`,
+      debit: safePaidAmount,
+      referenceNo: paymentReference || dpHdr.dp_no || billHdr.bill_no || null,
+      chequeNumber: paymentReference || null,
+      chequeDate: chequeDate || null,
+      paymentMethod,
+      currencyId,
+      exchangeRate,
+    },
+  );
+
+  // Line 2: CREDIT Payment Account
+  await conn.execute(
+    `INSERT INTO fin_voucher_lines
+      (company_id, voucher_id, line_no, account_id, description, debit, credit, tax_code_id, reference_no, cheque_number, cheque_date, payment_method, currency_id, exchange_rate)
+     VALUES
+      (:companyId, :voucherId, 2, :accountId, :description, 0, :credit, NULL, :referenceNo, :chequeNumber, :chequeDate, :paymentMethod, :currencyId, :exchangeRate)`,
+    {
+      companyId,
+      voucherId,
+      accountId: paymentAccountId,
+      description: `Disbursement for ${dpHdr.dp_no || billHdr.bill_no || ""}`,
+      credit: safePaidAmount,
+      referenceNo: paymentReference || dpHdr.dp_no || billHdr.bill_no || null,
+      chequeNumber: paymentReference || null,
+      chequeDate: chequeDate || null,
+      paymentMethod,
+      currencyId,
+      exchangeRate,
+    },
+  );
+
+  // 7. If workflow required, insert into adm_document_workflows & adm_workflow_tasks
+  if (requiresWorkflow && activeWf && firstStep) {
+    try {
+      const [dwRes] = await conn.execute(
+        `INSERT INTO adm_document_workflows
+          (company_id, workflow_id, document_id, document_type, amount, current_step_order, status, assigned_to_user_id)
+         VALUES
+          (:companyId, :workflowId, :documentId, 'PAYMENT_VOUCHER', :amount, :stepOrder, 'PENDING', :assignedTo)`,
+        {
+          companyId,
+          workflowId: activeWf.id,
+          documentId: voucherId,
+          amount: safePaidAmount,
+          stepOrder: firstStep.step_order || 1,
+          assignedTo: assignedToUserId,
+        },
+      );
+      const dwId = dwRes?.insertId ? Number(dwRes.insertId) : null;
+      if (dwId) {
+        await conn
+          .execute(
+            `INSERT INTO adm_workflow_tasks
+              (company_id, workflow_id, document_workflow_id, document_id, document_type, step_order, assigned_to_user_id, action)
+             VALUES
+              (:companyId, :workflowId, :dwId, :documentId, 'PAYMENT_VOUCHER', :stepOrder, :assignedToUserId, 'PENDING')`,
+            {
+              companyId,
+              workflowId: activeWf.id,
+              dwId,
+              documentId: voucherId,
+              stepOrder: Number(firstStep.step_order || 1),
+              assignedToUserId,
+            },
+          )
+          .catch(() => null);
+      }
+    } catch (e) {
+      console.warn("Payment Voucher workflow task creation skipped:", e.message);
+    }
+  }
+
+  // 8. Update Purchase Bill payment status
+  const billTotal = Number(billHdr.net_amount || dpHdr.net_amount || 0);
+  const newAmountPaid = Number(billHdr.amount_paid || 0) + safePaidAmount;
+  const paymentStatus =
+    newAmountPaid >= billTotal
+      ? "FULLY PAID"
+      : newAmountPaid > 0
+        ? "PARTIAL PAYMENT"
+        : "UNPAID";
+
+  await conn.execute(
+    `UPDATE pur_bills
+        SET amount_paid = :newAmountPaid,
+            payment_status = :paymentStatus
+      WHERE id = :billId AND company_id = :companyId`,
+    {
+      newAmountPaid,
+      paymentStatus,
+      billId,
+      companyId,
+    },
+  );
+
+  return {
+    voucherId,
+    voucherNo,
+    status: voucherStatus,
+    amountPaid: safePaidAmount,
+    paymentStatus,
+  };
 }
 
 router.get(
@@ -10404,11 +10702,12 @@ router.get(
       const purchaseRows = await query(
         `
         SELECT COUNT(*) AS count,
-               COALESCE(SUM(total_amount), 0) AS total
+               COALESCE(SUM(net_amount), 0) AS total
          FROM pur_bills
-         WHERE company_id = :companyId
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
-          AND bill_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+          AND status = 'POSTED'
+          AND (bill_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) OR (bill_date IS NULL AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)))
         `,
         { companyId, branchId, branchIdsStr },
       );
@@ -10419,7 +10718,7 @@ router.get(
         `
         SELECT COUNT(*) AS count
          FROM pur_orders
-         WHERE company_id = :companyId
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND status NOT IN ('RECEIVED', 'CANCELLED', 'CLOSED', 'REJECTED')
         `,
@@ -10431,7 +10730,7 @@ router.get(
         `
         SELECT COUNT(*) AS count
          FROM pur_suppliers
-         WHERE company_id = :companyId
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND is_active = 1
         `,
         { companyId },
@@ -10442,7 +10741,7 @@ router.get(
         `
         SELECT COUNT(*) AS count
          FROM adm_document_workflows dw
-         WHERE dw.company_id = :companyId
+         WHERE (dw.company_id = :companyId OR dw.company_id IS NULL)
           AND dw.status = 'PENDING'
           AND dw.assigned_to_user_id = :userId
           AND (
@@ -10462,9 +10761,10 @@ router.get(
                  0
                ) AS total
          FROM pur_bills
-         WHERE company_id = :companyId
+         WHERE (company_id = :companyId OR company_id IS NULL)
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND status = 'POSTED'
+          AND payment_status IN ('UNPAID', 'PARTIALLY PAID', 'PARTIALLY_PAID', 'PARTIAL')
           AND COALESCE(amount_paid, 0) < COALESCE(net_amount, 0)
         `,
         { companyId, branchId, branchIdsStr },
@@ -11197,6 +11497,23 @@ router.post(
         String(body.payment_type || "CASH").toUpperCase() === "CREDIT"
           ? "CREDIT"
           : "CASH";
+      const autoPayment = Boolean(body.auto_payment);
+      const paymentAccountId = toNumber(body.payment_account_id) || null;
+      const paymentMethod = String(body.payment_method || "Cash");
+      const paymentReference = body.payment_reference ? String(body.payment_reference).trim() : null;
+      const chequeDate = body.cheque_date || null;
+      const paidAmount = Number(body.paid_amount || 0);
+
+      // Verify exceptional permission if auto_payment requested
+      if (autoPayment) {
+        const hasEx = await userHasExceptionalAllow(req.user?.sub, "PURCHASE.DIRECT_PURCHASE.AUTO_PAYMENT");
+        if (!hasEx) {
+          throw httpError(403, "FORBIDDEN", "You do not have exceptional permission to record direct payment on Direct Purchase");
+        }
+        if (!paymentAccountId) {
+          throw httpError(400, "VALIDATION_ERROR", "Payment Account is required when recording direct payment");
+        }
+      }
       const remarks = body.remarks || null;
       const details = Array.isArray(body.details) ? body.details : [];
       if (!supplierId)
@@ -11453,6 +11770,36 @@ router.post(
          console.error("Direct Purchase Bill Voucher Error:", e);
       }
 
+      let paymentVoucherId = null;
+      let paymentVoucherNo = null;
+      let paymentVoucherStatus = null;
+      let billPaymentStatus = "UNPAID";
+
+      if (autoPayment && paymentAccountId) {
+        const effectivePaidAmount = paidAmount > 0 ? paidAmount : netAmount;
+        const pvRes = await postDirectPurchasePaymentVoucherTx(conn, {
+          companyId,
+          branchId,
+          branchIdsStr,
+          dpId,
+          billId,
+          supplierId,
+          paymentAccountId,
+          paymentMethod,
+          paymentReference,
+          chequeDate,
+          paidAmount: effectivePaidAmount,
+          userId: req.user?.sub || null,
+          voucherDate: dpDateYmd,
+        });
+        if (pvRes?.voucherId) {
+          paymentVoucherId = pvRes.voucherId;
+          paymentVoucherNo = pvRes.voucherNo;
+          paymentVoucherStatus = pvRes.status;
+          billPaymentStatus = pvRes.paymentStatus;
+        }
+      }
+
       await conn.execute(
         `UPDATE pur_direct_purchase_hdr
            SET status = 'POSTED',
@@ -11483,6 +11830,10 @@ router.post(
         bill_id: billId,
         grn_voucher_id: grnVoucherId,
         bill_voucher_id: billVoucherId,
+        payment_voucher_id: paymentVoucherId,
+        payment_voucher_no: paymentVoucherNo,
+        payment_voucher_status: paymentVoucherStatus,
+        payment_status: billPaymentStatus,
         net_amount: netAmount,
       });
     } catch (err) {

@@ -1838,7 +1838,8 @@ export const getPendingIssueToRequirement = async (req, res, next) => {
       LEFT JOIN adm_departments d ON i.department_id = d.id
       WHERE i.company_id = :companyId AND i.branch_id = :branchId
       AND i.status IN ('POSTED', 'ISSUED')
-      AND i.id NOT IN (SELECT issue_id FROM pm_material_receipts WHERE issue_id IS NOT NULL)`;
+      AND i.id NOT IN (SELECT issue_id FROM pm_material_receipts WHERE issue_id IS NOT NULL)
+      AND i.id NOT IN (SELECT issue_id FROM prod_material_receipts WHERE issue_id IS NOT NULL)`;
 
     const params = { companyId, branchId };
 

@@ -21,7 +21,12 @@ function toNumber(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-import { ensurePMOrderTables, ensurePMPurchaseRequisitionTables } from "../utils/dbUtils.js";
+import { 
+  ensurePMOrderTables, 
+  ensurePMPurchaseRequisitionTables,
+  ensurePMQuotationTables,
+  ensurePMInvoiceTables
+} from "../utils/dbUtils.js";
 import {
   getInactiveWorkflowBehavior,
   resolveWorkflowSelection,
@@ -90,6 +95,66 @@ router.delete(
   requireBranchScope,
   requirePermission("PM.PROJECT.MANAGE"),
   projectsController.removeProjectManager
+);
+
+// ===== PROJECT EQUIPMENTS =====
+router.get(
+  "/equipments",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.listPmEquipments
+);
+router.post(
+  "/equipments",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.createPmEquipment
+);
+router.put(
+  "/equipments/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.updatePmEquipment
+);
+router.delete(
+  "/equipments/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.deletePmEquipment
+);
+
+// ===== PROJECT RESOURCES =====
+router.get(
+  "/resources",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.listPmResources
+);
+router.post(
+  "/resources",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.createPmResource
+);
+router.put(
+  "/resources/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.updatePmResource
+);
+router.delete(
+  "/resources/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.deletePmResource
 );
 
 // ===== TASKS =====
@@ -230,6 +295,53 @@ router.delete(
   requireCompanyScope,
   requireBranchScope,
   projectsController.deleteExpense
+);
+
+router.put(
+  "/expenses/:id/voucher",
+  requireAuth,
+  requireCompanyScope,
+  projectsController.updateExpenseVoucherId
+);
+
+// ===== INCOME =====
+router.get(
+  "/income",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.listIncome
+);
+
+router.post(
+  "/income",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.createIncome
+);
+
+router.put(
+  "/income/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.updateIncome
+);
+
+router.delete(
+  "/income/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.deleteIncome
+);
+
+router.put(
+  "/income/:id/voucher",
+  requireAuth,
+  requireCompanyScope,
+  projectsController.updateIncomeVoucherId
 );
 
 // ===== DASHBOARD DETAIL =====
@@ -386,6 +498,15 @@ router.get(
   requireCompanyScope,
   requireBranchScope,
   projectsController.getProjectExpenseReport
+);
+
+// ===== TASK EXECUTION ANALYTICS REPORT =====
+router.get(
+  "/reports/task-execution",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  projectsController.getTaskExecutionAnalyticsReport
 );
 
 // ===== DASHBOARD =====
@@ -1001,7 +1122,7 @@ router.post(
       await query(
         `INSERT INTO adm_workflow_logs (document_workflow_id, step_order, action, actor_user_id, comments)
          VALUES (:dwId, :stepOrder, 'SUBMIT', :actor, :comments)`,
-        { dwId: instanceId, stepOrder: first.step_order, actor: req.user.sub, comments: "" },
+        { dwId: instanceId, stepOrder: first.step_order, actor: req.user.sub, comments: req.body?.comments || "" },
       );
 
       await query(
@@ -1242,6 +1363,15 @@ router.delete(
       const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
       const id = toNumber(req.params.id);
       if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid ID");
+
+      const uRows = await query(
+        `SELECT 1 FROM adm_exceptional_permissions WHERE user_id = :uid AND effect = 'ALLOW' AND is_active = 1 AND permission_code = 'PM.PR.CANCEL' LIMIT 1`,
+        { uid: req.user?.sub }
+      );
+      if (!uRows || uRows.length === 0) {
+        throw httpError(403, "FORBIDDEN", "You do not have exceptional permission to cancel purchase requisitions");
+      }
+
       await query(
         `UPDATE pm_purchase_requisitions SET status = 'CANCELLED', is_active = 'N', deleted_at = NOW()
          WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))`,
@@ -1320,4 +1450,230 @@ router.post(
   },
 );
 
+
+// ==========================================
+// PROJECT QUOTATIONS
+// ==========================================
+
+router.get("/project-quotations/next-no", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req;
+    const [rows] = await query(
+      `SELECT MAX(CAST(REPLACE(quotation_no, 'PQ-', '') AS UNSIGNED)) as max_no
+       FROM prj_quotations WHERE company_id = ?`,
+      [companyId]
+    );
+    const maxNo = rows[0]?.max_no || 0;
+    const nextNo = `PQ-${String(maxNo + 1).padStart(6, "0")}`;
+    res.json({ nextNo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/project-quotations", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req;
+    const [items] = await query(`SELECT * FROM prj_quotations WHERE company_id = ? ORDER BY id DESC`, [companyId]);
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/project-quotations/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    const [items] = await query(`SELECT * FROM prj_quotations WHERE id = ? AND company_id = ?`, [req.params.id, companyId]);
+    if (!items.length) return res.status(404).json({ message: "Not found" });
+    const item = items[0];
+    const [details] = await query(`SELECT * FROM prj_quotation_details WHERE quotation_id = ?`, [item.id]);
+    item.items = details;
+    res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/project-quotations", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req;
+    const data = req.body;
+    const resH = await query(
+      `INSERT INTO prj_quotations (company_id, branch_id, quotation_no, quotation_date, project_id, project_name, customer_id, customer_name, total_amount, net_amount, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)`,
+      [companyId, branchId, data.quotation_no, data.quotation_date, data.project_id || null, data.project_name || null, data.customer_id || null, data.customer_name || null, data.total_amount || 0, data.net_amount || 0, req.user?.id || null]
+    );
+    const id = resH.insertId;
+    if (data.items && data.items.length) {
+      for (const item of data.items) {
+        await query(
+          `INSERT INTO prj_quotation_details (quotation_id, item_id, qty, unit_price, total_amount, net_amount) VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, item.item_id || 0, item.qty || 0, item.unit_price || 0, item.total_amount || 0, item.net_amount || 0]
+        );
+      }
+    }
+    res.json({ message: "Created", item: { id } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/project-quotations/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    const id = req.params.id;
+    const data = req.body;
+    await query(
+      `UPDATE prj_quotations SET quotation_no=?, quotation_date=?, project_id=?, project_name=?, customer_id=?, customer_name=?, total_amount=?, net_amount=? WHERE id=? AND company_id=?`,
+      [data.quotation_no, data.quotation_date, data.project_id || null, data.project_name || null, data.customer_id || null, data.customer_name || null, data.total_amount || 0, data.net_amount || 0, id, companyId]
+    );
+    await query(`DELETE FROM prj_quotation_details WHERE quotation_id=?`, [id]);
+    if (data.items && data.items.length) {
+      for (const item of data.items) {
+        await query(
+          `INSERT INTO prj_quotation_details (quotation_id, item_id, qty, unit_price, total_amount, net_amount) VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, item.item_id || 0, item.qty || 0, item.unit_price || 0, item.total_amount || 0, item.net_amount || 0]
+        );
+      }
+    }
+    res.json({ message: "Updated" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/project-quotations/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    await query(`DELETE FROM prj_quotations WHERE id=? AND company_id=?`, [req.params.id, companyId]);
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/project-quotations/:id/submit", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    await query(`UPDATE prj_quotations SET status='APPROVED' WHERE id=? AND company_id=?`, [req.params.id, companyId]);
+    res.json({ message: "Submitted" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ==========================================
+// PROJECT INVOICES
+// ==========================================
+
+router.get("/project-invoices/next-no", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    const [rows] = await query(
+      `SELECT MAX(CAST(REPLACE(invoice_no, 'PINV-', '') AS UNSIGNED)) as max_no
+       FROM prj_invoices WHERE company_id = ?`,
+      [companyId]
+    );
+    const maxNo = rows[0]?.max_no || 0;
+    const nextNo = `PINV-${String(maxNo + 1).padStart(6, "0")}`;
+    res.json({ nextNo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/project-invoices", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    const [items] = await query(`SELECT * FROM prj_invoices WHERE company_id = ? ORDER BY id DESC`, [companyId]);
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/project-invoices/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    const [items] = await query(`SELECT * FROM prj_invoices WHERE id = ? AND company_id = ?`, [req.params.id, companyId]);
+    if (!items.length) return res.status(404).json({ message: "Not found" });
+    const item = items[0];
+    const [details] = await query(`SELECT * FROM prj_invoice_details WHERE invoice_id = ?`, [item.id]);
+    item.items = details;
+    res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/project-invoices", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId, branchId } = req;
+    const data = req.body;
+    const resH = await query(
+      `INSERT INTO prj_invoices (company_id, branch_id, invoice_no, invoice_date, project_id, project_name, customer_id, customer_name, total_amount, net_amount, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?)`,
+      [companyId, branchId, data.invoice_no, data.invoice_date, data.project_id || null, data.project_name || null, data.customer_id || null, data.customer_name || null, data.total_amount || 0, data.net_amount || 0, req.user?.id || null]
+    );
+    const id = resH.insertId;
+    if (data.items && data.items.length) {
+      for (const item of data.items) {
+        await query(
+          `INSERT INTO prj_invoice_details (invoice_id, item_id, qty, unit_price, total_amount, net_amount) VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, item.item_id || 0, item.qty || 0, item.unit_price || 0, item.total_amount || 0, item.net_amount || 0]
+        );
+      }
+    }
+    res.json({ message: "Created", item: { id } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/project-invoices/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    const id = req.params.id;
+    const data = req.body;
+    await query(
+      `UPDATE prj_invoices SET invoice_no=?, invoice_date=?, project_id=?, project_name=?, customer_id=?, customer_name=?, total_amount=?, net_amount=? WHERE id=? AND company_id=?`,
+      [data.invoice_no, data.invoice_date, data.project_id || null, data.project_name || null, data.customer_id || null, data.customer_name || null, data.total_amount || 0, data.net_amount || 0, id, companyId]
+    );
+    await query(`DELETE FROM prj_invoice_details WHERE invoice_id=?`, [id]);
+    if (data.items && data.items.length) {
+      for (const item of data.items) {
+        await query(
+          `INSERT INTO prj_invoice_details (invoice_id, item_id, qty, unit_price, total_amount, net_amount) VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, item.item_id || 0, item.qty || 0, item.unit_price || 0, item.total_amount || 0, item.net_amount || 0]
+        );
+      }
+    }
+    res.json({ message: "Updated" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/project-invoices/:id", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    await query(`DELETE FROM prj_invoices WHERE id=? AND company_id=?`, [req.params.id, companyId]);
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/project-invoices/:id/submit", requireAuth, requireCompanyScope, requireBranchScope, async (req, res, next) => {
+  try {
+    const { companyId } = req;
+    await query(`UPDATE prj_invoices SET status='APPROVED' WHERE id=? AND company_id=?`, [req.params.id, companyId]);
+    res.json({ message: "Submitted" });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
+

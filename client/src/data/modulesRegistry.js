@@ -448,6 +448,52 @@ export const MODULES_REGISTRY = {
 ]
   },
   
+  "business-intelligence": {
+    name: "Business Intelligence",
+    path: "/business-intelligence",
+    icon: "📈",
+    features: [
+      { key: "executive-dashboard", label: "Executive Dashboard", type: "feature" },
+      { key: "data-sources", label: "Data Sources & Ingestion", type: "feature" },
+      { key: "datasets", label: "Analytical Datasets", type: "feature" },
+      { key: "data-prep", label: "Data Preparation Studio", type: "feature" },
+      { key: "data-models", label: "Data Models & Star Schema", type: "feature" },
+      { key: "etl-pipelines", label: "ETL Pipelines Manager", type: "feature" },
+      { key: "data-quality", label: "Data Quality & Quarantine", type: "feature" },
+      { key: "multidimensional", label: "Multidimensional Slicing", type: "feature" },
+      { key: "insights", label: "Automated Exceptions", type: "feature" },
+      { key: "dashboard-builder", label: "Dashboard Builder", type: "feature" },
+      { key: "dashboards", label: "Custom Dashboards", type: "feature" },
+      { key: "financial", label: "Financial Analytics", type: "feature" },
+      { key: "inventory", label: "Inventory Analytics", type: "feature" },
+      { key: "purchase", label: "Purchase Analytics", type: "feature" },
+      { key: "hr", label: "HR Analytics", type: "feature" },
+      { key: "maintenance", label: "Maintenance Analytics", type: "feature" },
+      { key: "production", label: "Production Analytics", type: "feature" },
+      { key: "projects", label: "Project Analytics", type: "feature" },
+      { key: "transport", label: "Transport Analytics", type: "feature" },
+      { key: "service", label: "Service Analytics", type: "feature" },
+      { key: "pos", label: "POS Analytics", type: "feature" },
+      { key: "administration", label: "Administration Analytics", type: "feature" },
+      { key: "cross-module", label: "Cross Module Analytics", type: "feature" },
+      { key: "kpi-center", label: "KPI Center", type: "feature" },
+      { key: "data-explorer", label: "Data Explorer", type: "feature" },
+      { key: "ai-insights", label: "AI Insights", type: "feature" },
+      { key: "banks-ai", label: "Ask Banks AI", type: "feature" },
+      { key: "alerts", label: "Alerts Center", type: "feature" },
+      { key: "report-center", label: "Report Center", type: "feature" },
+      { key: "settings", label: "BI Settings", type: "feature" }
+    ],
+    dashboards: [
+      { key: "bi-executive-summary", label: "Executive Summary Dashboard", type: "dashboard" },
+      { key: "bi-revenue-performance", label: "Revenue & Sales Performance", type: "dashboard" },
+      { key: "bi-procurement-spend", label: "Procurement & Spend Dashboard", type: "dashboard" },
+      { key: "bi-inventory-valuation", label: "Inventory Valuation & Stock", type: "dashboard" },
+      { key: "bi-manufacturing-yield", label: "Manufacturing Yield & Scrap", type: "dashboard" },
+      { key: "bi-financial-gl", label: "General Ledger Financials", type: "dashboard" }
+    ]
+  },
+
   system: {
     name: "System Operations",
     icon: "🔧",

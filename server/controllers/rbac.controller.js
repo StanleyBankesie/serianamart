@@ -236,9 +236,7 @@ export async function saveRoleModules(req, res, next) {
 
       // 3. Filter submitted moduleKeys against allowed license modules
       // Always allow 'administration' and 'dashboard' as they are core modules
-      // Bypass license check for the host company (company_id = 1)
       const validModuleKeys = moduleKeys.filter(mk => 
-        companyId === 1 ||
         allowedModuleCodes.includes(mk) || 
         mk === 'administration' || 
         mk === 'dashboard'

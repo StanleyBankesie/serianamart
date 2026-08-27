@@ -7,6 +7,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "api/client";
 import { toast } from "react-toastify";
+import { Bell, Mail, MessageSquare, Smartphone, Trash2, Edit2, Users } from "lucide-react";
 import NotificationSettings from "./notifications/NotificationSettings.jsx";
 
 const TABS = [
@@ -257,9 +258,11 @@ export default function SettingsPage() {
                   <div className="text-sm text-slate-500">Change the image shown behind the login form.</div>
                 </div>
                 {loginHeroImageUrl ? (
-                  <div className="w-40 h-24 rounded border border-slate-200 bg-cover bg-center" style={{ backgroundImage: `url(${loginHeroImageUrl})` }} />
+                  <div className="w-44 h-28 rounded-lg border border-slate-200 bg-slate-900 overflow-hidden flex items-center justify-center p-1 shadow-inner">
+                    <img src={loginHeroImageUrl} alt="Hero Background Preview" className="w-full h-full object-contain rounded" />
+                  </div>
                 ) : (
-                  <div className="w-40 h-24 rounded border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-500">Default image</div>
+                  <div className="w-44 h-28 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-500 font-medium">Default image</div>
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -364,20 +367,43 @@ function LowStockNotificationSection() {
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [assignedRecipients, setAssignedRecipients] = useState([]);
+  const [loadingAssigned, setLoadingAssigned] = useState(false);
+
+  const loadUsers = async () => {
+    try {
+      const res = await api.get("/admin/users");
+      const items = res?.data?.data?.items || res?.data?.items || [];
+      setUsers(items);
+    } catch {}
+  };
+
+  const loadAssigned = async () => {
+    try {
+      setLoadingAssigned(true);
+      const res = await api.get("/access/notification-prefs?key=low-stock");
+      const items = res?.data?.items || [];
+      setAssignedRecipients(items);
+    } catch {
+      setAssignedRecipients([]);
+    } finally {
+      setLoadingAssigned(false);
+    }
+  };
 
   useEffect(() => {
-    async function load() {
-      try {
-        const res = await api.get("/admin/users");
-        const items = res?.data?.data?.items || res?.data?.items || [];
-        setUsers(items);
-      } catch {}
-    }
-    load();
+    loadUsers();
+    loadAssigned();
   }, []);
 
   useEffect(() => {
-    if (!selectedUserId) return;
+    if (!selectedUserId) {
+      setPushEnabled(false);
+      setEmailEnabled(false);
+      setSmsEnabled(false);
+      setWhatsappEnabled(false);
+      return;
+    }
     async function loadPref() {
       try {
         setLoading(true);
@@ -392,8 +418,9 @@ function LowStockNotificationSection() {
         setEmailEnabled(false); 
         setSmsEnabled(false); 
         setWhatsappEnabled(false); 
+      } finally {
+        setLoading(false);
       }
-      finally { setLoading(false); }
     }
     loadPref();
   }, [selectedUserId]);
@@ -409,52 +436,268 @@ function LowStockNotificationSection() {
         sms_enabled: smsEnabled ? 1 : 0,
         whatsapp_enabled: whatsappEnabled ? 1 : 0
       });
-    } catch {}
-    setSaving(false);
+      toast.success("Low stock alert preferences updated successfully");
+      await loadAssigned();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to save preferences");
+    } finally {
+      setSaving(false);
+    }
   }
 
+  async function removeRecipient(userId) {
+    try {
+      await api.delete(`/access/notification-prefs/low-stock/${userId}`);
+      toast.success("User removed from low stock alert recipients");
+      if (Number(selectedUserId) === Number(userId)) {
+        setPushEnabled(false);
+        setEmailEnabled(false);
+        setSmsEnabled(false);
+        setWhatsappEnabled(false);
+      }
+      await loadAssigned();
+    } catch (e) {
+      // Fallback to update with 0s if delete endpoint fails
+      try {
+        await api.put(`/access/notification-prefs/low-stock`, {
+          user_id: Number(userId),
+          push_enabled: 0,
+          email_enabled: 0,
+          sms_enabled: 0,
+          whatsapp_enabled: 0,
+        });
+        toast.success("User removed from low stock alert recipients");
+        await loadAssigned();
+      } catch {
+        toast.error("Failed to remove recipient");
+      }
+    }
+  }
+
+  const selectedUserObj = users.find(u => Number(u.id) === Number(selectedUserId));
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 mb-2">
-        <select className="input flex-1" value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}>
-          <option value="">Select a user...</option>
-          {users.map(u => (
-            <option key={u.id} value={u.id}>{u.first_name} {u.last_name} ({u.email})</option>
-          ))}
-        </select>
+    <div className="space-y-6">
+      {/* Configuration Card */}
+      <div className="bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+            Select User (By Username)
+          </label>
+          <select 
+            className="input w-full bg-white dark:bg-slate-800" 
+            value={selectedUserId} 
+            onChange={e => setSelectedUserId(e.target.value)}
+          >
+            <option value="">-- Choose a user by username --</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>
+                {u.username} {u.full_name ? `(${u.full_name})` : u.email ? `(${u.email})` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {selectedUserId && (
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-3">
+            {loading ? (
+              <div className="text-sm text-slate-500 py-3 flex items-center gap-2">
+                <span className="animate-spin inline-block w-4 h-4 border-2 border-brand border-t-transparent rounded-full" />
+                Loading preferences for @{selectedUserObj?.username || selectedUserId}...
+              </div>
+            ) : (
+              <>
+                <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Configure active alert channels for <span className="text-brand font-bold">@{selectedUserObj?.username || selectedUserId}</span>:
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex items-center gap-3 p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-brand/40 transition-colors">
+                    <input 
+                      type="checkbox" 
+                      className="toggle toggle-sm toggle-primary" 
+                      checked={pushEnabled} 
+                      onChange={e => setPushEnabled(e.target.checked)} 
+                    />
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Bell size={16} className="text-blue-500" />
+                      <span>In-App Push</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-brand/40 transition-colors">
+                    <input 
+                      type="checkbox" 
+                      className="toggle toggle-sm toggle-primary" 
+                      checked={emailEnabled} 
+                      onChange={e => setEmailEnabled(e.target.checked)} 
+                    />
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Mail size={16} className="text-emerald-500" />
+                      <span>Email Notification</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-brand/40 transition-colors">
+                    <input 
+                      type="checkbox" 
+                      className="toggle toggle-sm toggle-primary" 
+                      checked={smsEnabled} 
+                      onChange={e => setSmsEnabled(e.target.checked)} 
+                    />
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <MessageSquare size={16} className="text-amber-500" />
+                      <span>SMS Alert</span>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-brand/40 transition-colors">
+                    <input 
+                      type="checkbox" 
+                      className="toggle toggle-sm toggle-primary" 
+                      checked={whatsappEnabled} 
+                      onChange={e => setWhatsappEnabled(e.target.checked)} 
+                    />
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Smartphone size={16} className="text-green-600" />
+                      <span>WhatsApp Alert</span>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2">
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary text-xs"
+                    onClick={() => setSelectedUserId("")}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button"
+                    className="btn btn-primary text-xs px-4" 
+                    onClick={save} 
+                    disabled={saving}
+                  >
+                    {saving ? "Saving..." : "Save Preferences"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {selectedUserId && (
-        <>
-          {loading ? (
-            <div className="text-sm text-slate-500 py-2">Loading...</div>
-          ) : (
-            <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="toggle toggle-sm" checked={pushEnabled} onChange={e => setPushEnabled(e.target.checked)} />
-                <span className="text-sm">In-App Push</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="toggle toggle-sm" checked={emailEnabled} onChange={e => setEmailEnabled(e.target.checked)} />
-                <span className="text-sm">Email</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="toggle toggle-sm" checked={smsEnabled} onChange={e => setSmsEnabled(e.target.checked)} />
-                <span className="text-sm">SMS</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="toggle toggle-sm" checked={whatsappEnabled} onChange={e => setWhatsappEnabled(e.target.checked)} />
-                <span className="text-sm">WhatsApp</span>
-              </label>
-              <div className="pt-2">
-                <button className="btn-primary w-full" onClick={save} disabled={saving}>
-                  {saving ? "Saving..." : "Save Preferences"}
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {/* Assigned Recipients Overview */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users size={18} className="text-brand" />
+            <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+              Users Assigned to Receive Low Stock Alerts
+            </h4>
+            <span className="text-xs px-2 py-0.5 bg-brand/10 text-brand font-extrabold rounded-full">
+              {assignedRecipients.length}
+            </span>
+          </div>
+          <button 
+            type="button"
+            onClick={loadAssigned} 
+            className="text-xs text-brand hover:underline font-semibold"
+          >
+            Refresh List
+          </button>
+        </div>
+
+        {loadingAssigned ? (
+          <div className="p-6 text-center text-xs text-slate-400">Loading assigned recipients...</div>
+        ) : assignedRecipients.length === 0 ? (
+          <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-900/30 rounded-xl border border-dashed border-slate-200 dark:border-slate-700">
+            No users are currently configured to receive automatic low stock alerts. Select a user above to assign alert channels.
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-900/50 text-slate-400 font-bold uppercase text-left border-b border-slate-200 dark:border-slate-700">
+                  <th className="px-4 py-2.5">Username</th>
+                  <th className="px-4 py-2.5">Name / Contact</th>
+                  <th className="px-4 py-2.5">Branch</th>
+                  <th className="px-4 py-2.5">Active Channels</th>
+                  <th className="px-4 py-2.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                {assignedRecipients.map((rec) => (
+                  <tr key={rec.user_id} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition-colors">
+                    <td className="px-4 py-3 font-bold text-slate-800 dark:text-slate-100">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-brand font-extrabold">@{rec.username || `user_${rec.user_id}`}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      <div className="font-medium">{rec.full_name || "—"}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">
+                        {rec.email} {rec.telephone ? `· ${rec.telephone}` : ""}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 font-medium">
+                      {rec.branch_name || "All Branches"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {Boolean(rec.push_enabled) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300">
+                            <Bell size={10} /> Push
+                          </span>
+                        )}
+                        {Boolean(rec.email_enabled) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                            <Mail size={10} /> Email
+                          </span>
+                        )}
+                        {Boolean(rec.sms_enabled) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300">
+                            <MessageSquare size={10} /> SMS
+                          </span>
+                        )}
+                        {Boolean(rec.whatsapp_enabled) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-300">
+                            <Smartphone size={10} /> WhatsApp
+                          </span>
+                        )}
+                        {!rec.push_enabled && !rec.email_enabled && !rec.sms_enabled && !rec.whatsapp_enabled && (
+                          <span className="text-[10px] text-slate-400 italic">None active</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedUserId(String(rec.user_id))}
+                          className="p-1.5 rounded-lg text-brand hover:bg-brand/10 transition-colors"
+                          title="Edit user alert preferences"
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeRecipient(rec.user_id)}
+                          className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                          title="Remove alert subscription"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

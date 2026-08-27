@@ -12,7 +12,8 @@ import {
   ArrowLeft,
   Cpu,
   Clock,
-  ChevronRight,
+  Eye,
+  Edit,
   Filter,
   Zap
 } from "lucide-react";
@@ -46,8 +47,23 @@ export default function JobCardList() {
         api.get("/production/execution/job-cards"),
         api.get("/production/planning/daily")
       ]);
-      setItems(jcRes.data?.items || []);
-      setPlans(planRes.data?.items || []);
+      const jcItems = jcRes.data?.items || [];
+      setItems(jcItems);
+
+      // Collect IDs of plans that already have job cards generated
+      const generatedPlanIds = new Set(jcItems.map(jc => String(jc.plan_id)).filter(Boolean));
+
+      // Filter out plans that ALREADY have job cards generated
+      const ungeneratedPlans = (planRes.data?.items || []).filter(
+        p => p.status !== 'CLOSED' && p.status !== 'COMPLETED' && !generatedPlanIds.has(String(p.id))
+      );
+
+      setPlans(ungeneratedPlans);
+      if (ungeneratedPlans.length > 0) {
+        setSelectedPlanId(ungeneratedPlans[0].id);
+      } else {
+        setSelectedPlanId("");
+      }
     } catch (error) {
       toast.error("Failed to load job cards");
     } finally {
@@ -60,15 +76,16 @@ export default function JobCardList() {
   }, []);
 
   const handleGenerate = async () => {
-    if (!selectedPlanId) return toast.error("Select a plan first");
+    const targetPlanId = selectedPlanId || plans[0]?.id;
+    if (!targetPlanId) return toast.error("Select a plan first");
     setGenerating(true);
     try {
-      await api.post("/production/execution/job-cards/generate", { plan_id: selectedPlanId });
-      toast.success("Job cards generated successfully");
+      const res = await api.post("/production/execution/job-cards/generate", { plan_id: targetPlanId });
+      toast.success(res.data?.message || "Job cards generated successfully");
       setShowGenModal(false);
-      fetchData();
+      await fetchData();
     } catch (error) {
-      toast.error("Generation failed");
+      toast.error(error.response?.data?.message || "Generation failed");
     } finally {
       setGenerating(false);
     }
@@ -86,7 +103,7 @@ export default function JobCardList() {
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          <Link to="/production?section=Intelligence%20%26%20Analytics" className="btn btn-secondary p-2">
+          <Link to="/production?section=Shop%20Floor%20%26%20Execution" className="btn btn-secondary p-2">
             <ArrowLeft size={20} />
           </Link>
           <div>
@@ -121,14 +138,14 @@ export default function JobCardList() {
                   <ViewToggle viewMode={viewMode} setViewMode={setViewMode} />
                 </div>
                 <div className="overflow-x-auto">
-          <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
-            <thead>
-              <tr>
-                <SortableHeader label="Task / Item" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                <SortableHeader label="Resource" sortKey="machine_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                <SortableHeader label="Progress" sortKey="planned_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
-                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-center" />
-                <th className="text-right">Action</th>
+          <table className={"w-full table-fixed text-xs " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
+            <thead className="bg-brand-900 text-white dark:bg-brand-950">
+              <tr className="border-b border-brand-800">
+                <SortableHeader label="Task / Item" sortKey="item_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="w-1/5 text-white font-extrabold" />
+                <SortableHeader label="Resource" sortKey="machine_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="w-1/5 text-white font-extrabold" />
+                <SortableHeader label="Progress" sortKey="planned_qty" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="w-1/5 text-center text-white font-extrabold" />
+                <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="w-1/5 text-center text-white font-extrabold" />
+                <th className="w-1/5 text-right px-6 py-3 font-extrabold uppercase tracking-wider text-white">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
@@ -136,49 +153,58 @@ export default function JobCardList() {
                 <tr><td colSpan="5" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Syncing execution data...</td></tr>
               ) : filtered.length > 0 ? filtered.map((item) => (
                 <tr key={item.id} className="group">
-                  <td className="px-6 py-4">
+                  <td className="w-1/5 px-6 py-4">
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">{item.process_name}</span>
-                      <span className="font-bold text-brand-700 dark:text-brand-300 text-sm">{item.item_name}</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">{item.process_name || 'Manufacturing Process'}</span>
+                      <span className="font-bold text-brand-700 dark:text-brand-300 text-sm truncate">{item.item_name}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="w-1/5 px-6 py-4">
                     <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                        <Cpu size={12} className="opacity-50" /> {item.machine_name || 'Unassigned'}
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-300">
+                        <Cpu size={13} className="text-brand-600 shrink-0" /> {item.machine_name || 'Main Work Center'}
                       </div>
-                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                        <Clock size={10} /> {item.shift_name || 'No Shift'}
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+                        <Clock size={11} className="shrink-0" /> {item.shift_name || 'Day Shift'}
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-center">
+                  <td className="w-1/5 px-6 py-4 text-center">
                     <div className="flex flex-col items-center">
-                      <span className="text-xs font-bold text-slate-900 dark:text-white">{item.actual_qty} / {item.planned_qty}</span>
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">{(Number(item.good_qty || item.actual_qty || 0)).toFixed(3)} / {(Number(item.planned_qty || 1)).toFixed(3)}</span>
                       <div className="w-24 h-1.5 bg-slate-100 dark:bg-slate-900 rounded-full mt-2 overflow-hidden shadow-inner">
                         <div 
                           className="h-full bg-brand-600" 
-                          style={{ width: `${Math.min(100, (item.actual_qty / item.planned_qty) * 100)}%` }}
+                          style={{ width: `${Math.min(100, ((Number(item.good_qty || item.actual_qty || 0)) / (Number(item.planned_qty || 1))) * 100)}%` }}
                         />
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-center">
-                    <span className={`badge 
-                      ${item.status === 'COMPLETED' ? 'badge-success' : 
-                        item.status === 'IN_PROGRESS' ? 'badge-info' : 
-                        'badge-secondary'}`}>
-                      {item.status}
+                  <td className="w-1/5 px-6 py-4 text-center">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase tracking-wide
+                      ${item.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300' : 
+                        'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300'}`}>
+                      {item.status === 'COMPLETED' ? 'COMPLETED' : 'IN PROGRESS'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
+                  <td className="w-1/5 px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                       <button 
-                        onClick={() => navigate(`/production/execution/job-cards/${item.id}`)}
-                        className="p-2 text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 rounded-lg transition-colors"
+                        onClick={() => navigate(`/production/execution/job-cards/${item.id}?mode=view`)}
+                        className="btn btn-secondary text-xs px-2.5 py-1 flex items-center gap-1 font-semibold"
+                        title="View Job Card"
                       >
-                        <ChevronRight size={20} />
+                        <Eye size={13} /> View
                       </button>
+                      {item.status !== 'COMPLETED' && (
+                        <button 
+                          onClick={() => navigate(`/production/execution/job-cards/${item.id}?mode=edit`)}
+                          className="btn btn-primary text-xs px-2.5 py-1 flex items-center gap-1 font-semibold"
+                          title="Edit Job Card Execution"
+                        >
+                          <Edit size={13} /> Edit
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -208,14 +234,17 @@ export default function JobCardList() {
               <div className="space-y-3">
                 <label className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-tight">Select Production Plan</label>
                 <select 
-                  className="input py-3 w-full font-bold"
+                  className="input py-3 w-full font-bold text-xs"
                   value={selectedPlanId}
                   onChange={e => setSelectedPlanId(e.target.value)}
                 >
-                  <option value="">Choose a plan...</option>
-                  {plans.filter(p => p.status !== 'CLOSED').map(p => (
-                    <option key={p.id} value={p.id}>{p.plan_no} - {new Date(p.plan_date).toLocaleDateString()}</option>
-                  ))}
+                  {plans.length > 0 ? (
+                    plans.map(p => (
+                      <option key={p.id} value={p.id}>{p.plan_no} - {new Date(p.plan_date).toLocaleDateString()}</option>
+                    ))
+                  ) : (
+                    <option value="">No ungenerated production plans available</option>
+                  )}
                 </select>
                 <p className="text-[10px] text-slate-500 px-1 italic">This will create execution units for all items in the plan based on their default routings.</p>
               </div>
@@ -228,7 +257,7 @@ export default function JobCardList() {
                 </button>
                 <button 
                   onClick={handleGenerate}
-                  disabled={generating || !selectedPlanId}
+                  disabled={generating || plans.length === 0}
                   className="btn-success flex-1 py-3"
                 >
                   {generating && <Loader2 size={18} className="animate-spin" />}

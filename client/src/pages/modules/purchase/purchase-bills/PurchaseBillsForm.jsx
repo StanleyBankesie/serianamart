@@ -9,6 +9,7 @@ import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Trash2, Plus } from "lucide-react";
 import { useExchangeRate } from "../../../../hooks/useExchangeRate";
+import { usePermission } from "../../../../auth/PermissionContext.jsx";
 
 const CURRENCIES = [
   { id: 4, code: "GHS", name: "Ghanaian Cedi" },
@@ -23,6 +24,11 @@ const CURRENCIES = [
  * @returns {JSX.Element} The rendered component
  */
 export default function PurchaseBillsForm() {
+  const { canAccessPath, isModuleEnabled } = usePermission();
+  const canAccessProjects = Boolean(
+    canAccessPath?.("/project-management") ||
+      (typeof isModuleEnabled === "function" && isModuleEnabled("project-management")),
+  );
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1019,6 +1025,7 @@ export default function PurchaseBillsForm() {
         supplier_id: Number(formData.supplier_id),
         po_id: formData.po_id ? Number(formData.po_id) : null,
         grn_id: formData.grn_id ? Number(formData.grn_id) : null,
+        project_id: canAccessProjects && formData.project_id ? Number(formData.project_id) : null,
         currency_id: Number(formData.currency_id),
         exchange_rate: Number(formData.exchange_rate),
         payment_terms: Number(formData.payment_terms),
@@ -1280,22 +1287,25 @@ export default function PurchaseBillsForm() {
             />
           </div>
 
-          <div className="form-group">
-            <label className="label">Project</label>
-            <select
-              className="input"
-              name="project_id"
-              value={formData.project_id}
-              onChange={handleChange}
-            >
-              <option value="">-- Select Project --</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.project_name || p.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {canAccessProjects && (
+            <div className="form-group">
+              <label className="label">Project</label>
+              <select
+                className="input"
+                name="project_id"
+                value={formData.project_id}
+                onChange={handleChange}
+                disabled={!canAccessProjects}
+              >
+                <option value="">-- Select Project --</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.project_name || p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="form-group">
             <label className="label">Cost Center</label>
             <select

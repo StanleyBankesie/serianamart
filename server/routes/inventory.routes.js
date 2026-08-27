@@ -27,8 +27,30 @@ import {
 } from "../services/stock.service.js";
 import { isMailerConfigured, sendMail } from "../utils/mailer.js";
 import { sendExternalNotification } from "../utils/externalNotification.js";
+import { 
+  inv_getStockBalances, 
+  inv_getStockLedger, 
+  inv_getWarehouseStockSummary, 
+  inv_getStockOverviewStats,
+  inv_listStockJournals,
+  inv_getStockJournalById,
+  inv_getNextStockJournalNo,
+  inv_createStockJournal
+} from "../controllers/inventory.controller.js";
 
 const router = express.Router();
+
+// ─── Inv Stock Overview & Balances ────────────────────────────────────────────
+router.get("/stock", requireAuth, inv_getStockBalances);
+router.get("/stock/overview", requireAuth, inv_getStockOverviewStats);
+router.get("/stock/summary", requireAuth, inv_getWarehouseStockSummary);
+router.get("/stock/ledger/:itemId", requireAuth, inv_getStockLedger);
+
+// ─── Inv Stock Journals (Issue / Receipt) ─────────────────────────────────────
+router.get("/stock-journal", requireAuth, inv_listStockJournals);
+router.get("/stock-journal/next-no", requireAuth, inv_getNextStockJournalNo);
+router.get("/stock-journal/:id", requireAuth, inv_getStockJournalById);
+router.post("/stock-journal", requireAuth, inv_createStockJournal);
 
 function toNumber(v, fb = null) {
   if (v === null || v === undefined || v === "") return fb;
@@ -222,7 +244,7 @@ async function ensureStockBalanceDetailsInfrastructure() {
         itr.created_at,
         sb.entry_date
       ) AS created_at,
-      u.username AS created_by_name
+      COALESCE(u.username, u.full_name, 'System') AS created_by_name
          FROM inv_stock_balances sb
     JOIN inv_items i ON i.id = sb.item_id
     LEFT JOIN inv_warehouses w ON w.id = sb.warehouse_id
@@ -1635,21 +1657,26 @@ router.get(
 
       const rows = await query(
         `
-        SELECT qty,
-          created_at,
-          u.username AS created_by_name
+        SELECT COALESCE(SUM(qty), 0) AS qty
          FROM inv_stock_balances
-        LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
-          AND branch_id = :branchId
-          AND warehouse_id = :warehouseId
-          AND item_id = :itemId
-        LIMIT 1
+           AND warehouse_id = :warehouseId
+           AND item_id = :itemId
         `,
-        { companyId, branchId, warehouseId, itemId },
+        { companyId, warehouseId, itemId },
       ).catch(() => []);
 
-      const qty = rows && rows.length ? Number(rows[0].qty || 0) : 0;
+      let qty = rows && rows.length ? Number(rows[0].qty || 0) : 0;
+      if (qty === 0) {
+        const itemRows = await query(
+          `SELECT stock_qty FROM inv_items WHERE id = :itemId AND company_id = :companyId LIMIT 1`,
+          { itemId, companyId },
+        ).catch(() => []);
+        if (itemRows && itemRows.length && Number(itemRows[0].stock_qty) > 0) {
+          qty = Number(itemRows[0].stock_qty);
+        }
+      }
+
       res.json({ qty });
     } catch (err) {
       next(err);
@@ -4957,6 +4984,43 @@ router.get(
       next(e);
     }
   },
+);
+
+router.put(
+  "/batches/:id",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId } = req.scope || {};
+      const id = toNumber(req.params.id);
+      const { batch_no, serial_no, expiry_date, qty } = req.body || {};
+
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid batch ID");
+
+      await query(
+        `UPDATE inv_stock_balances
+         SET batch_no = COALESCE(:batch_no, batch_no),
+             serial_no = COALESCE(:serial_no, serial_no),
+             expiry_date = :expiry_date,
+             qty = COALESCE(:qty, qty)
+         WHERE id = :id AND company_id = :companyId`,
+        {
+          id,
+          companyId,
+          batch_no: batch_no || null,
+          serial_no: serial_no || null,
+          expiry_date: expiry_date ? expiry_date.split("T")[0] : null,
+          qty: qty !== undefined && qty !== "" ? Number(qty) : null,
+        }
+      );
+
+      res.json({ success: true, message: "Batch details updated successfully" });
+    } catch (e) {
+      next(e);
+    }
+  }
 );
 
 router.get(
@@ -10246,7 +10310,7 @@ router.post(
 
       let recipients = await query(
         `
-        SELECT DISTINCT u.id, u.email, u.phone,
+        SELECT DISTINCT u.id, u.email, COALESCE(u.telephone, '') AS phone,
           np.email_enabled, np.sms_enabled, np.whatsapp_enabled,
           u.created_at,
           cu.username AS created_by_name
@@ -10266,7 +10330,7 @@ router.post(
       if (!recipients.length) {
         recipients = await query(
           `
-          SELECT id, email, phone,
+          SELECT id, email, COALESCE(telephone, '') AS phone,
           1 as email_enabled, 0 as sms_enabled, 0 as whatsapp_enabled,
           created_at,
           u.username AS created_by_name

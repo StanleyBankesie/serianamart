@@ -76,19 +76,24 @@ export default function IssueToRequirementForm() {
     try {
       const isMaint = String(reqId).startsWith("maint_");
       const isPM = String(reqId).startsWith("pm_");
+      const isProd = String(reqId).startsWith("prod_");
       const actualId = isMaint
         ? String(reqId).replace("maint_", "")
         : isPM
           ? String(reqId).replace("pm_", "")
-          : reqId;
+          : isProd
+            ? String(reqId).replace("prod_", "")
+            : reqId;
       const endpoint = isMaint
         ? `/maintenance/material-requisitions/${actualId}`
         : isPM
           ? `/projects/material-requisitions/${actualId}`
-          : `/inventory/material-requisitions/${reqId}`;
+          : isProd
+            ? `/production/execution/material-requisition/${actualId}`
+            : `/inventory/material-requisitions/${reqId}`;
       const res = await api.get(endpoint);
-      const hdr = res.data?.item || null;
-      const details = Array.isArray(res.data?.details) ? res.data.details : [];
+      const hdr = res.data?.item || res.data || null;
+      const details = Array.isArray(res.data?.details) ? res.data.details : (Array.isArray(res.data?.items) ? res.data.items : []);
       if (hdr) {
         setFormData((prev) => ({
           ...prev,
@@ -99,7 +104,7 @@ export default function IssueToRequirementForm() {
           departmentId: hdr.department_id
             ? String(hdr.department_id)
             : prev.departmentId,
-          issueType: isMaint ? "MAINTENANCE" : isPM ? "PROJECT" : mapIssueTypeFromReq(hdr.requisition_type),
+          issueType: isMaint ? "MAINTENANCE" : isPM ? "PROJECT" : isProd ? "PRODUCTION" : mapIssueTypeFromReq(hdr.requisition_type),
           issuedTo: hdr.requested_by || prev.issuedTo,
           remarks: prev.remarks || "",
         }));
@@ -138,13 +143,14 @@ export default function IssueToRequirementForm() {
 
     const fetchData = async () => {
       try {
-        const [itemsRes, warehousesRes, deptsRes, reqRes, maintReqRes, pmReqRes] = await Promise.all([
+        const [itemsRes, warehousesRes, deptsRes, reqRes, maintReqRes, pmReqRes, prodReqRes] = await Promise.all([
           api.get("/inventory/items"),
           api.get("/inventory/warehouses"),
           api.get("/admin/departments"),
           api.get("/inventory/material-requisitions"),
           api.get("/maintenance/material-requisitions").catch(() => ({ data: { items: [] } })),
           api.get("/projects/material-requisitions").catch(() => ({ data: { items: [] } })),
+          api.get("/production/execution/material-requisition").catch(() => ({ data: { items: [] } })),
         ]);
 
         if (mounted) {
@@ -162,22 +168,38 @@ export default function IssueToRequirementForm() {
           const invReqs = Array.isArray(reqRes.data?.items)
             ? reqRes.data.items.filter((r) => {
                 const s = String(r.status || "").toUpperCase();
-                return s === "APPROVED" || s === "POSTED";
+                return s !== "CANCELLED" && s !== "REJECTED";
               }).map((r) => ({ ...r, _source: "inventory" }))
             : [];
           const maintReqs = Array.isArray(maintReqRes.data?.items)
             ? maintReqRes.data.items.filter((r) => {
                 const s = String(r.status || "").toUpperCase();
-                return s === "APPROVED";
+                return s !== "CANCELLED" && s !== "REJECTED";
               }).map((r) => ({ ...r, _source: "maintenance", id: `maint_${r.id}` }))
             : [];
           const pmReqs = Array.isArray(pmReqRes.data?.items)
             ? pmReqRes.data.items.filter((r) => {
                 const s = String(r.status || "").toUpperCase();
-                return s === "APPROVED";
+                return s !== "CANCELLED" && s !== "REJECTED";
               }).map((r) => ({ ...r, _source: "project", id: `pm_${r.id}` }))
             : [];
-          setRequisitions([...invReqs, ...maintReqs, ...pmReqs]);
+          const prodItems = Array.isArray(prodReqRes.data?.items)
+            ? prodReqRes.data.items
+            : Array.isArray(prodReqRes.data)
+              ? prodReqRes.data
+              : [];
+          const prodReqs = prodItems
+            .filter((r) => {
+              const s = String(r.status || "").toUpperCase();
+              return s !== "CANCELLED" && s !== "REJECTED";
+            })
+            .map((r) => ({
+              ...r,
+              _source: "production",
+              id: `prod_${r.id}`,
+              requisition_no: r.requisition_no || r.req_no || `REQ-${r.id}`,
+            }));
+          setRequisitions([...invReqs, ...maintReqs, ...pmReqs, ...prodReqs]);
         }
       } catch (e) {
         if (mounted) {
@@ -220,6 +242,7 @@ export default function IssueToRequirementForm() {
           requisitionId: h.requisition_id
             ? (h.requisition_source === "maintenance" ? `maint_${h.requisition_id}`
               : h.requisition_source === "project" ? `pm_${h.requisition_id}`
+              : h.requisition_source === "production" ? `prod_${h.requisition_id}`
               : String(h.requisition_id))
             : "",
           status: h.status || "DRAFT",
@@ -272,6 +295,46 @@ export default function IssueToRequirementForm() {
       mounted = false;
     };
   }, [id, isNew]);
+
+  const getDeptType = (deptId) => {
+    if (!deptId) return null;
+    const selectedDept = departments.find(
+      (d) => String(d.id) === String(deptId)
+    );
+    if (!selectedDept) return null;
+    const nameStr = String(selectedDept.name || selectedDept.department_name || "").toLowerCase();
+    const codeStr = String(selectedDept.code || selectedDept.dept_code || "").toLowerCase();
+    if (nameStr.includes("production") || nameStr.includes("manufactur") || codeStr.includes("production") || codeStr.includes("prod") || codeStr.includes("mfg")) {
+      return "PRODUCTION";
+    }
+    if (nameStr.includes("maintenance") || nameStr.includes("maint") || codeStr.includes("maintenance") || codeStr.includes("maint")) {
+      return "MAINTENANCE";
+    }
+    if (nameStr.includes("project") || codeStr.includes("project") || nameStr.includes("proj") || codeStr.includes("proj")) {
+      return "PROJECT";
+    }
+    return "GENERAL";
+  };
+
+  const selectedDeptType = useMemo(() => {
+    return getDeptType(formData.departmentId);
+  }, [departments, formData.departmentId]);
+
+  const filteredRequisitions = useMemo(() => {
+    if (selectedDeptType === "PRODUCTION") {
+      return requisitions.filter((req) => req._source === "production");
+    }
+    if (selectedDeptType === "MAINTENANCE") {
+      return requisitions.filter((req) => req._source === "maintenance");
+    }
+    if (selectedDeptType === "PROJECT") {
+      return requisitions.filter((req) => req._source === "project");
+    }
+    if (selectedDeptType === "GENERAL") {
+      return requisitions.filter((req) => req._source === "inventory" || req._source === "general");
+    }
+    return requisitions;
+  }, [selectedDeptType, requisitions]);
 
   const normalizedDetails = useMemo(() => {
     return lines
@@ -333,11 +396,14 @@ export default function IssueToRequirementForm() {
     const rawReqId = formData.requisitionId || "";
     const isMaintReq = String(rawReqId).startsWith("maint_");
     const isPMReq = String(rawReqId).startsWith("pm_");
+    const isProdReq = String(rawReqId).startsWith("prod_");
     const numericReqId = isMaintReq
       ? Number(String(rawReqId).replace("maint_", ""))
       : isPMReq
         ? Number(String(rawReqId).replace("pm_", ""))
-        : Number(rawReqId);
+        : isProdReq
+          ? Number(String(rawReqId).replace("prod_", ""))
+          : Number(rawReqId);
 
     try {
       const payload = {
@@ -354,7 +420,13 @@ export default function IssueToRequirementForm() {
         requisition_id: Number.isFinite(numericReqId) && numericReqId > 0
           ? numericReqId
           : null,
-        requisition_source: isMaintReq ? "maintenance" : isPMReq ? "project" : "inventory",
+        requisition_source: isMaintReq
+          ? "maintenance"
+          : isPMReq
+            ? "project"
+            : isProdReq
+              ? "production"
+              : "inventory",
         status: finalStatus,
         remarks: formData.remarks || null,
         details: normalizedDetails,
@@ -430,8 +502,9 @@ export default function IssueToRequirementForm() {
                 />
               </div>
               <div>
-                <label className="label">Issue Type</label>
+                <label className="label">Issue Type *</label>
                 <select
+                  required
                   className="input"
                   value={formData.issueType}
                   onChange={(e) =>
@@ -445,13 +518,40 @@ export default function IssueToRequirementForm() {
                 </select>
               </div>
               <div>
-                <label className="label">Destination Department</label>
+                <label className="label">Destination Department *</label>
                 <select
+                  required
                   className="input"
                   value={formData.departmentId}
-                  onChange={(e) =>
-                    setFormData({ ...formData, departmentId: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const newDeptId = e.target.value;
+                    const deptType = getDeptType(newDeptId);
+
+                    let newReqId = formData.requisitionId;
+                    if (newReqId) {
+                      const currentReq = requisitions.find(
+                        (r) => String(r.id) === String(newReqId)
+                      );
+                      if (currentReq) {
+                        if (deptType === "PRODUCTION" && currentReq._source !== "production") {
+                          newReqId = "";
+                        } else if (deptType === "MAINTENANCE" && currentReq._source !== "maintenance") {
+                          newReqId = "";
+                        } else if (deptType === "PROJECT" && currentReq._source !== "project") {
+                          newReqId = "";
+                        } else if (deptType === "GENERAL" && (currentReq._source === "production" || currentReq._source === "maintenance" || currentReq._source === "project")) {
+                          newReqId = "";
+                        }
+                      }
+                    }
+
+                    setFormData((prev) => ({
+                      ...prev,
+                      departmentId: newDeptId,
+                      requisitionId: newReqId,
+                      ...(deptType && deptType !== "GENERAL" ? { issueType: deptType } : {}),
+                    }));
+                  }}
                 >
                   <option value="">Select Department</option>
                   {departments.map((d) => (
@@ -462,7 +562,7 @@ export default function IssueToRequirementForm() {
                 </select>
               </div>
               <div>
-                <label className="label">Source Warehouse</label>
+                <label className="label">Source Warehouse *</label>
                 <select required
                   className="input"
                   value={formData.warehouseId}
@@ -492,17 +592,18 @@ export default function IssueToRequirementForm() {
                   }}
                 >
                   <option value="">Select Requisition (Optional)</option>
-                  {requisitions.map((req) => (
+                  {filteredRequisitions.map((req) => (
                     <option key={req.id} value={req.id}>
-                      {req.requisition_no}{req._source === "maintenance" ? " (Maintenance)" : req._source === "project" ? " (Project)" : ""}
+                      {req.requisition_no}{req._source === "maintenance" ? " (Maintenance)" : req._source === "project" ? " (Project)" : req._source === "production" ? " (Production)" : ""}
                     </option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="label">Remarks</label>
+                <label className="label">Remarks *</label>
                 <input
                   type="text"
+                  required
                   className="input"
                   value={formData.remarks}
                   onChange={(e) =>

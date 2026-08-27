@@ -15,7 +15,7 @@ import { api } from "api/client";
  * 
  * @returns {JSX.Element} The item form view.
  */
-export default function ItemForm({ isModal = false, modalItemId, onClose, onSaveSuccess }) {
+export default function ItemForm({ isModal = false, modalItemId, onClose, onSaveSuccess, isProductionMode = false }) {
   const params = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -63,6 +63,7 @@ export default function ItemForm({ isModal = false, modalItemId, onClose, onSave
     is_stockable: true,
     is_sellable: true,
     is_purchasable: true,
+    is_production_item: isProductionMode ? true : false,
     opening_quantity: 0,
     opening_warehouse_id: "",
   });
@@ -275,6 +276,7 @@ export default function ItemForm({ isModal = false, modalItemId, onClose, onSave
           is_sellable: String(it.is_sellable ?? "Y").toUpperCase() === "Y",
           is_purchasable:
             String(it.is_purchasable ?? "Y").toUpperCase() === "Y",
+          is_production_item: String(it.is_production_item ?? (isProductionMode ? "Y" : "N")).toUpperCase() === "Y",
         });
       })
       .catch((e) => {
@@ -368,6 +370,7 @@ export default function ItemForm({ isModal = false, modalItemId, onClose, onSave
         is_stockable: formData.is_stockable ? "Y" : "N",
         is_sellable: formData.is_sellable ? "Y" : "N",
         is_purchasable: formData.is_purchasable ? "Y" : "N",
+        is_production_item: formData.is_production_item ? "Y" : "N",
         opening_quantity: Number(formData.opening_quantity) || 0,
         opening_warehouse_id: formData.opening_warehouse_id || null,
       };
@@ -799,7 +802,7 @@ export default function ItemForm({ isModal = false, modalItemId, onClose, onSave
               </div>
             </div>
 
-            {isNew && (
+            {isNew && !isProductionMode && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
                 <h3 className="col-span-full font-semibold text-gray-700">
                   Quantity (Optional)
@@ -848,106 +851,126 @@ export default function ItemForm({ isModal = false, modalItemId, onClose, onSave
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="label">Min Stock Level</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={formData.min_stock_level}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      min_stock_level: e.target.value,
-                    })
-                  }
-                  min="0"
-                />
+            {!isProductionMode && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="label">Min Stock Level</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={formData.min_stock_level}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        min_stock_level: e.target.value,
+                      })
+                    }
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="label">Max Stock Level</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={formData.max_stock_level}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        max_stock_level: e.target.value,
+                      })
+                    }
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="label">Reorder Level</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={formData.reorder_level}
+                    onChange={(e) =>
+                      setFormData({ ...formData, reorder_level: e.target.value })
+                    }
+                    min="0"
+                  />
+                </div>
+                <div>
+                  <label className="label">Safety Stock</label>
+                  <input
+                    type="number"
+                    className="input"
+                    value={formData.safety_stock}
+                    onChange={(e) =>
+                      setFormData({ ...formData, safety_stock: e.target.value })
+                    }
+                    min="0"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="label">Max Stock Level</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={formData.max_stock_level}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      max_stock_level: e.target.value,
-                    })
-                  }
-                  min="0"
-                />
-              </div>
-              <div>
-                <label className="label">Reorder Level</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={formData.reorder_level}
-                  onChange={(e) =>
-                    setFormData({ ...formData, reorder_level: e.target.value })
-                  }
-                  min="0"
-                />
-              </div>
-              <div>
-                <label className="label">Safety Stock</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={formData.safety_stock}
-                  onChange={(e) =>
-                    setFormData({ ...formData, safety_stock: e.target.value })
-                  }
-                  min="0"
-                />
-              </div>
-            </div>
+            )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="flex items-center gap-2 p-2 border rounded">
+              {!isProductionMode && (
+                <>
+                  <div className="flex items-center gap-2 p-2 border rounded">
+                    <input
+                      type="checkbox"
+                      checked={formData.service_item}
+                      onChange={(e) =>
+                        setFormData({ ...formData, service_item: e.target.checked })
+                      }
+                    />
+                    <span>Service Item</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 border rounded">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_stockable}
+                      onChange={(e) =>
+                        setFormData({ ...formData, is_stockable: e.target.checked })
+                      }
+                    />
+                    <span>Is Stockable</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 border rounded">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_sellable}
+                      onChange={(e) =>
+                        setFormData({ ...formData, is_sellable: e.target.checked })
+                      }
+                    />
+                    <span>Is Sellable</span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 border rounded">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_purchasable}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          is_purchasable: e.target.checked,
+                        })
+                      }
+                    />
+                    <span>Is Purchasable</span>
+                  </div>
+                </>
+              )}
+              <div className="flex items-center gap-2 p-2 border rounded bg-indigo-50/50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800">
                 <input
                   type="checkbox"
-                  checked={formData.service_item}
-                  onChange={(e) =>
-                    setFormData({ ...formData, service_item: e.target.checked })
-                  }
-                />
-                <span>Service Item</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 border rounded">
-                <input
-                  type="checkbox"
-                  checked={formData.is_stockable}
-                  onChange={(e) =>
-                    setFormData({ ...formData, is_stockable: e.target.checked })
-                  }
-                />
-                <span>Is Stockable</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 border rounded">
-                <input
-                  type="checkbox"
-                  checked={formData.is_sellable}
-                  onChange={(e) =>
-                    setFormData({ ...formData, is_sellable: e.target.checked })
-                  }
-                />
-                <span>Is Sellable</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 border rounded">
-                <input
-                  type="checkbox"
-                  checked={formData.is_purchasable}
+                  checked={formData.is_production_item}
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      is_purchasable: e.target.checked,
+                      is_production_item: e.target.checked,
                     })
                   }
+                  className="rounded text-brand-600"
                 />
-                <span>Is Purchasable</span>
+                <span className="font-bold text-brand-900 dark:text-brand-300">Production Item</span>
               </div>
             </div>
 

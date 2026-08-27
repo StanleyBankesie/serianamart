@@ -23,16 +23,19 @@ import { useViewMode } from "@/hooks/useViewMode";
 import ViewToggle from "@/components/ViewToggle";
 
 function StatusBadge({ status }) {
+  const s = String(status || "").trim().toUpperCase();
   const cls =
-    status === "DRAFT"
+    s === "DRAFT"
       ? "badge badge-warning"
-      : status === "APPROVED" || status === "POSTED"
+      : s === "APPROVED" || s === "POSTED"
         ? "badge badge-success"
-        : status === "REVERSED" || status === "CANCELLED"
+        : s === "REVERSED" || s === "CANCELLED" || s === "REJECTED"
           ? "badge badge-error"
-          : "badge badge-info";
+          : s === "PENDING_APPROVAL" || s === "SUBMITTED"
+            ? "badge badge-info"
+            : "badge badge-neutral";
 
-  return <span className={cls}>{status}</span>;
+  return <span className={cls}>{s || "POSTED"}</span>;
 }
 
 /**

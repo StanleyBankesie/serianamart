@@ -106,6 +106,7 @@ function isUnauthenticatedEndpoint(url) {
     "/auth/refresh",
     "/forgot-password/request-otp",
     "/forgot-password/reset",
+    "/subscription-plans",
   ].includes(value);
 }
 
@@ -113,6 +114,7 @@ const NON_FATAL_401_PREFIXES = [
   // Explicitly non-fatal: these endpoints return 401 in some edge-case
   // contexts (e.g. user lacks a role, superadmin-only) and should NEVER
   // trigger a logout.
+  "/subscription-plans",
   "/admin/user-permissions",
   "/admin/users/",
   "/admin/page-permissions",

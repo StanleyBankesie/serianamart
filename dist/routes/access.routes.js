@@ -9,7 +9,9 @@ import {
   ensureCol,
   ensurePagesSeed,
   ensurePagesTable,
+  hasColumn,
   toNumber,
+  verifiedTables,
 } from "../utils/dbUtils.js";
 import { getAllFeatures } from "../data/featuresRegistry.js";
 import { getUserPermissions as rbacGetUserPermissions } from "../middleware/rbac.middleware.js";
@@ -85,6 +87,7 @@ async function ensureAccessTables() {
 }
 
 async function ensureDashboardPermissionsTable() {
+  if (verifiedTables.has("adm_dashboard_permissions")) return;
   await query(`
     CREATE TABLE IF NOT EXISTS adm_dashboard_permissions (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -107,6 +110,7 @@ async function ensureDashboardPermissionsTable() {
     "updated_at",
     "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
   );
+  verifiedTables.add("adm_dashboard_permissions");
 }
 
 async function ensureNotificationPrefsTable() {
@@ -116,12 +120,20 @@ async function ensureNotificationPrefsTable() {
       pref_key VARCHAR(100) NOT NULL,
       push_enabled TINYINT(1) NOT NULL DEFAULT 0,
       email_enabled TINYINT(1) NOT NULL DEFAULT 0,
+      sms_enabled TINYINT(1) NOT NULL DEFAULT 0,
+      whatsapp_enabled TINYINT(1) NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (user_id, pref_key),
       INDEX idx_pref_key (pref_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await hasColumn("adm_notification_prefs", "sms_enabled"))) {
+    await query("ALTER TABLE adm_notification_prefs ADD COLUMN sms_enabled TINYINT(1) NOT NULL DEFAULT 0");
+  }
+  if (!(await hasColumn("adm_notification_prefs", "whatsapp_enabled"))) {
+    await query("ALTER TABLE adm_notification_prefs ADD COLUMN whatsapp_enabled TINYINT(1) NOT NULL DEFAULT 0");
+  }
 }
 
 // Get notification preference for a user/key (or all users if no user_id)
@@ -132,13 +144,14 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureNotificationPrefsTable();
+      const { companyId } = req.scope || {};
       const key = String(req.query?.key || "low-stock").trim();
       const userId = toNumber(req.query?.user_id || 0) || null;
       if (userId) {
         const rows = await query(
-          `SELECT user_id, pref_key, push_enabled, email_enabled, created_at
-         FROM adm_notification_prefs
-         WHERE user_id = :userId AND pref_key = :key
+          `SELECT user_id, pref_key, push_enabled, email_enabled, sms_enabled, whatsapp_enabled, created_at, updated_at
+           FROM adm_notification_prefs
+           WHERE user_id = :userId AND pref_key = :key
            LIMIT 1`,
           { userId, key },
         );
@@ -149,15 +162,24 @@ router.get(
               pref_key: key,
               push_enabled: 0,
               email_enabled: 0,
+              sms_enabled: 0,
+              whatsapp_enabled: 0,
             },
           });
         return res.json({ item: rows[0] });
       } else {
         const rows = await query(
-          `SELECT user_id, pref_key, push_enabled, email_enabled, created_at
-         FROM adm_notification_prefs
-         WHERE pref_key = :key`,
-          { key },
+          `SELECT np.user_id, np.pref_key, np.push_enabled, np.email_enabled, np.sms_enabled, np.whatsapp_enabled, np.updated_at,
+                  u.username, u.full_name, u.email, COALESCE(u.telephone, '') AS telephone,
+                  b.name AS branch_name
+           FROM adm_notification_prefs np
+           JOIN adm_users u ON u.id = np.user_id
+           LEFT JOIN adm_branches b ON u.branch_id = b.id
+           WHERE np.pref_key = :key
+             AND (:companyId IS NULL OR u.company_id IS NULL OR u.company_id = 0 OR u.company_id = :companyId)
+             AND (np.push_enabled = 1 OR np.email_enabled = 1 OR np.sms_enabled = 1 OR np.whatsapp_enabled = 1)
+           ORDER BY u.username ASC`,
+          { key, companyId: companyId || null },
         );
         return res.json({ items: rows });
       }
@@ -176,19 +198,43 @@ router.put(
     try {
       await ensureNotificationPrefsTable();
       const key = String(req.params.key || "low-stock").trim();
-      const { user_id, push_enabled, email_enabled } = req.body || {};
+      const { user_id, push_enabled, email_enabled, sms_enabled, whatsapp_enabled } = req.body || {};
       const userId = toNumber(user_id);
       if (!userId) return res.status(400).json({ message: "Invalid user_id" });
       await query(
-        `INSERT INTO adm_notification_prefs (user_id, pref_key, push_enabled, email_enabled)
-         VALUES (:userId, :key, :push, :email)
-         ON DUPLICATE KEY UPDATE push_enabled = VALUES(push_enabled), email_enabled = VALUES(email_enabled)`,
+        `INSERT INTO adm_notification_prefs (user_id, pref_key, push_enabled, email_enabled, sms_enabled, whatsapp_enabled)
+         VALUES (:userId, :key, :push, :email, :sms, :whatsapp)
+         ON DUPLICATE KEY UPDATE push_enabled = VALUES(push_enabled), email_enabled = VALUES(email_enabled), sms_enabled = VALUES(sms_enabled), whatsapp_enabled = VALUES(whatsapp_enabled)`,
         {
           userId,
           key,
           push: Number(Boolean(push_enabled)),
           email: Number(Boolean(email_enabled)),
+          sms: Number(Boolean(sms_enabled)),
+          whatsapp: Number(Boolean(whatsapp_enabled)),
         },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Delete/reset notification preference for a user/key
+router.delete(
+  "/notification-prefs/:key/:userId",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureNotificationPrefsTable();
+      const key = String(req.params.key || "low-stock").trim();
+      const userId = toNumber(req.params.userId);
+      if (!userId) return res.status(400).json({ message: "Invalid user_id" });
+      await query(
+        `DELETE FROM adm_notification_prefs WHERE user_id = :userId AND pref_key = :key`,
+        { userId, key },
       );
       res.json({ ok: true });
     } catch (err) {
@@ -274,9 +320,17 @@ router.put(
         };
         if (!payload.module_key) continue;
         await query(
+          `DELETE FROM adm_dashboard_permissions
+           WHERE user_id = :user_id
+             AND module_key = :module_key
+             AND (dashboard_key = :dashboard_key OR (dashboard_key IS NULL AND :dashboard_key IS NULL))
+             AND (card_key = :card_key OR (card_key IS NULL AND :card_key IS NULL))
+             AND (ticker_key = :ticker_key OR (ticker_key IS NULL AND :ticker_key IS NULL))`,
+          payload,
+        );
+        await query(
           `INSERT INTO adm_dashboard_permissions (user_id, module_key, dashboard_key, card_key, ticker_key, can_view)
-           VALUES (:user_id, :module_key, :dashboard_key, :card_key, :ticker_key, :can_view)
-           ON DUPLICATE KEY UPDATE can_view = VALUES(can_view), updated_at = CURRENT_TIMESTAMP`,
+           VALUES (:user_id, :module_key, :dashboard_key, :card_key, :ticker_key, :can_view)`,
           payload,
         );
       }
@@ -471,23 +525,44 @@ async function requireSuperAdmin(req, res, next) {
     const userId = toNumber(req.user?.sub || req.user?.id);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
     const rows = await query(
-      "SELECT role_id FROM adm_users WHERE id = :id LIMIT 1",
-      { id: userId },
+      "SELECT role_id FROM adm_users WHERE id = ? LIMIT 1",
+      [userId],
     );
     const roleId = toNumber(rows?.[0]?.role_id);
     if (roleId === 1) return next();
-    return res.status(403).json({ message: "Forbidden" });
+
+    // Check RBAC feature permissions
+    let featureKey = null;
+    if (req.path.startsWith('/roles')) featureKey = 'roles';
+    else if (req.path.includes('permissions')) featureKey = 'user-permissions';
+    else if (req.path.includes('overrides')) featureKey = 'user-overrides';
+
+    if (featureKey) {
+      // Check if user has the feature in their JWT permissions (handles exceptional user permissions)
+      const hasPermission = req.user?.permissions?.some(p => p.endsWith(`:${featureKey}`) || p === featureKey || p === '*');
+      if (hasPermission) return next();
+
+      const perm = await query(
+        "SELECT 1 FROM adm_role_permissions WHERE role_id = ? AND feature_key = ? LIMIT 1",
+        [roleId, featureKey]
+      );
+      if (perm.length > 0) return next();
+      console.log(`[requireSuperAdmin] Forbidden: roleId=${roleId}, featureKey=${featureKey}, perm.length=0. Path=${req.path}`);
+    } else {
+      console.log(`[requireSuperAdmin] Forbidden: roleId=${roleId}, no featureKey matched for Path=${req.path}`);
+    }
+
+    return res.status(403).json({ message: "Forbidden: Access restricted" });
   } catch (err) {
     next(err);
   }
 }
 
-// Roles CRUD (hybrid)
+// Roles CRUD
 router.get(
   "/roles",
   requireAuth,
   requireCompanyScope,
-  requireSuperAdmin,
   async (req, res, next) => {
     try {
       const items = await query(
@@ -710,10 +785,8 @@ router.put(
       const assignedSet = new Set(assigned.map((r) => String(r.module_key)));
       for (const p of permissions) {
         const mk = String(p.module_key || "");
-        if (!assignedSet.has(mk))
-          return res
-            .status(400)
-            .json({ message: `module not assigned: ${mk}` });
+        // Skip permissions for modules not assigned to this role (don't error)
+        if (!assignedSet.has(mk)) continue;
         const featureKey = String(
           p.feature_key || p.featureKey || `${mk}:*`,
         ).trim();
@@ -931,6 +1004,40 @@ router.get(
               name: "Admin Dashboard",
               path: "/admin/dashboard",
             },
+          ],
+        },
+        {
+          key: "transport",
+          name: "Transport",
+          icon: "🚚",
+          path: "/transport",
+          features: [
+            { key: "trips", name: "Trips", path: "/transport/trips" },
+            { key: "trip_management", name: "Trip Management", path: "/transport/trip-management" },
+            { key: "trip_returns", name: "Trip Returns", path: "/transport/trip-returns" },
+            { key: "tracking", name: "Tracking", path: "/transport/tracking" },
+            { key: "vehicles", name: "Vehicles", path: "/transport/vehicles" },
+            { key: "compliance", name: "Compliance", path: "/transport/compliance" },
+            { key: "servicing", name: "Servicing", path: "/transport/servicing" },
+            { key: "logbooks", name: "Logbooks", path: "/transport/logbooks" },
+            { key: "drivers", name: "Drivers", path: "/transport/drivers" },
+            { key: "fuel", name: "Fuel Logs", path: "/transport/fuel" },
+            { key: "fuel_expenses", name: "Fuel Expenses", path: "/transport/fuel-expenses" },
+            { key: "fuel_bills", name: "Fuel Bills", path: "/transport/fuel-bills" },
+            { key: "transportation_bills", name: "Transportation Bills", path: "/transport/transportation-bills" },
+            { key: "billing", name: "Billing", path: "/transport/billing" },
+            { key: "routes", name: "Routes", path: "/transport/routes" },
+            { key: "inspections", name: "Inspections", path: "/transport/inspections" },
+            { key: "maintenance", name: "Maintenance", path: "/transport/maintenance" },
+            { key: "breakdowns", name: "Breakdowns", path: "/transport/breakdowns" },
+            { key: "settings", name: "Settings", path: "/transport/settings" },
+            { key: "reports", name: "Reports", path: "/transport/reports" },
+            { key: "income", name: "Income", path: "/transport/income" },
+            { key: "expenses", name: "Transportation Expenses", path: "/transport/expenses" },
+            { key: "expense_log", name: "Expense Logs", path: "/transport/expense-logs" },
+          ],
+          dashboards: [
+            { key: "transport-dashboard", name: "Transport Dashboard", path: "/transport/dashboard" },
           ],
         },
       ];

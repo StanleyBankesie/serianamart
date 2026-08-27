@@ -1,17 +1,25 @@
 /**
  * @fileoverview Executive Dashboard for the BI module.
- * Cross-module KPIs and trend charts using app brand colors.
+ * Enhanced with complete workflow: Filter -> Analyze -> Drill Down -> Identify Issue -> Export/Share.
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   DollarSign, ShoppingCart, Package, Users, Truck, Wrench,
-  CheckSquare, Zap, TrendingUp, TrendingDown, Target, RefreshCw, ArrowRight
+  CheckSquare, Zap, TrendingUp, TrendingDown, Target, RefreshCw, ArrowRight,
+  Layers, ArrowUpRight, ArrowDownRight
 } from "lucide-react";
 import { api } from "../../../api/client.js";
 import { PageHeader, MiniBar, SectionCard, fmtCurrency, fmtNum, ErrorAlert } from "./bi.shared.jsx";
+import BIFilterBar from "./components/BIFilterBar.jsx";
+import BIAnalysisToolbar from "./components/BIAnalysisToolbar.jsx";
+import BIInsightsPanel from "./components/BIInsightsPanel.jsx";
+import BIDrillDownModal from "./components/BIDrillDownModal.jsx";
+import BIExportModal from "./components/BIExportModal.jsx";
+import BIShareModal from "./components/BIShareModal.jsx";
+import BISavedAnalysesModal from "./components/BISavedAnalysesModal.jsx";
 
-function KpiTile({ label, value, sub, growth, icon: Icon, color = "brand" }) {
+function KpiTile({ label, value, sub, growth, icon: Icon, color = "brand", onClick }) {
   const colors = {
     brand:   "bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-300",
     primary: "bg-primary-50 dark:bg-orange-900/20 text-primary dark:text-orange-400",
@@ -21,7 +29,10 @@ function KpiTile({ label, value, sub, growth, icon: Icon, color = "brand" }) {
   };
   const isPositive = growth == null || Number(growth) >= 0;
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-erp-sm hover:shadow-erp transition-shadow">
+    <div
+      onClick={onClick}
+      className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-erp-sm hover:shadow-erp transition-all ${onClick ? "cursor-pointer group hover:border-brand-300 dark:hover:border-brand-700" : ""}`}
+    >
       <div className="flex items-start justify-between mb-3">
         <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider leading-tight">{label}</span>
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${colors[color]}`}>
@@ -73,18 +84,42 @@ export default function ExecutiveDashboard() {
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
+  // Workflow Filters & Dimensions
+  const [filters, setFilters] = useState({
+    datePreset: "THIS_MONTH",
+    compareWith: "PREVIOUS_PERIOD",
+    branchId: "",
+  });
+  const [activeDimension, setActiveDimension] = useState("overview");
+
+  // Workflow Modals State
+  const [drillModal, setDrillModal] = useState({ isOpen: false, module: "sales", dimension: "branch", title: "Revenue Analysis" });
+  const [exportOpen, setExportOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [savedOpen, setSavedOpen] = useState(false);
+
   const load = useCallback(async () => {
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
-      const res = await api.get("/bi/executive-dashboard");
+      const q = new URLSearchParams();
+      if (filters.from) q.append("from", filters.from);
+      if (filters.to) q.append("to", filters.to);
+      if (filters.branchId) q.append("branchId", filters.branchId);
+
+      const res = await api.get(`/bi/executive-dashboard?${q.toString()}`);
       setData(res.data?.data || null);
       setLastUpdated(new Date());
     } catch (e) {
       setError(e?.response?.data?.message || "Failed to load dashboard data.");
-    } finally { setLoading(false); }
-  }, []);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const kpis = data?.kpis || {};
   const charts = data?.charts || {};
@@ -97,11 +132,20 @@ export default function ExecutiveDashboard() {
     </div>
   ));
 
+  const kpisForExport = [
+    { label: "Revenue (This Month)", value: fmtCurrency(kpis.revenue?.thisMonth), sub: `${kpis.revenue?.growth || 0}% vs last month` },
+    { label: "Purchase Spend", value: fmtCurrency(kpis.expenses?.thisMonth), sub: "This month" },
+    { label: "Gross Profit", value: fmtCurrency(kpis.grossProfit?.thisMonth), sub: "This month" },
+    { label: "Active Projects", value: fmtNum(kpis.projects?.active), sub: `${fmtNum(kpis.projects?.total)} total` },
+    { label: "Production Output", value: `${fmtNum(kpis.production?.totalProduced || 0)} units`, sub: `${kpis.production?.inProgressOrders || 0} active runs` },
+    { label: "Active Employees", value: fmtNum(kpis.hr?.active), sub: "Headcount" },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Executive Dashboard"
-        description="Cross-module KPI overview — Revenue, Inventory, Projects, Fleet, HR & POS"
+        title="Executive Intelligence Dashboard"
+        description="Enterprise decision-support & cross-module performance — Revenue, Inventory, Production, Projects & Fleet"
         onRefresh={load}
         loading={loading}
       >
@@ -112,16 +156,91 @@ export default function ExecutiveDashboard() {
         )}
       </PageHeader>
 
+      {/* 1. Multi-Dimensional Filter Bar */}
+      <BIFilterBar
+        moduleKey="executive"
+        filters={filters}
+        onFilterChange={setFilters}
+        onApply={load}
+        onReset={() => setFilters({ datePreset: "THIS_MONTH", compareWith: "PREVIOUS_PERIOD", branchId: "" })}
+        loading={loading}
+      />
+
+      {/* 2. Automated Business Insights & Exceptions */}
+      <BIInsightsPanel
+        onDrillDown={(dim) => setDrillModal({ isOpen: true, module: "sales", dimension: dim, title: "Executive Drill Down" })}
+      />
+
+      {/* 3. Analysis & Workflow Toolbar */}
+      <BIAnalysisToolbar
+        moduleKey="executive"
+        dimensions={[
+          { label: "Overview", value: "overview" },
+          { label: "Revenue & Purchases", value: "finance" },
+          { label: "Operations & Projects", value: "operations" },
+        ]}
+        activeDimension={activeDimension}
+        onDimensionChange={setActiveDimension}
+        onOpenDrillDown={() => setDrillModal({ isOpen: true, module: "sales", dimension: "branch", title: "Revenue by Branch Drill-Down" })}
+        onOpenExport={() => setExportOpen(true)}
+        onOpenShare={() => setShareOpen(true)}
+        onOpenSaved={() => setSavedOpen(true)}
+      />
+
       {error && <ErrorAlert message={error} onRetry={load} />}
 
-      {/* KPI Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        {loading ? skeleton(10) : <>
-          <KpiTile label="Revenue (This Month)" value={fmtCurrency(kpis.revenue?.thisMonth)} sub="vs last month" growth={kpis.revenue?.growth} icon={DollarSign} color="success" />
-          <KpiTile label="Purchase Spend" value={fmtCurrency(kpis.expenses?.thisMonth)} sub="This month" icon={ShoppingCart} color="primary" />
-          <KpiTile label="Gross Profit" value={fmtCurrency(kpis.grossProfit?.thisMonth)} sub="This month" icon={TrendingUp} color="brand" />
-          <KpiTile label="Inventory Items" value={fmtNum(kpis.inventory?.itemCount)} sub={`${fmtNum(kpis.inventory?.belowReorder)} below reorder`} icon={Package} color="brand" />
-          <KpiTile label="Active Projects" value={fmtNum(kpis.projects?.active)} sub={`${fmtNum(kpis.projects?.total)} total`} icon={CheckSquare} color="brand" />
+      {/* 4. Interactive KPI Grid with Click-to-Drill */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        {loading ? skeleton(12) : <>
+          <KpiTile
+            label="Revenue (This Month)"
+            value={fmtCurrency(kpis.revenue?.thisMonth)}
+            sub="vs last month"
+            growth={kpis.revenue?.growth}
+            icon={DollarSign}
+            color="success"
+            onClick={() => setDrillModal({ isOpen: true, module: "sales", dimension: "branch", title: "Revenue Breakdown by Branch" })}
+          />
+          <KpiTile
+            label="Purchase Spend"
+            value={fmtCurrency(kpis.expenses?.thisMonth)}
+            sub="This month"
+            icon={ShoppingCart}
+            color="primary"
+            onClick={() => setDrillModal({ isOpen: true, module: "purchase", dimension: "supplier", title: "Spend Breakdown by Supplier" })}
+          />
+          <KpiTile
+            label="Gross Profit"
+            value={fmtCurrency(kpis.grossProfit?.thisMonth)}
+            sub="This month"
+            icon={TrendingUp}
+            color="brand"
+            onClick={() => setDrillModal({ isOpen: true, module: "sales", dimension: "customer", title: "Customer Margin Drill-Down" })}
+          />
+          <KpiTile
+            label="Inventory Items"
+            value={fmtNum(kpis.inventory?.itemCount)}
+            sub={`${fmtNum(kpis.inventory?.belowReorder)} below reorder`}
+            icon={Package}
+            color="brand"
+            onClick={() => setDrillModal({ isOpen: true, module: "inventory", dimension: "category", title: "Inventory Value by Category" })}
+          />
+          <KpiTile
+            label="Active Projects"
+            value={fmtNum(kpis.projects?.active)}
+            sub={`${fmtNum(kpis.projects?.total)} total`}
+            icon={CheckSquare}
+            color="brand"
+            onClick={() => setDrillModal({ isOpen: true, module: "projects", dimension: "summary", title: "Project Portfolios & Budgets" })}
+          />
+          <KpiTile
+            label="Production Output"
+            value={`${fmtNum(kpis.production?.totalProduced || 0)} units`}
+            sub={`${kpis.production?.inProgressOrders || 0} active runs`}
+            icon={Zap}
+            color="success"
+            onClick={() => setDrillModal({ isOpen: true, module: "production", dimension: "summary", title: "Production Work Orders & Output" })}
+          />
           <KpiTile label="Active Employees" value={fmtNum(kpis.hr?.active)} sub={`${fmtNum(kpis.hr?.total)} headcount`} icon={Users} color="brand" />
           <KpiTile label="POS Sales Today" value={fmtCurrency(kpis.pos?.todaySales)} sub={`${fmtNum(kpis.pos?.todayTxns)} transactions`} icon={Zap} color="primary" />
           <KpiTile label="Fleet Available" value={`${fmtNum(kpis.fleet?.available)} / ${fmtNum(kpis.fleet?.total)}`} sub={`${fmtNum(kpis.fleet?.inUse)} in use`} icon={Truck} color="brand" />
@@ -130,18 +249,13 @@ export default function ExecutiveDashboard() {
         </>}
       </div>
 
-      {/* Charts Row */}
+      {/* 5. Interactive Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <SectionCard title="Revenue Trend (6 Months)">
           <div className="p-5">
             {loading
               ? <div className="h-24 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
               : <MiniBar data={charts.revenueTrend || []} valueKey="revenue" labelKey="month" color="#0E3646" height={100} />}
-            <div className="mt-3 flex justify-end">
-              <Link to="/business-intelligence/financial" className="text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1">
-                Financial Analytics <ArrowRight size={11} />
-              </Link>
-            </div>
           </div>
         </SectionCard>
 
@@ -150,41 +264,86 @@ export default function ExecutiveDashboard() {
             {loading
               ? <div className="h-24 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
               : <MiniBar data={charts.purchaseTrend || []} valueKey="spend" labelKey="month" color="#F57C00" height={100} />}
-            <div className="mt-3 flex justify-end">
-              <Link to="/business-intelligence/purchase" className="text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1">
-                Purchase Analytics <ArrowRight size={11} />
-              </Link>
-            </div>
           </div>
         </SectionCard>
 
-        <SectionCard title="Project Status Distribution">
+        <SectionCard title="Project Portfolio by Status">
           <div className="p-5">
             {loading
-              ? <div className="space-y-2">{Array.from({length:3}).map((_,i) => <div key={i} className="h-5 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />)}</div>
+              ? <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-6 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />)}</div>
               : <StatusPie data={charts.projectsByStatus || []} />}
-            <div className="mt-3 flex justify-end">
-              <Link to="/business-intelligence/projects" className="text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1">
-                Project Analytics <ArrowRight size={11} />
-              </Link>
-            </div>
           </div>
         </SectionCard>
       </div>
 
-      {/* POS Trend */}
-      <SectionCard title="POS Daily Sales (Last 7 Days)">
-        <div className="p-5">
-          {loading
-            ? <div className="h-20 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
-            : <MiniBar data={charts.posDailyTrend || []} valueKey="sales" labelKey="day" color="#F57C00" height={80} />}
-          <div className="mt-3 flex justify-end">
-            <Link to="/business-intelligence/pos" className="text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1">
-              POS Analytics <ArrowRight size={11} />
+      {/* Quick Navigation Links */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-erp-sm">
+        <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider mb-4">
+          Direct Module Analytics Portals
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+          {[
+            { label: "Financial", path: "/business-intelligence/financial", icon: DollarSign, color: "text-secondary" },
+            { label: "Production", path: "/business-intelligence/production", icon: Zap, color: "text-brand-600" },
+            { label: "Projects", path: "/business-intelligence/projects", icon: CheckSquare, color: "text-brand-600" },
+            { label: "Inventory", path: "/business-intelligence/inventory", icon: Package, color: "text-brand-600" },
+            { label: "Purchase", path: "/business-intelligence/purchase", icon: ShoppingCart, color: "text-primary" },
+            { label: "Cross Module", path: "/business-intelligence/cross-module", icon: Layers, color: "text-brand-600" },
+          ].map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 hover:bg-brand-50 dark:hover:bg-brand-900/20 border border-slate-200 dark:border-slate-700 hover:border-brand-300 transition-all text-xs font-semibold text-slate-700 dark:text-slate-300 hover:text-brand-700"
+            >
+              <item.icon size={15} className={item.color} />
+              <span>{item.label}</span>
+              <ArrowRight size={11} className="ml-auto text-slate-400" />
             </Link>
-          </div>
+          ))}
         </div>
-      </SectionCard>
+      </div>
+
+      {/* Workflow Modals */}
+      <BIDrillDownModal
+        isOpen={drillModal.isOpen}
+        onClose={() => setDrillModal({ ...drillModal, isOpen: false })}
+        initialModule={drillModal.module}
+        initialDimension={drillModal.dimension}
+        initialTitle={drillModal.title}
+        filters={drillModal.filters || filters}
+      />
+
+      <BIExportModal
+        isOpen={exportOpen}
+        onClose={() => setExportOpen(false)}
+        title="Executive Business Intelligence Summary"
+        moduleName="Executive"
+        filters={filters}
+        kpis={kpisForExport}
+        columns={[
+          { key: "metric", label: "KPI Dimension" },
+          { key: "value", label: "Current Metric Value" },
+          { key: "notes", label: "Operational Context" },
+        ]}
+        rows={kpisForExport.map(k => ({ metric: k.label, value: k.value, notes: k.sub }))}
+      />
+
+      <BIShareModal
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+        title="Executive Performance & Cross-Module Intelligence"
+        moduleKey="executive"
+        filters={filters}
+      />
+
+      <BISavedAnalysesModal
+        isOpen={savedOpen}
+        onClose={() => setSavedOpen(false)}
+        moduleKey="executive"
+        onLoadAnalysis={(a) => {
+          setFilters(a.filters || {});
+        }}
+      />
     </div>
   );
 }

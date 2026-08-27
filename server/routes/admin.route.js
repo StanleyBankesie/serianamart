@@ -5,6 +5,7 @@
 // Module Dependencies
 import express from "express";
 import multer from "multer";
+import { setRuntimeApiKey } from "../services/ai/banks.service.js";
 
 // Controller Imports
 import {
@@ -36,7 +37,6 @@ import {
   ensureRoleModulesTable,
   ensureRolePermissionsTable,
   ensureRoleFeaturesTable,
-  ensureAdminPagePermissionsTable,
   verifiedTables,
 } from "../utils/dbUtils.js";
 import { ensureUserPermissionCacheAndTriggers } from "../utils/dbUtils.js";
@@ -2181,29 +2181,21 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     try {
       const fk = String(page?.feature_key || "").trim() || null;
       if (fk) {
-        const parts = fk.split(":");
-        const fkShort = parts.length > 1 ? parts.slice(1).join(":") : fk;
-        const mk = parts.length > 1 ? parts[0] : (page?.module || "").toLowerCase();
-
         const agg = await query(
           `SELECT 
              MAX(rp.can_view)   AS can_view,
              MAX(rp.can_create) AS can_create,
              MAX(rp.can_edit)   AS can_edit,
              MAX(rp.can_delete) AS can_delete,
-           rp.created_at,
-           uc.username AS created_by_name
-          FROM adm_role_permissions rp
-            JOIN adm_users u ON u.role_id = rp.role_id
-         LEFT JOIN adm_users uc ON uc.id = rp.created_by
-          WHERE u.id = :uid
-             AND (
-               rp.feature_key = :fk 
-               OR rp.feature_key LIKE CONCAT(:fk, ':%')
-               OR (rp.feature_key = :fkShort AND (rp.module_key = :mk OR rp.module_key = ''))
-             )
-            LIMIT 1`,
-          { uid: userId, fk, fkShort, mk },
+          rp.created_at,
+          uc.username AS created_by_name
+         FROM adm_role_permissions rp
+           JOIN adm_users u ON u.role_id = rp.role_id
+        LEFT JOIN adm_users uc ON uc.id = rp.created_by
+         WHERE u.id = :uid
+             AND (rp.feature_key = :fk OR rp.feature_key LIKE CONCAT(:fk, ':%'))
+           LIMIT 1`,
+          { uid: userId, fk },
         );
         if (agg.length) {
           roleDefaults = {
@@ -2654,7 +2646,6 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
     await ensureRoleModulesTable();
     await ensureRolePermissionsTable();
     await ensureRoleFeaturesTable();
-    await ensureAdminPagePermissionsTable().catch(() => {});
 
     const userId = Number(req.user?.sub || req.user?.id);
 
@@ -2738,11 +2729,11 @@ router.get("/user-permissions", requireAuth, async (req, res, next) => {
         .filter(Boolean),
     );
 
-    // Fetch exclusive permissions for this user (table may not exist on older installs)
+    // Fetch exclusive permissions for this user
     const exclusivePerms = await query(
       `SELECT module_key, feature_key FROM adm_admin_page_permissions WHERE user_id = :userId`,
       { userId }
-    ).catch(() => []);
+    );
     for (const ep of exclusivePerms) {
       const mk = normalizeModuleKey(ep.module_key);
       const fk = normalizeFeatureKey(ep.feature_key, mk);
@@ -3345,6 +3336,7 @@ router.get("/settings/env", requireAuth, async (req, res, next) => {
     });
     return res.json({
       GOOGLE_MAPS_API_KEY: envVars.GOOGLE_MAPS_API_KEY ? "********" : "",
+      GROQ_API_KEY: envVars.GROQ_API_KEY ? "********" : "",
       ARKESEL_API_KEY: envVars.ARKESEL_API_KEY ? "********" : "",
       ARKESEL_SENDER_ID: envVars.ARKESEL_SENDER_ID ? "********" : "",
       GREEN_API_ID_INSTANCE: envVars.GREEN_API_ID_INSTANCE || "",
@@ -3382,7 +3374,7 @@ router.post("/settings/env", requireAuth, async (req, res, next) => {
 
     const updates = req.body;
     const allowedKeys = [
-      "GOOGLE_MAPS_API_KEY", "ARKESEL_API_KEY", "ARKESEL_SENDER_ID", "GREEN_API_ID_INSTANCE", "GREEN_API_TOKEN_INSTANCE",
+      "GOOGLE_MAPS_API_KEY", "GROQ_API_KEY", "ARKESEL_API_KEY", "ARKESEL_SENDER_ID", "GREEN_API_ID_INSTANCE", "GREEN_API_TOKEN_INSTANCE",
       "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM", "SMTP_SECURE",
       "TEMPLATE_SALES_ORDER", "TEMPLATE_PURCHASE_ORDER", "TEMPLATE_SERVICE_ORDER", 
       "TEMPLATE_MAINTENANCE_JOB", "TEMPLATE_PAYMENT_VOUCHER"
@@ -3399,6 +3391,9 @@ router.post("/settings/env", requireAuth, async (req, res, next) => {
           lines.push(`${key}=${val}`);
         }
         process.env[key] = val; // Update in-memory
+        if (key === "GROQ_API_KEY") {
+          setRuntimeApiKey(val);
+        }
       }
     }
     

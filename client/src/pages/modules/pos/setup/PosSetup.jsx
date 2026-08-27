@@ -478,6 +478,13 @@ function TerminalsTab() {
                           >
                             Users
                           </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            onClick={() => deleteTerminal(items.indexOf(t))}
+                          >
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>

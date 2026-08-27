@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file workflow.routes.js
  * @description Express routes for workflow configurations, steps, and approvals.
  */
@@ -41,6 +41,15 @@ router.get(
   requireCompanyScope,
   workflowController.getApprovalInstanceDetail,
 );
+
+// Get Latest Workflow Comment for Document
+router.get(
+  "/logs/:documentType/:documentId/latest-comment",
+  requireAuth,
+  requireCompanyScope,
+  workflowController.getLatestComment,
+);
+
 router.get(
   "/debug/:instanceId/email",
   requireAuth,

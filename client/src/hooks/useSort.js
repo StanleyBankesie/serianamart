@@ -10,22 +10,28 @@ function compareValues(a, b) {
   if (a == null) return 1;
   if (b == null) return -1;
 
-  if (typeof a === "number" && typeof b === "number") {
-    return a - b;
-  }
-
   if (a instanceof Date && b instanceof Date) {
     return a.getTime() - b.getTime();
   }
 
-  const aStr = String(a).toLowerCase();
-  const bStr = String(b).toLowerCase();
-
-  const aNum = parseFloat(aStr);
-  const bNum = parseFloat(bStr);
-  if (!isNaN(aNum) && !isNaN(bNum) && String(aNum) === aStr && String(bNum) === bStr) {
+  // Check if both values can be treated as numbers
+  const aClean = String(a).replace(/,/g, "").trim();
+  const bClean = String(b).replace(/,/g, "").trim();
+  if (aClean !== "" && bClean !== "" && !isNaN(Number(aClean)) && !isNaN(Number(bClean))) {
+    const aNum = Number(aClean);
+    const bNum = Number(bClean);
     return aNum - bNum;
   }
+
+  // Check if both values are valid ISO date strings
+  const aDate = Date.parse(a);
+  const bDate = Date.parse(b);
+  if (!isNaN(aDate) && !isNaN(bDate) && String(a).includes("-") && String(b).includes("-")) {
+    return aDate - bDate;
+  }
+
+  const aStr = String(a).toLowerCase();
+  const bStr = String(b).toLowerCase();
 
   if (aStr < bStr) return -1;
   if (aStr > bStr) return 1;

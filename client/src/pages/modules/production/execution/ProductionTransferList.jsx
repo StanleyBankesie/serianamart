@@ -55,7 +55,7 @@ export default function ProductionTransferList() {
     <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
-          <Link to="/production?section=Intelligence%20%26%20Analytics" className="btn btn-secondary p-2">
+          <Link to="/production?section=Shop%20Floor%20%26%20Execution" className="btn btn-secondary p-2">
             <ArrowLeft size={20} />
           </Link>
           <div>
@@ -80,11 +80,11 @@ export default function ProductionTransferList() {
                 <div className="overflow-x-auto">
           <table className={"table " + (viewMode === 'grid' ? 'table-grid-mode' : '')}>
             <thead>
-              <tr>
-                <th>Transfer No</th>
-                <th>Target Warehouse</th>
-                <th>Date</th>
-                <th className="text-right">Actions</th>
+              <tr className="bg-slate-50 dark:bg-slate-800 text-xs font-bold uppercase tracking-wider text-slate-500">
+                <SortableHeader label="Transfer No" sortKey="transfer_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-3" />
+                <SortableHeader label="Target Warehouse" sortKey="target_warehouse_name" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-3" />
+                <SortableHeader label="Date" sortKey="transfer_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="px-6 py-3" />
+                <th className="px-6 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700/50">
@@ -92,7 +92,7 @@ export default function ProductionTransferList() {
                 <tr>
                   <td colSpan="4" className="px-6 py-20 text-center animate-pulse text-slate-400 font-bold uppercase tracking-widest">Syncing transfers...</td>
                 </tr>
-              ) : items.length > 0 ? items.map((item) => (
+              ) : sortedItems.length > 0 ? sortedItems.map((item) => (
                 <tr key={item.id} className="group">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">

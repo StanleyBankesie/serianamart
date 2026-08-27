@@ -123,6 +123,7 @@ export const FEATURES_REGISTRY = {
   // Inventory Module: Contains features for material requisitions, stock management, and warehousing
   inventory: {
     features: [
+      { feature_key: "inventory:stock", type: "feature", label: "Stock Balances & Overview", path: "/inventory/stock" },
       { feature_key: "inventory:material-requisitions", type: "feature", label: "Material Requisitions", path: "/inventory/material-requisitions" },
       { feature_key: "inventory:stock-upload", type: "feature", label: "Stock Upload", path: "/inventory/stock-upload" },
       { feature_key: "inventory:stock-updation", type: "feature", label: "Stock Updation", path: "/inventory/stock-updation" },
@@ -267,11 +268,13 @@ export const FEATURES_REGISTRY = {
   // Production Module: Contains features for manufacturing processes, BOMs, routings, and work orders
   production: {
     features: [
+      { feature_key: "production:stock", type: "feature", label: "Production Stock Overview", path: "/production/stock" },
       { feature_key: "production:boms", type: "feature", label: "Bills of Materials", path: "/production/boms" },
       { feature_key: "production:routings", type: "feature", label: "Routing & Operations", path: "/production/routings" },
       { feature_key: "production:work-orders", type: "feature", label: "Work Orders", path: "/production/work-orders" },
       { feature_key: "production:production-planning", type: "feature", label: "Production Planning", path: "/production/production-planning" },
       { feature_key: "production:job-cards", type: "feature", label: "Job Cards", path: "/production/job-cards" },
+      { feature_key: "production:warehouse-stock-report", type: "feature", label: "Production Warehouse Stock Report", path: "/production/reports/warehouse-stock" },
 
       { feature_key: "production:setup", type: "feature", label: "Manufacturing Setup", path: "/production/setup" },
     ],
@@ -332,15 +335,47 @@ export const FEATURES_REGISTRY = {
 ],
   },
 
-  // Business Intelligence Module: Contains features for custom reports, dashboards, and analytics
+  // Business Intelligence Module: Contains features for ETL, custom reports, dashboards, and analytics
   "business-intelligence": {
     features: [
-      { feature_key: "business-intelligence:reports", type: "feature", label: "Custom Reports", path: "/business-intelligence/reports" },
-      { feature_key: "business-intelligence:data-sources", type: "feature", label: "Data Sources", path: "/business-intelligence/data-sources" },
-      { feature_key: "business-intelligence:analytics", type: "feature", label: "Analytics", path: "/business-intelligence/analytics" },
-      { feature_key: "business-intelligence:bi-reports", type: "feature", label: "BI Reports", path: "/business-intelligence/bi-reports" },
+      { feature_key: "business-intelligence:executive-dashboard", type: "feature", label: "Executive Dashboard", path: "/business-intelligence/executive-dashboard" },
+      { feature_key: "business-intelligence:data-sources", type: "feature", label: "Data Sources & Ingestion", path: "/business-intelligence/data-sources" },
+      { feature_key: "business-intelligence:datasets", type: "feature", label: "Analytical Datasets", path: "/business-intelligence/datasets" },
+      { feature_key: "business-intelligence:data-prep", type: "feature", label: "Data Preparation Studio", path: "/business-intelligence/data-prep" },
+      { feature_key: "business-intelligence:data-models", type: "feature", label: "Data Models & Star Schema", path: "/business-intelligence/data-models" },
+      { feature_key: "business-intelligence:etl-pipelines", type: "feature", label: "ETL Pipelines Manager", path: "/business-intelligence/etl-pipelines" },
+      { feature_key: "business-intelligence:data-quality", type: "feature", label: "Data Quality & Quarantine", path: "/business-intelligence/data-quality" },
+      { feature_key: "business-intelligence:multidimensional", type: "feature", label: "Multidimensional Slicing", path: "/business-intelligence/multidimensional" },
+      { feature_key: "business-intelligence:insights", type: "feature", label: "Automated Exceptions", path: "/business-intelligence/insights" },
+      { feature_key: "business-intelligence:dashboard-builder", type: "feature", label: "Dashboard Builder", path: "/business-intelligence/dashboard-builder" },
+      { feature_key: "business-intelligence:dashboards", type: "feature", label: "Custom Dashboards", path: "/business-intelligence/dashboards" },
+      { feature_key: "business-intelligence:financial", type: "feature", label: "Financial Analytics", path: "/business-intelligence/financial" },
+      { feature_key: "business-intelligence:inventory", type: "feature", label: "Inventory Analytics", path: "/business-intelligence/inventory" },
+      { feature_key: "business-intelligence:purchase", type: "feature", label: "Purchase Analytics", path: "/business-intelligence/purchase" },
+      { feature_key: "business-intelligence:hr", type: "feature", label: "HR Analytics", path: "/business-intelligence/hr" },
+      { feature_key: "business-intelligence:maintenance", type: "feature", label: "Maintenance Analytics", path: "/business-intelligence/maintenance" },
+      { feature_key: "business-intelligence:production", type: "feature", label: "Production Analytics", path: "/business-intelligence/production" },
+      { feature_key: "business-intelligence:projects", type: "feature", label: "Project Analytics", path: "/business-intelligence/projects" },
+      { feature_key: "business-intelligence:transport", type: "feature", label: "Transport Analytics", path: "/business-intelligence/transport" },
+      { feature_key: "business-intelligence:service", type: "feature", label: "Service Analytics", path: "/business-intelligence/service" },
+      { feature_key: "business-intelligence:pos", type: "feature", label: "POS Analytics", path: "/business-intelligence/pos" },
+      { feature_key: "business-intelligence:administration", type: "feature", label: "Administration Analytics", path: "/business-intelligence/administration" },
+      { feature_key: "business-intelligence:cross-module", type: "feature", label: "Cross Module Analytics", path: "/business-intelligence/cross-module" },
+      { feature_key: "business-intelligence:kpi-center", type: "feature", label: "KPI Center", path: "/business-intelligence/kpi-center" },
+      { feature_key: "business-intelligence:data-explorer", type: "feature", label: "Data Explorer", path: "/business-intelligence/data-explorer" },
+      { feature_key: "business-intelligence:ai-insights", type: "feature", label: "AI Insights", path: "/business-intelligence/ai-insights" },
+      { feature_key: "business-intelligence:banks-ai", type: "feature", label: "Ask Banks AI", path: "/business-intelligence/banks-ai" },
+      { feature_key: "business-intelligence:alerts", type: "feature", label: "Alerts Center", path: "/business-intelligence/alerts" },
+      { feature_key: "business-intelligence:report-center", type: "feature", label: "Report Center", path: "/business-intelligence/report-center" },
+      { feature_key: "business-intelligence:settings", type: "feature", label: "BI Settings", path: "/business-intelligence/settings" },
     ],
     dashboards: [
+      { feature_key: "business-intelligence:bi-executive-summary", type: "dashboard", label: "Executive Summary Dashboard", path: "/business-intelligence/executive-dashboard" },
+      { feature_key: "business-intelligence:bi-revenue-performance", type: "dashboard", label: "Revenue & Sales Performance", path: "/business-intelligence/multidimensional" },
+      { feature_key: "business-intelligence:bi-procurement-spend", type: "dashboard", label: "Procurement & Spend Dashboard", path: "/business-intelligence/purchase" },
+      { feature_key: "business-intelligence:bi-inventory-valuation", type: "dashboard", label: "Inventory Valuation & Stock", path: "/business-intelligence/inventory" },
+      { feature_key: "business-intelligence:bi-manufacturing-yield", type: "dashboard", label: "Manufacturing Yield & Scrap", path: "/business-intelligence/production" },
+      { feature_key: "business-intelligence:bi-financial-gl", type: "dashboard", label: "General Ledger Financials", path: "/business-intelligence/financial" }
     ],
   },
 

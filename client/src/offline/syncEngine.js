@@ -6,6 +6,7 @@ import {
   updateItemStatus,
   getAllItems,
 } from "./db.js";
+import { getUnsyncedSales, getFailedSales, deleteLocalSale } from "./posStore.js";
 
 const MAX_RETRIES = 5;
 
@@ -38,6 +39,26 @@ async function refreshSnapshot() {
   const completed = items.filter((i) => i.status === "completed").length;
   snapshot = { pending, failed, completed, items };
   emit("update", { snapshot });
+}
+
+async function syncPosSales() {
+  if (!isOnline()) return;
+  try {
+    const unsynced = await getUnsyncedSales();
+    const failed = await getFailedSales();
+    const all = [...unsynced, ...failed];
+    for (const item of all) {
+      try {
+        const { id: _id, syncStatus: _status, createdAt: _ts, receipt_no: _rcp, updatedAt: _upd, status: _st, ...payload } = item;
+        await api.post("/pos/sales", payload, {
+          headers: { "x-skip-offline-queue": "1", "x-idempotency-key": String(item.id) },
+        });
+        await deleteLocalSale(item.id);
+      } catch (err) {
+        console.warn("Auto-sync error for POS offline sale:", item.id, err);
+      }
+    }
+  } catch {}
 }
 
 export function onQueueUpdate(listener) {
@@ -105,6 +126,7 @@ export async function processQueue() {
   if (isSyncing) return;
   isSyncing = true;
   try {
+    await syncPosSales();
     const items = await getPendingItems();
     for (const item of items) {
       await sendItem(item);
@@ -117,6 +139,10 @@ export async function processQueue() {
 }
 
 export function startSyncEngine() {
+  if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
+
   window.addEventListener("online", () => {
     processQueue();
   });
@@ -127,7 +153,7 @@ export function startSyncEngine() {
   if (!intervalId) {
     intervalId = setInterval(() => {
       processQueue();
-    }, 30000);
+    }, 15000);
   }
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {

@@ -249,10 +249,10 @@ export default function UnitConversionsList() {
             </div>
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="w-full">
                   <label className="label">Item *</label>
                   <select
-                    className="input"
+                    className="input w-full"
                     value={formData.item_id}
                     onChange={(e) =>
                       setFormData({ ...formData, item_id: e.target.value })
@@ -279,10 +279,10 @@ export default function UnitConversionsList() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
+                <div className="w-full">
                   <label className="label">From UOM *</label>
                   <select
-                    className="input"
+                    className="input w-full"
                     value={formData.from_uom}
                     onChange={(e) =>
                       setFormData({ ...formData, from_uom: e.target.value })
@@ -296,10 +296,10 @@ export default function UnitConversionsList() {
                     ))}
                   </select>
                 </div>
-                <div>
+                <div className="w-full">
                   <label className="label">To UOM *</label>
                   <select
-                    className="input"
+                    className="input w-full"
                     value={formData.to_uom}
                     onChange={(e) =>
                       setFormData({ ...formData, to_uom: e.target.value })
@@ -313,12 +313,12 @@ export default function UnitConversionsList() {
                     ))}
                   </select>
                 </div>
-                <div>
+                <div className="w-full">
                   <label className="label">Factor *</label>
                   <input
                     type="number"
                     step="0.000001"
-                    className="input"
+                    className="input w-full"
                     value={formData.conversion_factor}
                     onChange={(e) =>
                       setFormData({

@@ -1,13 +1,54 @@
-import dotenv from "dotenv";
 import fs from "fs";
-/**
- * @file loadServerEnv.js
- * @description Utility for discovering and loading the .env file recursively from the server directory.
- */
 import path from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+
+let dotenv = null;
+try {
+  dotenv = require("dotenv");
+} catch (e) {
+  // dotenv module not found, fallback parser will be used
+}
 
 let loaded = false;
+
+function parseEnvContent(content) {
+  const result = {};
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx > 0) {
+      const key = trimmed.substring(0, eqIdx).trim();
+      let val = trimmed.substring(eqIdx + 1).trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.substring(1, val.length - 1);
+      }
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
+function parseEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return {};
+  if (dotenv && typeof dotenv.parse === "function") {
+    try {
+      return dotenv.parse(fs.readFileSync(filePath, "utf8")) || {};
+    } catch {
+      return {};
+    }
+  } else {
+    try {
+      return parseEnvContent(fs.readFileSync(filePath, "utf8"));
+    } catch {
+      return {};
+    }
+  }
+}
 
 function resolveServerRoot(metaUrl) {
   // Determine the server root directory by checking for the presence of package.json
@@ -20,8 +61,21 @@ function resolveServerRoot(metaUrl) {
 
 function loadIfExists(filePath, override = false) {
   // Helper function to conditionally load a .env file if it exists on disk
-  if (fs.existsSync(filePath)) {
+  if (!fs.existsSync(filePath)) return;
+  if (dotenv && typeof dotenv.config === "function") {
     dotenv.config({ path: filePath, override });
+  } else {
+    try {
+      const content = fs.readFileSync(filePath, "utf8");
+      const parsed = parseEnvContent(content);
+      for (const [k, v] of Object.entries(parsed)) {
+        if (override || process.env[k] === undefined) {
+          process.env[k] = v;
+        }
+      }
+    } catch (err) {
+      console.warn(`[loadServerEnv] Failed reading ${filePath}:`, err.message);
+    }
   }
 }
 
@@ -74,10 +128,7 @@ export function loadServerEnv(metaUrl = import.meta.url) {
   if (!runtimeIsProd && !forceLocal) {
     for (const filePath of localCandidates) {
       if (fs.existsSync(filePath)) {
-        let parsedLocal = {};
-        try {
-          parsedLocal = dotenv.parse(fs.readFileSync(filePath, "utf8"));
-        } catch {}
+        const parsedLocal = parseEnvFile(filePath);
         if (String(parsedLocal.DEV_FORCE_LOCAL_ENV || "").trim() === "1") {
           forceLocal = true;
           break;
@@ -88,15 +139,33 @@ export function loadServerEnv(metaUrl = import.meta.url) {
 
   const originalPort = process.env.PORT;
 
-  const effectiveIsProd = runtimeIsProd || (!hasLocalEnvFile && baseIsProd);
+  // Pre-check if any production candidate sets NODE_ENV=production
+  let prodSetsNodeEnv = false;
+  if (!runtimeIsProd) {
+    for (const filePath of prodCandidates) {
+      if (fs.existsSync(filePath)) {
+        const parsedProd = parseEnvFile(filePath);
+        if (String(parsedProd.NODE_ENV || "").toLowerCase() === "production") {
+          prodSetsNodeEnv = true;
+          break;
+        }
+      }
+    }
+  }
+
+  const effectiveIsProd = runtimeIsProd || baseIsProd || prodSetsNodeEnv;
 
   // Conditionally load local or production overrides based on current mode
-  if (!effectiveIsProd && (forceLocal || hasLocalEnvFile)) {
+  if (forceLocal) {
     for (const filePath of localCandidates) {
       loadIfExists(filePath, true);
     }
   } else if (effectiveIsProd) {
     for (const filePath of prodCandidates) {
+      loadIfExists(filePath, true);
+    }
+  } else if (hasLocalEnvFile) {
+    for (const filePath of localCandidates) {
       loadIfExists(filePath, true);
     }
   }

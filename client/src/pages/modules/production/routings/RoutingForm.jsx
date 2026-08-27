@@ -13,7 +13,8 @@ import {
   Clock,
   Settings2,
   ChevronDown,
-  Loader2
+  Loader2,
+  Activity
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "api/client";
@@ -32,6 +33,8 @@ export default function RoutingForm() {
   
   const [items, setItems] = useState([]);
   const [processes, setProcesses] = useState([]);
+  const [machines, setMachines] = useState([]);
+  const [shifts, setShifts] = useState([]);
   
   const [formData, setFormData] = useState({
     item_id: "",
@@ -43,12 +46,16 @@ export default function RoutingForm() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [itemsRes, procRes] = await Promise.all([
+        const [itemsRes, procRes, macRes, shiftRes] = await Promise.all([
           api.get("/inventory/items"),
-          api.get("/production/setup/processes")
+          api.get("/production/setup/processes"),
+          api.get("/production/setup/machines"),
+          api.get("/production/setup/shifts")
         ]);
         setItems(itemsRes.data?.items || []);
         setProcesses(procRes.data?.items || []);
+        setMachines(macRes.data?.items || []);
+        setShifts(shiftRes.data?.items || []);
 
         if (id) {
           const res = await api.get(`/production/routings/${id}`);
@@ -65,7 +72,7 @@ export default function RoutingForm() {
   const addStep = () => {
     setFormData({
       ...formData,
-      steps: [...formData.steps, { process_id: "", setup_time_mins: 0, cycle_time_mins: 0 }]
+      steps: [...formData.steps, { process_id: "", machine_id: "", shift_id: "", setup_time_mins: 0, cycle_time_mins: 0 }]
     });
   };
 
@@ -106,153 +113,195 @@ export default function RoutingForm() {
   if (loading) return <div className="p-20 text-center animate-pulse font-bold text-slate-400">Loading Routing Details...</div>;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex items-center justify-between">
+    <div className="p-6 max-w-5xl mx-auto space-y-8 animate-in fade-in duration-300">
+      
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link to="/production/routings" className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-500">
+          <Link to="/production/routings" className="btn btn-secondary p-2">
             <ArrowLeft size={20} />
           </Link>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-            {id ? 'Edit Routing' : 'New Routing Setup'}
-          </h1>
+          <div>
+            <h1 className="text-2xl font-bold text-brand-900 dark:text-brand-300">
+              {id ? 'Edit Routing Setup' : 'New Routing Setup'}
+            </h1>
+            <p className="text-xs text-slate-500 font-medium">Configure operation sequence and cycle times for manufactured items</p>
+          </div>
         </div>
+
         <button 
           form="routing-form"
           type="submit"
           disabled={saving}
-          className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-lg font-bold disabled:opacity-50"
+          className="btn btn-primary flex items-center gap-2"
         >
-          {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
-          {id ? 'Update Routing' : 'Create Routing'}
+          {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+          {id ? 'Update Routing' : 'Save Routing'}
         </button>
       </div>
 
       <form id="routing-form" onSubmit={handleSubmit} className="space-y-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Target Product / Item</label>
-              <div className="relative">
-                <select 
-                  required
-                  disabled={!!id}
-                  className="w-full pl-4 pr-10 py-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none appearance-none font-medium disabled:opacity-60"
-                  value={formData.item_id}
-                  onChange={e => setFormData({...formData, item_id: e.target.value})}
-                >
-                  <option value="">Select Item...</option>
-                  {items.map(item => (
-                    <option key={item.id} value={item.id}>{item.item_name} ({item.item_code})</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
-              </div>
+        
+        {/* Main Routing Details Card */}
+        <div className="card p-6 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                Target Product / Item *
+              </label>
+              <select 
+                required
+                disabled={!!id}
+                className="input w-full font-bold disabled:opacity-60"
+                value={formData.item_id}
+                onChange={e => setFormData({...formData, item_id: e.target.value})}
+              >
+                <option value="">Select Target Item...</option>
+                {items.map(item => (
+                  <option key={item.id} value={item.id}>{item.item_name} ({item.item_code})</option>
+                ))}
+              </select>
             </div>
-            <div className="flex items-center gap-3">
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1">
+                Routing Name / Version *
+              </label>
+              <input 
+                type="text" 
+                required
+                className="input w-full font-bold"
+                value={formData.routing_name}
+                onChange={e => setFormData({...formData, routing_name: e.target.value})}
+                placeholder="e.g. Fanta Routes / Standard Assembly V1"
+              />
+              <p className="text-[10px] text-slate-400 font-medium mt-1">Use names that differentiate between product variations</p>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+            <label className="flex items-center gap-2 cursor-pointer font-bold text-xs text-slate-700 dark:text-slate-300">
               <input 
                 type="checkbox" 
-                id="is_default"
-                className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                className="checkbox"
                 checked={formData.is_default}
                 onChange={e => setFormData({...formData, is_default: e.target.checked})}
               />
-              <label htmlFor="is_default" className="text-sm font-bold text-slate-700 dark:text-slate-300 cursor-pointer">Set as Default Routing for this item</label>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Routing Name / Version</label>
-            <input 
-              type="text" 
-              required
-              className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all outline-none font-medium"
-              value={formData.routing_name}
-              onChange={e => setFormData({...formData, routing_name: e.target.value})}
-              placeholder="e.g. Standard Assembly V1"
-            />
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Use names that differentiate between variations</p>
+              Set as Default Production Routing for this item
+            </label>
           </div>
         </div>
 
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Settings2 size={20} className="text-indigo-500" />
-              Process Sequence
+        {/* Process Sequence Card */}
+        <div className="card p-6 space-y-6">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700/60 pb-3">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Settings2 size={18} className="text-brand-600" /> Process Sequence
             </h2>
             <button 
               type="button" 
               onClick={addStep}
-              className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg transition-all"
+              className="btn btn-secondary text-xs flex items-center gap-1.5"
             >
-              <Plus size={16} />
-              Add Step
+              <Plus size={16} /> Add Step
             </button>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             {formData.steps.map((step, index) => (
               <div 
                 key={index} 
-                className="group flex flex-col md:flex-row items-start md:items-center gap-4 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-indigo-200 transition-all"
+                className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3"
               >
-                <div className="flex items-center gap-3 w-full md:w-auto">
-                  <span className="w-8 h-8 flex items-center justify-center bg-slate-100 dark:bg-slate-900 rounded-lg text-xs font-bold text-slate-500">
-                    {index + 1}
-                  </span>
-                  <div className="relative flex-1 md:w-64">
-                    <select 
-                      required
-                      className="w-full pl-3 pr-8 py-2 bg-slate-50 dark:bg-slate-900 border-none rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none appearance-none text-sm font-bold"
-                      value={step.process_id}
-                      onChange={e => updateStep(index, 'process_id', e.target.value)}
-                    >
-                      <option value="">Select Process...</option>
-                      {processes.map(p => (
-                        <option key={p.id} value={p.id}>{p.process_name}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 flex-1">
+                    <span className="w-7 h-7 flex items-center justify-center bg-slate-200 dark:bg-slate-700 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 shrink-0">
+                      {index + 1}
+                    </span>
+                    <div className="flex-1 max-w-xs">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Process Operation *</label>
+                      <select 
+                        required
+                        className="input w-full font-bold text-xs"
+                        value={step.process_id}
+                        onChange={e => updateStep(index, 'process_id', e.target.value)}
+                      >
+                        <option value="">Select Process...</option>
+                        {processes.map(p => (
+                          <option key={p.id} value={p.id}>{p.process_name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-4 flex-1 w-full md:w-auto">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tight flex items-center gap-1">
-                      <Clock size={10} /> Setup Time (Mins)
-                    </label>
-                    <input 
-                      type="number" 
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border-none rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold"
-                      value={step.setup_time_mins}
-                      onChange={e => updateStep(index, 'setup_time_mins', e.target.value)}
-                    />
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <Clock size={10} /> Setup Time (Mins)
+                      </label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        className="input w-full font-bold text-xs"
+                        value={step.setup_time_mins}
+                        onChange={e => updateStep(index, 'setup_time_mins', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <Activity size={10} /> Cycle Time (Mins)
+                      </label>
+                      <input 
+                        type="number" 
+                        min="0"
+                        className="input w-full font-bold text-xs"
+                        value={step.cycle_time_mins}
+                        onChange={e => updateStep(index, 'cycle_time_mins', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Work Center / Machine</label>
+                      <select 
+                        className="input w-full font-bold text-xs"
+                        value={step.machine_id || ""}
+                        onChange={e => updateStep(index, 'machine_id', e.target.value)}
+                      >
+                        <option value="">Default Machine</option>
+                        {machines.map(m => (
+                          <option key={m.id} value={m.id}>{m.machine_name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Work Shift</label>
+                      <select 
+                        className="input w-full font-bold text-xs"
+                        value={step.shift_id || ""}
+                        onChange={e => updateStep(index, 'shift_id', e.target.value)}
+                      >
+                        <option value="">Default Shift</option>
+                        {shifts.map(s => (
+                          <option key={s.id} value={s.id}>{s.shift_name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tight flex items-center gap-1">
-                      <Activity size={10} /> Cycle Time (Mins)
-                    </label>
-                    <input 
-                      type="number" 
-                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-900 border-none rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold"
-                      value={step.cycle_time_mins}
-                      onChange={e => updateStep(index, 'cycle_time_mins', e.target.value)}
-                    />
-                  </div>
-                </div>
 
-                <button 
-                  type="button" 
-                  onClick={() => removeStep(index)}
-                  className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                >
-                  <Trash2 size={18} />
-                </button>
+                  <button 
+                    type="button" 
+                    onClick={() => removeStep(index)}
+                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors self-end md:self-center"
+                    title="Remove Step"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
             ))}
 
             {formData.steps.length === 0 && (
-              <div className="p-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl text-slate-400">
-                <p>No steps added. Build your production sequence by clicking "Add Step".</p>
+              <div className="p-10 text-center border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl text-slate-400 text-xs">
+                <p className="font-medium">No process steps added yet. Click "+ Add Step" to build sequence.</p>
               </div>
             )}
           </div>

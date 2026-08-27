@@ -20,165 +20,158 @@ import { sendPushToUser } from "../routes/push.routes.js";
  */
 export const getPosts = async (req, res) => {
   try {
+    // Resolve userId from session/JWT or x-user-id header
     const userId =
       Number(req.user?.id) ||
       Number(req.user?.sub) ||
       Number(req.headers["x-user-id"]) ||
       null;
-    const warehouseId =
-      Number(req.user?.warehouse_id) ||
-      Number(req.scope?.branchId) ||
-      Number(req.query?.warehouseId) ||
-      null;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
     const limit = parseInt(req.query.limit) || 20;
     const offset = parseInt(req.query.offset) || 0;
 
-    const connection = await pool.getConnection();
+    // Look up user's company_id and branch_id fresh from DB
+    const [[userRow]] = await pool.query(
+      `SELECT id, company_id, branch_id FROM adm_users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
 
-    try {
-      // Fetch posts visible to user with optimized query
-      const [posts] = await connection.query(
-        `
-        SELECT DISTINCT 
-          p.id,
-          p.user_id,
-          p.content,
-          p.image_url,
-          p.visibility_type,
-          p.warehouse_id,
-          p.like_count,
-          p.comment_count,
+    const companyId = Number(userRow?.company_id) || null;
+    const branchId = Number(userRow?.branch_id) || null;
+
+    // Get all branch assignments
+    const [branchRows] = await pool.query(
+      `SELECT DISTINCT branch_id FROM adm_user_branches WHERE user_id = ?`,
+      [userId]
+    );
+    const allBranchIds = [...new Set([
+      ...(branchId ? [branchId] : []),
+      ...branchRows.map(r => Number(r.branch_id)).filter(Boolean)
+    ])];
+
+    // Build visibility query for this user:
+    // 1) Own posts always visible
+    // 2) Company posts: post author shares same company as viewer
+    // 3) Branch/warehouse posts: post branch matches viewer's branches
+    // Fallback: if user has no company association, show ALL posts (safety net)
+    const branchPh = allBranchIds.length > 0 ? allBranchIds.map(() => "?").join(",") : "0";
+
+    let queryStr, queryParams;
+    if (!companyId) {
+      // No company info - show all posts as safety fallback
+      queryStr = `
+        SELECT DISTINCT
+          p.id, p.user_id, p.content, p.image_url, p.visibility_type,
+          COALESCE(p.branch_id, p.warehouse_id) AS branch_id,
+          (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS like_count,
+          (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comment_count,
           p.created_at,
-          u.full_name,
+          COALESCE(u.full_name, u.username, 'User') AS full_name,
           u.profile_picture AS profile_picture,
-          (SELECT COUNT(*)
-         FROM post_likes pl
-         WHERE pl.post_id = p.id AND pl.user_id = ?) AS user_liked
+          (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = ?) AS user_liked
         FROM posts p
-        JOIN adm_users u ON p.user_id = u.id
-        WHERE 
-          (p.visibility_type = 'company')
-          OR
-          (p.visibility_type = 'warehouse' AND p.warehouse_id = ?)
+        LEFT JOIN adm_users u ON p.user_id = u.id
         ORDER BY p.created_at DESC
-        LIMIT ? OFFSET ?
-        `,
-        [userId, warehouseId, limit, offset],
-      );
-
-      // Get latest comments for each post
-      const origin = `${req.protocol}://${req.get("host")}`;
-      const toAbsoluteImageUrl = (s) => {
-        try {
-          if (!s) return null;
-          const str = String(s);
-          if (/^https?:\/\//i.test(str)) {
-            try {
-              const u = new URL(str);
-              if (
-                u.hostname === "localhost" &&
-                (u.port === "5173" || u.port === "5174" || u.port === "")
-              ) {
-                return `${origin}${u.pathname}`;
-              }
-              return str;
-            } catch {
-              return str;
-            }
-          }
-          if (str.startsWith("/uploads")) return `${origin}${str}`;
-          if (str.startsWith("uploads")) return `${origin}/${str}`;
-          return str;
-        } catch {
-          return s;
-        }
-      };
-      const postsWithComments = await Promise.all(
-        posts.map(async (post) => {
-          const [comments] = await connection.query(
-            `
-            SELECT 
-              pc.id,
-              pc.user_id,
-              pc.comment_text,
-              pc.created_at,
-              u.full_name,
-              u.profile_picture AS profile_picture,
-              uc.username AS created_by_name
-            FROM post_comments pc
-            JOIN adm_users u ON pc.user_id = u.id
-            LEFT JOIN adm_users uc ON uc.id = pc.created_by
-            WHERE pc.post_id = ?
-            ORDER BY pc.created_at DESC
-            LIMIT 3
-            `,
-            [post.id],
-          );
-
-          const toUrl = (blob) => {
-            if (!blob) return null;
-            const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
-            const str = b.toString("utf8");
-            if (str.startsWith("http://") || str.startsWith("https://") || str.startsWith("data:")) return str;
-            let mime = "image/jpeg";
-            if (
-              b.length >= 3 &&
-              b[0] === 0xff &&
-              b[1] === 0xd8 &&
-              b[2] === 0xff
-            ) {
-              mime = "image/jpeg";
-            } else if (
-              b.length >= 8 &&
-              b[0] === 0x89 &&
-              b[1] === 0x50 &&
-              b[2] === 0x4e &&
-              b[3] === 0x47 &&
-              b[4] === 0x0d &&
-              b[5] === 0x0a &&
-              b[6] === 0x1a &&
-              b[7] === 0x0a
-            ) {
-              mime = "image/png";
-            } else if (
-              b.length >= 12 &&
-              b[0] === 0x52 &&
-              b[1] === 0x49 &&
-              b[2] === 0x46 &&
-              b[3] === 0x46 &&
-              b[8] === 0x57 &&
-              b[9] === 0x45 &&
-              b[10] === 0x42 &&
-              b[11] === 0x50
-            ) {
-              mime = "image/webp";
-            }
-            return `data:${mime};base64,${b.toString("base64")}`;
-          };
-          const mappedComments = comments.reverse().map((c) => ({
-            ...c,
-            profile_picture_url: toUrl(c.profile_picture),
-          }));
-          return {
-            ...post,
-            image_url: toAbsoluteImageUrl(post.image_url),
-            profile_picture_url: toUrl(post.profile_picture),
-            comments: mappedComments,
-            user_liked: post.user_liked === 1,
-          };
-        }),
-      );
-
-      res.json({
-        success: true,
-        data: postsWithComments,
-        pagination: { offset, limit, total: postsWithComments.length },
-      });
-    } finally {
-      await connection.release();
+        LIMIT ? OFFSET ?`;
+      queryParams = [userId, limit, offset];
+    } else {
+      queryStr = `
+        SELECT DISTINCT
+          p.id, p.user_id, p.content, p.image_url, p.visibility_type,
+          COALESCE(p.branch_id, p.warehouse_id) AS branch_id,
+          (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS like_count,
+          (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comment_count,
+          p.created_at,
+          COALESCE(u.full_name, u.username, 'User') AS full_name,
+          u.profile_picture AS profile_picture,
+          (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = ?) AS user_liked
+        FROM posts p
+        LEFT JOIN adm_users u ON p.user_id = u.id
+        WHERE
+          (p.user_id = ?)
+          OR (p.visibility_type = 'company' AND u.company_id = ?)
+          OR (p.visibility_type IN ('branch', 'warehouse') AND COALESCE(p.branch_id, p.warehouse_id) IN (${branchPh}))
+        ORDER BY p.created_at DESC
+        LIMIT ? OFFSET ?`;
+      queryParams = [userId, userId, companyId, ...allBranchIds, limit, offset];
     }
+
+    const [posts] = await pool.query(queryStr, queryParams);
+
+    const origin = `${req.protocol}://${req.get("host")}`;
+    const toAbsoluteImageUrl = (s) => {
+      try {
+        if (!s) return null;
+        const str = String(s);
+        if (/^https?:\/\//i.test(str)) {
+          try {
+            const u = new URL(str);
+            if (
+              u.hostname === "localhost" &&
+              (u.port === "5173" || u.port === "5174" || u.port === "")
+            ) {
+              return `${origin}${u.pathname}`;
+            }
+            return str;
+          } catch {
+            return str;
+          }
+        }
+        if (str.startsWith("/uploads")) return `${origin}${str}`;
+        if (str.startsWith("uploads")) return `${origin}/${str}`;
+        return str;
+      } catch {
+        return s;
+      }
+    };
+
+    const postsWithComments = [];
+    for (const post of posts) {
+      const [comments] = await pool.query(
+        `
+        SELECT 
+          pc.id,
+          pc.user_id,
+          pc.comment_text,
+          pc.created_at,
+          COALESCE(u.full_name, u.username, 'User') AS full_name
+        FROM post_comments pc
+        LEFT JOIN adm_users u ON pc.user_id = u.id
+        WHERE pc.post_id = ?
+        ORDER BY pc.created_at DESC
+        LIMIT 3
+        `,
+        [post.id],
+      );
+      const mappedComments = comments.reverse().map((c) => {
+        return {
+          ...c,
+          profile_picture_url: c.user_id ? `/api/social-feed/avatar/${c.user_id}` : "/default-avatar.png",
+        };
+      });
+      const { profile_picture: postPic, ...cleanPost } = post;
+      postsWithComments.push({
+        ...cleanPost,
+        like_count: Number(post.like_count) || 0,
+        comment_count: Number(post.comment_count) || 0,
+        image_url: toAbsoluteImageUrl(post.image_url),
+        profile_picture_url: post.user_id ? `/api/social-feed/avatar/${post.user_id}` : "/default-avatar.png",
+        comments: mappedComments,
+        user_liked: Number(post.user_liked) > 0,
+      });
+    }
+
+    res.json({
+      success: true,
+      data: postsWithComments,
+      pagination: { offset, limit, total: postsWithComments.length },
+    });
   } catch (error) {
-    console.error("Error fetching posts:", error);
+    console.error("Error in getPosts:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -211,20 +204,17 @@ export const getPostById = async (req, res) => {
           p.content,
           p.image_url,
           p.visibility_type,
-          p.warehouse_id,
+          COALESCE(p.branch_id, p.warehouse_id) AS branch_id,
           p.like_count,
           p.comment_count,
           p.created_at,
-          u.full_name,
+          COALESCE(u.full_name, u.username, 'User') AS full_name,
           u.profile_picture AS profile_picture,
-          (SELECT COUNT(*),
-          pl.created_at,
-          u.username AS created_by_name
+          (SELECT COUNT(*)
          FROM post_likes pl
-        LEFT JOIN adm_users u ON u.id = pl.created_by
          WHERE pl.post_id = p.id AND pl.user_id = ?) AS user_liked
         FROM posts p
-        JOIN adm_users u ON p.user_id = u.id
+        LEFT JOIN adm_users u ON p.user_id = u.id
         WHERE p.id = ?
         `,
         [userId, postId],
@@ -245,10 +235,10 @@ export const getPostById = async (req, res) => {
           u.full_name,
           u.profile_picture AS profile_picture,
           pc.created_at,
-          u.username AS created_by_name
+          u2.username AS created_by_name
          FROM post_comments pc
         JOIN adm_users u ON pc.user_id = u.id
-        LEFT JOIN adm_users u ON u.id = pc.created_by
+        LEFT JOIN adm_users u2 ON u2.id = pc.created_by
          WHERE pc.post_id = ?
         ORDER BY pc.created_at ASC
         `,
@@ -289,10 +279,13 @@ export const getPostById = async (req, res) => {
         }
         return `data:${mime};base64,${b.toString("base64")}`;
       };
-      const mappedComments = comments.map((c) => ({
-        ...c,
-        profile_picture_url: toUrl(c.profile_picture),
-      }));
+      const mappedComments = comments.map((c) => {
+        const { profile_picture: pic, ...cleanC } = c;
+        return {
+          ...cleanC,
+          profile_picture_url: toUrl(pic),
+        };
+      });
       const origin = `${req.protocol}://${req.get("host")}`;
       const toAbsoluteImageUrl = (s) => {
         try {
@@ -319,12 +312,13 @@ export const getPostById = async (req, res) => {
           return s;
         }
       };
+      const { profile_picture: postPic, ...cleanPost } = post;
       res.json({
         success: true,
         data: {
-          ...post,
+          ...cleanPost,
           image_url: toAbsoluteImageUrl(post.image_url),
-          profile_picture_url: toUrl(post.profile_picture),
+          profile_picture_url: toUrl(postPic),
           comments: mappedComments,
           user_liked: post.user_liked === 1,
         },
@@ -355,10 +349,10 @@ export const createPost = async (req, res) => {
       Number(req.user?.sub) ||
       Number(req.headers["x-user-id"]) ||
       null;
-    const warehouseId =
-      Number(req.user?.warehouse_id) ||
+    const branchId =
+      Number(req.user?.branch_id) ||
       Number(req.scope?.branchId) ||
-      Number(req.body?.warehouse_id) ||
+      Number(req.body?.branch_id) ||
       null;
     const companyId = Number(req.scope?.companyId) || 1;
     const { content, image_url, visibility_type } = req.body;
@@ -370,13 +364,13 @@ export const createPost = async (req, res) => {
         .json({ success: false, message: "Content is required" });
     }
 
-    if (!["company", "warehouse"].includes(visibility_type)) {
+    if (!["company", "branch"].includes(visibility_type)) {
       return res.status(400).json({
         success: false,
         message: "Invalid visibility type",
       });
     }
-    if (visibility_type === "warehouse" && !Number.isFinite(warehouseId)) {
+    if (visibility_type === "branch" && !Number.isFinite(branchId)) {
       return res.status(400).json({
         success: false,
         message: "Warehouse ID required for warehouse visibility",
@@ -391,7 +385,7 @@ export const createPost = async (req, res) => {
       // Create post
       const [postResult] = await connection.query(
         `
-        INSERT INTO posts (user_id, content, image_url, visibility_type, warehouse_id)
+        INSERT INTO posts (user_id, content, image_url, visibility_type, branch_id)
         VALUES (?, ?, ?, ?, ?)
         `,
         [
@@ -399,7 +393,7 @@ export const createPost = async (req, res) => {
           content,
           image_url || null,
           visibility_type,
-          visibility_type === "warehouse" ? warehouseId : null,
+          visibility_type === "branch" ? branchId : null,
         ],
       );
 
@@ -415,10 +409,10 @@ export const createPost = async (req, res) => {
           u.full_name,
           u.profile_picture AS profile_picture,
           p.created_at,
-          u.username AS created_by_name
+          u2.username AS created_by_name
          FROM posts p
         JOIN adm_users u ON p.user_id = u.id
-        LEFT JOIN adm_users u ON u.id = p.created_by
+        LEFT JOIN adm_users u2 ON u2.id = p.created_by
          WHERE p.id = ?
         `,
         [postId],
@@ -459,13 +453,14 @@ export const createPost = async (req, res) => {
         }
         return `data:${mime};base64,${b.toString("base64")}`;
       };
+      const { profile_picture: postPic, ...cleanPost0 } = post[0] || {};
       const createdPost = {
-        ...post[0],
-        profile_picture_url: toUrl(post[0]?.profile_picture),
+        ...cleanPost0,
+        profile_picture_url: toUrl(postPic),
       };
 
       try {
-        broadcastNewPost(createdPost, visibility_type, warehouseId);
+        broadcastNewPost(createdPost, visibility_type, branchId);
       } catch {}
 
       try {
@@ -474,7 +469,7 @@ export const createPost = async (req, res) => {
           userId,
           "post_created",
           visibility_type,
-          warehouseId,
+          branchId,
           companyId,
         );
       } catch {}
@@ -513,13 +508,12 @@ export const getPostComments = async (req, res) => {
           pc.user_id,
           pc.comment_text,
           pc.created_at,
-          u.full_name,
+          COALESCE(u.full_name, u.username, 'User') AS full_name,
           u.profile_picture AS profile_picture,
-          pc.created_at,
-          u.username AS created_by_name
+          u2.username AS created_by_name
          FROM post_comments pc
-        JOIN adm_users u ON pc.user_id = u.id
-        LEFT JOIN adm_users u ON u.id = pc.created_by
+        LEFT JOIN adm_users u ON pc.user_id = u.id
+        LEFT JOIN adm_users u2 ON u2.id = pc.created_by
          WHERE pc.post_id = ?
         ORDER BY pc.created_at ASC
         LIMIT ? OFFSET ?
@@ -561,10 +555,13 @@ export const getPostComments = async (req, res) => {
         }
         return `data:${mime};base64,${b.toString("base64")}`;
       };
-      const mapped = comments.map((c) => ({
-        ...c,
-        profile_picture_url: toUrl2(c.profile_picture),
-      }));
+      const mapped = comments.map((c) => {
+        const { profile_picture: pic, ...cleanC } = c;
+        return {
+          ...cleanC,
+          profile_picture_url: toUrl2(pic),
+        };
+      });
       res.json({
         success: true,
         data: mapped,
@@ -648,73 +645,32 @@ export const getPostLikes = async (req, res) => {
     const { postId } = req.params;
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
-    const connection = await pool.getConnection();
-    try {
-      const [likes] = await connection.query(
-        `
-        SELECT 
-          pl.user_id,
-          u.full_name,
-          u.profile_picture AS profile_picture,
-          pl.created_at,
-          u.username AS created_by_name
-         FROM post_likes pl
-        JOIN adm_users u ON pl.user_id = u.id
-        LEFT JOIN adm_users u ON u.id = pl.created_by
-         WHERE pl.post_id = ?
-        ORDER BY u.full_name ASC
-        LIMIT ? OFFSET ?
-        `,
-        [postId, limit, offset],
-      );
-      const toUrl = (blob) => {
-        if (!blob) return null;
-        const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
-        const str = b.toString("utf8");
-        if (str.startsWith("http://") || str.startsWith("https://") || str.startsWith("data:")) return str;
-        let mime = "image/jpeg";
-        if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
-          mime = "image/jpeg";
-        } else if (
-          b.length >= 8 &&
-          b[0] === 0x89 &&
-          b[1] === 0x50 &&
-          b[2] === 0x4e &&
-          b[3] === 0x47 &&
-          b[4] === 0x0d &&
-          b[5] === 0x0a &&
-          b[6] === 0x1a &&
-          b[7] === 0x0a
-        ) {
-          mime = "image/png";
-        } else if (
-          b.length >= 12 &&
-          b[0] === 0x52 &&
-          b[1] === 0x49 &&
-          b[2] === 0x46 &&
-          b[3] === 0x46 &&
-          b[8] === 0x57 &&
-          b[9] === 0x45 &&
-          b[10] === 0x42 &&
-          b[11] === 0x50
-        ) {
-          mime = "image/webp";
-        }
-        return `data:${mime};base64,${b.toString("base64")}`;
-      };
-      const mapped = likes.map((l) => ({
-        user_id: l.user_id,
-        full_name: l.full_name,
-        profile_picture_url: toUrl(l.profile_picture),
-      }));
-      res.json({
-        success: true,
-        data: mapped,
-        pagination: { offset, limit, total: mapped.length },
-      });
-    } finally {
-      await connection.release();
-    }
+    const [likes] = await pool.query(
+      `
+      SELECT 
+        pl.user_id,
+        COALESCE(u.full_name, u.username, 'User') AS full_name,
+        u.username,
+        pl.created_at
+      FROM post_likes pl
+      JOIN adm_users u ON pl.user_id = u.id
+      WHERE pl.post_id = ?
+      ORDER BY pl.created_at DESC
+      LIMIT ? OFFSET ?
+      `,
+      [postId, limit, offset],
+    );
+
+    const mapped = likes.map((l) => ({
+      ...l,
+      profile_picture_url: l.user_id ? `/api/social-feed/avatar/${l.user_id}` : "/default-avatar.png",
+    }));
+
+    res.json({
+      success: true,
+      data: mapped,
+      pagination: { offset, limit, total: mapped.length },
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -740,81 +696,52 @@ export const likePost = async (req, res) => {
     const { postId } = req.params;
     const companyId = Number(req.scope?.companyId) || 1;
 
-    const connection = await pool.getConnection();
+    // Check if user already liked
+    const [existingLike] = await pool.query(
+      `SELECT id FROM post_likes WHERE post_id = ? AND user_id = ?`,
+      [postId, userId],
+    );
 
-    try {
-      // Check if user already liked
-      const [existingLike] = await connection.query(
-        `SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM post_likes
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE post_id = ? AND user_id = ?`,
-        [postId, userId],
-      );
-
-      if (existingLike.length > 0) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Already liked this post" });
-      }
-
+    if (existingLike.length === 0) {
       // Add like
-      await connection.query(
+      await pool.query(
         `INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)`,
         [postId, userId],
       );
 
-      // Increment like count
-      await connection.query(
-        `UPDATE posts SET like_count = like_count + 1 WHERE id = ?`,
-        [postId],
-      );
-
       // Get post info for notifications
-      const [postRows] = await connection.query(
-        `SELECT user_id, visibility_type, warehouse_id,
-          created_at,
-          u.username AS created_by_name
-         FROM posts
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = ?`,
-        [postId],
-      );
-
-      const postOwnerId = postRows[0]?.user_id;
-
-      // 🔔 BROADCAST LIKE VIA SOCKET.IO
       try {
-        broadcastLike(postId, userId, postOwnerId);
+        const [postRows] = await pool.query(
+          `SELECT user_id, visibility_type, branch_id FROM posts WHERE id = ?`,
+          [postId],
+        );
+        const postOwnerId = postRows[0]?.user_id;
+
+        if (postOwnerId) {
+          try { broadcastLike(postId, userId, postOwnerId); } catch {}
+          if (postOwnerId !== userId) {
+            try { await triggerLikeNotification(postId, userId, postOwnerId, companyId); } catch {}
+          }
+        }
       } catch {}
-
-      // 📧 TRIGGER LIKE NOTIFICATION
-      if (postOwnerId !== userId) {
-        try {
-          await triggerLikeNotification(postId, userId, postOwnerId, companyId);
-        } catch {}
-      }
-
-      res.json({
-        success: true,
-        message: "Post liked",
-        like_count: (
-          await connection.query(
-            `SELECT like_count,
-          created_at,
-          u.username AS created_by_name
-         FROM posts
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = ?`,
-            [postId],
-          )
-        )[0][0].like_count,
-      });
-    } finally {
-      await connection.release();
     }
+
+    // Always get true count from post_likes
+    const [[countRow]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM post_likes WHERE post_id = ?`,
+      [postId],
+    );
+    const totalLikes = Number(countRow?.total) || 0;
+
+    // Update posts table cache
+    await pool.query(`UPDATE posts SET like_count = ? WHERE id = ?`, [totalLikes, postId]);
+
+    res.json({
+      success: true,
+      message: "Post liked",
+      user_liked: true,
+      like_count: totalLikes,
+    });
   } catch (error) {
     console.error("Error liking post:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -840,56 +767,28 @@ export const unlikePost = async (req, res) => {
       null;
     const { postId } = req.params;
 
-    const connection = await pool.getConnection();
+    // Remove like if exists
+    await pool.query(
+      `DELETE FROM post_likes WHERE post_id = ? AND user_id = ?`,
+      [postId, userId],
+    );
 
-    try {
-      // Check if user liked
-      const [existingLike] = await connection.query(
-        `SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM post_likes
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE post_id = ? AND user_id = ?`,
-        [postId, userId],
-      );
+    // Always get true count from post_likes
+    const [[countRow]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM post_likes WHERE post_id = ?`,
+      [postId],
+    );
+    const totalLikes = Number(countRow?.total) || 0;
 
-      if (existingLike.length === 0) {
-        return res
-          .status(400)
-          .json({ success: false, message: "Haven't liked this post" });
-      }
+    // Update posts table cache
+    await pool.query(`UPDATE posts SET like_count = ? WHERE id = ?`, [totalLikes, postId]);
 
-      // Remove like
-      await connection.query(
-        `DELETE FROM post_likes WHERE post_id = ? AND user_id = ?`,
-        [postId, userId],
-      );
-
-      // Decrement like count
-      await connection.query(
-        `UPDATE posts SET like_count = GREATEST(like_count - 1, 0) WHERE id = ?`,
-        [postId],
-      );
-
-      res.json({
-        success: true,
-        message: "Post unliked",
-        like_count: (
-          await connection.query(
-            `SELECT like_count,
-          created_at,
-          u.username AS created_by_name
-         FROM posts
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = ?`,
-            [postId],
-          )
-        )[0][0].like_count,
-      });
-    } finally {
-      await connection.release();
-    }
+    res.json({
+      success: true,
+      message: "Post unliked",
+      user_liked: false,
+      like_count: totalLikes,
+    });
   } catch (error) {
     console.error("Error unliking post:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -950,7 +849,6 @@ export const addComment = async (req, res) => {
           u.username AS created_by_name
          FROM post_comments pc
         JOIN adm_users u ON pc.user_id = u.id
-        LEFT JOIN adm_users u ON u.id = pc.created_by
          WHERE pc.id = ?
         `,
         [result.insertId],
@@ -958,12 +856,12 @@ export const addComment = async (req, res) => {
 
       // Get post info for notifications
       const [postRows] = await connection.query(
-        `SELECT user_id,
-          created_at,
+        `SELECT p.user_id,
+          p.created_at,
           u.username AS created_by_name
-         FROM posts
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = ?`,
+         FROM posts p
+        LEFT JOIN adm_users u ON u.id = p.user_id
+         WHERE p.id = ?`,
         [postId],
       );
 
@@ -1067,10 +965,11 @@ export const addComment = async (req, res) => {
         }
         url = `data:${mime};base64,${buf.toString("base64")}`;
       }
+      const { profile_picture: cPic, ...cleanC0 } = c0;
       res.status(201).json({
         success: true,
         message: "Comment added",
-        data: { ...c0, profile_picture_url: url },
+        data: { ...cleanC0, profile_picture_url: url },
       });
     } finally {
       await connection.release();
@@ -1089,17 +988,17 @@ export const addComment = async (req, res) => {
  * Broadcasts a new post event to connected clients in the appropriate room (company or warehouse).
  *
  * @param {object} post - The newly created post object.
- * @param {string} visibility_type - The visibility scope ('company' or 'warehouse').
- * @param {number|null} warehouseId - The warehouse ID if visibility is 'warehouse'.
+ * @param {string} visibility_type - The visibility scope ('company' or 'branch').
+ * @param {number|null} branchId - The warehouse ID if visibility is 'branch'.
  */
-const broadcastNewPost = (post, visibility_type, warehouseId) => {
+const broadcastNewPost = (post, visibility_type, branchId) => {
   try {
     const io = getIO();
 
     if (visibility_type === "company") {
       io.to("company").emit("new_post", post);
-    } else if (visibility_type === "warehouse") {
-      io.to(`warehouse_${warehouseId}`).emit("new_post", post);
+    } else if (visibility_type === "branch") {
+      io.to(`warehouse_${branchId}`).emit("new_post", post);
     }
   } catch (error) {
     console.error("Error broadcasting new post:", error);
@@ -1153,8 +1052,8 @@ const broadcastComment = (postId, comment) => {
  * @param {number|string} postId - The ID of the new post.
  * @param {number} userId - The ID of the user who created the post.
  * @param {string} type - The type of notification (e.g., 'post_created').
- * @param {string} visibility_type - The visibility scope ('company' or 'warehouse').
- * @param {number|null} warehouseId - The warehouse ID if visibility is 'warehouse'.
+ * @param {string} visibility_type - The visibility scope ('company' or 'branch').
+ * @param {number|null} branchId - The warehouse ID if visibility is 'branch'.
  * @param {number} companyId - The company ID.
  */
 const triggerPostNotifications = async (
@@ -1162,19 +1061,19 @@ const triggerPostNotifications = async (
   userId,
   type,
   visibility_type,
-  warehouseId,
+  branchId,
   companyId = 1,
 ) => {
   const connection = await pool.getConnection();
 
   try {
     const [userRows] = await connection.query(
-      `SELECT full_name,
-          created_at,
+      `SELECT adm_users.full_name,
+          adm_users.created_at,
           u.username AS created_by_name
          FROM adm_users
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id = ?`,
+        LEFT JOIN adm_users u ON u.id = adm_users.created_by
+         WHERE adm_users.id = ?`,
       [userId],
     );
     const userName = userRows[0]?.full_name || "User";
@@ -1184,25 +1083,25 @@ const triggerPostNotifications = async (
     if (visibility_type === "company") {
       // Notify all users except poster
       const [allUsers] = await connection.query(
-        `SELECT id,
-          created_at,
+        `SELECT adm_users.id,
+          adm_users.created_at,
           u.username AS created_by_name
          FROM adm_users
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE id != ?`,
+        LEFT JOIN adm_users u ON u.id = adm_users.created_by
+         WHERE adm_users.id != ?`,
         [userId],
       );
       targetUsers = allUsers.map((u) => u.id);
-    } else if (visibility_type === "warehouse") {
+    } else if (visibility_type === "branch") {
       // Notify warehouse users except poster
       const [warehouseUsers] = await connection.query(
-        `SELECT id,
-          created_at,
+        `SELECT adm_users.id,
+          adm_users.created_at,
           u.username AS created_by_name
          FROM adm_users
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE warehouse_id = ? AND id != ?`,
-        [warehouseId, userId],
+        LEFT JOIN adm_users u ON u.id = adm_users.created_by
+         WHERE adm_users.branch_id = ? AND adm_users.id != ?`,
+        [branchId, userId],
       );
       targetUsers = warehouseUsers.map((u) => u.id);
     }
@@ -1394,3 +1293,89 @@ const triggerCommentNotification = async (
     await connection.release();
   }
 };
+
+// ============================================
+// 🗑️ DELETE POST
+// ============================================
+
+/**
+ * Deletes a post created by the current user.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+export const deletePost = async (req, res) => {
+  try {
+    const userId =
+      Number(req.user?.id) ||
+      Number(req.user?.sub) ||
+      Number(req.headers["x-user-id"]) ||
+      null;
+    const { postId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const connection = await pool.getConnection();
+
+    try {
+      // Check if post exists and belongs to user
+      const [postRows] = await connection.query(
+        `SELECT id, user_id FROM posts WHERE id = ?`,
+        [postId],
+      );
+
+      if (postRows.length === 0) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Post not found" });
+      }
+
+      // Delete related records (post_likes, post_comments)
+      await connection.query(`DELETE FROM post_likes WHERE post_id = ?`, [postId]);
+      await connection.query(`DELETE FROM post_comments WHERE post_id = ?`, [postId]);
+
+      // Delete the post
+      await connection.query(`DELETE FROM posts WHERE id = ?`, [postId]);
+
+      res.json({ success: true, message: "Post deleted successfully" });
+    } finally {
+      await connection.release();
+    }
+  } catch (error) {
+    console.error("Error deleting post:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Serves the user avatar as a binary image response with HTTP caching.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+export const getAvatar = async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+    if (!userId) return res.redirect("/default-avatar.png");
+    const [rows] = await pool.query("SELECT profile_picture FROM adm_users WHERE id = ?", [userId]);
+    const blob = rows?.[0]?.profile_picture;
+    if (!blob) return res.redirect("/default-avatar.png");
+    const b = Buffer.isBuffer(blob) ? blob : Buffer.from(blob);
+    if (!b.length) return res.redirect("/default-avatar.png");
+
+    let mime = "image/jpeg";
+    if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
+      mime = "image/jpeg";
+    } else if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+      mime = "image/png";
+    } else if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46) {
+      mime = "image/webp";
+    }
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.type(mime).send(b);
+  } catch {
+    res.redirect("/default-avatar.png");
+  }
+};
+

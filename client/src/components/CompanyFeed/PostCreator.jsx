@@ -179,7 +179,7 @@ export default function PostCreator({ onPostCreated }) {
         if (url && created?.id) {
           await api.put(`/social-feed/${created.id}/image`, {
             image_url: url,
-          });
+          }, { headers: { "x-user-id": String(uid) } });
           // Save into attachments table for traceability
           try {
             await api.post(`/documents/social-post/${created.id}/attachments`, {
@@ -214,7 +214,7 @@ export default function PostCreator({ onPostCreated }) {
       setError(null);
     } catch (err) {
       console.error("Error creating post:", err);
-      setError(err.message);
+      setError(err?.response?.data?.message || err.message);
     } finally {
       setLoading(false);
     }

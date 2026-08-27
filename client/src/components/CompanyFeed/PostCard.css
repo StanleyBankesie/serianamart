@@ -7,7 +7,8 @@
   transition:
     box-shadow 0.2s,
     border-color 0.2s;
-  margin-bottom: 16px;
+  margin: 0 auto 16px auto;
+  width: 75%;
 }
 
 .post-card:hover {

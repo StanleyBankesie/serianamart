@@ -1,308 +1,452 @@
-/**
- * @fileoverview MaterialReceiptForm component.
- * Provides functionality for MaterialReceiptForm.
- */
-
-import React, { useState, useEffect } from "react";
-import { 
-  ArrowLeft, 
-  Save, 
-  Plus, 
-  Trash2, 
-  Loader2,
-  Calendar,
-  Package,
-  ChevronDown,
-  Info
-} from "lucide-react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api } from "api/client";
 import { toast } from "react-toastify";
+import { api } from "api/client";
 import { usePermission } from "@/auth/PermissionContext.jsx";
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
+function normalizeDate(v) {
+  if (!v) return new Date().toISOString().split("T")[0];
+  const s = String(v);
+  return s.includes("T") ? s.split("T")[0] : s;
+}
+
 export default function MaterialReceiptForm() {
-  const { id } = useParams();
   const { hasExceptional } = usePermission();
+  const { id } = useParams();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
+  const isNew = id === "new" || !id;
+
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  
-  const [items, setItems] = useState([]);
+  const [error, setError] = useState("");
+  const [warehouses, setWarehouses] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [plans, setPlans] = useState([]);
-  const [requisitions, setRequisitions] = useState([]);
-  
+  const [pendingIssues, setPendingIssues] = useState([]);
+
   const [formData, setFormData] = useState({
-    plan_id: "",
-    requisition_id: "",
-    receipt_date: new Date().toISOString().split('T')[0],
+    receiptDate: new Date().toISOString().split("T")[0],
+    issueId: "",
+    planId: "",
+    warehouseId: "",
+    departmentId: "",
     remarks: "",
-    items: []
   });
 
+  const [items, setItems] = useState([
+    { id: 1, item_id: "", itemName: "", uom: "PCS", transferQty: 0, receiptQty: 0, batchNo: "", expiryDate: "", mfgDate: "" }
+  ]);
+
+  const loadPendingIssues = async (deptId, deptsList = departments) => {
+    try {
+      const selectedDept = deptsList.find(d => String(d.id) === String(deptId));
+
+      const [issuesRes, receiptsRes] = await Promise.all([
+        api.get("/inventory/issue-to-requirement").catch(() => api.get("/projects/issue-to-requirement/pm")),
+        api.get("/production/execution/material-receipt").catch(() => ({ data: { items: [] } })),
+      ]);
+
+      const rawIssues = Array.isArray(issuesRes.data?.items) ? issuesRes.data.items : (Array.isArray(issuesRes.data) ? issuesRes.data : []);
+      const savedReceipts = Array.isArray(receiptsRes.data?.items) ? receiptsRes.data.items : (Array.isArray(receiptsRes.data) ? receiptsRes.data : []);
+
+      const usedIssueIds = new Set(
+        savedReceipts
+          .map(r => r.issue_id)
+          .filter(Boolean)
+          .map(String)
+      );
+
+      const filtered = rawIssues.filter(iss => {
+        const issIdStr = String(iss.id);
+
+        if (usedIssueIds.has(issIdStr) && (!id || String(formData.issueId) !== issIdStr)) {
+          return false;
+        }
+
+        const statusPosted = String(iss.status || "").toUpperCase() === "POSTED";
+
+        const isProdDept = (iss.department_name || "").toLowerCase().includes("production") ||
+          (selectedDept && (String(selectedDept.name || "").toLowerCase().includes("production") || String(selectedDept.code || "").toLowerCase().includes("production")));
+
+        const matchesDept = deptId
+          ? (String(iss.department_id) === String(deptId) || (isProdDept && String(iss.department_name || "").toLowerCase().includes("production")))
+          : isProdDept;
+
+        return statusPosted && matchesDept;
+      });
+
+      setPendingIssues(filtered);
+    } catch {
+      setPendingIssues([]);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
+    let mounted = true;
+
+    const fetchInitialData = async () => {
       try {
-        const [itemsRes, plansRes, reqRes] = await Promise.all([
-          api.get("/inventory/items"),
-          api.get("/production/planning/daily"),
-          api.get("/production/execution/material-requisition")
+        const [whRes, prodWhRes, deptsRes, cfgRes, plansRes] = await Promise.allSettled([
+          api.get("/inventory/warehouses"),
+          api.get("/production/setup/warehouses"),
+          api.get("/admin/departments"),
+          api.get("/production/setup/config"),
+          api.get("/production/planning/daily")
         ]);
-        setItems(itemsRes.data?.items || []);
-        setPlans(plansRes.data?.items || []);
-        setRequisitions(reqRes.data?.items?.filter(r => r.status === 'APPROVED' || r.status === 'PENDING') || []);
-        setLoading(false);
-      } catch (error) {
-        toast.error("Failed to load dependency data");
-      }
+
+        if (!mounted) return;
+
+        const invWh = whRes.status === "fulfilled" && Array.isArray(whRes.value?.data?.items) ? whRes.value.data.items : [];
+        const prodWh = prodWhRes.status === "fulfilled" && Array.isArray(prodWhRes.value?.data?.items) ? prodWhRes.value.data.items : [];
+
+        const combinedWh = [...prodWh];
+        invWh.forEach(iw => {
+          if (!combinedWh.some(w => String(w.id) === String(iw.id))) {
+            combinedWh.push(iw);
+          }
+        });
+        setWarehouses(combinedWh);
+
+        if (plansRes.status === "fulfilled") {
+          setPlans(Array.isArray(plansRes.value?.data?.items) ? plansRes.value.data.items : []);
+        }
+
+        let depts = [];
+        if (deptsRes.status === "fulfilled") {
+          depts = Array.isArray(deptsRes.value?.data?.items) ? deptsRes.value.data.items : [];
+          setDepartments(depts);
+        }
+
+        const prodDept = depts.find(d => {
+          const n = String(d.name || d.department_name || "").toLowerCase();
+          const c = String(d.code || d.dept_code || "").toLowerCase();
+          return n.includes("production") || c.includes("production") || c.includes("prod");
+        });
+
+        let defaultWhId = "";
+        if (cfgRes.status === "fulfilled" && cfgRes.value?.data?.settings) {
+          const s = cfgRes.value.data.settings;
+          defaultWhId = String(s.default_warehouse_id || s.production_warehouse_id || s.default_source_warehouse_id || "");
+        }
+        if (!defaultWhId && combinedWh.length > 0) {
+          defaultWhId = String(combinedWh[0].id);
+        }
+
+        if (isNew) {
+          setFormData(prev => ({
+            ...prev,
+            departmentId: prodDept ? String(prodDept.id) : prev.departmentId,
+            warehouseId: defaultWhId || prev.warehouseId
+          }));
+          await loadPendingIssues(prodDept ? String(prodDept.id) : "", depts);
+        }
+      } catch {}
     };
-    fetchData();
+
+    fetchInitialData();
+
+    return () => { mounted = false; };
   }, []);
 
-  const handleReqChange = async (reqId) => {
-    setFormData({ ...formData, requisition_id: reqId });
-    if (!reqId) return;
+  useEffect(() => {
+    if (isNew) return;
+    let mounted = true;
+    setLoading(true);
+    setError("");
 
-    try {
-      const res = await api.get(`/production/execution/material-requisition/${reqId}`);
-      const reqData = res.data;
-      
-      const mappedItems = reqData.items.map(i => ({
-        item_id: i.item_id,
-        qty_received: i.qty_requested,
-        uom: i.uom
-      }));
-
-      setFormData(prev => ({
-        ...prev,
-        requisition_id: reqId,
-        plan_id: reqData.plan_id || "",
-        items: mappedItems,
-        remarks: `Linked to Requisition ${reqData.requisition_no}`
-      }));
-      toast.info("Items loaded from requisition");
-    } catch (error) {
-      toast.error("Failed to load requisition items");
-    }
-  };
-
-  const addItem = () => {
-    setFormData({
-      ...formData,
-      items: [...formData.items, { item_id: "", qty_received: 0, uom: "" }]
+    api.get(`/production/execution/material-receipt/${id}`).then(res => {
+      if (!mounted) return;
+      const d = res.data?.item || res.data;
+      const dets = res.data?.details || res.data?.items || [];
+      if (!d) return;
+      setFormData({
+        receiptDate: normalizeDate(d.receipt_date),
+        issueId: d.issue_id ? String(d.issue_id) : "",
+        planId: d.plan_id ? String(d.plan_id) : "",
+        warehouseId: d.warehouse_id ? String(d.warehouse_id) : "",
+        departmentId: d.department_id ? String(d.department_id) : "",
+        remarks: d.remarks || "",
+      });
+      setItems(dets.length ? dets.map(dd => ({
+        id: dd.id,
+        item_id: dd.item_id ? String(dd.item_id) : "",
+        itemName: dd.item_name || "",
+        uom: dd.uom || "PCS",
+        transferQty: dd.transfer_qty || dd.qty_received || 0,
+        receiptQty: dd.receipt_qty || dd.qty_received || 0,
+        batchNo: dd.batch_no || "",
+        expiryDate: dd.expiry_date ? dd.expiry_date.split("T")[0] : "",
+        mfgDate: dd.mfg_date ? dd.mfg_date.split("T")[0] : "",
+      })) : [{
+        id: 1, item_id: "", itemName: "", uom: "PCS",
+        transferQty: 0, receiptQty: 0, batchNo: "", expiryDate: "", mfgDate: "",
+      }]);
+    }).catch(e => {
+      if (!mounted) return;
+      setError(e?.response?.data?.message || "Failed to load receipt");
+    }).finally(() => {
+      if (!mounted) return;
+      setLoading(false);
     });
-  };
 
-  const removeItem = (index) => {
-    const newItems = [...formData.items];
-    newItems.splice(index, 1);
-    setFormData({ ...formData, items: newItems });
-  };
+    return () => { mounted = false; };
+  }, [id, isNew]);
 
-  const updateItem = (index, field, value) => {
-    const newItems = [...formData.items];
-    newItems[index][field] = value;
-    
-    if (field === 'item_id') {
-      const selected = items.find(i => i.id == value);
-      if (selected) newItems[index].uom = selected.unit_name || "";
+  const loadIssueDetails = async (issueId) => {
+    if (!issueId) {
+      setItems([{ id: 1, item_id: "", itemName: "", uom: "PCS", transferQty: 0, receiptQty: 0, batchNo: "", expiryDate: "", mfgDate: "" }]);
+      return;
     }
-    
-    setFormData({ ...formData, items: newItems });
+    try {
+      const res = await api.get(`/inventory/issue-to-requirement/${issueId}`).catch(() => api.get(`/projects/issue-to-requirement/pm/${issueId}`));
+      const src = res.data?.item || res.data;
+
+      let extractedPlanId = "";
+      if (src) {
+        if (src.plan_id) {
+          extractedPlanId = String(src.plan_id);
+        } else if (src.requisition_id) {
+          try {
+            const reqRawId = String(src.requisition_id).replace(/^(prod_|maint_|pm_)/, "");
+            const reqRes = await api.get(`/production/execution/material-requisition/${reqRawId}`).catch(() => null);
+            const reqData = reqRes?.data?.item || reqRes?.data;
+            if (reqData && reqData.plan_id) {
+              extractedPlanId = String(reqData.plan_id);
+            }
+          } catch {}
+        }
+
+        setFormData(prev => ({
+          ...prev,
+          issueId: issueId,
+          warehouseId: prev.warehouseId || (src.warehouse_id ? String(src.warehouse_id) : ""),
+          departmentId: src.department_id ? String(src.department_id) : prev.departmentId,
+          planId: extractedPlanId || prev.planId,
+        }));
+      }
+
+      const dets = res.data?.details || res.data?.items || [];
+      if (dets.length) {
+        setItems(dets.map(dd => ({
+          id: dd.id || Date.now() + Math.random(),
+          item_id: dd.item_id ? String(dd.item_id) : "",
+          itemName: dd.item_name || "",
+          uom: dd.uom || "PCS",
+          transferQty: Number(dd.qty_issued || dd.qty || 0),
+          receiptQty: Number(dd.qty_issued || dd.qty || 0),
+          batchNo: dd.batch_number || dd.batch_no || "",
+          expiryDate: "",
+          mfgDate: "",
+        })));
+      }
+    } catch {
+      setError("Failed to load issue details");
+    }
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (formData.items.length === 0) return toast.error("Add at least one item");
-    
+    if (e) e.preventDefault();
     setSaving(true);
+    setError("");
+
     try {
-      await api.post("/production/execution/material-receipt", formData);
-      toast.success("Material receipt recorded");
-      navigate("/production/execution/material-receipt");
-    } catch (error) {
-      toast.error("Failed to save receipt");
+      const payload = {
+        receipt_date: normalizeDate(formData.receiptDate),
+        issue_id: formData.issueId || null,
+        plan_id: formData.planId ? Number(formData.planId) : null,
+        warehouse_id: formData.warehouseId || null,
+        department_id: formData.departmentId || null,
+        remarks: formData.remarks || null,
+        status: "COMPLETED",
+        items: items.filter(d => d.item_id).map(d => ({
+          item_id: d.item_id ? Number(d.item_id) : null,
+          qty_received: Number(d.receiptQty || 0),
+          uom: d.uom || "PCS",
+          batch_no: d.batchNo || null
+        })),
+      };
+
+      if (isNew) {
+        await api.post("/production/execution/material-receipt", payload);
+      } else {
+        await api.put(`/production/execution/material-receipt/${id}`, payload);
+      }
+
+      toast.success(
+        isNew ? "Receipt created successfully" : "Receipt updated successfully",
+      );
+      navigate("/production/execution/material-receipt", { state: { refresh: true } });
+    } catch (e2) {
+      setError(e2?.response?.data?.message || "Failed to save receipt");
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <div className="p-20 text-center animate-pulse font-bold text-slate-400">Loading Environment...</div>;
+  const addLine = () => {
+    setItems(prev => [...prev, { id: Date.now(), item_id: "", itemName: "", uom: "PCS", transferQty: 0, receiptQty: 0, batchNo: "", expiryDate: "", mfgDate: "" }]);
+  };
+
+  const removeLine = (idx) => {
+    if (items.length === 1) return;
+    setItems(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateLine = (idx, field, val) => {
+    setItems(prev => prev.map((d, i) => i === idx ? { ...d, [field]: val } : d));
+  };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/production/execution/material-receipt" className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500">
-            <ArrowLeft size={20} />
-          </Link>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Record Material Receipt</h1>
-        </div>
-        <button 
-          form="receipt-form"
-          type="submit"
-          disabled={saving}
-          className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-lg font-bold disabled:opacity-50"
-        >
-          {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
-          Record Receipt
-        </button>
-      </div>
-
-      <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/30 flex items-start gap-3">
-        <Info className="text-amber-600 mt-0.5" size={18} />
-        <p className="text-xs text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
-          This document records the transfer of raw materials from the main warehouse to the production floor. 
-          Linking to a <span className="font-bold underline">Production Plan</span> helps track material usage efficiency.
-        </p>
-      </div>
-
-      <form id="receipt-form" onSubmit={handleSubmit} className="space-y-8">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 bg-white dark:bg-slate-800 p-8 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Link Requisition</label>
-            <div className="relative">
-              <select 
-                className="w-full pl-4 pr-10 py-3 bg-indigo-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none font-bold text-indigo-700"
-                value={formData.requisition_id}
-                onChange={e => handleReqChange(e.target.value)}
-              >
-                <option value="">Manual Receipt</option>
-                {requisitions.map(r => (
-                  <option key={r.id} value={r.id}>{r.requisition_no}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+    <div className="space-y-6">
+      <div className="card">
+        <div className="card-header bg-brand text-white rounded-t-lg">
+          <div className="flex justify-between items-center text-white">
+            <div>
+              <h1 className="text-2xl font-bold dark:text-brand-300">
+                {isNew ? "New Production Material Receipt" : "Edit Production Material Receipt"}
+              </h1>
+              <p className="text-sm mt-1">Receive materials issued from Inventory to Production</p>
             </div>
+            <button onClick={() => window.history.back()} type="button" className="btn-success">Back</button>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Production Plan</label>
-            <div className="relative">
-              <select 
-                className="w-full pl-4 pr-10 py-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none font-bold"
-                value={formData.plan_id}
-                onChange={e => setFormData({...formData, plan_id: e.target.value})}
-              >
-                <option value="">No Plan</option>
-                {plans.map(p => (
-                  <option key={p.id} value={p.id}>{p.plan_no}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+        </div>
+        <div className="card-body">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {loading ? <div className="text-sm">Loading...</div> : null}
+            {error ? <div className="text-sm text-red-600">{error}</div> : null}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="label">Receipt Date *</label>
+                <input type="date" className="input" value={formData.receiptDate}
+                  onChange={e => setFormData({ ...formData, receiptDate: e.target.value })} required 
+                  disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
+                />
+              </div>
+              <div className="hidden">
+                <label className="label">Department / Location</label>
+                <select className="input" value={formData.departmentId}
+                  onChange={e => {
+                    const deptId = e.target.value;
+                    setFormData({ ...formData, departmentId: deptId, issueId: "" });
+                    loadPendingIssues(deptId, departments);
+                  }}>
+                  <option value="">Select Department</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name || d.department_name}</option>)}
+                </select>
+              </div>
+              {isNew && (
+                <div>
+                  <label className="label">Issued Document *</label>
+                  <select required className="input" value={formData.issueId}
+                    onChange={e => loadIssueDetails(e.target.value)}>
+                    <option value="">Select issue...</option>
+                    {pendingIssues.map(iss => (
+                      <option key={iss.id} value={iss.id}>{iss.issue_no}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="label">Production Plan</label>
+                <select className="input" value={formData.planId}
+                  onChange={e => setFormData({ ...formData, planId: e.target.value })}>
+                  <option value="">Select Production Plan (Optional)</option>
+                  {plans.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.plan_no || `PLAN-${p.id}`}{p.product_name ? ` (${p.product_name})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Production Warehouse *</label>
+                <select required className="input" value={formData.warehouseId}
+                  onChange={e => setFormData({ ...formData, warehouseId: e.target.value })}>
+                  <option value="">Select Warehouse</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.warehouse_name || w.warehouse_code || w.name || w.id}</option>)}
+                </select>
+              </div>
             </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-              <Calendar size={16} className="text-indigo-500" /> Receipt Date
-            </label>
-            <input 
-              type="date" 
-              required
-              className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold"
-              value={formData.receipt_date}
-              onChange={e => setFormData({...formData, receipt_date: e.target.value})}
-            
-              disabled={!!id && !hasExceptional("DOCUMENT.EDIT_DATE")}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 dark:text-slate-300">Remarks</label>
-            <input 
-              type="text" 
-              className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={formData.remarks}
-              onChange={e => setFormData({...formData, remarks: e.target.value})}
-              placeholder="Source warehouse, vehicle no..."
-            />
-          </div>
-        </div>
 
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Package size={20} className="text-indigo-500" />
-              Received Items
-            </h2>
-            <button 
-              type="button" 
-              onClick={addItem}
-              className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1.5 rounded-lg transition-all"
-            >
-              <Plus size={16} />
-              Add Item
-            </button>
-          </div>
+            <div>
+              <label className="label">Remarks</label>
+              <textarea className="input w-full" rows="3" value={formData.remarks}
+                onChange={e => setFormData({ ...formData, remarks: e.target.value })}
+                placeholder="Enter any additional notes..."></textarea>
+            </div>
 
-          <div className="space-y-3">
-            {formData.items.map((item, index) => (
-              <div 
-                key={index} 
-                className="group grid grid-cols-1 md:grid-cols-12 gap-4 bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 hover:border-indigo-200 transition-all"
-              >
-                <div className="md:col-span-6 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Raw Material / Component</label>
-                  <div className="relative">
-                    <select 
-                      required
-                      className="w-full pl-3 pr-8 py-2.5 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none appearance-none text-sm font-bold"
-                      value={item.item_id}
-                      onChange={e => updateItem(index, 'item_id', e.target.value)}
-                    >
-                      <option value="">Select Material...</option>
-                      {items.map(i => (
-                        <option key={i.id} value={i.id}>{i.item_name} ({i.item_code})</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={14} />
-                  </div>
-                </div>
-
-                <div className="md:col-span-3 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Qty Received</label>
-                  <input 
-                    type="number" 
-                    step="0.001"
-                    required
-                    className="w-full px-3 py-2.5 bg-slate-50 dark:bg-slate-900 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold"
-                    value={item.qty_received}
-                    onChange={e => updateItem(index, 'qty_received', e.target.value)}
-                  />
-                </div>
-
-                <div className="md:col-span-2 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">UOM</label>
-                  <input 
-                    type="text" 
-                    disabled
-                    className="w-full px-3 py-2.5 bg-slate-100 dark:bg-slate-900/50 border-none rounded-xl text-sm font-medium text-slate-500"
-                    value={item.uom}
-                  />
-                </div>
-
-                <div className="md:col-span-1 flex items-end justify-end pb-2">
-                  <button 
-                    type="button" 
-                    onClick={() => removeItem(index)}
-                    className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Items</h3>
+                <button type="button" onClick={addLine} className="btn-success text-sm">+ Add Item</button>
               </div>
-            ))}
 
-            {formData.items.length === 0 && (
-              <div className="p-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl text-slate-400">
-                <p>No materials added. Click "Add Item" to record receipts.</p>
+              <div className="overflow-x-auto">
+                <table className="table w-full">
+                  <thead>
+                    <tr>
+                      <th className="min-w-[180px]">Item Name</th>
+                      <th className="w-20">UOM</th>
+                      <th className="w-24 text-right">Transfer Qty</th>
+                      <th className="w-24 text-right">Receipt Qty</th>
+                      <th className="w-28">Batch No</th>
+                      <th className="w-28">Expiry Date</th>
+                      <th className="w-28">Mfg Date</th>
+                      <th className="w-20">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item, idx) => (
+                      <tr key={item.id}>
+                        <td>
+                          <input type="text" className="input w-full bg-slate-50" value={item.itemName}
+                            readOnly placeholder="Auto-populated" />
+                        </td>
+                        <td>{item.uom}</td>
+                        <td>
+                          <input type="number" className="input w-full bg-slate-50" value={item.transferQty} readOnly />
+                        </td>
+                        <td>
+                          <input type="number" className="input w-full" value={item.receiptQty}
+                            onChange={e => updateLine(idx, "receiptQty", Number(e.target.value))} />
+                        </td>
+                        <td>
+                          <input type="text" className="input w-full" value={item.batchNo}
+                            onChange={e => updateLine(idx, "batchNo", e.target.value)} />
+                        </td>
+                        <td>
+                          <input type="date" className="input w-full" value={item.expiryDate}
+                            onChange={e => updateLine(idx, "expiryDate", e.target.value)} 
+                            disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
+                          />
+                        </td>
+                        <td>
+                          <input type="date" className="input w-full" value={item.mfgDate}
+                            onChange={e => updateLine(idx, "mfgDate", e.target.value)} 
+                            disabled={!isNew && !hasExceptional("DOCUMENT.EDIT_DATE")}
+                          />
+                        </td>
+                        <td>
+                          <button type="button" onClick={() => removeLine(idx)}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium">Remove</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-          </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+              <button onClick={() => window.history.back()} type="button" className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">Cancel</button>
+              <button type="submit" className="btn-success" disabled={saving}>
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </form>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

@@ -68,18 +68,20 @@ function FilterableSelect({
   options,
   placeholder,
   disabled,
-  filterPlaceholder,
 }) {
   const filtered = Array.isArray(options) ? options : [];
+  const hasEmptyOption = filtered.some((o) => String(o.value) === "");
   return (
     <div>
       <select
-        className="input"
+        className="input w-full"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
       >
-        <option value="">{placeholder || "Select..."}</option>
+        {!hasEmptyOption && placeholder && (
+          <option value="">{placeholder}</option>
+        )}
         {filtered.map((o) => (
           <option key={String(o.value)} value={String(o.value)}>
             {o.label}
@@ -115,7 +117,7 @@ export default function PosPostToFinance() {
   const [returnsForDate, setReturnsForDate] = useState([]);
   const [allAccounts, setAllAccounts] = useState([]);
   const [selectedReturnsAccount, setSelectedReturnsAccount] = useState("");
-  const [selectedSalesAccount, setSelectedSalesAccount] = useState("123");
+  const [selectedSalesAccount, setSelectedSalesAccount] = useState("");
 
   const [denomCounts, setDenomCounts] = useState(DENOMINATIONS.map(() => 0));
 
@@ -131,11 +133,6 @@ export default function PosPostToFinance() {
         if (cancelled) return;
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
         setTerminals(items);
-        if (!tillId && items.length) {
-          const first = items[0];
-          setTillId(String(first.id));
-          setWarehouse(String(first.warehouse || ""));
-        }
         const nextVNo = String(vRes.data?.voucher_no || "").trim();
         if (nextVNo) setVoucherNo(nextVNo);
 
@@ -158,8 +155,9 @@ export default function PosPostToFinance() {
   }, []);
 
   useEffect(() => {
+    if (!tillId) return;
     const t = terminals.find((x) => String(x.id) === String(tillId));
-    if (t && t.warehouse && String(warehouse || "").trim() === "") {
+    if (t && t.warehouse) {
       setWarehouse(String(t.warehouse));
     }
   }, [tillId, terminals]);
@@ -195,21 +193,27 @@ export default function PosPostToFinance() {
   }, [terminals]);
 
   const tillSelectOptions = useMemo(() => {
-    return (Array.isArray(terminals) ? terminals : []).map((t) => ({
-      value: String(t.id),
-      label: String(t.code || t.name || ""),
-    }));
+    const list = (Array.isArray(terminals) ? terminals : []).map((t) => {
+      const code = String(t.code || "").trim();
+      const name = String(t.name || "").trim();
+      const label =
+        code && name && code !== name
+          ? `${code} - ${name}`
+          : code || name || `Till ${t.id}`;
+      return {
+        value: String(t.id),
+        label,
+      };
+    });
+    return [{ value: "", label: "All Tills" }, ...list];
   }, [terminals]);
 
   const warehouseSelectOptions = useMemo(() => {
     const base = (Array.isArray(warehouseOptions) ? warehouseOptions : []).map(
       (w) => ({ value: String(w), label: String(w) }),
     );
-    if (!base.length && String(warehouse || "").trim()) {
-      return [{ value: String(warehouse), label: String(warehouse) }];
-    }
-    return base;
-  }, [warehouseOptions, warehouse]);
+    return [{ value: "", label: "All Warehouses" }, ...base];
+  }, [warehouseOptions]);
 
   const filteredTransactions = useMemo(() => {
     const q = String(search || "").trim();
@@ -292,6 +296,18 @@ export default function PosPostToFinance() {
     return raw;
   }
 
+  function resolveAccountIdFromAccountRef(accounts, accountsById, accountRef) {
+    const raw = String(accountRef || "").trim();
+    if (!raw) return 0;
+    const asId = Number(raw);
+    if (Number.isFinite(asId) && asId > 0 && accountsById.has(String(asId))) {
+      return asId;
+    }
+    const byCode = accounts.find((a) => String(a.code || "") === raw);
+    if (byCode) return Number(byCode.id);
+    return 0;
+  }
+
   function pickDefaultSalesAccountId(incomeAccounts) {
     const sorted = Array.isArray(incomeAccounts) ? incomeAccounts.slice() : [];
     sorted.sort((a, b) => {
@@ -300,20 +316,37 @@ export default function PosPostToFinance() {
       const aName = String(a?.name || "").toLowerCase();
       const bName = String(b?.name || "").toLowerCase();
 
-      const aScore =
-        aCode === "4000" || aCode === "400000"
-          ? 0
+      const aIsSales =
+        aName.includes("sales revenue") ||
+        aName.includes("sales account") ||
+        aCode === "4000" ||
+        aCode === "400000";
+      const bIsSales =
+        bName.includes("sales revenue") ||
+        bName.includes("sales account") ||
+        bCode === "4000" ||
+        bCode === "400000";
+      const aIsReturn =
+        aName.includes("return") || aName.includes("allowance");
+      const bIsReturn =
+        bName.includes("return") || bName.includes("allowance");
+
+      const aScore = aIsSales
+        ? 0
+        : aIsReturn
+          ? 4
           : aName.includes("sales")
             ? 1
-            : aCode.toLowerCase().startsWith("4")
+            : aCode.startsWith("4")
               ? 2
               : 3;
-      const bScore =
-        bCode === "4000" || bCode === "400000"
-          ? 0
+      const bScore = bIsSales
+        ? 0
+        : bIsReturn
+          ? 4
           : bName.includes("sales")
             ? 1
-            : bCode.toLowerCase().startsWith("4")
+            : bCode.startsWith("4")
               ? 2
               : 3;
 
@@ -340,9 +373,11 @@ export default function PosPostToFinance() {
               warehouse: String(warehouse || "").trim() || undefined,
             },
           }),
-          api.get("/finance/accounts", { params: { postable: 1, active: 1 } }),
-          api.get("/pos/tax-settings"),
-          api.get("/pos/payment-modes"),
+          api
+            .get("/finance/accounts", { params: { postable: 1, active: 1 } })
+            .catch(() => ({ data: { items: [] } })),
+          api.get("/pos/tax-settings").catch(() => ({ data: { item: null } })),
+          api.get("/pos/payment-modes").catch(() => ({ data: { items: [] } })),
           api
             .get("/pos/returns", {
               params: {
@@ -366,7 +401,7 @@ export default function PosPostToFinance() {
         : Array.isArray(accountsRes.data?.items)
           ? accountsRes.data.items
           : [];
-      if (!allAccounts.length) setAllAccounts(accounts);
+      if (!allAccounts.length && accounts.length) setAllAccounts(accounts);
       const accountsById = new Map(accounts.map((a) => [String(a.id), a]));
       const taxSettings = taxRes.data?.item || null;
       const paymentModes = Array.isArray(paymentModesRes.data?.items)
@@ -375,12 +410,23 @@ export default function PosPostToFinance() {
 
       const sales = allSales.filter((s) => {
         const status = String(s.payment_status || "").toUpperCase();
-        const paid = status === "PAID";
-        const isCredit = String(s.payment_method || "").toUpperCase() === "CREDIT";
+        const rawStatus = String(s.status || "").toUpperCase();
+        const paid =
+          status === "PAID" ||
+          rawStatus === "COMPLETED" ||
+          rawStatus === "PAID";
+        const isCredit =
+          String(s.payment_method || "").toUpperCase() === "CREDIT";
         const unpaidCredit = status === "UNPAID" && isCredit;
-        // Include split payments that might have partial credit
-        const isSplit = String(s.payment_method || "").toUpperCase() === "SPLIT";
-        return paid || unpaidCredit || (status === "UNPAID" && isSplit) || isCredit;
+        const isSplit =
+          String(s.payment_method || "").toUpperCase() === "SPLIT";
+        return (
+          paid ||
+          unpaidCredit ||
+          (status === "UNPAID" && isSplit) ||
+          isCredit ||
+          (!status && rawStatus === "COMPLETED")
+        );
       });
 
       const returns = allReturns.slice();
@@ -391,7 +437,11 @@ export default function PosPostToFinance() {
         setTransactions([]);
         setSalesForDate([]);
         setReturnsForDate([]);
-        window.alert("No POS sales or returns found for the selected date.");
+        toast.error(
+          `No POS sales or returns found for date ${voucherDate || "-"}${
+            tillId ? " (filtered by till)" : ""
+          }`,
+        );
         return;
       }
 
@@ -421,14 +471,20 @@ export default function PosPostToFinance() {
           : 0;
 
       const incomeAccounts = accounts.filter(
-        (a) => String(a.nature || "").toUpperCase() === "INCOME",
+        (a) =>
+          String(a.nature || "").toUpperCase() === "INCOME" ||
+          String(a.code || "").startsWith("4"),
       );
       const defaultSalesAccountId = pickDefaultSalesAccountId(incomeAccounts);
       const salesAccountId = selectedSalesAccount
         ? Number(selectedSalesAccount)
-        : defaultSalesAccountId;
+        : defaultSalesAccountId ||
+          accounts.find((a) => String(a.code || "").startsWith("4"))?.id ||
+          accounts[0]?.id;
       if (!salesAccountId) {
-        throw new Error("Sales account not configured for posting");
+        throw new Error(
+          "Sales revenue account not found. Please select an account in the Sales Account field above.",
+        );
       }
 
       let totalSalesBase = 0;
@@ -458,7 +514,6 @@ export default function PosPostToFinance() {
 
         // Calculate tax per component
         if (taxActive && taxComponents.length > 0 && tax > 0) {
-          let currentBase = base;
           for (const comp of taxComponents) {
             const rate = Number(comp.rate_percent || 0);
             const compTax = roundTo2((base * rate) / 100);
@@ -471,10 +526,17 @@ export default function PosPostToFinance() {
           }
         }
 
-        const paymentsRaw = s.payments;
-        if (Array.isArray(paymentsRaw) && paymentsRaw.length > 1) {
+        let paymentsRaw = s.payments;
+        if (typeof paymentsRaw === "string") {
+          try {
+            paymentsRaw = JSON.parse(paymentsRaw);
+          } catch {
+            paymentsRaw = null;
+          }
+        }
+        if (Array.isArray(paymentsRaw) && paymentsRaw.length > 0) {
           paymentsRaw.forEach((p) => {
-            const pm = String(p.method || "CASH").toUpperCase();
+            const pm = String(p.method || p.type || "CASH").toUpperCase();
             paymentTotals.set(
               pm,
               roundTo2((paymentTotals.get(pm) || 0) + Number(p.amount || 0)),
@@ -540,6 +602,7 @@ export default function PosPostToFinance() {
       let next = [];
       if (Math.abs(totalSalesBase) >= 0.01) {
         next.push({
+          account_id: salesAccountId,
           account: accountLabelFromAccountsById(accountsById, salesAccountId),
           credit: totalSalesBase > 0 ? totalSalesBase : 0,
           debit: totalSalesBase < 0 ? Math.abs(totalSalesBase) : 0,
@@ -549,10 +612,11 @@ export default function PosPostToFinance() {
       if (Math.abs(totalTax) >= 0.01) {
         if (useComponentBreakdown) {
           for (const [compId, amt] of componentTotals.entries()) {
-            const compAccountId = componentMappings[compId];
+            const compAccountId = Number(componentMappings[compId] || 0);
             if (!compAccountId) continue;
             if (Math.abs(amt) < 0.01) continue;
             next.push({
+              account_id: compAccountId,
               account: accountLabelFromAccountsById(
                 accountsById,
                 compAccountId,
@@ -563,6 +627,7 @@ export default function PosPostToFinance() {
           }
         } else if (taxAccountId) {
           next.push({
+            account_id: taxAccountId,
             account: accountLabelFromAccountsById(accountsById, taxAccountId),
             credit: totalTax > 0 ? totalTax : 0,
             debit: totalTax < 0 ? Math.abs(totalTax) : 0,
@@ -588,6 +653,11 @@ export default function PosPostToFinance() {
         if (Math.abs(amt) < 0.01) continue;
         const pmKey = String(method).toLowerCase();
         const pm = paymentModeByType.get(pmKey);
+        const payAccId = resolveAccountIdFromAccountRef(
+          accounts,
+          accountsById,
+          pm?.account,
+        );
         const payLabel = accountLabelFromAccountRef(
           accounts,
           accountsById,
@@ -598,6 +668,7 @@ export default function PosPostToFinance() {
           continue;
         }
         next.push({
+          account_id: payAccId || undefined,
           account: payLabel,
           credit: amt < 0 ? Math.abs(amt) : 0,
           debit: amt > 0 ? amt : 0,
@@ -605,9 +676,10 @@ export default function PosPostToFinance() {
       }
 
       setTransactions(next);
+      toast.success(`Successfully populated ${sales.length} transaction(s)`);
     } catch (e) {
       setTransactions([]);
-      window.alert(String(e?.message || "Failed to populate transactions"));
+      toast.error(String(e?.message || "Failed to populate transactions"));
     } finally {
       setLoading(false);
     }
@@ -627,11 +699,14 @@ export default function PosPostToFinance() {
     const vNo = String(voucherNo || "").trim() || "Auto-generated";
     const vDate = voucherDate;
     const wh = String(warehouse || "").trim() || "-";
+    const totalAmount = totals.debit > 0 ? totals.debit.toFixed(2) : totals.credit.toFixed(2);
     const cTotal = cashTotal.toFixed(2);
     const ok = window.confirm(
       `Post transaction to finance?\n\nVoucher: ${vNo}\nDate: ${vDate}\nTill: ${
-        tillLabel || "-"
-      }\nWarehouse: ${wh}\nCash Total: GHS ${cTotal}`,
+        tillLabel || "All Tills"
+      }\nWarehouse: ${wh}\nTotal Amount: GH₵ ${totalAmount}${
+        cashTotal > 0 ? `\nCash Denominations: GH₵ ${cTotal}` : ""
+      }`,
     );
     if (!ok) return;
     setLoading(true);
@@ -641,6 +716,7 @@ export default function PosPostToFinance() {
         terminal_id: tillId ? Number(tillId) : undefined,
         warehouse: String(warehouse || "").trim() || undefined,
         lines: (Array.isArray(transactions) ? transactions : []).map((t) => ({
+          account_id: t.account_id ? Number(t.account_id) : undefined,
           account: String(t.account || ""),
           debit: Number(t.debit || 0),
           credit: Number(t.credit || 0),
@@ -709,14 +785,17 @@ export default function PosPostToFinance() {
                 onChange={(val) => {
                   const next = String(val || "");
                   setTillId(next);
-                  const t = terminals.find(
-                    (x) => String(x.id) === String(next),
-                  );
-                  if (t) setWarehouse(String(t.warehouse || ""));
+                  if (!next) {
+                    setWarehouse("");
+                  } else {
+                    const t = terminals.find(
+                      (x) => String(x.id) === String(next),
+                    );
+                    if (t) setWarehouse(String(t.warehouse || ""));
+                  }
                 }}
                 options={tillSelectOptions}
                 placeholder={!terminals.length ? "Loading..." : "Select till"}
-                filterPlaceholder="Filter tills..."
                 disabled={loading || !terminals.length}
               />
             </div>
@@ -727,7 +806,6 @@ export default function PosPostToFinance() {
                 onChange={(val) => setWarehouse(String(val || ""))}
                 options={warehouseSelectOptions}
                 placeholder={!warehouseSelectOptions.length ? "-" : "Select"}
-                filterPlaceholder="Filter warehouses..."
                 disabled={loading || !warehouseSelectOptions.length}
               />
             </div>
@@ -758,29 +836,26 @@ export default function PosPostToFinance() {
                 Account to be credited for sales revenue
               </small>
             </div>
-            {/* Hidden as per user request */}
-            <div className="hidden">
-              <div>
-                <label className="label">Returns Account</label>
-                <select
-                  className="input"
-                  value={selectedReturnsAccount}
-                  onChange={(e) => setSelectedReturnsAccount(e.target.value)}
-                >
-                  <option value="">Default (4000 - Sales Revenue)</option>
-                  {allAccounts
-                    .filter(
-                      (a) =>
-                        String(a.nature || "").toUpperCase() === "INCOME" ||
-                        String(a.code || "").match(/^40/),
-                    )
-                    .map((a) => (
-                      <option key={a.id} value={String(a.id)}>
-                        {a.code} — {a.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
+            <div>
+              <label className="label">POS Returns Account (Debit)</label>
+              <select
+                className="input"
+                value={selectedReturnsAccount}
+                onChange={(e) => setSelectedReturnsAccount(e.target.value)}
+              >
+                <option value="">Default Sales Returns / Contra Account</option>
+                {allAccounts
+                  .filter(
+                    (a) =>
+                      String(a.nature || "").toUpperCase() === "EXPENSE" ||
+                      String(a.nature || "").toUpperCase() === "INCOME",
+                  )
+                  .map((a) => (
+                    <option key={a.id} value={String(a.id)}>
+                      {a.code} — {a.name}
+                    </option>
+                  ))}
+              </select>
             </div>
           </div>
 
@@ -1029,20 +1104,32 @@ export default function PosPostToFinance() {
                 Denomination Cash Count
               </div>
               <div className="text-center text-xs mt-1 text-white/80">
-                Populated from Start/Close Day
+                Populated from Start/Close Day or enter counts below
               </div>
               <div className="mt-4 space-y-2">
                 {DENOMINATIONS.map((d, idx) => (
                   <div
                     key={String(d)}
-                    className="grid grid-cols-[1fr_90px_110px] gap-2 items-center"
+                    className="grid grid-cols-[1fr_80px_90px] gap-2 items-center"
                   >
                     <div className="text-sm">{`GHS ${Number(d).toFixed(
                       2,
                     )}`}</div>
-                    <div className="rounded px-2 py-1 bg-white text-slate-900 text-right text-sm">
-                      {Number(denomCounts[idx] || 0)}
-                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      className="w-full rounded px-2 py-1 bg-white text-slate-900 text-right text-sm border-0 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                      value={denomCounts[idx] === 0 ? "" : denomCounts[idx]}
+                      placeholder="0"
+                      onChange={(e) => {
+                        const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                        setDenomCounts((prev) => {
+                          const nextArr = [...prev];
+                          nextArr[idx] = val;
+                          return nextArr;
+                        });
+                      }}
+                    />
                     <div className="rounded px-2 py-1 bg-white/20 text-right text-sm">
                       {denomTotals[idx].toFixed(2)}
                     </div>

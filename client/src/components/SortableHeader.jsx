@@ -56,9 +56,13 @@ export default function SortableHeader({
     );
   };
 
+  const textColorClass = className.includes("text-white") 
+    ? (active ? "text-white font-extrabold" : "text-white font-bold group-hover:text-white")
+    : (active ? "text-slate-900 dark:text-slate-100 font-bold" : "text-slate-600 dark:text-slate-300 group-hover:text-slate-800 dark:group-hover:text-slate-200");
+
   return (
     <th
-      className={`select-none font-semibold transition-colors group ${active ? "bg-slate-50 dark:bg-slate-800/50" : "hover:bg-slate-50 dark:hover:bg-slate-800/50"} ${className}`}
+      className={`select-none font-bold transition-colors group ${active ? "bg-white/10 dark:bg-slate-800/50" : "hover:bg-white/5 dark:hover:bg-slate-800/30"} ${className}`}
       title={`Sort by ${label}`}
       aria-sort={ariaSort}
     >
@@ -67,7 +71,7 @@ export default function SortableHeader({
         className={`flex w-full items-center gap-2 ${justifyClass} bg-transparent py-3 px-2 outline-none rounded-md`}
         onClick={() => onToggle(sortKey)}
       >
-        <span className={active ? "text-slate-900 dark:text-slate-100" : "text-slate-600 dark:text-slate-300 group-hover:text-slate-800 dark:group-hover:text-slate-200 transition-colors"}>
+        <span className={textColorClass}>
           {label}
         </span>
         <span className="inline-flex items-center" aria-hidden="true">

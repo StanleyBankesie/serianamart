@@ -9,6 +9,7 @@ import {
   ensureCol,
   ensurePagesSeed,
   ensurePagesTable,
+  hasColumn,
   toNumber,
   verifiedTables,
 } from "../utils/dbUtils.js";
@@ -127,6 +128,12 @@ async function ensureNotificationPrefsTable() {
       INDEX idx_pref_key (pref_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await hasColumn("adm_notification_prefs", "sms_enabled"))) {
+    await query("ALTER TABLE adm_notification_prefs ADD COLUMN sms_enabled TINYINT(1) NOT NULL DEFAULT 0");
+  }
+  if (!(await hasColumn("adm_notification_prefs", "whatsapp_enabled"))) {
+    await query("ALTER TABLE adm_notification_prefs ADD COLUMN whatsapp_enabled TINYINT(1) NOT NULL DEFAULT 0");
+  }
 }
 
 // Get notification preference for a user/key (or all users if no user_id)
@@ -137,11 +144,12 @@ router.get(
   async (req, res, next) => {
     try {
       await ensureNotificationPrefsTable();
+      const { companyId } = req.scope || {};
       const key = String(req.query?.key || "low-stock").trim();
       const userId = toNumber(req.query?.user_id || 0) || null;
       if (userId) {
         const rows = await query(
-          `SELECT user_id, pref_key, push_enabled, email_enabled, sms_enabled, whatsapp_enabled, created_at
+          `SELECT user_id, pref_key, push_enabled, email_enabled, sms_enabled, whatsapp_enabled, created_at, updated_at
            FROM adm_notification_prefs
            WHERE user_id = :userId AND pref_key = :key
            LIMIT 1`,
@@ -161,10 +169,17 @@ router.get(
         return res.json({ item: rows[0] });
       } else {
         const rows = await query(
-          `SELECT user_id, pref_key, push_enabled, email_enabled, sms_enabled, whatsapp_enabled, created_at
-           FROM adm_notification_prefs
-           WHERE pref_key = :key`,
-          { key },
+          `SELECT np.user_id, np.pref_key, np.push_enabled, np.email_enabled, np.sms_enabled, np.whatsapp_enabled, np.updated_at,
+                  u.username, u.full_name, u.email, COALESCE(u.telephone, '') AS telephone,
+                  b.name AS branch_name
+           FROM adm_notification_prefs np
+           JOIN adm_users u ON u.id = np.user_id
+           LEFT JOIN adm_branches b ON u.branch_id = b.id
+           WHERE np.pref_key = :key
+             AND (:companyId IS NULL OR u.company_id IS NULL OR u.company_id = 0 OR u.company_id = :companyId)
+             AND (np.push_enabled = 1 OR np.email_enabled = 1 OR np.sms_enabled = 1 OR np.whatsapp_enabled = 1)
+           ORDER BY u.username ASC`,
+          { key, companyId: companyId || null },
         );
         return res.json({ items: rows });
       }
@@ -198,6 +213,28 @@ router.put(
           sms: Number(Boolean(sms_enabled)),
           whatsapp: Number(Boolean(whatsapp_enabled)),
         },
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Delete/reset notification preference for a user/key
+router.delete(
+  "/notification-prefs/:key/:userId",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureNotificationPrefsTable();
+      const key = String(req.params.key || "low-stock").trim();
+      const userId = toNumber(req.params.userId);
+      if (!userId) return res.status(400).json({ message: "Invalid user_id" });
+      await query(
+        `DELETE FROM adm_notification_prefs WHERE user_id = :userId AND pref_key = :key`,
+        { userId, key },
       );
       res.json({ ok: true });
     } catch (err) {

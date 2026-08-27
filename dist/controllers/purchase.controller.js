@@ -63,6 +63,7 @@ async function resolveVoucherTypeIdByCode(conn, { companyId, code }) {
 }
 // Voucher Management: Ensure Journal Voucher type exists and return its ID
 async function ensureJournalVoucherTypeIdTx(conn, { companyId }) {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   const existingId = await resolveVoucherTypeIdByCode(conn, {
     companyId,
     code: "JV",
@@ -84,6 +85,7 @@ async function ensureJournalVoucherTypeIdTx(conn, { companyId }) {
 }
 // Voucher Management: Ensure Purchase Voucher type exists and return its ID
 async function ensurePurchaseVoucherTypeIdTx(conn, { companyId }) {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   const existingId = await resolveVoucherTypeIdByCode(conn, {
     companyId,
     code: "PV",
@@ -295,6 +297,7 @@ async function resolveApTradeAccountIdAuto(conn, { companyId, supplierId }) {
 }
 // Database Migration: Ensure supplier_type column exists on pur_suppliers
 async function ensureSupplierTypeColumn() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   if (!(await hasColumn("pur_suppliers", "supplier_type"))) {
     await pool.query(
       "ALTER TABLE pur_suppliers ADD COLUMN supplier_type VARCHAR(10) NOT NULL DEFAULT 'LOCAL'",
@@ -304,6 +307,7 @@ async function ensureSupplierTypeColumn() {
 
 // Database Migration: Ensure currency_id column exists on pur_suppliers
 async function ensureSupplierCurrencyColumn() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   if (!(await hasColumn("pur_suppliers", "currency_id"))) {
     await pool.query(
       "ALTER TABLE pur_suppliers ADD COLUMN currency_id BIGINT UNSIGNED NULL",
@@ -313,6 +317,7 @@ async function ensureSupplierCurrencyColumn() {
 
 // Database Migration: Ensure tables for service confirmations and details exist
 async function ensureServiceConfirmationTables() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS inv_service_confirmations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -691,6 +696,7 @@ export const createServiceConfirmation = async (req, res, next) => {
 };
 
 async function ensureShippingAdviceStatusEnum() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   const rows = await query(`SELECT column_type, column_default
          FROM information_schema.columns
          WHERE table_schema = DATABASE()
@@ -718,6 +724,7 @@ async function ensureShippingAdviceStatusEnum() {
 }
 
 async function ensureShippingAdviceETDColumn() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   const hasEtd = await hasColumn("pur_shipping_advices", "etd_date");
   if (!hasEtd) {
     try {
@@ -728,7 +735,20 @@ async function ensureShippingAdviceETDColumn() {
   }
 }
 
+async function ensureShippingAdviceCreatedByColumn() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
+  const hasCreatedBy = await hasColumn("pur_shipping_advices", "created_by");
+  if (!hasCreatedBy) {
+    try {
+      await pool.query(
+        "ALTER TABLE pur_shipping_advices ADD COLUMN created_by INT NULL",
+      );
+    } catch {}
+  }
+}
+
 async function ensurePortClearanceStatusEnum() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   const rows = await query(`SELECT column_type, column_default
          FROM information_schema.columns
          WHERE table_schema = DATABASE()
@@ -819,7 +839,13 @@ export const listShippingAdvices = async (req, res, next) => {
         "ALTER TABLE pur_shipping_advices ADD COLUMN deleted_at DATETIME NULL",
       ).catch(() => {});
     }
+    if (!(await hasColumn("pur_shipping_advices", "created_by"))) {
+      await query(
+        "ALTER TABLE pur_shipping_advices ADD COLUMN created_by INT NULL",
+      ).catch(() => {});
+    }
     let sql = `SELECT sa.*, s.supplier_name, p.po_no, p.po_type,
+         u.username AS created_by_name,
          EXISTS(
            SELECT 1 FROM pur_port_clearances pc
             WHERE pc.company_id = sa.company_id 
@@ -830,6 +856,7 @@ export const listShippingAdvices = async (req, res, next) => {
          FROM pur_shipping_advices sa
          JOIN pur_suppliers s ON s.id = sa.supplier_id
          JOIN pur_orders p ON p.id = sa.po_id
+         LEFT JOIN adm_users u ON u.id = sa.created_by
          WHERE sa.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(sa.branch_id, :branchIdsStr))
            AND COALESCE(sa.is_active,'Y') = 'Y'`;
     if (status) sql += ` AND sa.status = :status`;
@@ -927,6 +954,7 @@ export const createShippingAdvice = async (req, res, next) => {
     const body = req.body || {};
     await ensureShippingAdviceStatusEnum();
     await ensureShippingAdviceETDColumn();
+    await ensureShippingAdviceCreatedByColumn();
     const adviceNo = body.advice_no || nextDocNo("SA");
     const adviceDate = body.advice_date || new Date();
     const poId = toNumber(body.po_id);
@@ -1441,6 +1469,7 @@ export const updateServiceConfirmation = async (req, res, next) => {
 };
 
 async function ensureServiceRequestTables() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pur_service_requests (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1476,6 +1505,7 @@ async function ensureServiceRequestTables() {
 }
 
 async function ensureServiceBillTables() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pur_service_bills (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1632,6 +1662,7 @@ async function ensureServiceBillTables() {
 }
 
 async function ensureProspectCustomersTable() {
+  if (process.env.SKIP_DYNAMIC_SCHEMA_SYNC === 'true') return;
   await pool.query(`
     CREATE TABLE IF NOT EXISTS sal_prospect_customers (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -2056,9 +2087,17 @@ export const listServiceBills = async (req, res, next) => {
              b.created_by, (SELECT username FROM adm_users WHERE id = b.created_by) AS created_by_username, b.created_at
       FROM pur_service_bills b
       LEFT JOIN pur_suppliers s ON s.id = b.supplier_id AND s.company_id = b.company_id
-      WHERE b.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(b.branch_id, :branchIdsStr))
+      WHERE b.company_id = :companyId
     `;
-    const params = { companyId, branchId, branchIdsStr };
+    const params = { companyId };
+    
+    if (branchIdsStr) {
+      sql += " AND FIND_IN_SET(b.branch_id, :branchIdsStr)";
+      params.branchIdsStr = branchIdsStr;
+    } else if (branchId) {
+      sql += " AND b.branch_id = :branchId";
+      params.branchId = branchId;
+    }
     if (status) {
       sql += " AND b.status = :status";
       params.status = status;
@@ -2189,6 +2228,7 @@ export const createServiceBill = async (req, res, next) => {
     const exchangeRate = Number(body.exchange_rate) || 1;
     const freightCharges = Number(body.freight_charges) || 0;
     const otherCharges = Number(body.other_charges) || 0;
+    const costCenterId = body.cost_center_id ? Number(body.cost_center_id) : null;
     const rows = Array.isArray(body.details)
       ? body.details
       : Array.isArray(body.rows)
@@ -2243,14 +2283,14 @@ export const createServiceBill = async (req, res, next) => {
         payment_method, payment_reference, payment_terms, notes,
         discount_percent, tax_percent, subtotal, discount_amount, tax_amount, total_amount,
         currency_id, exchange_rate, freight_charges, other_charges,
-        created_by
+        created_by, cost_center_id
       ) VALUES (
         :companyId, :branchId, :supplierId, :orderId, :billNo, :billDate, :dueDate, :serviceDate, :status, :paymentStatus,
         :clientName, :clientCompany, :clientAddress, :clientPhone, :clientEmail,
         :paymentMethod, :paymentReference, :paymentTerms, :notes,
         :discountPercent, :taxPercent, :subtotal, :discountAmount, :taxAmount, :totalAmount,
         :currencyId, :exchangeRate, :freightCharges, :otherCharges,
-        :createdBy
+        :createdBy, :costCenterId
       )
       `,
       {
@@ -2284,6 +2324,7 @@ export const createServiceBill = async (req, res, next) => {
         freightCharges,
         otherCharges,
         createdBy,
+        costCenterId,
       },
     );
     const billId = hdr.insertId;
@@ -2451,9 +2492,20 @@ export const updateServiceBill = async (req, res, next) => {
     const dueDate = body.due_date || null;
     const serviceDate = body.service_date || null;
     const status = String(body.status || "PENDING").toUpperCase();
-    const sStatus = ["PENDING", "PAID", "OVERDUE", "COMPLETED"].includes(status)
+    const sStatus = ["PENDING", "PAID", "OVERDUE", "COMPLETED", "CANCELLED", "REVERSED"].includes(status)
       ? status
       : "PENDING";
+      
+    if (sStatus === "CANCELLED") {
+      const uRows = await query(
+        `SELECT 1 FROM adm_exceptional_permissions WHERE user_id = :uid AND effect = 'ALLOW' AND is_active = 1 AND permission_code = 'SERVICE.BILL.CANCEL' LIMIT 1`,
+        { uid: req.user?.id }
+      );
+      if (!uRows || uRows.length === 0) {
+        throw httpError(403, "FORBIDDEN", "You do not have exceptional permission to cancel service bills");
+      }
+    }
+
     const clientName = body.client_name || body.clientName || null;
     const clientCompany = body.client_company || body.clientCompany || null;
     const clientAddress = body.client_address || body.clientAddress || null;
@@ -2468,6 +2520,7 @@ export const updateServiceBill = async (req, res, next) => {
     const exchangeRate = Number(body.exchange_rate) || 1;
     const freightCharges = Number(body.freight_charges) || 0;
     const otherCharges = Number(body.other_charges) || 0;
+    const costCenterId = body.cost_center_id ? Number(body.cost_center_id) : null;
     const rows = Array.isArray(body.details)
       ? body.details
       : Array.isArray(body.rows)
@@ -2550,7 +2603,8 @@ export const updateServiceBill = async (req, res, next) => {
              currency_id = :currencyId,
              exchange_rate = :exchangeRate,
              freight_charges = :freightCharges,
-             other_charges = :otherCharges
+             other_charges = :otherCharges,
+             cost_center_id = :costCenterId
        WHERE id = :id AND company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
       `,
       {
@@ -2584,6 +2638,7 @@ export const updateServiceBill = async (req, res, next) => {
         exchangeRate,
         freightCharges,
         otherCharges,
+        costCenterId,
       },
     );
     await conn.execute(
@@ -2615,6 +2670,27 @@ export const updateServiceBill = async (req, res, next) => {
         },
       );
     }
+    
+    if (sStatus === "CANCELLED" || sStatus === "REVERSED") {
+      const bNo = billNo || exists[0]?.bill_no;
+      if (bNo) {
+        const [vRows] = await conn.execute(
+          `SELECT DISTINCT v.id AS voucher_id
+             FROM fin_vouchers v
+             JOIN fin_voucher_lines l ON l.voucher_id = v.id
+            WHERE v.company_id = :companyId
+              AND l.reference_no = :referenceNo`,
+          { companyId, referenceNo: bNo }
+        ).catch(() => [[]]);
+        const voucherIds = vRows.map((r) => Number(r.voucher_id)).filter((n) => Number.isFinite(n) && n > 0);
+        if (voucherIds.length > 0) {
+          const inList = voucherIds.join(",");
+          await conn.execute(`DELETE FROM fin_voucher_lines WHERE voucher_id IN (${inList})`).catch(() => null);
+          await conn.execute(`DELETE FROM fin_vouchers WHERE id IN (${inList})`).catch(() => null);
+        }
+      }
+    }
+
     await conn.commit();
     res.json({
       id,

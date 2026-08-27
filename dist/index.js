@@ -1,5 +1,5 @@
 import cors from "cors";
-import dotenv from "dotenv";
+import "./utils/loadServerEnv.js";
 import fs from "fs";
 import express from "express";
 import path from "path";
@@ -9,9 +9,11 @@ import rateLimit from "express-rate-limit";
 import RedisStore from "rate-limit-redis";
 import helmet from "helmet";
 import morgan from "morgan";
-
+import { logToCrashReport } from "./utils/crashLogger.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFound } from "./middleware/notFound.js";
+import { sanitizeInput } from "./middleware/sanitize.middleware.js";
+import { requireAuth as requireAuthMiddleware } from "./middleware/auth.js";
 import adminRoutes from "./routes/admin.route.js";
 import backupRoutes from "./routes/backup.routes.js";
 import salesRoutes from "./routes/sales.route.js";
@@ -27,12 +29,17 @@ import posRoutes from "./routes/pos.routes.js";
 import biRoutes from "./routes/bi.routes.js";
 import serviceMgmtRoutes from "./routes/service-management.routes.js";
 import srvInvoicesRoutes from "./routes/srv_invoices.route.js";
+import transportRoutes from "./routes/transport.route.js";
+import trackingRoutes from "./routes/tracking.route.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import workflowRoutes from "./routes/workflow.routes.js";
 import healthRoutes from "./routes/health.route.js";
 import authRoutes from "./routes/auth.routes.js";
+import executiveRoutes from "./routes/executive.routes.js";
 import { logDbError, query, testDbConnection } from "./db/pool.js";
 import { isMailerConfigured, verifyMailer, sendMail } from "./utils/mailer.js";
+import { isSMSConfigured, sendSMS } from "./utils/sms.js";
+import { isWhatsAppConfigured, sendWhatsApp } from "./utils/whatsapp.js";
 import { closeRedis, getRedis } from "./utils/redis.js";
 import { getLowStockQueue, closeJobQueues } from "./utils/jobQueue.js";
 import pushRoutes, {
@@ -44,12 +51,26 @@ import documentsRoutes from "./routes/documents.routes.js";
 import socialFeedRoutes from "./routes/social-feed.routes.js";
 import accessRoutes from "./routes/access.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
+import aiRoutes from "./routes/ai.routes.js";
 import emailTestRoutes from "./routes/email-test.routes.js";
 import visitorsRoutes from "./routes/visitors.routes.js";
+import licenseRoutes from "./routes/license.routes.js";
+import paymentPackageRoutes from "./routes/paymentPackages.js";
+import { requireLicense } from "./middleware/license.middleware.js";
 import { initializeSocket } from "./utils/socket.js";
 import {
   ensureExceptionalPermissionsTable,
   ensureSystemLogsTable,
+  ensureUserPermissionsTable,
+  ensureUserPermissionCacheAndTriggers,
+  ensureUserBranchMapping,
+  ensurePagesTable,
+  hasColumn,
+  verifiedTables,
+  ensurePMQuotationTables,
+  ensurePMInvoiceTables,
+  ensureSocialFeedTables,
+  ensureTransportTables,
 } from "./utils/dbUtils.js";
 import { seedDefaultTemplates } from "./services/seed-defaults.js";
 import { ensureIndexes } from "./utils/ensureIndexes.js";
@@ -59,71 +80,243 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* ---------------- ENV ---------------- */
-const prodPath = path.join(__dirname, ".env.production");
-const localPath = path.join(__dirname, ".env.local");
+import { loadServerEnv } from "./utils/loadServerEnv.js";
+loadServerEnv(import.meta.url);
 
-// Pre-load .env.local to get DEV_FORCE_LOCAL_ENV if it exists without polluting process.env
-let forceLocal = false;
-if (fs.existsSync(localPath)) {
-  const parsed = dotenv.parse(fs.readFileSync(localPath));
-  forceLocal = String(parsed.DEV_FORCE_LOCAL_ENV || "").trim() === "1";
-}
-
-dotenv.config({ path: path.join(__dirname, ".env") });
-const isProd = String(process.env.NODE_ENV).toLowerCase() === "production";
-
-const originalPort = process.env.PORT;
-
-if (isProd && fs.existsSync(prodPath)) {
-  dotenv.config({ path: prodPath, override: true });
-} else if (forceLocal && fs.existsSync(localPath)) {
-  dotenv.config({ path: localPath, override: true });
-} else if (fs.existsSync(localPath)) {
-  dotenv.config({ path: localPath, override: true });
-}
-
-if (originalPort !== undefined && String(originalPort).trim() !== "") {
-  process.env.PORT = originalPort;
-}
-
-try {
-  if (fs.existsSync(prodPath)) {
-    const parsed = dotenv.config({ path: prodPath }).parsed || {};
-    [
-      "SMTP_HOST",
-      "SMTP_PORT",
-      "SMTP_USER",
-      "SMTP_PASS",
-      "SMTP_FROM",
-      "SMTP_SECURE",
-    ].forEach((k) => {
-      if (parsed[k]) process.env[k] = parsed[k];
-    });
-  }
-} catch {}
+const serveFrontendFlag = (() => {
+  const v1 = String(process.env.SERVE_FRONTEND || "").toLowerCase();
+  const v2 = String(process.env.ENABLE_SPA || "").toLowerCase();
+  if (v1 === "0" || v1 === "false" || v2 === "0" || v2 === "false")
+    return false;
+  return true; // Default to true if a frontend build is present
+})();
 
 const app = express();
 app.set("trust proxy", 1);
 
+// Hook res.writeHead at the request level to completely strip connection headers,
+// bypassing any custom subclassing by Passenger.
+app.use((req, res, next) => {
+  const origWriteHead = res.writeHead;
+  res.writeHead = function (statusCode, statusMessage, headers) {
+    this.removeHeader("Connection");
+    this.removeHeader("connection");
+    this.removeHeader("Keep-Alive");
+    this.removeHeader("keep-alive");
+
+    let headersObj = headers;
+    let statusMsg = statusMessage;
+
+    if (typeof statusMessage === "object") {
+      headersObj = statusMessage;
+      statusMsg = undefined;
+    }
+
+    if (headersObj) {
+      if (Array.isArray(headersObj)) {
+        for (let i = 0; i < headersObj.length; i++) {
+          const key = headersObj[i][0];
+          if (
+            key &&
+            (key.toLowerCase() === "connection" ||
+              key.toLowerCase() === "keep-alive")
+          ) {
+            headersObj.splice(i, 1);
+            i--;
+          }
+        }
+      } else if (typeof headersObj === "object") {
+        for (const k of Object.keys(headersObj)) {
+          const lower = k.toLowerCase();
+          if (lower === "connection" || lower === "keep-alive") {
+            delete headersObj[k];
+          }
+        }
+      }
+    }
+
+    const strip = (obj) => {
+      if (!obj) return;
+      for (const k of Object.getOwnPropertyNames(obj)) {
+        const lower = k.toLowerCase();
+        if (lower === "connection" || lower === "keep-alive") {
+          delete obj[k];
+        }
+      }
+    };
+    strip(this._headers);
+    const sym = Object.getOwnPropertySymbols(this).find(
+      (s) =>
+        s.toString().includes("Headers") || s.toString().includes("headers"),
+    );
+    if (sym) strip(this[sym]);
+
+    if (statusMsg) {
+      return origWriteHead.call(this, statusCode, statusMsg, headersObj);
+    } else {
+      return origWriteHead.call(this, statusCode, headersObj);
+    }
+  };
+  next();
+});
+
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
+    // Disable COEP — Vite adds crossorigin to all <script> tags, which makes
+    // the browser fetch in CORS mode.  Under require-corp, express.static
+    // responses (which lack CORS headers) are blocked with net::ERR_FAILED.
+    crossOriginEmbedderPolicy: false,
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
+    referrerPolicy: {
+      policy: "strict-origin-when-cross-origin",
+    },
   }),
 );
-app.use(morgan("dev"));
 
 app.use((req, res, next) => {
   res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=()",
+  );
+  next();
+});
+app.use(morgan("dev"));
+
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  res.locals.__requestId = requestId;
+
+  const getBaseContext = () => ({
+    requestId,
+    durationMs: Date.now() - startedAt,
+    method: req.method,
+    url: req.originalUrl || req.url,
+    ip: req.ip,
+    origin: req.headers?.origin || "",
+    userAgent: req.headers?.["user-agent"] || "",
+    userId: Number(req.user?.sub || req.user?.id) || null,
+    companyId: req.scope?.companyId ?? null,
+    branchId: req.scope?.branchId ?? null,
+  });
+
+  res.on("finish", () => {
+    const status = Number(res.statusCode || 0) || 0;
+    if (status >= 400 && res.locals.__crashLogged !== true) {
+      logToCrashReport(
+        `HTTP_${status}`,
+        `Request failed with status ${status}`,
+        {
+          ...getBaseContext(),
+          status,
+        },
+      );
+      res.locals.__crashLogged = true;
+    }
+  });
+
+  res.on("close", () => {
+    if (res.writableEnded) return;
+    if (res.locals.__crashLogged === true) return;
+    logToCrashReport(
+      "HTTP_CONNECTION_CLOSED",
+      "Connection closed before response finished",
+      getBaseContext(),
+    );
+    res.locals.__crashLogged = true;
+  });
+
+  next();
+});
+
+app.use((req, res, next) => {
+  const isProd =
+    String(process.env.NODE_ENV || "").toLowerCase() === "production";
+  const connectSrc = process.env.CSP_CONNECT_SRC || "'self' wss: ws:";
+  const scriptSrc =
+    isProd && String(process.env.CSP_ALLOW_EVAL || "").trim() !== "1"
+      ? "'self'"
+      : "'self' 'unsafe-eval'";
+  res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* https://serianaserver.omnisuite-erp.com wss://serianaserver.omnisuite-erp.com https://serianamart.omnisuite-erp.com;",
+    `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src ${connectSrc};`,
   );
   next();
 });
 
 /* ---------------- HTTP/2 COMPAT ---------------- */
-// Removed monkey-patch: stripping Transfer-Encoding and Connection headers
-// severely breaks HTTP/1.1 chunked encoding behind Apache/Nginx proxies,
-// leading to 30-second delays and worker pool exhaustion (ERR_CONNECTION_TIMED_OUT).
+// Phusion Passenger passes Connection headers verbatim to Nginx, which then
+// forwards them to HTTP/2 clients. HTTP/2 forbids connection-specific headers,
+// causing Chrome to immediately drop the connection with ERR_HTTP2_PROTOCOL_ERROR.
+// We MUST forcefully strip 'Connection' and 'Keep-Alive' right before Node writes headers.
+const ORIG_WRITE_HEAD = http.ServerResponse.prototype.writeHead;
+http.ServerResponse.prototype.writeHead = function (
+  statusCode,
+  statusMessage,
+  headers,
+) {
+  this.removeHeader("Connection");
+  this.removeHeader("connection");
+  this.removeHeader("Keep-Alive");
+  this.removeHeader("keep-alive");
+
+  let headersObj = headers;
+  let statusMsg = statusMessage;
+
+  if (typeof statusMessage === "object") {
+    headersObj = statusMessage;
+    statusMsg = undefined;
+  }
+
+  if (headersObj) {
+    if (Array.isArray(headersObj)) {
+      for (let i = 0; i < headersObj.length; i++) {
+        const key = headersObj[i][0];
+        if (
+          key &&
+          (key.toLowerCase() === "connection" ||
+            key.toLowerCase() === "keep-alive")
+        ) {
+          headersObj.splice(i, 1);
+          i--;
+        }
+      }
+    } else if (typeof headersObj === "object") {
+      for (const k of Object.keys(headersObj)) {
+        const lower = k.toLowerCase();
+        if (lower === "connection" || lower === "keep-alive") {
+          delete headersObj[k];
+        }
+      }
+    }
+  }
+
+  const strip = (obj) => {
+    if (!obj) return;
+    for (const k of Object.getOwnPropertyNames(obj)) {
+      const lower = k.toLowerCase();
+      if (lower === "connection" || lower === "keep-alive") {
+        delete obj[k];
+      }
+    }
+  };
+  strip(this._headers);
+  const sym = Object.getOwnPropertySymbols(this).find(
+    (s) => s.toString().includes("Headers") || s.toString().includes("headers"),
+  );
+  if (sym) strip(this[sym]);
+
+  if (statusMsg) {
+    return ORIG_WRITE_HEAD.call(this, statusCode, statusMsg, headersObj);
+  } else {
+    return ORIG_WRITE_HEAD.call(this, statusCode, headersObj);
+  }
+};
 
 /* ---------------- UTILS ---------------- */
 const boolEnv = (v) => {
@@ -133,65 +326,64 @@ const boolEnv = (v) => {
 };
 
 /* ---------------- CORS ---------------- */
-const DEFAULT_ALLOWED_ORIGINS = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:5174",
-  "https://serianamart.omnisuite-erp.com",
-  "https://www.serianamart.omnisuite-erp.com",
-];
-
-const normalizeOrigin = (value) => {
-  if (!value) return "";
-  const cleaned = String(value)
-    .trim()
-    .replace(/^['"`]+|['"`]+$/g, "")
-    .replace(/\/$/, "");
-  if (!cleaned) return "";
-  try {
-    return new URL(cleaned).origin;
-  } catch {
-    return cleaned;
-  }
-};
-
 const allowedOrigins = (() => {
   const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
-  if (raw) {
-    return raw
-      .split(",")
-      .map((s) => normalizeOrigin(s))
-      .filter(Boolean);
+  const origins = raw
+    ? raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  // Always allow the production frontend domain by default
+  if (!origins.includes("https://kaf.omnisuite-erp.com")) {
+    origins.push("https://kaf.omnisuite-erp.com");
   }
-  return DEFAULT_ALLOWED_ORIGINS.map((origin) => normalizeOrigin(origin));
+  if (!origins.includes("https://kaf.omnisuite-erp.com")) {
+    origins.push("https://kaf.omnisuite-erp.com");
+  }
+  return origins;
 })();
-
-console.log("[CORS] Allowed origins:", allowedOrigins.join(", ") || "(none)");
-
-const isAllowedOrigin = (origin) => {
-  if (!origin) return true;
-  const normalizedOrigin = normalizeOrigin(origin);
-  return allowedOrigins.includes(normalizedOrigin);
-};
 
 const corsOptions = {
   origin: (origin, cb) => {
-    const normalizedOrigin = normalizeOrigin(origin);
-    if (isAllowedOrigin(normalizedOrigin)) return cb(null, true);
-    if (origin) console.log("[CORS] Rejected Origin:", normalizedOrigin || origin);
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    // Allow local development networks, Expo Go, and physical mobile phone requests
+    if (
+      origin.includes("localhost") ||
+      origin.includes("127.0.0.1") ||
+      origin.includes("192.168.") ||
+      origin.includes("10.") ||
+      origin.includes("172.") ||
+      origin.startsWith("exp://") ||
+      origin.startsWith("http://") ||
+      origin.startsWith("https://")
+    ) {
+      return cb(null, true);
+    }
     return cb(null, false);
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-  exposedHeaders: ["Content-Length", "Content-Type"],
-  maxAge: 86400,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-company-id",
+    "x-branch-id",
+    "x-user-id",
+    "x-skip-offline-queue",
+    "x-access-token",
+  ],
   optionsSuccessStatus: 204,
 };
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.options("*", cors(corsOptions));
+const bodyLimit = process.env.MAX_BODY_LIMIT || "10mb";
+app.use(express.json({ limit: bodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
+app.use(sanitizeInput);
 
 /* ---------------- RATE LIMITING ---------------- */
 let apiLimiter;
@@ -234,6 +426,20 @@ function setupRateLimiter() {
 setupRateLimiter();
 app.use("/api", apiLimiter);
 
+/* SECURITY: Rate limiting for authentication endpoints */
+const authLimiter = rateLimit({
+  windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+  max: Number(process.env.AUTH_RATE_LIMIT_MAX) || 60, // 60 attempts per 15 minutes per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: "TOO_MANY_REQUESTS",
+    message: "Too many authentication attempts, please try again later",
+  },
+});
+app.use("/api/login", authLimiter);
+app.use("/api/forgot-password", authLimiter);
+
 app.head("/api/ping", (_req, res) => res.status(200).end());
 app.get("/api/ping", (_req, res) => res.json({ ok: true }));
 
@@ -271,6 +477,60 @@ app.get("/api/ping", (_req, res) => res.json({ ok: true }));
       );
       console.log(
         "Successfully added the `created_by` column to `fin_pdc_postings`.",
+      );
+    }
+
+    // Migration for adm_license_renewals table fields (tax, subtotal, discount, tax_rate, payment_method)
+    try {
+      const renewTableCheck = await query(
+        "SHOW TABLES LIKE 'adm_license_renewals'",
+      );
+      if (renewTableCheck && renewTableCheck.length > 0) {
+        const taxCols = await query(
+          "SHOW COLUMNS FROM `adm_license_renewals` LIKE 'tax'",
+        );
+        if (!taxCols || taxCols.length === 0) {
+          await query(
+            "ALTER TABLE `adm_license_renewals` ADD COLUMN `tax` DECIMAL(18,2) NOT NULL DEFAULT 0.00",
+          );
+        }
+        const subtotalCols = await query(
+          "SHOW COLUMNS FROM `adm_license_renewals` LIKE 'subtotal'",
+        );
+        if (!subtotalCols || subtotalCols.length === 0) {
+          await query(
+            "ALTER TABLE `adm_license_renewals` ADD COLUMN `subtotal` DECIMAL(18,2) NOT NULL DEFAULT 0.00",
+          );
+        }
+        const discountCols = await query(
+          "SHOW COLUMNS FROM `adm_license_renewals` LIKE 'discount'",
+        );
+        if (!discountCols || discountCols.length === 0) {
+          await query(
+            "ALTER TABLE `adm_license_renewals` ADD COLUMN `discount` DECIMAL(18,2) NOT NULL DEFAULT 0.00",
+          );
+        }
+        const taxRateCols = await query(
+          "SHOW COLUMNS FROM `adm_license_renewals` LIKE 'tax_rate'",
+        );
+        if (!taxRateCols || taxRateCols.length === 0) {
+          await query(
+            "ALTER TABLE `adm_license_renewals` ADD COLUMN `tax_rate` DECIMAL(18,2) NOT NULL DEFAULT 0.00",
+          );
+        }
+        const payMethodCols = await query(
+          "SHOW COLUMNS FROM `adm_license_renewals` LIKE 'payment_method'",
+        );
+        if (!payMethodCols || payMethodCols.length === 0) {
+          await query(
+            "ALTER TABLE `adm_license_renewals` ADD COLUMN `payment_method` VARCHAR(100) NULL DEFAULT NULL",
+          );
+        }
+      }
+    } catch (migErr) {
+      console.warn(
+        "[Migration] adm_license_renewals migration warning:",
+        migErr.message,
       );
     }
 
@@ -613,6 +873,68 @@ if (boolEnv(process.env.DISABLE_KEEP_ALIVE)) {
     next();
   });
 }
+
+/* --- Serve frontend static assets EARLY (before API routes) --- */
+// This ensures /assets/*.js files are served with correct MIME types.
+// Check multiple possible locations for the frontend build:
+//   1. ../client/dist  (local development)
+//   2. ./public        (production build via scripts/build.js)
+//   3. cwd()/public    (Plesk/Passenger deployment)
+const _staticOpts = {
+  setHeaders: (res, filePath) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    if (filePath.endsWith(".js") || filePath.endsWith(".mjs")) {
+      res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    } else if (filePath.endsWith(".css")) {
+      res.setHeader("Content-Type", "text/css; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    }
+  },
+};
+const _frontendCandidates = [
+  path.join(__dirname, "../client/dist"),
+  path.join(process.cwd(), "client/dist"),
+  path.join(__dirname, "public"),
+  path.join(process.cwd(), "public"),
+  path.join(__dirname, "../public"),
+  path.join(process.cwd(), "dist/public"),
+  path.join(__dirname, "dist/public"),
+];
+
+let _earlyFrontendPath = null;
+const _activeFrontendPaths = [];
+
+for (const candidate of _frontendCandidates) {
+  if (fs.existsSync(candidate)) {
+    _activeFrontendPaths.push(candidate);
+    app.use(express.static(candidate, _staticOpts));
+    const assetsSubdir = path.join(candidate, "assets");
+    if (fs.existsSync(assetsSubdir)) {
+      app.use("/assets", express.static(assetsSubdir, _staticOpts));
+    }
+    if (
+      !_earlyFrontendPath &&
+      fs.existsSync(path.join(candidate, "index.html"))
+    ) {
+      _earlyFrontendPath = candidate;
+    }
+  }
+}
+
+if (_earlyFrontendPath) {
+  console.log(
+    `[STATIC] Serving primary frontend index.html from ${_earlyFrontendPath}`,
+  );
+  console.log(
+    `[STATIC] Active asset directories: ${_activeFrontendPaths.join(", ")}`,
+  );
+} else {
+  console.warn(
+    `[STATIC] Frontend build not found. Checked: ${_frontendCandidates.join(", ")}`,
+  );
+}
+
 app.use(
   "/uploads",
   express.static(
@@ -626,84 +948,203 @@ app.use(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "uploads"),
   ),
 );
-app.use("/api/", healthRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/administration", adminRoutes);
-app.use(["/api/backups", "/backups"], backupRoutes);
-app.use("/api/workflows", workflowRoutes);
-app.use("/api/upload", uploadRoutes);
-app.use("/api/sales", salesRoutes);
-app.use("/api/purchase/bills", purchaseBillsRoutes);
-app.use("/api/purchase", purchaseRoutes);
-app.use("/api/inventory", inventoryRoutes);
-app.use("/api/finance", financeRoutes);
-app.use("/api/hr", hrRoutes);
-app.use("/api/maintenance", maintenanceRoutes);
-app.use("/api/projects", projectsRoutes);
-app.use("/api/production", productionRoutes);
-app.use("/api/pos", posRoutes);
-app.use("/api/bi", biRoutes);
+// SECURITY: Debug endpoints require authentication
+app.get("/api/debug-crash-log", requireAuthMiddleware, (req, res) => {
+  // SECURITY: Only allow admin users (ID 1) to access crash reports
+  if (Number(req.user?.id) !== 1) {
+    return res
+      .status(403)
+      .json({ error: "FORBIDDEN", message: "Admin access required" });
+  }
+  try {
+    const p1 = path.join(process.cwd(), "crash_report.txt");
+    const p2 = path.join(process.cwd(), "CRASH_REPORT.txt");
+    const file = fs.existsSync(p1) ? p1 : fs.existsSync(p2) ? p2 : null;
+    if (!file) {
+      return res.status(404).send("No crash report file found.");
+    }
+    const content = fs.readFileSync(file, "utf8");
+    res.setHeader("Content-Type", "text/plain");
+    res.send(content);
+  } catch (err) {
+    res
+      .status(500)
+      .json({ error: "INTERNAL_ERROR", message: "Error reading crash report" });
+  }
+});
+
 app.use("/api/service-management", serviceMgmtRoutes);
-app.use("/api/services", srvInvoicesRoutes);
+app.use("/api/srv-invoices", srvInvoicesRoutes);
+app.use("/api/transport", transportRoutes);
+app.use("/api/tracking", trackingRoutes);
+app.use("/api/upload", uploadRoutes);
+app.use("/api/executive-overview", executiveRoutes);
+
+app.use("/api/", healthRoutes);
+app.use("/", healthRoutes);
+
+app.use("/api", requireLicense);
+app.use("/", requireLicense);
+
+const apiPaths = [
+  { path: "/licenses", router: licenseRoutes },
+  { path: "/subscription-plans", router: paymentPackageRoutes },
+  { path: "/admin", router: adminRoutes },
+  { path: "/administration", router: adminRoutes },
+  { path: "/backups", router: backupRoutes },
+  { path: "/workflows", router: workflowRoutes },
+  { path: "/upload", router: uploadRoutes },
+  { path: "/sales", router: salesRoutes },
+  { path: "/purchase/bills", router: purchaseBillsRoutes },
+  { path: "/purchase", router: purchaseRoutes },
+  { path: "/inventory", router: inventoryRoutes },
+  { path: "/finance", router: financeRoutes },
+  { path: "/hr", router: hrRoutes },
+  { path: "/maintenance", router: maintenanceRoutes },
+  { path: "/projects", router: projectsRoutes },
+  { path: "/production", router: productionRoutes },
+  { path: "/pos", router: posRoutes },
+  { path: "/bi", router: biRoutes },
+  { path: "/service-management", router: serviceMgmtRoutes },
+  { path: "/services", router: srvInvoicesRoutes },
+  { path: "/transport", router: transportRoutes },
+  { path: "/push", router: pushRoutes },
+  { path: "/templates", router: templatesRoutes },
+  { path: "/documents", router: documentsRoutes },
+  { path: "/social-feed", router: socialFeedRoutes },
+  { path: "/access", router: accessRoutes },
+  { path: "/chat", router: chatRoutes },
+  { path: "/ai", router: aiRoutes },
+  { path: "/email-test", router: emailTestRoutes },
+  { path: "/visitors", router: visitorsRoutes },
+];
+
+// Debug Endpoint to view production crash reports directly from the browser
+app.get("/api/debug-status", async (req, res) => {
+  try {
+    const fs = await import("fs");
+    const path = await import("path");
+    let crashReport = "No crash report found.";
+    const crashPath = path.join(process.cwd(), "CRASH_REPORT.txt");
+    if (fs.existsSync(crashPath)) {
+      crashReport = fs.readFileSync(crashPath, "utf8");
+      if (crashReport.length > 10000) {
+        crashReport = crashReport.slice(-10000);
+      }
+    }
+
+    const dbHealth = await (
+      await import("./db/pool.js")
+    ).getDbHealth({ probe: true });
+    const dbConfig = await (await import("./db/pool.js")).getDbConfig();
+
+    res.json({
+      ok: true,
+      dbHealth,
+      dbConfig,
+      crashReport,
+      nodeEnv: process.env.NODE_ENV,
+      cwd: process.cwd(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message, stack: err.stack });
+  }
+});
+
+apiPaths.forEach(({ path, router }) => {
+  app.use(`/api${path}`, router);
+  app.use(path, router);
+});
+
 app.use("/api", authRoutes);
-app.use("/api/push", pushRoutes);
-app.use("/api/templates", templatesRoutes);
-app.use("/api/documents", documentsRoutes);
-app.use("/api/social-feed", socialFeedRoutes);
-app.use("/api/access", accessRoutes);
-app.use("/api/chat", chatRoutes);
-app.use("/api/email-test", emailTestRoutes);
-app.use("/api/visitors", visitorsRoutes);
+app.use("/", authRoutes);
+
+// Intercept Socket.io requests explicitly because Passenger intercepts the http.Server hook
+app.use("/socket.io", (req, res, next) => {
+  if (ioInstance && ioInstance.engine) {
+    req.url = req.originalUrl; // Express strips the mount path, but engine.io needs it!
+    ioInstance.engine.handleRequest(req, res);
+  } else {
+    // If socket.io is disabled, return 400 to tell the frontend client to stop polling
+    res.status(400).json({ error: "Socket.io disabled by server" });
+  }
+});
 
 /* ---------------- STATIC FILES & SPA FALLBACK ---------------- */
-const serveFrontendFlag = (() => {
-  const v1 = String(process.env.SERVE_FRONTEND || "").toLowerCase();
-  const v2 = String(process.env.ENABLE_SPA || "").toLowerCase();
-  return v1 === "1" || v1 === "true" || v2 === "1" || v2 === "true";
-})();
-if (serveFrontendFlag) {
-  let frontendPath = null;
-  const overrideDir =
-    String(process.env.STATIC_DIR || process.env.PUBLIC_DIR || "").trim() ||
-    null;
-  if (overrideDir) {
-    const abs =
-      path.isAbsolute(overrideDir) === true
-        ? overrideDir
-        : path.join(process.cwd(), overrideDir);
-    if (fs.existsSync(path.join(abs, "index.html"))) {
-      frontendPath = abs;
+// Use the frontend path already discovered by the early static block above.
+// Also allow SERVE_FRONTEND / ENABLE_SPA to force-enable SPA fallback even if
+// the path was overridden by STATIC_DIR / PUBLIC_DIR env vars.
+
+// Resolve override directory from env, if any
+const _overrideDir =
+  String(process.env.STATIC_DIR || process.env.PUBLIC_DIR || "").trim() || null;
+let _spaFrontendPath = _earlyFrontendPath; // already discovered above
+if (_overrideDir) {
+  const abs = path.isAbsolute(_overrideDir)
+    ? _overrideDir
+    : path.join(process.cwd(), _overrideDir);
+  if (fs.existsSync(path.join(abs, "index.html"))) {
+    _spaFrontendPath = abs;
+  }
+}
+
+if (_spaFrontendPath && serveFrontendFlag) {
+  const frontendPath = _spaFrontendPath;
+  for (const candidate of _activeFrontendPaths) {
+    app.use(express.static(candidate, _staticOpts));
+    const assetsSubdir = path.join(candidate, "assets");
+    if (fs.existsSync(assetsSubdir)) {
+      app.use("/assets", express.static(assetsSubdir, _staticOpts));
     }
   }
-  const distPath = path.join(__dirname, "../client/dist");
-  const distIndex = path.join(distPath, "index.html");
-  const publicPath = path.join(__dirname, "public");
-  const publicIndex = path.join(publicPath, "index.html");
-  if (!frontendPath && fs.existsSync(distIndex)) {
-    frontendPath = distPath;
-    console.log("Serving frontend from ../client/dist");
-  } else if (!frontendPath && fs.existsSync(publicIndex)) {
-    frontendPath = publicPath;
-    console.log("Serving frontend from ./public");
-  } else if (!frontendPath) {
-    frontendPath = fs.existsSync(distPath) ? distPath : publicPath;
-    console.warn(
-      "Frontend build not found (index.html missing) in ./public or ../client/dist",
-    );
-  }
-  if (frontendPath && fs.existsSync(frontendPath)) {
-    app.use(express.static(frontendPath));
-  }
+
   app.get("*", (req, res, next) => {
-    if (req.url.startsWith("/api")) {
+    if (
+      req.url.startsWith("/api") ||
+      req.url.startsWith("/uploads") ||
+      req.url.startsWith("/socket.io")
+    ) {
       return next();
     }
-    const indexPath = path.join(frontendPath, "index.html");
-    if (fs.existsSync(indexPath)) {
-      res.sendFile(indexPath);
-    } else {
-      res.status(404).send("Frontend not built or index.html missing.");
+
+    // Check if the requested path is a static asset file (.js, .css, .png, etc.)
+    if (
+      /\.(js|css|png|jpg|jpeg|gif|ico|json|svg|woff|woff2|ttf|map)$/i.test(
+        req.path,
+      )
+    ) {
+      // Try to find the file in any of our active static candidate directories
+      const relativePath = req.path.replace(/^\//, "");
+      for (const candidate of _activeFrontendPaths) {
+        const fullFilePath = path.join(candidate, relativePath);
+        if (fs.existsSync(fullFilePath) && fs.statSync(fullFilePath).isFile()) {
+          if (fullFilePath.endsWith(".js") || fullFilePath.endsWith(".mjs")) {
+            res.setHeader(
+              "Content-Type",
+              "application/javascript; charset=utf-8",
+            );
+          } else if (fullFilePath.endsWith(".css")) {
+            res.setHeader("Content-Type", "text/css; charset=utf-8");
+          }
+          return res.sendFile(fullFilePath);
+        }
+      }
+      return res.status(404).type("text/plain").send("Static file not found");
     }
+
+    if (frontendPath) {
+      const indexPath = path.join(frontendPath, "index.html");
+      if (fs.existsSync(indexPath)) {
+        res.setHeader(
+          "Cache-Control",
+          "no-cache, no-store, must-revalidate, max-age=0",
+        );
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+        return res.sendFile(indexPath);
+      }
+    }
+    res.status(404).send("Frontend not built or index.html missing.");
   });
 } else {
   app.get("/", (req, res) => {
@@ -720,13 +1161,28 @@ if (serveFrontendFlag) {
 }
 
 /* ---------------- ERRORS ---------------- */
-// app.use(notFound); // Handled by SPA catch-all now, or use for API 404s if desired
+app.use(notFound); // Handled by SPA catch-all now, or use for API 404s if desired
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 4002;
 
 // Create HTTP server for Socket.io
 const server = http.createServer(app);
+server.on("error", (err) => {
+  logToCrashReport("SERVER_ERROR", err);
+});
+server.on("clientError", (err, socket) => {
+  logToCrashReport("CLIENT_ERROR", err, {
+    remoteAddress: socket?.remoteAddress || null,
+    remotePort: socket?.remotePort || null,
+  });
+  // Do not write raw HTTP/1.1 strings to the socket, as this breaks HTTP/2 streams
+  try {
+    if (socket.writable) {
+      socket.destroy();
+    }
+  } catch {}
+});
 
 // Timeouts to avoid long-hanging connections in managed hosting
 try {
@@ -770,7 +1226,7 @@ if (process.env.NODE_ENV !== "test" && !socketsDisabled) {
 export { ioInstance as io };
 
 if (process.env.NODE_ENV !== "test") {
-  server.listen(PORT, "127.0.0.1", () => {
+  server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     initCronJobs();
     console.log(`Mailer configured: ${isMailerConfigured() ? "yes" : "no"}`);
@@ -783,6 +1239,52 @@ if (process.env.NODE_ENV !== "test") {
           `[Mailer] verification failed: ${error?.message || error}`,
         );
       });
+
+    // ─── Background DB prewarm ──────────────────────────────────────────────
+    // Run AFTER listen() so Passenger sees the server start immediately.
+    // All ensure*() calls are no-ops for subsequent requests once this completes
+    // because verifiedTables gets populated here.
+    (async () => {
+      try {
+        const dbCheck = await testDbConnection({ silent: true });
+        if (!dbCheck.ok) {
+          console.warn("[Prewarm] DB not available, skipping DDL prewarm");
+        } else {
+          console.log("[Prewarm] Running background schema setup...");
+          const steps = [
+            ["pages table", () => ensurePagesTable()],
+            ["user permissions table", () => ensureUserPermissionsTable()],
+            [
+              "user permission triggers",
+              () => ensureUserPermissionCacheAndTriggers(),
+            ],
+            ["user branch mapping", () => ensureUserBranchMapping()],
+            [
+              "exceptional permissions",
+              () => ensureExceptionalPermissionsTable(),
+            ],
+            ["system logs", () => ensureSystemLogsTable()],
+            ["pm quotations", () => ensurePMQuotationTables()],
+            ["pm invoices", () => ensurePMInvoiceTables()],
+            ["social feed tables", () => ensureSocialFeedTables()],
+            ["transport tables", () => ensureTransportTables()],
+          ];
+          for (const [name, fn] of steps) {
+            try {
+              await fn();
+              console.log(`[Prewarm] ✓ ${name}`);
+            } catch (e) {
+              console.warn(`[Prewarm] ⚠ ${name}: ${e?.message || e}`);
+            }
+          }
+          console.log("[Prewarm] Schema setup complete.");
+        }
+      } catch (e) {
+        console.warn(`[Prewarm] Error: ${e?.message || e}`);
+      }
+    })();
+
+    // ─── Legacy startup checks ──────────────────────────────────────────────
     (async () => {
       try {
         const dbCheck = await testDbConnection({ silent: true });
@@ -794,6 +1296,12 @@ if (process.env.NODE_ENV !== "test") {
         } catch {}
         try {
           await ensureSystemLogsTable();
+        } catch {}
+        try {
+          await ensurePMQuotationTables();
+        } catch {}
+        try {
+          await ensurePMInvoiceTables();
         } catch {}
         try {
           await seedDefaultTemplates();
@@ -850,25 +1358,44 @@ if (process.env.NODE_ENV !== "test") {
           );
           if (!items.length) continue;
           // Filter recipients by notification preferences (low-stock)
-          await query(`
-            CREATE TABLE IF NOT EXISTS adm_notification_prefs (
-              user_id BIGINT UNSIGNED NOT NULL,
-              pref_key VARCHAR(100) NOT NULL,
-              push_enabled TINYINT(1) NOT NULL DEFAULT 0,
-              email_enabled TINYINT(1) NOT NULL DEFAULT 0,
-              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-              PRIMARY KEY (user_id, pref_key),
-              INDEX idx_pref_key (pref_key)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          `);
+          if (!verifiedTables.has("adm_notification_prefs")) {
+            await query(`
+              CREATE TABLE IF NOT EXISTS adm_notification_prefs (
+                user_id BIGINT UNSIGNED NOT NULL,
+                pref_key VARCHAR(100) NOT NULL,
+                push_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                email_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                sms_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                whatsapp_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, pref_key),
+                INDEX idx_pref_key (pref_key)
+              ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            `);
+            if (!(await hasColumn("adm_notification_prefs", "sms_enabled"))) {
+              await query(
+                "ALTER TABLE adm_notification_prefs ADD COLUMN sms_enabled TINYINT(1) NOT NULL DEFAULT 0",
+              );
+            }
+            if (
+              !(await hasColumn("adm_notification_prefs", "whatsapp_enabled"))
+            ) {
+              await query(
+                "ALTER TABLE adm_notification_prefs ADD COLUMN whatsapp_enabled TINYINT(1) NOT NULL DEFAULT 0",
+              );
+            }
+            verifiedTables.add("adm_notification_prefs");
+          }
           const recipients = await query(
-            `SELECT u.id, u.email, np.push_enabled, np.email_enabled
+            `SELECT u.id, u.username, u.email, COALESCE(u.telephone, '') AS phone,
+                    np.push_enabled, np.email_enabled, np.sms_enabled, np.whatsapp_enabled
              FROM adm_users u
              JOIN adm_notification_prefs np ON np.user_id = u.id AND np.pref_key = 'low-stock'
              WHERE u.is_active = 1 
                AND u.company_id = :companyId 
-               AND u.branch_id = :branchId`,
+               AND u.branch_id = :branchId
+               AND (np.push_enabled = 1 OR np.email_enabled = 1 OR np.sms_enabled = 1 OR np.whatsapp_enabled = 1)`,
             { companyId, branchId },
           );
           for (const u of recipients) {
@@ -905,6 +1432,8 @@ if (process.env.NODE_ENV !== "test") {
               )
               .join("");
             const html = `<p>${count} items are at or below reorder levels.</p><table border="1" cellpadding="6" cellspacing="0"><thead><tr><th>Code</th><th>Name</th><th>Qty</th><th>Reorder</th></tr></thead><tbody>${htmlRows}</tbody></table><p><a href="/inventory/alerts/low-stock">Open Alerts</a></p>`;
+
+            // Email Channel
             if (
               Number(u?.email_enabled) === 1 &&
               isMailerConfigured() &&
@@ -929,11 +1458,46 @@ if (process.env.NODE_ENV !== "test") {
               } catch (e) {
                 console.log(`[EMAIL ERROR] ${e?.message || e}`);
               }
-            } else {
+            } else if (Number(u?.email_enabled) === 1) {
               console.log(
                 `[MOCK ERROR] To: ${u.email || "(none)"} | Subject: ${subject}`,
               );
             }
+
+            // SMS Channel
+            if (Number(u?.sms_enabled) === 1 && u.phone) {
+              try {
+                const smsText = `Low Stock Alert: ${count} item${count === 1 ? "" : "s"} at/below reorder limit. Check ERP /inventory/alerts/low-stock`;
+                await sendSMS({
+                  to: u.phone,
+                  message: smsText,
+                });
+              } catch (e) {
+                console.log(`[SMS ERROR] ${e?.message || e}`);
+              }
+            }
+
+            // WhatsApp Channel
+            if (Number(u?.whatsapp_enabled) === 1 && u.phone) {
+              try {
+                const sampleLines = items
+                  .slice(0, 5)
+                  .map(
+                    (it) =>
+                      `• ${it.item_code} ${it.item_name}: ${Number(it.qty || 0)} left (reorder ${Number(it.reorder_level || 0)})`,
+                  )
+                  .join("\n");
+                const waText = `⚠️ *Low Stock Alert*\n${count} items are at or below reorder levels.\n\n${sampleLines}${count > 5 ? `\n...and ${count - 5} more items` : ""}\n\nOpen ERP: /inventory/alerts/low-stock`;
+                await sendWhatsApp({
+                  to: u.phone,
+                  message: waText,
+                });
+              } catch (e) {
+                console.log(`[WHATSAPP ERROR] ${e?.message || e}`);
+              }
+            }
+
+            // In-App Push Channel
             if (Number(u?.push_enabled) === 1) {
               await query(
                 `INSERT INTO adm_notifications (company_id, user_id, title, message, link, is_read)
@@ -1020,8 +1584,8 @@ if (process.env.NODE_ENV !== "test") {
         `[LowStockScheduler] Initial schedule check failed: ${e?.message || e}`,
       ),
     );
-  });
-}
+  }); // closes server.listen callback
+} // closes if (process.env.NODE_ENV !== "test")
 
 // ─── Graceful Shutdown ───────────────────────────────────────────────────────
 async function gracefulShutdown(signal) {
@@ -1035,5 +1599,42 @@ async function gracefulShutdown(signal) {
 }
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+// ─── Prevent process crashes from unhandled errors ───────────────────────────
+// Without these handlers, any unhandled Promise rejection or thrown exception
+// will crash the entire Node.js server, causing ERR_CONNECTION_CLOSED for all
+// in-flight requests. Log the error but keep the process running.
+process.on("unhandledRejection", (reason, promise) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : "(no stack)";
+  console.error(`[Process] Unhandled Promise Rejection: ${msg}`);
+  console.error(stack);
+  logToCrashReport("UnhandledRejection", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error(`[Process] Uncaught Exception: ${err?.message || err}`);
+  console.error(err?.stack || "(no stack)");
+  logToCrashReport("UncaughtException", err);
+
+  // If the server hasn't successfully bound to a port yet (e.g., module import failure),
+  // we MUST exit. Otherwise Phusion Passenger will hang for 90 seconds.
+  if (err?.code === "MODULE_NOT_FOUND" || !server.listening) {
+    console.error("[Process] Fatal startup error, exiting.");
+    process.exit(1);
+  }
+
+  // Only exit for truly fatal errors (memory corruption, etc.).
+  // Do NOT exit for recoverable errors like DB timeouts.
+  if (
+    err &&
+    (err.code === "ERR_WORKER_OUT_OF_MEMORY" ||
+      err.code === "ERR_INVALID_HANDLE_STATE")
+  ) {
+    console.error("[Process] Fatal error, exiting.");
+    logToCrashReport("FatalExit", "Process exiting due to fatal error");
+    process.exit(1);
+  }
+});
 
 export default app;

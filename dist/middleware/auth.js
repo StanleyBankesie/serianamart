@@ -43,19 +43,25 @@ export async function requireAuth(req, res, next) {
     const cookies = parseCookieHeader(req.headers.cookie || "");
     const sessionId = cookies.omnisuite_session;
     const authHeader = String(req.headers.authorization || "");
+    const customHeader = String(req.headers["x-access-token"] || "");
     const bearerToken = authHeader.startsWith("Bearer ")
       ? authHeader.slice(7).trim()
-      : "";
+      : customHeader.trim();
 
-    console.log(
-      `[AUTH-MIDDLEWARE] Cookie header: ${req.headers.cookie ? req.headers.cookie.substring(0, 50) + "..." : "empty"}, sessionId: ${sessionId ? sessionId.substring(0, 8) + "..." : "none"}`,
-    );
+    const debugAuth = String(process.env.DEBUG_AUTH || "").trim() === "1";
+    if (debugAuth) {
+      console.log(
+        `[AUTH-MIDDLEWARE] Cookie header: ${req.headers.cookie ? req.headers.cookie.substring(0, 50) + "..." : "empty"}, sessionId: ${sessionId ? sessionId.substring(0, 8) + "..." : "none"}`,
+      );
+    }
 
     if (sessionId) {
       const sessionData = await cacheGet(`omnisuite_session:${sessionId}`);
-      console.log(
-        `[AUTH-MIDDLEWARE] Looking up omnisuite_session:${sessionId.substring(0, 8)}... found: ${sessionData ? "YES" : "NO"}`,
-      );
+      if (debugAuth) {
+        console.log(
+          `[AUTH-MIDDLEWARE] Looking up omnisuite_session:${sessionId.substring(0, 8)}... found: ${sessionData ? "YES" : "NO"}`,
+        );
+      }
 
       if (sessionData && sessionData.user) {
         // Slide session TTL
@@ -66,9 +72,11 @@ export async function requireAuth(req, res, next) {
           sessionData,
           ttlSeconds,
         ).catch(() => {});
-        console.log(
-          `[AUTH-MIDDLEWARE] Session authenticated for user: ${sessionData.user.username}`,
-        );
+        if (debugAuth) {
+          console.log(
+            `[AUTH-MIDDLEWARE] Session authenticated for user: ${sessionData.user.username}`,
+          );
+        }
 
         req.user = {
           ...(req.user || {}),
@@ -90,9 +98,11 @@ export async function requireAuth(req, res, next) {
         };
         req.scope = req.scope || {};
         req.scope.userId = Number(payload.sub || payload.id) || null;
-        console.log(
-          `[AUTH-MIDDLEWARE] Bearer token authenticated for user: ${payload.username || payload.sub || payload.id}`,
-        );
+        if (debugAuth) {
+          console.log(
+            `[AUTH-MIDDLEWARE] Bearer token authenticated for user: ${payload.username || payload.sub || payload.id}`,
+          );
+        }
         return next();
       } catch (tokenErr) {
         const gracePayload = await lookupGraceToken(bearerToken);
@@ -104,18 +114,24 @@ export async function requireAuth(req, res, next) {
           req.scope = req.scope || {};
           req.scope.userId =
             Number(gracePayload.sub || gracePayload.id) || null;
-          console.log(
-            `[AUTH-MIDDLEWARE] Grace token authenticated for user: ${gracePayload.username || gracePayload.sub || gracePayload.id}`,
-          );
+          if (debugAuth) {
+            console.log(
+              `[AUTH-MIDDLEWARE] Grace token authenticated for user: ${gracePayload.username || gracePayload.sub || gracePayload.id}`,
+            );
+          }
           return next();
         }
-        console.warn(
-          `[AUTH-MIDDLEWARE] Bearer token rejected: ${tokenErr?.message || tokenErr}`,
-        );
+        if (debugAuth) {
+          console.warn(
+            `[AUTH-MIDDLEWARE] Bearer token rejected: ${tokenErr?.message || tokenErr}`,
+          );
+        }
       }
     }
 
-    console.log(`[AUTH-MIDDLEWARE] No valid session found, returning 401`);
+    if (debugAuth) {
+      console.log(`[AUTH-MIDDLEWARE] No valid session found, returning 401`);
+    }
 
     // If token is missing but dev bypass is allowed, attach dev user
     if (allowDevBypass()) {
@@ -139,46 +155,55 @@ export async function requireAuth(req, res, next) {
 
 /**
  * Middleware to enforce company scope based on headers.
- * Ensures the user has a selected company.
+ * Ensures the user has access to the requested company.
  *
  * @param {import('express').Request} req - Express request.
  * @param {import('express').Response} res - Express response.
  * @param {import('express').NextFunction} next - Express next middleware function.
  */
-export function requireCompanyScope(req, res, next) {
+export async function requireCompanyScope(req, res, next) {
   if (!req.user) {
     return next(httpError(401, "UNAUTHORIZED", "Authentication required"));
   }
 
-  // Check if user is an admin (ID 1) and bypass company restrictions
-  if (Number(req.user.id) === 1) {
+  req.scope = req.scope || {};
+
+  const rawId = process.env.LICENSE_SUPER_ADMIN_ID;
+  const superAdminId = rawId ? parseInt(String(rawId).trim(), 10) : 1;
+
+  // Admin (ID 1 or Super Admin ID) can access any requested company
+  if (Number(req.user.id) === superAdminId) {
     const companyId = Number(
-      req.headers["x-company-id"] || req.query.companyId || 1,
+      req.headers["x-company-id"] || req.query.companyId || req.user?.company_id || 1,
     );
-    req.scope = req.scope || {};
     req.scope.companyId = companyId;
     return next();
   }
 
-  // Determine company ID from headers, query, or user's allowed companies
-  const companyId = Number(
-    req.headers["x-company-id"] ||
-      req.query.companyId ||
-      req.user?.companyIds?.[0] ||
-      1,
-  );
-  req.scope = req.scope || {};
-  req.scope.companyId = companyId;
-  const allowedCompanies = Array.isArray(req.user?.companyIds)
+  // Determine allowed company IDs for non-admin user
+  const allowedCompanies = Array.isArray(req.user?.companyIds) && req.user.companyIds.length > 0
     ? req.user.companyIds.map(Number)
-    : [];
-  // Validate that the user's allowed companies include the requested company ID
-  if (
-    allowedCompanies.length &&
-    !allowedCompanies.includes(Number(companyId))
-  ) {
-    return next(httpError(403, "FORBIDDEN", "Company access denied"));
+    : req.user?.company_id ? [Number(req.user.company_id)] : [];
+
+  // Default company ID fallback
+  const defaultCompanyId = allowedCompanies[0] || 1;
+  const requestedCompanyId = Number(
+    req.headers["x-company-id"] || req.query.companyId || defaultCompanyId
+  );
+
+  // Validate that user has access to the requested company
+  if (allowedCompanies.length > 0 && !allowedCompanies.includes(requestedCompanyId)) {
+    // Fallback: Check database dynamically in case the JWT payload is stale
+    const [rows] = await query(
+      "SELECT 1 FROM adm_user_branches WHERE user_id = :userId AND company_id = :companyId LIMIT 1",
+      { userId: req.user.id || req.user.sub, companyId: requestedCompanyId }
+    );
+    if (!rows || !rows.length) {
+      return next(httpError(403, "FORBIDDEN", "Company access denied"));
+    }
   }
+
+  req.scope.companyId = requestedCompanyId;
   return next();
 }
 
@@ -195,8 +220,11 @@ export async function requireBranchScope(req, res, next) {
     const branchId = Number(rawBranchId || req.user?.branchIds?.[0] || 1);
     req.scope.branchId = branchId;
 
+    const rawId = process.env.LICENSE_SUPER_ADMIN_ID;
+    const superAdminId = rawId ? parseInt(String(rawId).trim(), 10) : 1;
+
     // Admin bypass: allow 'all' branches or fetch superbranch hierarchy dynamically
-    if (Number(req.user.id) === 1) {
+    if (Number(req.user.id) === superAdminId) {
       if (rawBranchId === "all") {
         req.scope.branchId = "all";
         req.scope.branchIdsStr = "";
@@ -226,7 +254,14 @@ export async function requireBranchScope(req, res, next) {
       : [];
 
     if (allowedBranches.length && !allowedBranches.includes(Number(branchId))) {
-      return next(httpError(403, "FORBIDDEN", "Branch access denied"));
+      // Fallback: Check database dynamically in case the JWT payload is stale
+      const [rows] = await query(
+        "SELECT 1 FROM adm_user_branches WHERE user_id = :userId AND branch_id = :branchId LIMIT 1",
+        { userId: req.user.id || req.user.sub, branchId: Number(branchId) }
+      );
+      if (!rows || !rows.length) {
+        return next(httpError(403, "FORBIDDEN", "Branch access denied"));
+      }
     }
 
     req.scope.branchIdsStr = String(branchId);

@@ -722,9 +722,19 @@ async function ensurePosTables() {
       "ALTER TABLE pos_day_status ADD COLUMN momo_closing_balance DECIMAL(18,2) NULL AFTER momo_opening_balance",
     ).catch(() => {});
   }
+  if (!(await hasColumn("pos_day_status", "momo_closing_main"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN momo_closing_main DECIMAL(18,2) NULL AFTER momo_closing_balance",
+    ).catch(() => {});
+  }
+  if (!(await hasColumn("pos_day_status", "momo_closing_pay"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN momo_closing_pay DECIMAL(18,2) NULL AFTER momo_closing_main",
+    ).catch(() => {});
+  }
   if (!(await hasColumn("pos_day_status", "momo_opening_main"))) {
     await query(
-      "ALTER TABLE pos_day_status ADD COLUMN momo_opening_main DECIMAL(18,2) NULL AFTER momo_closing_balance",
+      "ALTER TABLE pos_day_status ADD COLUMN momo_opening_main DECIMAL(18,2) NULL AFTER momo_closing_pay",
     ).catch(() => {});
   }
   if (!(await hasColumn("pos_day_status", "momo_opening_pay"))) {
@@ -2400,6 +2410,8 @@ router.get(
     try {
       const { companyId, branchId, branchIdsStr = '' } = req.scope || {};
       const date = String(req.query.date || "").trim();
+      const startDate = String(req.query.startDate || req.query.from || "").trim();
+      const endDate = String(req.query.endDate || req.query.to || "").trim();
       const receiptNo = String(
         req.query.receipt_no || req.query.receiptNo || "",
       )
@@ -2411,17 +2423,26 @@ router.get(
       const terminalId = Number(
         req.query.terminal_id || req.query.terminalId || 0,
       );
+      const warehouse = String(req.query.warehouse || "").trim();
       const rawLimit = Number(req.query.limit || 0);
       const limit =
         Number.isFinite(rawLimit) && rawLimit > 0
-          ? Math.min(1000, Math.floor(rawLimit))
-          : 200;
+          ? Math.min(5000, Math.floor(rawLimit))
+          : 1000;
       await ensurePosTables();
-      const params = { companyId, branchId, branchIdsStr, limit };
-      const where = ["ps.company_id = :companyId", "(:branchIdsStr = '' OR FIND_IN_SET(ps.branch_id, :branchIdsStr))"];
+      const params = { companyId, branchId, branchIdsStr };
+      const where = [
+        "ps.company_id = :companyId",
+        "(:branchIdsStr = '' OR FIND_IN_SET(ps.branch_id, :branchIdsStr))",
+        "ps.status IN ('COMPLETED', 'PAID')",
+      ];
       if (date) {
         params.date = date;
         where.push("DATE(ps.sale_datetime) = DATE(:date)");
+      } else if (startDate && endDate) {
+        params.startDate = startDate;
+        params.endDate = endDate;
+        where.push("DATE(ps.sale_datetime) BETWEEN DATE(:startDate) AND DATE(:endDate)");
       }
       if (receiptNo) {
         params.receiptNo = receiptNo;
@@ -2434,62 +2455,43 @@ router.get(
         params.terminalCode = terminalCode.toUpperCase();
         where.push("UPPER(pt.code) = :terminalCode");
       }
-      let resolvedTerminalId =
-        Number.isFinite(terminalId) && terminalId > 0 ? terminalId : 0;
-      if (!resolvedTerminalId && terminalCode) {
-        try {
-          const rows = await query(
-            `SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM pos_terminals
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId 
-               AND (:branchIdsStr = '' OR FIND_IN_SET(pos_terminals.branch_id, :branchIdsStr)) 
-               AND UPPER(code) = :code 
-             LIMIT 1`,
-            { companyId, branchId, branchIdsStr, code: terminalCode.toUpperCase() },
-          );
-          resolvedTerminalId = Number(rows?.[0]?.id || 0) || 0;
-        } catch {}
+      if (warehouse) {
+        params.warehouse = warehouse;
+        where.push("pt.warehouse = :warehouse");
       }
-      const baseParams = { companyId, branchId, branchIdsStr, limit };
-      const filterByTerminal = resolvedTerminalId > 0;
-      const terminalFilterSql = filterByTerminal
-        ? " AND terminal_id = :terminalId"
-        : "";
-      const finalParams = filterByTerminal
-        ? { ...baseParams, terminalId: resolvedTerminalId }
-        : baseParams;
       const items = await query(
         `SELECT 
-           id,
-           receipt_no AS sale_no,
-           sale_datetime AS sale_date,
-           customer_name,
-           gross_amount,
-           discount_amount,
-           tax_amount,
-           net_amount,
-           net_amount AS total_amount,
+           ps.id,
+           ps.receipt_no AS sale_no,
+           ps.sale_datetime AS sale_date,
+           ps.customer_name,
+           ps.gross_amount,
+           ps.discount_amount,
+           ps.tax_amount,
+           ps.net_amount,
+           ps.net_amount AS total_amount,
            COALESCE(ps.payment_status,
-             CASE status 
+             CASE ps.status 
                WHEN 'COMPLETED' THEN 'PAID' 
                WHEN 'DRAFT' THEN 'PENDING' 
-               ELSE status 
+               ELSE ps.status 
              END
            ) AS payment_status,
-           payment_method,
-           payments,
+           ps.payment_method,
+           ps.payments,
+           ps.terminal_id,
+           COALESCE(pt.code, '') AS terminal_code,
+           COALESCE(pt.warehouse, '') AS warehouse,
            (SELECT COALESCE(SUM(l.returned_qty), 0) > 0 FROM pos_sale_lines l WHERE l.sale_id = ps.id) AS has_returns,
-          created_at,
-          u.username AS created_by_name
+           ps.created_at,
+           u.username AS created_by_name
          FROM pos_sales ps
-        LEFT JOIN adm_users u ON u.id = ps.created_by
-          WHERE ps.company_id = :companyId AND (:branchIdsStr = '' OR FIND_IN_SET(ps.branch_id, :branchIdsStr)) AND ps.status = 'COMPLETED'${terminalFilterSql}
+         LEFT JOIN pos_terminals pt ON pt.id = ps.terminal_id AND pt.company_id = ps.company_id
+         LEFT JOIN adm_users u ON u.id = ps.created_by
+         WHERE ${where.join(" AND ")}
          ORDER BY ps.sale_datetime DESC
          LIMIT ${limit}`,
-        finalParams,
+        params,
       );
       res.json({ items });
     } catch (err) {
@@ -3301,6 +3303,8 @@ router.get(
           actual_momo,
           momo_opening_balance,
           momo_closing_balance,
+          momo_closing_main,
+          momo_closing_pay,
           momo_opening_main,
           momo_opening_pay,
           close_notes,
@@ -3332,10 +3336,12 @@ router.get(
         );
       }
       let nextOpeningFloat = null;
-      if (!item) {
+      let nextMomoOpeningMain = null;
+      let nextMomoOpeningPay = null;
+      if (!item || item.status === "CLOSED") {
         const fallbackRows = await query(
           `
-          SELECT next_opening_float
+          SELECT next_opening_float, momo_closing_main, momo_closing_pay, momo_closing_balance
           FROM pos_day_status
           WHERE company_id = :companyId
             AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
@@ -3349,10 +3355,16 @@ router.get(
             : { companyId, branchId, branchIdsStr },
         );
         const fallback = fallbackRows?.[0] || null;
-        const n = Number(fallback?.next_opening_float);
-        nextOpeningFloat = Number.isFinite(n) ? n : null;
+        if (fallback) {
+          const n = Number(fallback.next_opening_float);
+          nextOpeningFloat = Number.isFinite(n) ? n : null;
+          const nMain = Number(fallback.momo_closing_main);
+          nextMomoOpeningMain = Number.isFinite(nMain) ? nMain : 0;
+          const nPay = Number(fallback.momo_closing_pay);
+          nextMomoOpeningPay = Number.isFinite(nPay) ? nPay : 0;
+        }
       }
-      res.json({ item, nextOpeningFloat });
+      res.json({ item, nextOpeningFloat, nextMomoOpeningMain, nextMomoOpeningPay });
     } catch (err) {
       next(err);
     }
@@ -4029,11 +4041,16 @@ router.post(
       });
       const voucherDate = dateStr;
       const createdBy = req.user?.id ?? req.user?.sub ?? null;
+      const [curRows] = await conn.execute(
+        `SELECT id FROM fin_currencies WHERE company_id = :companyId AND is_base = 1 LIMIT 1`,
+        { companyId },
+      );
+      const baseCurrencyId = Number(curRows?.[0]?.id || 0) || null;
       const [vIns] = await conn.execute(
         `INSERT INTO fin_vouchers
           (company_id, branch_id, fiscal_year_id, voucher_type_id, voucher_no, voucher_date, narration, currency_id, exchange_rate, total_debit, total_credit, status, created_by, approved_by, posted_by)
          VALUES
-          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, NULL, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
+          (:companyId, :branchId, :fiscalYearId, :voucherTypeId, :voucherNo, :voucherDate, :narration, :currencyId, 1, :totalDebit, :totalCredit, 'POSTED', :createdBy, :approvedBy, :postedBy)`,
         {
           companyId,
           branchId, branchIdsStr,
@@ -4042,6 +4059,7 @@ router.post(
           voucherNo,
           voucherDate,
           narration,
+          currencyId: baseCurrencyId,
           totalDebit: totalDebitHeader,
           totalCredit: totalCreditHeader,
           createdBy,
@@ -4166,6 +4184,8 @@ router.post(
         actualMoMo,
         momoOpeningBalance,
         momoClosingBalance,
+        momoClosingMain,
+        momoClosingPay,
       } = req.body || {};
       if (!terminal || !closingDateTime) {
         throw httpError(
@@ -4211,6 +4231,8 @@ router.post(
             actual_momo = :actual_momo,
             momo_opening_balance = :momo_opening_balance,
             momo_closing_balance = :momo_closing_balance,
+            momo_closing_main = :momo_closing_main,
+            momo_closing_pay = :momo_closing_pay,
             close_notes = :close_notes,
             close_denomination_counts = :close_denomination_counts,
             next_opening_float = :next_opening_float,
@@ -4228,6 +4250,8 @@ router.post(
           actual_momo: Number(actualMoMo || 0),
           momo_opening_balance: Number(momoOpeningBalance || 0),
           momo_closing_balance: Number(momoClosingBalance || 0),
+          momo_closing_main: Number(momoClosingMain || 0),
+          momo_closing_pay: Number(momoClosingPay || 0),
           close_notes: notes || null,
           close_denomination_counts:
             normalizeDenominationCounts(denominationCounts),
@@ -4250,6 +4274,10 @@ router.post(
           actual_momo,
           momo_opening_balance,
           momo_closing_balance,
+          momo_closing_main,
+          momo_closing_pay,
+          momo_opening_main,
+          momo_opening_pay,
           close_notes,
           close_denomination_counts,
           next_opening_float,
@@ -4314,6 +4342,7 @@ router.get(
                 ds.supervisor_name, ds.open_notes, ds.open_denomination_counts,
                 ds.close_datetime, ds.actual_cash, ds.actual_momo,
                 ds.momo_opening_balance, ds.momo_closing_balance,
+                ds.momo_closing_main, ds.momo_closing_pay,
                 ds.momo_opening_main, ds.momo_opening_pay,
                 ds.close_notes, ds.close_denomination_counts, ds.next_opening_float, ds.status,
                 ds.created_at, u.username AS created_by_name,
@@ -5433,6 +5462,7 @@ router.get(
         WHERE s.company_id = :companyId
           AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
           AND s.status = 'COMPLETED'
+          AND NOT EXISTS (SELECT 1 FROM pos_returns r WHERE r.sale_id = s.id)
       `;
       const params = { companyId, branchId, branchIdsStr };
 

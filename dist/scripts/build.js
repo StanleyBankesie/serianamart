@@ -1,6 +1,7 @@
 /**
  * @fileoverview Build script for the server application. Copies relevant files
  * from the source directory to the dist directory, ignoring specific files and directories.
+ * Also includes the frontend build (client/dist) into dist/public.
  * @module scripts/build
  */
 
@@ -63,6 +64,28 @@ async function copyDir(src, dest) {
     }
   }
 }
+
+/**
+ * Copies the entire contents of a directory without exclusions.
+ *
+ * @param {string} src - The source directory path.
+ * @param {string} dest - The destination directory path.
+ * @returns {Promise<void>} Resolves when the directory has been copied.
+ */
+async function copyDirFull(src, dest) {
+  await fs.mkdir(dest, { recursive: true });
+  const entries = await fs.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const s = path.join(src, entry.name);
+    const d = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirFull(s, d);
+    } else if (entry.isFile()) {
+      await fs.copyFile(s, d);
+    }
+  }
+}
+
 /**
  * Main build execution function. Removes the existing dist directory and triggers the copy.
  *
@@ -77,9 +100,27 @@ async function run() {
     await fs.rm(distDir, { recursive: true, force: true });
   } catch {}
   await copyDir(srcDir, distDir);
+
+  // Copy client/dist into dist/public so the frontend is served in production
+  const clientDistDir = path.resolve(__dirname, "../../client/dist");
+  const destPublic = path.join(distDir, "public");
+  try {
+    await fs.access(clientDistDir);
+    await copyDirFull(clientDistDir, destPublic);
+    process.stdout.write(
+      `frontend copied: ${clientDistDir} → ${destPublic}\n`,
+    );
+  } catch {
+    process.stderr.write(
+      `WARNING: client/dist not found at ${clientDistDir}. ` +
+        `Run "npm run build" in the client directory first.\n`,
+    );
+  }
+
   process.stdout.write("dist ready\n");
 }
 run().catch((e) => {
   process.stderr.write(String(e && e.message ? e.message : e));
   process.exit(1);
 });
+

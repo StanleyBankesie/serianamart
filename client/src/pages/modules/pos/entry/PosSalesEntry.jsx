@@ -349,14 +349,13 @@ export default function PosSalesEntry() {
           links = Array.isArray(cachedLinks?.data) ? cachedLinks.data : [];
         }
 
-        const isAdmin = Boolean(user?.is_super_admin || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.id === 1);
         const assignedIds = new Set(
           links
             .filter((x) => Number(x?.user_id) === Number(uid))
             .map((x) => Number(x?.terminal_id))
             .filter((n) => Number.isFinite(n) && n > 0),
         );
-        const assigned = isAdmin ? allTerminals : allTerminals.filter((t) =>
+        const assigned = allTerminals.filter((t) =>
           assignedIds.has(Number(t?.id)),
         );
         const code =
@@ -870,10 +869,8 @@ export default function PosSalesEntry() {
 
   useEffect(() => {
     let mounted = true;
-    // Use /pos/customers — does not require SAL.CUSTOMER.VIEW so POS-only
-    // users can still pick customers for on-account sales.
     api
-      .get("/pos/customers")
+      .get("/sales/customers")
       .then((res) => {
         if (!mounted) return;
         const items = Array.isArray(res.data?.items) ? res.data.items : [];
@@ -1372,7 +1369,7 @@ export default function PosSalesEntry() {
 
   function handleRegisterItem() {
     setShowItemNotFound(false);
-    if (canPerformAction("inventory:items", "create")) {
+    if (canAccessPath("/inventory/items/new")) {
       navigate("/inventory/items/new", { state: { from: "/pos/sales-entry" } });
     } else {
       setShowNoPermission(true);
@@ -2170,7 +2167,7 @@ export default function PosSalesEntry() {
           payment: method,
           customer: customerNameSelected || undefined,
           items: itemsArr,
-          subtotal: subtotal,
+          subtotal: gross,
           discount: discountTotal,
           tax: tax,
           total: total,
@@ -2240,7 +2237,7 @@ export default function PosSalesEntry() {
           </tbody>
         </table>
         <div class="totals">
-          <div class="row"><span>Subtotal</span><span>GH₵ ${subtotal.toFixed(
+          <div class="row"><span>Subtotal</span><span>GH₵ ${gross.toFixed(
             2,
           )}</span></div>
           <div class="row"><span>Discount</span><span>GH₵ ${discountTotal.toFixed(2)}</span></div>${
@@ -2294,10 +2291,12 @@ export default function PosSalesEntry() {
     <div className="space-y-3 pos-sales-entry pr-1">
       <div className="flex items-center justify-between">
         <div>
-          <button onClick={() => window.history.back()} className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300"
+          <Link
+            to="/pos?section=Transactions"
+            className="text-sm text-brand hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 inline-flex items-center gap-1"
           >
             ← Back to POS
-          </button>
+          </Link>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2">
             POS Sales Entry
           </h1>
@@ -2353,7 +2352,7 @@ export default function PosSalesEntry() {
                     Open today’s POS Day before making sales.
                   </div>
                 </div>
-                <Link to="/pos/day-management" className="btn btn-primary" data-rbac-exempt="true">
+                <Link to="/pos/day-management" className="btn btn-primary">
                   Open Day
                 </Link>
               </div>
@@ -2428,7 +2427,6 @@ export default function PosSalesEntry() {
                   to="/pos/day-management"
                   className="btn btn-primary"
                   title="Go to Start/End Business Day"
-                  data-rbac-exempt="true"
                 >
                   Close Day
                 </Link>
@@ -2581,7 +2579,6 @@ export default function PosSalesEntry() {
                                   <button
                                     type="button"
                                     className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                                    data-rbac-exempt="true"
                                     onClick={() => updateQuantity(it.id, -1)}
                                   >
                                     -
@@ -2592,7 +2589,6 @@ export default function PosSalesEntry() {
                                   <button
                                     type="button"
                                     className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
-                                    data-rbac-exempt="true"
                                     onClick={() => updateQuantity(it.id, 1)}
                                   >
                                     +
@@ -2647,7 +2643,6 @@ export default function PosSalesEntry() {
                     <button
                       type="button"
                       className="px-4 py-2 bg-[#0E3646] text-white font-semibold rounded-lg shadow hover:bg-[#092530] transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-[#0E3646]"
-                      data-rbac-exempt="true"
                       onClick={() => {
                         setAmountPaid("");
                         setSplitPrimaryAmount(0);
@@ -2679,7 +2674,7 @@ export default function PosSalesEntry() {
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <div>Subtotal</div>
-                  <div>{`GH₵ ${subtotal.toFixed(2)}`}</div>
+                  <div>{`GH₵ ${gross.toFixed(2)}`}</div>
                 </div>
                 <div className="flex justify-between">
                   <div>{`Discount${globalDiscountInfo.type === "percent" && globalDiscountInfo.value ? ` (${globalDiscountInfo.value}%)` : ""}`}</div>
@@ -2786,7 +2781,7 @@ export default function PosSalesEntry() {
                   })
                 )}
               </div>
-              <div className="flex flex-col gap-3">
+              <div className="space-y-2">
                 <button
                   type="button"
                   className="bg-amber-500 hover:bg-amber-600 text-white w-full text-base px-4 py-2 rounded-lg font-semibold transition-colors disabled:opacity-50"
@@ -2826,7 +2821,7 @@ export default function PosSalesEntry() {
                 </button>
                 <Link
                   to="/pos/holds"
-                  className="block text-center text-xs text-brand hover:text-brand-600 dark:text-brand-400 underline pt-1"
+                  className="block text-center text-xs text-brand hover:text-brand-600 dark:text-brand-400 underline mt-1"
                 >
                   Un-Hold Sales
                 </Link>
@@ -2928,7 +2923,6 @@ export default function PosSalesEntry() {
               <button
                 type="button"
                 className="flex-1 bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
-                data-rbac-exempt="true"
                 onClick={newSale}
               >
                 New Sale
