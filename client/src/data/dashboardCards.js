@@ -40,13 +40,10 @@ export const DASHBOARD_CARDS = {
     { key: "pm-total-milestones", label: "Total Milestones" },
   ],
   pos: [
-    { key: "today-sales", label: "Today Sales" },
-    { key: "total-customers", label: "Total Customers" },
-    { key: "average-order", label: "Average Order" },
-    { key: "monthly-revenue", label: "Monthly Revenue" },
-    { key: "pos-today-sales", label: "POS Today Sales" },
+    { key: "pos-today-sales", label: "Today Sales" },
     { key: "pos-total-transactions", label: "Total Transactions" },
     { key: "pos-avg-order", label: "Average Order Value" },
+    { key: "pos-monthly-revenue", label: "Monthly Revenue" },
   ],
   bi: [
     { key: "bi-company-revenue", label: "Company Revenue" },

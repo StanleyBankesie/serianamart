@@ -621,24 +621,34 @@ export default function HomePage() {
       maintenance: "/maintenance", production: "/production", projects: "/project-management", pos: "/pos",
       bi: "/reports", executive: "/reports", service: "/service-management", transport: "/transport", admin: "/administration", system: "/system-configuration"
     };
+    const modAlias = {
+      hr: "human-resources",
+      projects: "project-management",
+      service: "service-management",
+      bi: "business-intelligence",
+      executive: "executive-overview",
+      admin: "administration"
+    };
 
     const metrics = [];
-    Object.entries(DASHBOARD_CARDS).forEach(([moduleKey, cards]) => {
+    Object.entries(DASHBOARD_CARDS).forEach(([rawModKey, cards]) => {
+      const canonicalMod = modAlias[rawModKey] || rawModKey;
+      if (!isModuleEnabled(canonicalMod) && !isModuleEnabled(rawModKey)) {
+        return;
+      }
       cards.forEach(card => {
-        // Find a matching value from overview. We will try camelCasing the label or key
-        // For simplicity, we can do some explicit mapping or fallback.
-        
         let val = 0;
-        let badge = "";
         
-        // Manual mapping for the original values:
+        // Manual mapping for values:
         if (card.key === "pos-today-sales") val = overview?.todaySales || 0;
-        else if (card.key === "sales-active-customers") val = overview?.totalCustomers || 0;
+        else if (card.key === "pos-total-transactions") val = overview?.totalTransactions || 0;
         else if (card.key === "pos-avg-order") val = overview?.averageOrder || 0;
+        else if (card.key === "pos-monthly-revenue") val = overview?.monthlyRevenue || 0;
+        else if (card.key === "sales-active-customers") val = overview?.totalCustomers || 0;
         else if (card.key === "bi-company-revenue") val = overview?.monthlyRevenue || 0;
         else if (card.key === "sales-pending-orders") val = overview?.openQuotations || 0;
         else if (card.key === "sales-total-revenue") val = overview?.totalRevenue || overview?.monthlyRevenue || 0;
-        else if (card.key === "purchase-total-value") val = overview?.totalPurchases || 0; // Wait, totalPurchases is not defined?
+        else if (card.key === "purchase-total-value") val = overview?.totalPurchases || 0;
         else if (card.key === "purchase-pending-pos") val = overview?.activePOs || 0;
         else if (card.key === "purchase-active-suppliers") val = overview?.activeSuppliers || 0;
         else if (card.key === "inventory-total-items") val = overview?.itemsTracked || overview?.totalItems || 0;
@@ -656,7 +666,7 @@ export default function HomePage() {
         else if (card.key === "admin-active-users") val = overview?.activeUsers || 0;
         
         // Currency formatting for known monetary values
-        const isMonetary = ["sales-total-revenue", "pos-today-sales", "pos-avg-order", "bi-company-revenue", "purchase-total-value", "finance-cash-balance", "finance-ar", "finance-ap"].includes(card.key);
+        const isMonetary = ["sales-total-revenue", "pos-today-sales", "pos-avg-order", "pos-monthly-revenue", "bi-company-revenue", "purchase-total-value", "finance-cash-balance", "finance-ar", "finance-ap"].includes(card.key);
         const finalValue = isMonetary ? fmtCurrency(val) : String(val);
 
         metrics.push({
@@ -664,35 +674,21 @@ export default function HomePage() {
           label: card.label,
           value: finalValue,
           badge: overview?.badges?.[card.key]?.text || "",
-          icon: defaultIcons[moduleKey] || "📊",
-          path: defaultPaths[moduleKey] || "/"
+          icon: defaultIcons[rawModKey] || "📊",
+          path: defaultPaths[rawModKey] || "/"
         });
       });
     });
     
     return metrics;
-  }, [overview, fmtCurrency]);
-
+  }, [overview, fmtCurrency, isModuleEnabled]);
 
   const visibleMetrics = React.useMemo(() => {
     const checked = allPossibleMetrics.filter((m) => {
-      const labelKey = String(m.label || "")
-        .toLowerCase()
-        .trim()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9-]/g, "");
-      
-      const allowedByKey = m.key ? canViewDashboardElement("home", "card", m.key) : false;
-      const allowedByLabel = canViewDashboardElement("home", "card", labelKey);
-      
-      return allowedByKey || allowedByLabel;
+      return m.key ? canViewDashboardElement("home", "card", m.key) : false;
     });
 
-    if (checked.length > 0) {
-      return checked.slice(0, 4);
-    }
-    // Fallback to first 4 default metrics if no explicit toggle set
-    return allPossibleMetrics.slice(0, 4);
+    return checked.slice(0, 4);
   }, [allPossibleMetrics, canViewDashboardElement]);
 
   // Quick Actions section removed per request

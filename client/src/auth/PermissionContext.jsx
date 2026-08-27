@@ -9,6 +9,7 @@ import React, {
 import { useAuth } from "../auth/AuthContext.jsx";
 import { api } from "../api/client.js";
 import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
+import { DASHBOARD_CARDS } from "../data/dashboardCards.js";
 
 /**
  * PermissionContext - Centralized permission management
@@ -1208,6 +1209,25 @@ export const PermissionProvider = ({ children }) => {
       const comp = `${mk}|${t}|${normKey}`;
 
       if (mk === "home" && t === "card") {
+        let cardModule = null;
+        for (const [modKey, cardsList] of Object.entries(DASHBOARD_CARDS)) {
+          if (Array.isArray(cardsList) && cardsList.some((c) => c.key === normKey)) {
+            const modAlias = {
+              hr: "human-resources",
+              projects: "project-management",
+              service: "service-management",
+              bi: "business-intelligence",
+              executive: "executive-overview",
+              admin: "administration",
+            };
+            cardModule = modAlias[modKey] || modKey;
+            break;
+          }
+        }
+        if (cardModule && !isSuper && !modules.has("*") && !modules.has(cardModule)) {
+          return false;
+        }
+
         let hasHomeCardConfig = false;
         for (const k of dashboardViewMap.keys()) {
           if (k.startsWith("home|card|")) {
@@ -1222,7 +1242,7 @@ export const PermissionProvider = ({ children }) => {
             "sales-total-revenue",
             "sales-pending-orders",
             "sales-active-customers",
-            "purchase-total-value"
+            "purchase-total-value",
           ];
           return defaultCards.includes(normKey);
         }

@@ -146,104 +146,35 @@ export default function DashboardPermissions() {
     return base;
   }, []);
 
-  const KNOWN_CARDS = useMemo(
-    () => ({
-      home: Object.values(DASHBOARD_CARDS).flat().map(c => ({ ...c, moduleGroup: Object.keys(DASHBOARD_CARDS).find(k => DASHBOARD_CARDS[k].some(x => x.key === c.key)) })),
-      administration: [
-        { key: "total-users", label: "Total Users" },
-        { key: "roles-pages", label: "Roles & Pages" },
-        { key: "active-sessions", label: "Active Sessions (24h)" },
-        { key: "pending-workflows", label: "Pending Workflows" },
-],
-      sales: [
-        { key: "sales-this-month", label: "Total Sales This Month" },
-        { key: "open-quotations", label: "Open Quotations" },
-        { key: "pending-deliveries", label: "Pending Deliveries" },
-        { key: "overdue-invoices", label: "Overdue Invoices" },
-        { key: "total-revenue", label: "Total Revenue" },
-        { key: "sales-growth", label: "Sales Growth %" },
-],
-      purchase: [
-        { key: "total-purchases", label: "Total Purchases" },
-        { key: "active-purchase-orders", label: "Active Purchase Orders" },
-        { key: "active-suppliers", label: "Active Suppliers" },
-        { key: "pending-approvals", label: "Pending Approvals" },
-        { key: "outstanding-payables", label: "Outstanding Payables" },
-],
-      inventory: [
-        { key: "items-tracked", label: "Items Tracked" },
-        { key: "stock-quantity", label: "Stock Quantity" },
-        { key: "pending-requisitions", label: "Pending Requisitions" },
-        { key: "low-stock-items", label: "Low Stock Items" },
-],
-      finance: [
-        { key: "cash-balance", label: "Cash on Hand" },
-        { key: "bank-balance", label: "Bank Balance" },
-        { key: "pending-vouchers", label: "Pending Vouchers" },
-        { key: "net-income", label: "Net Income (MTD)" },
-],
-      "human-resources": [
-        { key: "active-employees", label: "Active Employees" },
-        { key: "today-attendance", label: "Present Today" },
-        { key: "on-leave", label: "On Leave Today" },
-        { key: "payroll-status", label: "Payroll Status" },
-],
-      maintenance: [
-        { key: "open-requests", label: "New Requests" },
-        { key: "active-jobs", label: "Jobs In Progress" },
-        { key: "overdue-pms", label: "Overdue PMs" },
-],
-      production: [
-        { key: "active-production-orders", label: "Active Production Orders" },
-        { key: "open-job-cards", label: "Open Job Cards" },
-        { key: "pending-requisitions", label: "Pending Requisitions" },
-        { key: "bom-master-records", label: "BOM Master Records" },
-],
-      "project-management": [
-        { key: "active-projects", label: "Total Projects" },
-        { key: "active-tasks", label: "Active Tasks" },
-        { key: "total-budget", label: "Total Budget" },
-        { key: "logged-hours", label: "Logged Hours" },
-],
-      pos: [
-        { key: "today-sales", label: "Today Sales" },
-        { key: "total-customers", label: "Total Customers" },
-        { key: "average-order", label: "Average Order" },
-        { key: "monthly-revenue", label: "Monthly Revenue" },
-],
-      "business-intelligence": [
-        { key: "active-dashboards", label: "Active Dashboards" },
-        { key: "sales-30d", label: "Sales (30d)" },
-        { key: "purchase-30d", label: "Purchases (30d)" },
-        { key: "overview", label: "Items / Employees" },
-],
-      "service-management": [
-        { key: "service-requests", label: "Customer Service Requests" },
-        { key: "open-orders", label: "Open Orders" },
-        { key: "executions", label: "Executions" },
-        { key: "confirmed-services", label: "Confirmed Services" },
-],
-      "executive-overview": [
-        { key: "outstanding-receivables", label: "Outstanding Receivables" },
-        { key: "outstanding-payables", label: "Outstanding Payables" },
-        { key: "todays-sales", label: "Today's Sales" },
-        { key: "current-month-revenue", label: "Current Month Revenue" },
-        { key: "current-week-revenue", label: "Current Week Revenue" },
-        { key: "supplier-outstanding", label: "Supplier Outstanding" },
-        { key: "fast-moving-items", label: "Fast Moving Items" },
-        { key: "slow-moving-items", label: "Slow Moving Items" },
-],
-      transport: [
-        { key: "active-trips", label: "Active Trips" },
-        { key: "total-vehicles", label: "Total Vehicles" },
-        { key: "total-drivers", label: "Total Drivers" },
-        { key: "total-fuel-cost", label: "Total Fuel Cost" },
-],
-      system: [
-      ],
-    }),
-    [],
-  );
+  const KNOWN_CARDS = useMemo(() => {
+    const aliasMap = {
+      "human-resources": "hr",
+      "project-management": "projects",
+      "service-management": "service",
+      "business-intelligence": "bi",
+      "executive-overview": "executive",
+      "administration": "admin",
+    };
+
+    const cardsMap = {
+      home: Object.entries(DASHBOARD_CARDS).flatMap(([modKey, list]) =>
+        (list || []).map((c) => ({
+          ...c,
+          moduleGroup: aliasMap[modKey] || modKey,
+        }))
+      ),
+    };
+
+    for (const [modKey, list] of Object.entries(DASHBOARD_CARDS)) {
+      cardsMap[modKey] = list || [];
+      for (const [canonical, short] of Object.entries(aliasMap)) {
+        if (short === modKey) {
+          cardsMap[canonical] = list || [];
+        }
+      }
+    }
+    return cardsMap;
+  }, []);
 
   useEffect(() => {
     async function loadUsers() {
@@ -310,7 +241,18 @@ export default function DashboardPermissions() {
         String(p.card_key || "") === String(card_key || "") &&
         String(p.ticker_key || "") === String(ticker_key || ""),
     );
-    if (match.length === 0) return true;
+    if (match.length === 0) {
+      if (module_key === "home" && card_key) {
+        const defaultCards = [
+          "sales-total-revenue",
+          "sales-pending-orders",
+          "sales-active-customers",
+          "purchase-total-value",
+        ];
+        return defaultCards.includes(card_key);
+      }
+      return true;
+    }
     return match.some((p) => Number(p.can_view) === 1);
   };
   const setView = (module_key, dashboard_key, card_key, ticker_key, value) => {
@@ -366,6 +308,10 @@ export default function DashboardPermissions() {
           },
         ],
       });
+      await refreshPermissions();
+      try {
+        window.dispatchEvent(new Event("rbac:changed"));
+      } catch {}
       toast.success(
         `${allow ? "✅" : "🚫"} ${String(type === "dashboard" ? key : type === "card" ? key : key)
           .replace(/-/g, " ")
@@ -420,10 +366,11 @@ export default function DashboardPermissions() {
               {modules.map((m) => {
                 let cards = KNOWN_CARDS[m.key] || [];
                 if (m.key === "home") {
-                  if (licensedModules) {
-                    cards = cards.filter(c => licensedModules.includes(`card:${c.key}`));
-                  } else {
-                    cards = [];
+                  if (licensedModules && Array.isArray(licensedModules) && licensedModules.length > 0) {
+                    cards = cards.filter((c) => {
+                      const mod = c.moduleGroup;
+                      return licensedModules.includes(mod) || licensedModules.includes(m.key);
+                    });
                   }
                 }
                 const hasDashboards = m.dashboards.length > 0;
@@ -443,14 +390,15 @@ export default function DashboardPermissions() {
                             type="checkbox"
                             className="checkbox checkbox-sm"
                             checked={
-                              hasDashboards &&
-                              m.dashboards.every((d) =>
-                                getView(m.key, d.key),
-                              ) &&
-                              hasCards &&
-                              cards.every((c) =>
-                                getView(m.key, null, c.key, null),
-                              )
+                              (hasDashboards || hasCards) &&
+                              (!hasDashboards ||
+                                m.dashboards.every((d) =>
+                                  getView(m.key, d.key),
+                                )) &&
+                              (!hasCards ||
+                                cards.every((c) =>
+                                  getView(m.key, null, c.key, null),
+                                ))
                             }
                             onChange={async (e) => {
                               const val = e.target.checked;
@@ -465,10 +413,10 @@ export default function DashboardPermissions() {
                                   dashboard_key: d.key,
                                   card_key: null,
                                   ticker_key: null,
-                                  can_view: val ? 1 : 0
+                                  can_view: val ? 1 : 0,
                                 });
                               });
-                              
+
                               if (hasDashboards && m.key !== "home") {
                                 const k1 = permKey(m.key, "dashboard", null, null);
                                 const k2 = permKey(m.key, "dashboards", null, null);
@@ -476,10 +424,22 @@ export default function DashboardPermissions() {
                                 updates[k2] = val;
                                 setView(m.key, "dashboard", null, null, val);
                                 setView(m.key, "dashboards", null, null, val);
-                                permsList.push({ module_key: m.key, dashboard_key: "dashboard", card_key: null, ticker_key: null, can_view: val ? 1 : 0 });
-                                permsList.push({ module_key: m.key, dashboard_key: "dashboards", card_key: null, ticker_key: null, can_view: val ? 1 : 0 });
+                                permsList.push({
+                                  module_key: m.key,
+                                  dashboard_key: "dashboard",
+                                  card_key: null,
+                                  ticker_key: null,
+                                  can_view: val ? 1 : 0,
+                                });
+                                permsList.push({
+                                  module_key: m.key,
+                                  dashboard_key: "dashboards",
+                                  card_key: null,
+                                  ticker_key: null,
+                                  can_view: val ? 1 : 0,
+                                });
                               }
-                              
+
                               cards.forEach((c) => {
                                 const k = permKey(m.key, null, c.key, null);
                                 updates[k] = val;
@@ -489,7 +449,7 @@ export default function DashboardPermissions() {
                                   dashboard_key: null,
                                   card_key: c.key,
                                   ticker_key: null,
-                                  can_view: val ? 1 : 0
+                                  can_view: val ? 1 : 0,
                                 });
                               });
                               setUserToggles((prev) => ({ ...prev, ...updates }));
@@ -497,10 +457,23 @@ export default function DashboardPermissions() {
                                 try {
                                   await api.put("/access/dashboard-permissions", {
                                     user_id: Number(selectedUserId),
-                                    permissions: permsList
+                                    permissions: permsList,
                                   });
-                                  const label = m.name || String(m.key || "").replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-                                  toast.success(`${val ? "✅" : "🚫"} ${label} — all permissions ${val ? "enabled" : "disabled"}`, { autoClose: 2000 });
+                                  await refreshPermissions();
+                                  try {
+                                    window.dispatchEvent(new Event("rbac:changed"));
+                                  } catch {}
+                                  const label =
+                                    m.name ||
+                                    String(m.key || "")
+                                      .replace(/-/g, " ")
+                                      .replace(/\b\w/g, (c) => c.toUpperCase());
+                                  toast.success(
+                                    `${val ? "✅" : "🚫"} ${label} — all permissions ${
+                                      val ? "enabled" : "disabled"
+                                    }`,
+                                    { autoClose: 2000 }
+                                  );
                                 } catch {
                                   toast.error("Failed to save permissions");
                                 }
@@ -536,33 +509,34 @@ export default function DashboardPermissions() {
                       )}
                       {cards.length > 0 && (
                         <div className="">
-                          
-                          
                           {m.key === "home" ? (
                             <div className="space-y-4">
-                              {Array.from(new Set(cards.map(c => c.moduleGroup))).map(modGroup => {
-                                const groupCards = cards.filter(c => c.moduleGroup === modGroup);
+                              {Array.from(new Set(cards.map((c) => c.moduleGroup))).map((modGroup) => {
+                                const groupCards = cards.filter((c) => c.moduleGroup === modGroup);
                                 if (groupCards.length === 0) return null;
                                 return (
                                   <div key={modGroup} className="border-b border-slate-100 pb-3 last:border-0">
-                                    <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{modGroup}</h5>
+                                    <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                      {modGroup}
+                                    </h5>
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-                                      {groupCards.map(c => (
+                                      {groupCards.map((c) => (
                                         <label key={c.key} className="flex items-center gap-2">
                                           <input
                                             type="checkbox"
                                             className="checkbox checkbox-sm"
                                             checked={getView(m.key, null, c.key, null)}
-                                                                                        onChange={(e) => {
+                                            onChange={(e) => {
                                               const val = e.target.checked;
                                               if (val) {
                                                 let checkedCount = 0;
-                                                cards.forEach(hc => {
+                                                cards.forEach((hc) => {
                                                   if (getView("home", null, hc.key, null)) checkedCount++;
                                                 });
                                                 if (checkedCount >= 4) {
-                                                  e.preventDefault();
-                                                  toast.error("You can only select up to 4 cards for the Home dashboard.");
+                                                  toast.error(
+                                                    "You can only select up to 4 cards for the Home dashboard."
+                                                  );
                                                   return;
                                                 }
                                               }
