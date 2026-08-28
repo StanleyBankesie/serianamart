@@ -752,6 +752,11 @@ async function ensurePosTables() {
       "ALTER TABLE pos_day_status ADD COLUMN closed_by BIGINT UNSIGNED NULL AFTER created_by",
     ).catch(() => {});
   }
+  if (!(await hasColumn("pos_day_status", "shift"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN shift VARCHAR(50) NULL DEFAULT 'Shift 1 (Morning)' AFTER supervisor_name",
+    ).catch(() => {});
+  }
   try {
     await query("ALTER TABLE pos_day_status DROP INDEX uq_pos_day_status");
   } catch {}
@@ -761,14 +766,18 @@ async function ensurePosTables() {
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       company_id BIGINT UNSIGNED NOT NULL,
       branch_id BIGINT UNSIGNED NOT NULL,
+      day_status_id BIGINT UNSIGNED NULL,
       session_no VARCHAR(20) NOT NULL,
       terminal_code VARCHAR(50) NOT NULL,
       cashier_name VARCHAR(150) NOT NULL,
+      shift VARCHAR(50) NULL DEFAULT 'Shift 1 (Morning)',
       start_time DATETIME NOT NULL,
       end_time DATETIME NULL,
       opening_cash DECIMAL(18,2) NOT NULL DEFAULT 0,
       total_sales DECIMAL(18,2) NOT NULL DEFAULT 0,
       status ENUM('OPEN','CLOSED') NOT NULL DEFAULT 'OPEN',
+      created_by BIGINT UNSIGNED NULL,
+      closed_by BIGINT UNSIGNED NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -777,6 +786,18 @@ async function ensurePosTables() {
       KEY idx_pos_session_branch (branch_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  if (!(await hasColumn("pos_sessions", "day_status_id"))) {
+    await query("ALTER TABLE pos_sessions ADD COLUMN day_status_id BIGINT UNSIGNED NULL AFTER branch_id").catch(() => {});
+  }
+  if (!(await hasColumn("pos_sessions", "shift"))) {
+    await query("ALTER TABLE pos_sessions ADD COLUMN shift VARCHAR(50) NULL DEFAULT 'Shift 1 (Morning)' AFTER cashier_name").catch(() => {});
+  }
+  if (!(await hasColumn("pos_sessions", "created_by"))) {
+    await query("ALTER TABLE pos_sessions ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER status").catch(() => {});
+  }
+  if (!(await hasColumn("pos_sessions", "closed_by"))) {
+    await query("ALTER TABLE pos_sessions ADD COLUMN closed_by BIGINT UNSIGNED NULL AFTER created_by").catch(() => {});
+  }
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_payment_modes (
@@ -3312,6 +3333,7 @@ router.get(
             open_datetime,
             opening_float,
             supervisor_name,
+            shift,
             open_notes,
             open_denomination_counts,
             close_datetime,
@@ -3357,6 +3379,7 @@ router.get(
             open_datetime,
             opening_float,
             supervisor_name,
+            shift,
             open_notes,
             open_denomination_counts,
             close_datetime,
@@ -3401,6 +3424,7 @@ router.get(
             open_datetime,
             opening_float,
             supervisor_name,
+            shift,
             open_notes,
             open_denomination_counts,
             close_datetime,
@@ -3449,7 +3473,7 @@ router.get(
       if (!item || item.status === "CLOSED" || String(item.created_by || "") !== String(userId || "")) {
         const fallbackRows = await query(
           `
-          SELECT next_opening_float, momo_closing_main, momo_closing_pay, momo_closing_balance
+          SELECT next_opening_float, actual_cash, momo_closing_main, momo_closing_pay, momo_closing_balance, actual_momo
           FROM pos_day_status
           WHERE company_id = :companyId
             AND (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr))
@@ -3464,12 +3488,25 @@ router.get(
         );
         const fallback = fallbackRows?.[0] || null;
         if (fallback) {
-          const n = Number(fallback.next_opening_float);
-          nextOpeningFloat = Number.isFinite(n) ? n : null;
+          const nextFloat = Number(fallback.next_opening_float);
+          const actCash = Number(fallback.actual_cash);
+          nextOpeningFloat = Number.isFinite(nextFloat) && nextFloat > 0
+            ? nextFloat
+            : Number.isFinite(actCash)
+              ? actCash
+              : 0;
+
           const nMain = Number(fallback.momo_closing_main);
-          nextMomoOpeningMain = Number.isFinite(nMain) ? nMain : 0;
           const nPay = Number(fallback.momo_closing_pay);
+          nextMomoOpeningMain = Number.isFinite(nMain) ? nMain : 0;
           nextMomoOpeningPay = Number.isFinite(nPay) ? nPay : 0;
+
+          if (nextMomoOpeningMain === 0 && nextMomoOpeningPay === 0) {
+            const actMomo = Number(fallback.actual_momo ?? fallback.momo_closing_balance ?? 0);
+            if (actMomo > 0) {
+              nextMomoOpeningMain = actMomo;
+            }
+          }
         }
       }
       res.json({ item, nextOpeningFloat, nextMomoOpeningMain, nextMomoOpeningPay });
@@ -3828,6 +3865,7 @@ router.post(
         terminal,
         openingDateTime,
         openingFloat,
+        shift,
         notes,
         denominationCounts,
         momoOpeningMain,
@@ -3846,9 +3884,10 @@ router.post(
         ? new Date()
         : openDate;
       const userId = req.user?.id ?? req.user?.sub ?? null;
+      const shiftName = String(shift || "Shift 1 (Morning)").trim();
       const existing = await query(
         `
-        SELECT id, status,
+        SELECT id, status, open_datetime,
           created_at,
           u.username AS created_by_name
          FROM pos_day_status
@@ -3864,18 +3903,47 @@ router.post(
         { companyId, branchId, branchIdsStr, terminal, userId },
       );
       if (existing.length && existing[0].status === "OPEN") {
-        throw httpError(
-          400,
-          "VALIDATION_ERROR",
-          "You already have an open shift for this terminal",
-        );
+        const prev = existing[0];
+        const prevOpenDateStr = new Date(prev.open_datetime || prev.created_at).toISOString().slice(0, 10);
+        const newOpenDateStr = openDate.toISOString().slice(0, 10);
+        const isFromPreviousDay = prevOpenDateStr < newOpenDateStr;
+        if (req.body.forceOpen || req.body.autoClosePrevious || isFromPreviousDay) {
+          await query(
+            `
+            UPDATE pos_day_status
+            SET status = 'CLOSED',
+                close_datetime = :openDate,
+                closed_by = :userId,
+                close_notes = COALESCE(close_notes, 'Auto-closed upon opening next shift/day')
+            WHERE id = :prevId
+            `,
+            { openDate, userId, prevId: prev.id },
+          );
+          await query(
+            `
+            UPDATE pos_sessions
+            SET status = 'CLOSED',
+                end_time = :openDate,
+                closed_by = :userId
+            WHERE (day_status_id = :prevId OR (terminal_code = :terminal AND status = 'OPEN'))
+              AND company_id = :companyId
+            `,
+            { openDate, userId, prevId: prev.id, terminal, companyId },
+          ).catch(() => {});
+        } else {
+          throw httpError(
+            400,
+            "ALREADY_OPEN",
+            "You already have an open shift for this terminal. Please close your current shift or use Force Open.",
+          );
+        }
       }
       const result = await query(
         `
         INSERT INTO pos_day_status
-          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, open_denomination_counts, momo_opening_main, momo_opening_pay, created_by, status)
+          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, shift, open_notes, open_denomination_counts, momo_opening_main, momo_opening_pay, created_by, created_at, status)
         VALUES
-          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, :open_denomination_counts, :momo_opening_main, :momo_opening_pay, :userId, 'OPEN')
+          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :shiftName, :open_notes, :open_denomination_counts, :momo_opening_main, :momo_opening_pay, :userId, NOW(), 'OPEN')
         `,
         {
           companyId,
@@ -3885,6 +3953,7 @@ router.post(
           open_datetime: openDate,
           opening_float: Number(openingFloat || 0),
           supervisor_name: null,
+          shiftName,
           open_notes: notes || null,
           open_denomination_counts:
             normalizeDenominationCounts(denominationCounts),
@@ -3893,6 +3962,30 @@ router.post(
           userId,
         },
       );
+
+      // Create session in pos_sessions
+      const sessionNo = `SESS-${Date.now().toString().slice(-8)}`;
+      await query(
+        `
+        INSERT INTO pos_sessions
+          (company_id, branch_id, day_status_id, session_no, terminal_code, cashier_name, shift, start_time, opening_cash, total_sales, status, created_by, created_at)
+        VALUES
+          (:companyId, :branchId, :dayStatusId, :sessionNo, :terminal, :cashierName, :shiftName, :startTime, :openingCash, 0, 'OPEN', :userId, NOW())
+        `,
+        {
+          companyId,
+          branchId,
+          dayStatusId: result.insertId,
+          sessionNo,
+          terminal,
+          cashierName: req.user?.username || req.user?.name || "Cashier",
+          shiftName,
+          startTime: openDate,
+          openingCash: Number(openingFloat || 0),
+          userId,
+        },
+      ).catch(() => {});
+
       const [item] = await query(
         `
         SELECT
@@ -3902,6 +3995,7 @@ router.post(
           open_datetime,
           opening_float,
           supervisor_name,
+          shift,
           open_notes,
           open_denomination_counts,
           close_datetime,
@@ -3916,6 +4010,7 @@ router.post(
           next_opening_float,
           status,
           created_at,
+          created_by,
           u.username AS created_by_name
          FROM pos_day_status
         LEFT JOIN adm_users u ON u.id = created_by
@@ -4394,6 +4489,27 @@ router.post(
           userId,
         },
       );
+
+      // Also close the pos_sessions record
+      await query(
+        `
+        UPDATE pos_sessions
+        SET end_time = :close_datetime,
+            status = 'CLOSED',
+            closed_by = :userId,
+            updated_at = NOW()
+        WHERE company_id = :companyId
+          AND (day_status_id = :id OR (terminal_code = :terminal AND (created_by = :userId OR created_by IS NULL) AND status = 'OPEN'))
+        `,
+        {
+          id,
+          companyId,
+          terminal,
+          close_datetime: closeDate,
+          userId,
+        },
+      ).catch(() => {});
+
       const [item] = await query(
         `
         SELECT
@@ -4403,6 +4519,7 @@ router.post(
           open_datetime,
           opening_float,
           supervisor_name,
+          shift,
           open_notes,
           open_denomination_counts,
           close_datetime,
@@ -4410,8 +4527,6 @@ router.post(
           actual_momo,
           momo_opening_balance,
           momo_closing_balance,
-          momo_closing_main,
-          momo_closing_pay,
           momo_opening_main,
           momo_opening_pay,
           close_notes,
@@ -4419,6 +4534,8 @@ router.post(
           next_opening_float,
           status,
           created_at,
+          created_by,
+          closed_by,
           u.username AS created_by_name
          FROM pos_day_status
         LEFT JOIN adm_users u ON u.id = created_by
@@ -4475,13 +4592,13 @@ router.get(
       }
       const rows = await query(
         `SELECT ds.id, ds.terminal_code, ds.business_date, ds.open_datetime, ds.opening_float,
-                ds.supervisor_name, ds.open_notes, ds.open_denomination_counts,
+                ds.supervisor_name, ds.shift, ds.open_notes, ds.open_denomination_counts,
                 ds.close_datetime, ds.actual_cash, ds.actual_momo,
                 ds.momo_opening_balance, ds.momo_closing_balance,
                 ds.momo_closing_main, ds.momo_closing_pay,
                 ds.momo_opening_main, ds.momo_opening_pay,
                 ds.close_notes, ds.close_denomination_counts, ds.next_opening_float, ds.status,
-                ds.created_at, u.username AS created_by_name,
+                ds.created_at, ds.created_by, ds.closed_by, u.username AS created_by_name,
                 COALESCE((
                   SELECT SUM(s.net_amount)
                   FROM pos_sales s

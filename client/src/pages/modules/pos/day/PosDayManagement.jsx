@@ -76,6 +76,7 @@ export default function PosDayManagement() {
     dateTime: toLocalInputDateTime(new Date()),
     float: "",
     supervisor: "",
+    shift: "Shift 1 (Morning)",
     notes: "",
   });
   const [openChecklist, setOpenChecklist] = useState(new Array(6).fill(false));
@@ -359,16 +360,19 @@ export default function PosDayManagement() {
           const initialFloat =
             Number.isFinite(suggestedNext) && suggestedNext > 0
               ? String(suggestedNext)
-              : item?.next_opening_float !== null && item?.next_opening_float !== undefined
+              : item?.next_opening_float !== null && item?.next_opening_float !== undefined && Number(item.next_opening_float) > 0
                 ? String(item.next_opening_float)
-                : "";
+                : item?.actual_cash !== null && item?.actual_cash !== undefined
+                  ? String(item.actual_cash)
+                  : "";
           setOpenData({
             dateTime: toLocalInputDateTime(new Date()),
             float: initialFloat,
+            shift: item?.shift || "Shift 1 (Morning)",
             notes: "",
           });
-          setMomoOpeningMain(suggestedNextMomoMain);
-          setMomoOpeningPay(suggestedNextMomoPay);
+          setMomoOpeningMain(suggestedNextMomoMain || 0);
+          setMomoOpeningPay(suggestedNextMomoPay || 0);
           setCloseDenomCounts(Array(DENOMINATIONS.length).fill(0));
           setClosing({
             dateTime: toLocalInputDateTime(new Date()),
@@ -390,6 +394,7 @@ export default function PosDayManagement() {
             item.opening_float === null || item.opening_float === undefined
               ? ""
               : String(item.opening_float),
+          shift: item.shift || "Shift 1 (Morning)",
           notes: item.open_notes || "",
         });
         setMomoOpeningMain(Number(item.momo_opening_main || 0));
@@ -487,8 +492,8 @@ export default function PosDayManagement() {
     });
   }
 
-  async function handleOpenSubmit(e) {
-    e.preventDefault();
+  async function handleOpenSubmit(e, force = false) {
+    if (e?.preventDefault) e.preventDefault();
     if (!openData.dateTime) {
       toast.warn("Provide opening date/time");
       return;
@@ -498,6 +503,8 @@ export default function PosDayManagement() {
         terminal: terminalId,
         openingDateTime: openData.dateTime,
         openingFloat: Number(openData.float || 0),
+        shift: openData.shift || "Shift 1 (Morning)",
+        forceOpen: force,
         supervisor: undefined,
         notes: openData.notes,
         momoOpeningMain: Number(momoOpeningMain || 0),
@@ -514,6 +521,7 @@ export default function PosDayManagement() {
             item.opening_float === null || item.opening_float === undefined
               ? String(openData.float || "")
               : String(item.opening_float),
+          shift: item.shift || openData.shift || "Shift 1 (Morning)",
           notes: item.open_notes || openData.notes,
         });
         setSessionHistory([
@@ -564,10 +572,21 @@ export default function PosDayManagement() {
         );
       } catch {}
     } catch (err) {
+      const code = err?.response?.data?.code;
       const message =
         err?.response?.data?.message ||
         err?.response?.data?.error ||
         "Failed to open day";
+      if ((code === "ALREADY_OPEN" || message.includes("already have an open shift")) && !force) {
+        if (
+          window.confirm(
+            "A previous shift is currently still open on this terminal.\n\nWould you like to close the previous shift and open your new shift now?",
+          )
+        ) {
+          handleOpenSubmit(null, true);
+          return;
+        }
+      }
       toast.error(message);
     }
   }
@@ -972,6 +991,12 @@ export default function PosDayManagement() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <div className="text-slate-500 text-sm">Shift</div>
+            <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              {openData.shift || "Shift 1 (Morning)"}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <div className="text-slate-500 text-sm">Date</div>
             <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
               {now.toLocaleDateString()}
@@ -1007,7 +1032,7 @@ export default function PosDayManagement() {
               <div className="alert-success rounded-lg p-3 mb-4 flex items-center justify-between gap-2 text-sm">
                 <div className="flex items-center gap-2">
                   <span>✓</span>
-                  <span>Day is currently open (Opened at {fmtTime(openData.dateTime)}).</span>
+                  <span>Day is currently open ({openData.shift || "Shift 1 (Morning)"}, Opened at {fmtTime(openData.dateTime)} by {cashierName}).</span>
                 </div>
               </div>
             )}
@@ -1039,6 +1064,33 @@ export default function PosDayManagement() {
                       }))
                     }
                     required
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="label">Shift</label>
+                  <select
+                    className="input"
+                    value={openData.shift || "Shift 1 (Morning)"}
+                    onChange={(e) =>
+                      setOpenData((p) => ({ ...p, shift: e.target.value }))
+                    }
+                    disabled={dayOpen}
+                  >
+                    <option value="Shift 1 (Morning)">Shift 1 (Morning)</option>
+                    <option value="Shift 2 (Afternoon/Evening)">Shift 2 (Afternoon/Evening)</option>
+                    <option value="Shift 3 (Night)">Shift 3 (Night)</option>
+                    <option value="General Shift">General Shift</option>
+                  </select>
+                </div>
+                <div className="md:ml-4">
+                  <label className="label">Created By (Cashier)</label>
+                  <input
+                    type="text"
+                    className="input bg-slate-100 dark:bg-slate-800 cursor-not-allowed"
+                    disabled
+                    value={cashierName}
                   />
                 </div>
               </div>
