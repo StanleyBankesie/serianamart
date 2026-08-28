@@ -596,7 +596,18 @@ export const PermissionProvider = ({ children }) => {
   }, [permissions]);
 
   const isSuper = useMemo(() => {
+    const uid = Number(user?.id || user?.sub || 0);
+    const roleName = String(
+      user?.role || user?.role_name || user?.role_code || "",
+    )
+      .toLowerCase()
+      .trim();
     return (
+      uid === 1 ||
+      roleName === "admin" ||
+      roleName === "superadmin" ||
+      roleName === "super admin" ||
+      roleName === "super_admin" ||
       modules.has("*") ||
       permByFeatureKey.has("*") ||
       (user?.permissions || []).includes("*")

@@ -742,6 +742,9 @@ async function ensurePosTables() {
       "ALTER TABLE pos_day_status ADD COLUMN momo_opening_pay DECIMAL(18,2) NULL AFTER momo_opening_main",
     ).catch(() => {});
   }
+  try {
+    await query("ALTER TABLE pos_day_status DROP INDEX uq_pos_day_status");
+  } catch {}
 
   await query(`
     CREATE TABLE IF NOT EXISTS pos_sessions (
@@ -3317,9 +3320,9 @@ router.get(
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
            AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
-           AND business_date = COALESCE(:businessDate, CURDATE())
+           ${businessDate ? "AND business_date = :businessDate" : ""}
            ${terminal ? "AND terminal_code = :terminal" : ""}
-        ORDER BY open_datetime DESC
+        ORDER BY (status = 'OPEN') DESC, open_datetime DESC
         LIMIT 1
         `,
         terminal
@@ -3746,12 +3749,11 @@ router.post(
         LEFT JOIN adm_users u ON u.id = created_by
          WHERE company_id = :companyId
           AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
-          AND business_date = COALESCE(:businessDate, CURDATE())
           ${terminal ? "AND terminal_code = :terminal" : ""}
-        ORDER BY open_datetime DESC
+        ORDER BY (status = 'OPEN') DESC, open_datetime DESC
         LIMIT 1
         `,
-        { companyId, branchId, branchIdsStr, terminal, businessDate },
+        { companyId, branchId, branchIdsStr, terminal },
       );
       if (existing.length && existing[0].status === "OPEN") {
         throw httpError(
@@ -4209,11 +4211,11 @@ router.post(
          WHERE company_id = :companyId
           AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
           AND terminal_code = :terminal
-          AND business_date = DATE(:businessDate)
+          AND status = 'OPEN'
         ORDER BY open_datetime DESC
         LIMIT 1
         `,
-        { companyId, branchId, branchIdsStr, terminal, businessDate },
+        { companyId, branchId, branchIdsStr, terminal },
       );
       if (!existing.length) {
         throw httpError(

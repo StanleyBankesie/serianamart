@@ -2416,6 +2416,14 @@ export default function PosSalesEntry() {
                     </label>
                   </div>
                 )}
+                <button
+                  type="button"
+                  className="btn btn-success flex items-center gap-1 font-semibold"
+                  onClick={newSale}
+                  title="Clear cart and start a new sale"
+                >
+                  + New Sale
+                </button>
                 <Link
                   to="/sales/invoices/new"
                   className="btn btn-primary"
@@ -2436,7 +2444,7 @@ export default function PosSalesEntry() {
           <div className="card">
             <div className="card-body space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                <div className="md:col-span-5">
+                <div className="md:col-span-4">
                   <label className="label">Barcode / Item Search</label>
                   <div className="relative">
                     <input
@@ -2530,6 +2538,22 @@ export default function PosSalesEntry() {
                     placeholder="0.00"
                   />
                 </div>
+                <div className="md:col-span-1 flex items-end">
+                  <button
+                    type="button"
+                    className="btn btn-primary w-full h-[42px] flex items-center justify-center text-lg font-bold"
+                    onClick={() => {
+                      if (itemSearchResults.length) {
+                        handleSelectItemById(itemSearchResults[0].value);
+                      } else {
+                        addEntryToCart();
+                      }
+                    }}
+                    title="Add item to cart"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2549,7 +2573,7 @@ export default function PosSalesEntry() {
                           <th className="px-3 py-2 text-left sticky top-0 bg-slate-50 shadow-sm z-10">Item Name</th>
                           
                           <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">Price</th>
-                          <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">QTY</th>
+                          <th className="px-3 py-2 text-center sticky top-0 bg-slate-50 shadow-sm z-10 min-w-[130px]">QTY</th>
                           <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">Discount</th>
                           <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">Total</th>
                           <th className="px-3 py-2 text-right sticky top-0 bg-slate-50 shadow-sm z-10">Actions</th>
@@ -2574,22 +2598,24 @@ export default function PosSalesEntry() {
                               <td className="px-3 py-2 text-right">
                                 {`GH₵ ${unitPrice.toFixed(2)}`}
                               </td>
-                              <td className="px-3 py-2 text-right">
-                                <div className="flex items-center gap-2 justify-end">
+                              <td className="px-3 py-2 text-center whitespace-nowrap min-w-[130px]">
+                                <div className="inline-flex items-center gap-1.5 justify-center">
                                   <button
                                     type="button"
-                                    className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 font-bold text-base select-none shrink-0"
                                     onClick={() => updateQuantity(it.id, -1)}
+                                    title="Decrease quantity"
                                   >
                                     -
                                   </button>
-                                  <span className="w-8 text-center font-semibold inline-block">
+                                  <span className="w-7 text-center font-bold inline-block">
                                     {qty}
                                   </span>
                                   <button
                                     type="button"
-                                    className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50"
+                                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 font-bold text-base select-none shrink-0"
                                     onClick={() => updateQuantity(it.id, 1)}
+                                    title="Increase quantity"
                                   >
                                     +
                                   </button>
@@ -2833,7 +2859,15 @@ export default function PosSalesEntry() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md relative">
+            <button
+              type="button"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-2xl leading-none"
+              onClick={newSale}
+              title="Close and start new sale"
+            >
+              ×
+            </button>
             <div className="text-2xl font-bold text-brand-700">
               Sale Completed
             </div>
