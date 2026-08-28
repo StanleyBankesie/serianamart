@@ -354,65 +354,55 @@ export default function PosDayManagement() {
         const suggestedNextMomoPay = Number(
           res?.data?.nextMomoOpeningPay ?? item?.momo_closing_pay ?? 0,
         );
-        if (!item) {
+        if (!item || String(item.status || "").toUpperCase() !== "OPEN") {
           setDayOpen(false);
-          setOpenData((prev) => ({
-            ...prev,
-            float:
-              Number.isFinite(suggestedNext) && suggestedNext > 0
-                ? String(suggestedNext)
-                : prev.float,
-          }));
+          const initialFloat =
+            Number.isFinite(suggestedNext) && suggestedNext > 0
+              ? String(suggestedNext)
+              : item?.next_opening_float !== null && item?.next_opening_float !== undefined
+                ? String(item.next_opening_float)
+                : "";
+          setOpenData({
+            dateTime: toLocalInputDateTime(new Date()),
+            float: initialFloat,
+            notes: "",
+          });
           setMomoOpeningMain(suggestedNextMomoMain);
           setMomoOpeningPay(suggestedNextMomoPay);
+          setCloseDenomCounts(Array(DENOMINATIONS.length).fill(0));
+          setClosing({
+            dateTime: toLocalInputDateTime(new Date()),
+            actualCash: "",
+            nextOpeningFloat: "",
+            notes: "",
+          });
+          setMomoClosingMain(0);
+          setMomoClosingPay(0);
           setSessionHistory([]);
           return;
         }
-        const isOpen = String(item.status || "").toUpperCase() === "OPEN";
-        setDayOpen(isOpen);
-        const fallbackOpenFloat =
-          item.opening_float === null || item.opening_float === undefined
-            ? ""
-            : String(item.opening_float);
-        const suggestedOpenFloat =
-          !isOpen &&
-          item.next_opening_float !== null &&
-          item.next_opening_float !== undefined
-            ? String(item.next_opening_float)
-            : !isOpen && Number.isFinite(suggestedNext)
-              ? String(suggestedNext)
-              : fallbackOpenFloat;
+
+        const isOpen = true;
+        setDayOpen(true);
         setOpenData({
           dateTime: toLocalInputDateTime(item.open_datetime || ""),
-          float: suggestedOpenFloat,
+          float:
+            item.opening_float === null || item.opening_float === undefined
+              ? ""
+              : String(item.opening_float),
           notes: item.open_notes || "",
         });
-        if (isOpen) {
-          setMomoOpeningMain(Number(item.momo_opening_main || 0));
-          setMomoOpeningPay(Number(item.momo_opening_pay || 0));
-        } else {
-          setMomoOpeningMain(suggestedNextMomoMain);
-          setMomoOpeningPay(suggestedNextMomoPay);
-        }
-        setCloseDenomCounts(
-          parseDenominationCounts(item.close_denomination_counts),
-        );
-        setClosing((prev) => ({
-          ...prev,
-          dateTime: isOpen
-            ? toLocalInputDateTime(new Date())
-            : toLocalInputDateTime(item.close_datetime || ""),
-          actualCash:
-            item.actual_cash === null || item.actual_cash === undefined
-              ? ""
-              : String(item.actual_cash),
-          nextOpeningFloat:
-            item.next_opening_float === null ||
-            item.next_opening_float === undefined
-              ? ""
-              : String(item.next_opening_float),
-          notes: item.close_notes || "",
-        }));
+        setMomoOpeningMain(Number(item.momo_opening_main || 0));
+        setMomoOpeningPay(Number(item.momo_opening_pay || 0));
+        setCloseDenomCounts(Array(DENOMINATIONS.length).fill(0));
+        setClosing({
+          dateTime: toLocalInputDateTime(new Date()),
+          actualCash: "",
+          nextOpeningFloat: "",
+          notes: "",
+        });
+        setMomoClosingMain(0);
+        setMomoClosingPay(0);
         const row = {
           dayStatusId: Number(item.id || 0) || null,
           no: `DAY-${String(item.id || "").padStart(6, "0")}`,

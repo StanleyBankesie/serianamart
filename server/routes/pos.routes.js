@@ -742,6 +742,16 @@ async function ensurePosTables() {
       "ALTER TABLE pos_day_status ADD COLUMN momo_opening_pay DECIMAL(18,2) NULL AFTER momo_opening_main",
     ).catch(() => {});
   }
+  if (!(await hasColumn("pos_day_status", "created_by"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN created_by BIGINT UNSIGNED NULL AFTER status",
+    ).catch(() => {});
+  }
+  if (!(await hasColumn("pos_day_status", "closed_by"))) {
+    await query(
+      "ALTER TABLE pos_day_status ADD COLUMN closed_by BIGINT UNSIGNED NULL AFTER created_by",
+    ).catch(() => {});
+  }
   try {
     await query("ALTER TABLE pos_day_status DROP INDEX uq_pos_day_status");
   } catch {}
@@ -3290,45 +3300,140 @@ router.get(
         }
         return value;
       };
-      const rows = await query(
-        `
-        SELECT
-          id,
-          terminal_code,
-          business_date,
-          open_datetime,
-          opening_float,
-          supervisor_name,
-          open_notes,
-          open_denomination_counts,
-          close_datetime,
-          actual_cash,
-          actual_momo,
-          momo_opening_balance,
-          momo_closing_balance,
-          momo_closing_main,
-          momo_closing_pay,
-          momo_opening_main,
-          momo_opening_pay,
-          close_notes,
-          close_denomination_counts,
-          next_opening_float,
-          status,
-          created_at,
-          u.username AS created_by_name
-         FROM pos_day_status
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-           AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
-           ${businessDate ? "AND business_date = :businessDate" : ""}
-           ${terminal ? "AND terminal_code = :terminal" : ""}
-        ORDER BY (status = 'OPEN') DESC, open_datetime DESC
-        LIMIT 1
-        `,
-        terminal
-          ? { companyId, branchId, branchIdsStr, terminal, businessDate }
-          : { companyId, branchId, branchIdsStr, businessDate },
-      );
+      const userId = req.user?.id ?? req.user?.sub ?? null;
+      let rows = [];
+      if (userId) {
+        rows = await query(
+          `
+          SELECT
+            id,
+            terminal_code,
+            business_date,
+            open_datetime,
+            opening_float,
+            supervisor_name,
+            open_notes,
+            open_denomination_counts,
+            close_datetime,
+            actual_cash,
+            actual_momo,
+            momo_opening_balance,
+            momo_closing_balance,
+            momo_closing_main,
+            momo_closing_pay,
+            momo_opening_main,
+            momo_opening_pay,
+            close_notes,
+            close_denomination_counts,
+            next_opening_float,
+            status,
+            created_at,
+            created_by,
+            u.username AS created_by_name
+           FROM pos_day_status
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId
+             AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
+             ${businessDate ? "AND business_date = :businessDate" : ""}
+             ${terminal ? "AND terminal_code = :terminal" : ""}
+             AND (created_by = :userId OR created_by IS NULL)
+             AND status = 'OPEN'
+          ORDER BY open_datetime DESC
+          LIMIT 1
+          `,
+          terminal
+            ? { companyId, branchId, branchIdsStr, terminal, businessDate, userId }
+            : { companyId, branchId, branchIdsStr, businessDate, userId },
+        );
+      }
+
+      if (!rows.length && userId) {
+        rows = await query(
+          `
+          SELECT
+            id,
+            terminal_code,
+            business_date,
+            open_datetime,
+            opening_float,
+            supervisor_name,
+            open_notes,
+            open_denomination_counts,
+            close_datetime,
+            actual_cash,
+            actual_momo,
+            momo_opening_balance,
+            momo_closing_balance,
+            momo_closing_main,
+            momo_closing_pay,
+            momo_opening_main,
+            momo_opening_pay,
+            close_notes,
+            close_denomination_counts,
+            next_opening_float,
+            status,
+            created_at,
+            created_by,
+            u.username AS created_by_name
+           FROM pos_day_status
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId
+             AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
+             ${businessDate ? "AND business_date = :businessDate" : ""}
+             ${terminal ? "AND terminal_code = :terminal" : ""}
+             AND created_by = :userId
+          ORDER BY (status = 'OPEN') DESC, open_datetime DESC
+          LIMIT 1
+          `,
+          terminal
+            ? { companyId, branchId, branchIdsStr, terminal, businessDate, userId }
+            : { companyId, branchId, branchIdsStr, businessDate, userId },
+        );
+      }
+
+      if (!rows.length) {
+        rows = await query(
+          `
+          SELECT
+            id,
+            terminal_code,
+            business_date,
+            open_datetime,
+            opening_float,
+            supervisor_name,
+            open_notes,
+            open_denomination_counts,
+            close_datetime,
+            actual_cash,
+            actual_momo,
+            momo_opening_balance,
+            momo_closing_balance,
+            momo_closing_main,
+            momo_closing_pay,
+            momo_opening_main,
+            momo_opening_pay,
+            close_notes,
+            close_denomination_counts,
+            next_opening_float,
+            status,
+            created_at,
+            created_by,
+            u.username AS created_by_name
+           FROM pos_day_status
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId
+             AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
+             ${businessDate ? "AND business_date = :businessDate" : ""}
+             ${terminal ? "AND terminal_code = :terminal" : ""}
+          ORDER BY (status = 'OPEN') DESC, open_datetime DESC
+          LIMIT 1
+          `,
+          terminal
+            ? { companyId, branchId, branchIdsStr, terminal, businessDate }
+            : { companyId, branchId, branchIdsStr, businessDate },
+        );
+      }
+
       const item = rows.length ? rows[0] : null;
       if (item) {
         item.open_denomination_counts = coerceJsonValue(
@@ -3341,7 +3446,7 @@ router.get(
       let nextOpeningFloat = null;
       let nextMomoOpeningMain = null;
       let nextMomoOpeningPay = null;
-      if (!item || item.status === "CLOSED") {
+      if (!item || item.status === "CLOSED" || String(item.created_by || "") !== String(userId || "")) {
         const fallbackRows = await query(
           `
           SELECT next_opening_float, momo_closing_main, momo_closing_pay, momo_closing_balance
@@ -3740,6 +3845,7 @@ router.post(
       const businessDate = Number.isNaN(openDate.getTime())
         ? new Date()
         : openDate;
+      const userId = req.user?.id ?? req.user?.sub ?? null;
       const existing = await query(
         `
         SELECT id, status,
@@ -3750,24 +3856,26 @@ router.post(
          WHERE company_id = :companyId
           AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
           ${terminal ? "AND terminal_code = :terminal" : ""}
-        ORDER BY (status = 'OPEN') DESC, open_datetime DESC
+          ${userId ? "AND created_by = :userId" : ""}
+          AND status = 'OPEN'
+        ORDER BY open_datetime DESC
         LIMIT 1
         `,
-        { companyId, branchId, branchIdsStr, terminal },
+        { companyId, branchId, branchIdsStr, terminal, userId },
       );
       if (existing.length && existing[0].status === "OPEN") {
         throw httpError(
           400,
           "VALIDATION_ERROR",
-          "Day is already open for this terminal",
+          "You already have an open shift for this terminal",
         );
       }
       const result = await query(
         `
         INSERT INTO pos_day_status
-          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, open_denomination_counts, momo_opening_main, momo_opening_pay, status)
+          (company_id, branch_id, terminal_code, business_date, open_datetime, opening_float, supervisor_name, open_notes, open_denomination_counts, momo_opening_main, momo_opening_pay, created_by, status)
         VALUES
-          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, :open_denomination_counts, :momo_opening_main, :momo_opening_pay, 'OPEN')
+          (:companyId, :branchId, :terminal, DATE(:businessDate), :open_datetime, :opening_float, :supervisor_name, :open_notes, :open_denomination_counts, :momo_opening_main, :momo_opening_pay, :userId, 'OPEN')
         `,
         {
           companyId,
@@ -3782,6 +3890,7 @@ router.post(
             normalizeDenominationCounts(denominationCounts),
           momo_opening_main: Number(momoOpeningMain || 0),
           momo_opening_pay: Number(momoOpeningPay || 0),
+          userId,
         },
       );
       const [item] = await query(
@@ -4201,22 +4310,45 @@ router.post(
       const businessDate = Number.isNaN(closeDate.getTime())
         ? new Date()
         : closeDate;
-      const existing = await query(
-        `
-        SELECT id,
-          created_at,
-          u.username AS created_by_name
-         FROM pos_day_status
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-          AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
-          AND terminal_code = :terminal
-          AND status = 'OPEN'
-        ORDER BY open_datetime DESC
-        LIMIT 1
-        `,
-        { companyId, branchId, branchIdsStr, terminal },
-      );
+      const userId = req.user?.id ?? req.user?.sub ?? null;
+      let existing = [];
+      if (userId) {
+        existing = await query(
+          `
+          SELECT id,
+            created_at,
+            u.username AS created_by_name
+           FROM pos_day_status
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId
+            AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
+            AND terminal_code = :terminal
+            AND (created_by = :userId OR created_by IS NULL)
+            AND status = 'OPEN'
+          ORDER BY (created_by = :userId) DESC, open_datetime DESC
+          LIMIT 1
+          `,
+          { companyId, branchId, branchIdsStr, terminal, userId },
+        );
+      }
+      if (!existing.length) {
+        existing = await query(
+          `
+          SELECT id,
+            created_at,
+            u.username AS created_by_name
+           FROM pos_day_status
+          LEFT JOIN adm_users u ON u.id = created_by
+           WHERE company_id = :companyId
+            AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
+            AND terminal_code = :terminal
+            AND status = 'OPEN'
+          ORDER BY open_datetime DESC
+          LIMIT 1
+          `,
+          { companyId, branchId, branchIdsStr, terminal },
+        );
+      }
       if (!existing.length) {
         throw httpError(
           400,
@@ -4238,6 +4370,7 @@ router.post(
             close_notes = :close_notes,
             close_denomination_counts = :close_denomination_counts,
             next_opening_float = :next_opening_float,
+            closed_by = :userId,
             status = 'CLOSED'
         WHERE id = :id
           AND company_id = :companyId
@@ -4258,6 +4391,7 @@ router.post(
           close_denomination_counts:
             normalizeDenominationCounts(denominationCounts),
           next_opening_float: Number(nextOpeningFloat || 0),
+          userId,
         },
       );
       const [item] = await query(
