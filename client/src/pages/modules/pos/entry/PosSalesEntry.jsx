@@ -366,84 +366,27 @@ export default function PosSalesEntry() {
         setTerminalCode(code);
         setTerminalWarehouseId(wId);
 
-        // Check sessionStorage first (most recent), then localStorage (survives tab close)
-        for (const store of [sessionStorage, localStorage]) {
-          try {
-            const raw = store.getItem("omni.pos.day");
-            if (!raw) continue;
-            const data = JSON.parse(raw);
-            const t = String(data?.terminal || data?.terminalCode || "");
-            const status = String(data?.status || "").toUpperCase();
-            const recent = Number(data?.ts || 0) > Date.now() - 5000;
-            // sessionStorage: accept only if written <5s ago (from PosDayManagement)
-            // localStorage: accept any OPEN status regardless of age
-            const isSession = store === sessionStorage;
-            if (
-              status === "OPEN" &&
-              (!isSession || recent) &&
-              (!code || !t || t === code)
-            ) {
-              setDayExists(true);
-              setDayStatus("OPEN");
-              setDayOpen(true);
-              setDayLoading(false);
-              if (cancelled) return;
-              break;
-            }
-          } catch {}
-        }
-
-        // Query server for authoritative day status
+        // Query server for authoritative day status for the current user
         try {
           const params = code ? { params: { terminal: code } } : undefined;
           const res = await api.get("/pos/day/status", params);
           const item = res?.data?.item || null;
           const status = String(item?.status || "").toUpperCase();
-          const exists = !!item;
+          const isOpen = status === "OPEN";
           if (!cancelled) {
-            setDayExists(exists);
+            setDayExists(!!item);
             setDayStatus(status);
-            setDayOpen(status === "OPEN");
-            // Persist authoritative status to localStorage
-            if (exists) {
-              try {
-                localStorage.setItem(
-                  "omni.pos.day",
-                  JSON.stringify({
-                    status,
-                    terminal: code,
-                    terminalCode: code,
-                    ts: Date.now(),
-                  }),
-                );
-              } catch {}
-            }
+            setDayOpen(isOpen);
           }
         } catch {
-          // Network failed — day status already set from cache above, nothing more to do
+          if (!cancelled) {
+            setDayExists(false);
+            setDayStatus("");
+            setDayOpen(false);
+          }
         }
       } catch {
         if (cancelled) return;
-        // Full offline fallback: check both storage layers
-        for (const store of [sessionStorage, localStorage]) {
-          try {
-            const raw = store.getItem("omni.pos.day");
-            if (!raw) continue;
-            const data = JSON.parse(raw);
-            const t = String(data?.terminal || data?.terminalCode || "");
-            const status = String(data?.status || "").toUpperCase();
-            if (
-              status === "OPEN" &&
-              (!terminalCode || !t || t === terminalCode)
-            ) {
-              setDayExists(true);
-              setDayStatus("OPEN");
-              setDayOpen(true);
-              setDayLoading(false);
-              return;
-            }
-          } catch {}
-        }
         setDayExists(false);
         setDayStatus("");
         setDayOpen(false);

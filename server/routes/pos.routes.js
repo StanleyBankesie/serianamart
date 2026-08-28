@@ -3358,7 +3358,7 @@ router.get(
              AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
              ${businessDate ? "AND business_date = :businessDate" : ""}
              ${terminal ? "AND terminal_code = :terminal" : ""}
-             AND (created_by = :userId OR created_by IS NULL)
+             AND created_by = :userId
              AND status = 'OPEN'
           ORDER BY open_datetime DESC
           LIMIT 1
@@ -3366,95 +3366,6 @@ router.get(
           terminal
             ? { companyId, branchId, branchIdsStr, terminal, businessDate, userId }
             : { companyId, branchId, branchIdsStr, businessDate, userId },
-        );
-      }
-
-      if (!rows.length && userId) {
-        rows = await query(
-          `
-          SELECT
-            id,
-            terminal_code,
-            business_date,
-            open_datetime,
-            opening_float,
-            supervisor_name,
-            shift,
-            open_notes,
-            open_denomination_counts,
-            close_datetime,
-            actual_cash,
-            actual_momo,
-            momo_opening_balance,
-            momo_closing_balance,
-            momo_closing_main,
-            momo_closing_pay,
-            momo_opening_main,
-            momo_opening_pay,
-            close_notes,
-            close_denomination_counts,
-            next_opening_float,
-            status,
-            created_at,
-            created_by,
-            u.username AS created_by_name
-           FROM pos_day_status
-          LEFT JOIN adm_users u ON u.id = created_by
-           WHERE company_id = :companyId
-             AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
-             ${businessDate ? "AND business_date = :businessDate" : ""}
-             ${terminal ? "AND terminal_code = :terminal" : ""}
-             AND created_by = :userId
-          ORDER BY (status = 'OPEN') DESC, open_datetime DESC
-          LIMIT 1
-          `,
-          terminal
-            ? { companyId, branchId, branchIdsStr, terminal, businessDate, userId }
-            : { companyId, branchId, branchIdsStr, businessDate, userId },
-        );
-      }
-
-      if (!rows.length) {
-        rows = await query(
-          `
-          SELECT
-            id,
-            terminal_code,
-            business_date,
-            open_datetime,
-            opening_float,
-            supervisor_name,
-            shift,
-            open_notes,
-            open_denomination_counts,
-            close_datetime,
-            actual_cash,
-            actual_momo,
-            momo_opening_balance,
-            momo_closing_balance,
-            momo_closing_main,
-            momo_closing_pay,
-            momo_opening_main,
-            momo_opening_pay,
-            close_notes,
-            close_denomination_counts,
-            next_opening_float,
-            status,
-            created_at,
-            created_by,
-            u.username AS created_by_name
-           FROM pos_day_status
-          LEFT JOIN adm_users u ON u.id = created_by
-           WHERE company_id = :companyId
-             AND (:branchIdsStr = '' OR FIND_IN_SET(pos_day_status.branch_id, :branchIdsStr))
-             ${businessDate ? "AND business_date = :businessDate" : ""}
-             ${terminal ? "AND terminal_code = :terminal" : ""}
-          ORDER BY (status = 'OPEN') DESC, open_datetime DESC
-          LIMIT 1
-          `,
-          terminal
-            ? { companyId, branchId, branchIdsStr, terminal, businessDate }
-            : { companyId, branchId, branchIdsStr, businessDate },
         );
       }
 
