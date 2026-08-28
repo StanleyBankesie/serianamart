@@ -1268,7 +1268,7 @@ export default function PosDayManagement() {
                     type="text"
                     className="input"
                     disabled
-                    value={fmtCurrency(momoTotalClosing)}
+                    value={fmtCurrency(momoClosingBalance)}
                   />
                 </div>
                 <div className="md:ml-4">
@@ -1277,7 +1277,7 @@ export default function PosDayManagement() {
                     type="text"
                     className="input"
                     disabled
-                    value={fmtCurrency(momoExpectedClosing)}
+                    value={fmtCurrency(expectedMoMo)}
                   />
                 </div>
               </div>
