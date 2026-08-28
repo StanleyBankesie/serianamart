@@ -991,12 +991,6 @@ export default function PosDayManagement() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="text-slate-500 text-sm">Shift</div>
-            <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
-              {openData.shift || "Shift 1 (Morning)"}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
             <div className="text-slate-500 text-sm">Date</div>
             <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
               {now.toLocaleDateString()}
@@ -1032,7 +1026,7 @@ export default function PosDayManagement() {
               <div className="alert-success rounded-lg p-3 mb-4 flex items-center justify-between gap-2 text-sm">
                 <div className="flex items-center gap-2">
                   <span>✓</span>
-                  <span>Day is currently open ({openData.shift || "Shift 1 (Morning)"}, Opened at {fmtTime(openData.dateTime)} by {cashierName}).</span>
+                  <span>Day is currently open (Opened at {fmtTime(openData.dateTime)} by {cashierName}).</span>
                 </div>
               </div>
             )}
@@ -1064,33 +1058,6 @@ export default function PosDayManagement() {
                       }))
                     }
                     required
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="label">Shift</label>
-                  <select
-                    className="input"
-                    value={openData.shift || "Shift 1 (Morning)"}
-                    onChange={(e) =>
-                      setOpenData((p) => ({ ...p, shift: e.target.value }))
-                    }
-                    disabled={dayOpen}
-                  >
-                    <option value="Shift 1 (Morning)">Shift 1 (Morning)</option>
-                    <option value="Shift 2 (Afternoon/Evening)">Shift 2 (Afternoon/Evening)</option>
-                    <option value="Shift 3 (Night)">Shift 3 (Night)</option>
-                    <option value="General Shift">General Shift</option>
-                  </select>
-                </div>
-                <div className="md:ml-4">
-                  <label className="label">Created By (Cashier)</label>
-                  <input
-                    type="text"
-                    className="input bg-slate-100 dark:bg-slate-800 cursor-not-allowed"
-                    disabled
-                    value={cashierName}
                   />
                 </div>
               </div>
