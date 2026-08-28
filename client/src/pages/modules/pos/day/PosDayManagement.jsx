@@ -70,6 +70,8 @@ export default function PosDayManagement() {
     return String(name);
   }, [user]);
   const [dayOpen, setDayOpen] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [showForceOpenForm, setShowForceOpenForm] = useState(false);
   const [openData, setOpenData] = useState({
     dateTime: toLocalInputDateTime(new Date()),
     float: "",
@@ -334,7 +336,11 @@ export default function PosDayManagement() {
   useEffect(() => {
     let cancelled = false;
     const term = terminalId;
-    if (!term) return undefined;
+    if (!term) {
+      if (!terminalsLoading) setStatusLoading(false);
+      return undefined;
+    }
+    setStatusLoading(true);
     api
       .get("/pos/day/status", { params: { terminal: term } })
       .then((res) => {
@@ -444,11 +450,14 @@ export default function PosDayManagement() {
           isOpen ? "Day is currently open" : "Last day is closed",
         );
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setStatusLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [terminalId]);
+  }, [terminalId, cashierName]);
 
   function addToTimeline(title, description) {
     const item = { time: new Date(), title, description };
@@ -984,15 +993,38 @@ export default function PosDayManagement() {
           </div>
         </div>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card">
-          <div className="card-header">
-            <div className="card-title">Open Day</div>
-            <div className="text-2xl">🌅</div>
+          <div className="card-header flex justify-between items-center">
+            <div className="card-title flex items-center gap-2">
+              <span>Open Day</span>
+              {dayOpen ? (
+                <span className="badge-success text-xs font-semibold px-2 py-0.5 rounded">
+                  Active Shift
+                </span>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {dayOpen && (
+                <button
+                  type="button"
+                  className="btn btn-outline text-xs px-2.5 py-1 font-semibold"
+                  onClick={() => setShowForceOpenForm((p) => !p)}
+                  title="Toggle Open Day Form"
+                >
+                  {showForceOpenForm ? "Hide Form" : "🔄 Reopen / New Shift"}
+                </button>
+              )}
+              <div className="text-2xl">🌅</div>
+            </div>
           </div>
           <div className="card-body">
-            {!dayOpen && (
+            {statusLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mb-2" />
+                <span className="text-sm">Checking day status...</span>
+              </div>
+            ) : !dayOpen || showForceOpenForm ? (
               <form onSubmit={handleOpenSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -1064,14 +1096,11 @@ export default function PosDayManagement() {
                   />
                 </div>
 
-                {/* Opening Checklist removed as requested; proceed directly to Open Day */}
-
-                <button type="submit" className="btn-success w-full">
+                <button type="submit" className="btn-success w-full font-bold py-2.5">
                   🌅 Open Day
                 </button>
               </form>
-            )}
-            {dayOpen && (
+            ) : (
               <div className="space-y-4">
                 <div className="alert-success rounded-lg p-4 flex items-center gap-2">
                   <span>✓</span>
@@ -1116,10 +1145,10 @@ export default function PosDayManagement() {
         </div>
 
         <div className="card">
-          <div className="card-header">
-            <div className="card-title">
-              Close Day
-              <span className="ml-2 text-sm font-normal text-slate-500">
+          <div className="card-header flex justify-between items-center">
+            <div className="card-title flex items-center gap-2">
+              <span>Close Day</span>
+              <span className="text-sm font-normal text-slate-500">
                 {closing.dateTime
                   ? new Date(closing.dateTime).toLocaleString()
                   : ""}
@@ -1128,10 +1157,41 @@ export default function PosDayManagement() {
             <div className="text-2xl">🌙</div>
           </div>
           <div className="card-body">
-            {!dayOpen ? (
-              <div className="alert-success rounded-lg p-4 flex items-center gap-2">
-                <span>✓</span>
-                <div>Day is closed. Open a new day to start a new session.</div>
+            {statusLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mb-2" />
+                <span className="text-sm">Checking day status...</span>
+              </div>
+            ) : !dayOpen ? (
+              <div className="space-y-4">
+                <div className="alert-success rounded-lg p-4 flex items-center gap-2">
+                  <span>✓</span>
+                  <div>Day is closed. Open a new day to start a new session.</div>
+                </div>
+                {sessionHistory.length > 0 && sessionHistory[0].endTime ? (
+                  <div className="space-y-3 pt-2">
+                    <div className="text-sm font-semibold text-slate-700">Last Closed Shift:</div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                        <div className="text-xs text-slate-500">Closed At</div>
+                        <div className="font-semibold text-slate-800">{sessionHistory[0].end}</div>
+                      </div>
+                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                        <div className="text-xs text-slate-500">Actual Cash Recorded</div>
+                        <div className="font-semibold text-slate-800">{fmtCurrency(sessionHistory[0].actualCash)}</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    className="btn-info w-full py-2 font-semibold"
+                    onClick={handlePrint}
+                  >
+                    🖨️ Print Last Closing Report
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleCloseSubmit} className="space-y-4">
@@ -1188,6 +1248,37 @@ export default function PosDayManagement() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label">Closing Date & Time</label>
+                    <input
+                      type="datetime-local"
+                      className="input"
+                      value={closing.dateTime}
+                      onChange={(e) =>
+                        setClosing((p) => ({ ...p, dateTime: e.target.value }))
+                      }
+                      required
+                    />
+                  </div>
+                  <div className="md:ml-4">
+                    <label className="label">Actual Cash Counted (₵)</label>
+                    <input
+                      type="number"
+                      className="input"
+                      step="0.01"
+                      value={closing.actualCash}
+                      onChange={(e) =>
+                        setClosing((p) => ({
+                          ...p,
+                          actualCash: e.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
                     <div>
                       <label className="label">Expected Cash</label>
@@ -1200,49 +1291,7 @@ export default function PosDayManagement() {
                     </div>
                   ) : null}
                   {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
-                    <div>
-                      <label className="label">Expected MoMo</label>
-                      <input
-                        type="text"
-                        className="input"
-                        disabled
-                        value={fmtCurrency(expectedMoMo)}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">Actual Cash Count (₵)</label>
-                    <input
-                      type="number"
-                      className="input"
-                      step="1"
-                      value={closing.actualCash}
-                      onChange={(e) =>
-                        setClosing((p) => ({
-                          ...p,
-                          actualCash: e.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="label">Actual MoMo</label>
-                    <input
-                      type="text"
-                      className="input"
-                      disabled
-                      value={fmtCurrency(actualMoMo)}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
-                    <div>
+                    <div className="md:ml-4">
                       <label className="label">Cash Variance</label>
                       <input
                         type="text"
@@ -1256,6 +1305,59 @@ export default function PosDayManagement() {
                       />
                     </div>
                   ) : null}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label className="label">Closing Main Account (₵)</label>
+                    <input
+                      type="number"
+                      className="input"
+                      step="0.01"
+                      value={String(momoClosingMain)}
+                      onChange={(e) =>
+                        setMomoClosingMain(Number(e.target.value || 0))
+                      }
+                    />
+                  </div>
+                  <div className="md:ml-4">
+                    <label className="label">
+                      Closing MoMo Pay Account (₵)
+                    </label>
+                    <input
+                      type="number"
+                      className="input"
+                      step="0.01"
+                      value={String(momoClosingPay)}
+                      onChange={(e) =>
+                        setMomoClosingPay(Number(e.target.value || 0))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div>
+                    <label className="label">Total MoMo Closing Balance</label>
+                    <input
+                      type="text"
+                      className="input"
+                      disabled
+                      value={fmtCurrency(momoTotalClosing)}
+                    />
+                  </div>
+                  <div className="md:ml-4">
+                    <label className="label">Expected MoMo Closing</label>
+                    <input
+                      type="text"
+                      className="input"
+                      disabled
+                      value={fmtCurrency(momoExpectedClosing)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                   {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
                     <div>
                       <label className="label">MoMo Variance</label>
@@ -1271,10 +1373,7 @@ export default function PosDayManagement() {
                       />
                     </div>
                   ) : null}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                  <div className="md:ml-4">
                     <label className="label">Enter float for next sales</label>
                     <input
                       type="number"
@@ -1301,8 +1400,6 @@ export default function PosDayManagement() {
                     }
                   />
                 </div>
-
-                {/* Sales Report table hidden per user request */}
 
                 <div className="flex gap-2">
                   <button
