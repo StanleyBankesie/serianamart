@@ -1092,7 +1092,11 @@ export default function PosDayManagement() {
                 />
               </div>
 
-              <button type="submit" className="btn-success w-full font-bold py-2.5">
+              <button
+                type="submit"
+                className="btn-success w-full font-bold py-2.5"
+                data-rbac-exempt="true"
+              >
                 🌅 Open Day
               </button>
             </form>
@@ -1330,6 +1334,7 @@ export default function PosDayManagement() {
                 <button
                   type="button"
                   className="btn-danger flex-1 px-4 py-2 font-bold"
+                  data-rbac-exempt="true"
                   onClick={async () => {
                     if (!closing.dateTime) {
                       toast.warn("Provide closing date/time");
@@ -1343,6 +1348,7 @@ export default function PosDayManagement() {
                 <button
                   type="button"
                   className="btn-info flex-1 px-4 py-2 font-bold"
+                  data-rbac-exempt="true"
                   onClick={handlePrint}
                 >
                   🖨️ Print Report

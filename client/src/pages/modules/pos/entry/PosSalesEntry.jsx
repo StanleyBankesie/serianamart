@@ -2419,6 +2419,7 @@ export default function PosSalesEntry() {
                 <button
                   type="button"
                   className="btn btn-success flex items-center gap-1 font-semibold"
+                  data-rbac-exempt="true"
                   onClick={newSale}
                   title="Clear cart and start a new sale"
                 >

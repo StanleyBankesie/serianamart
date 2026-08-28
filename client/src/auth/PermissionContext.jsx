@@ -1066,6 +1066,20 @@ export const PermissionProvider = ({ children }) => {
       if (guardCleanupRef.current) guardCleanupRef.current();
 
       const path = window?.location?.pathname || "/";
+      if (path.startsWith("/pos/") || path === "/pos") {
+        document.body.classList.remove("create-guard-disabled", "delete-guard-disabled");
+        document.querySelectorAll("[data-create-guard]").forEach((el) => {
+          if (el.getAttribute("data-create-guard") === "visible") el.style.display = "";
+          el.removeAttribute("data-create-guard");
+        });
+        document.querySelectorAll("[data-delete-guard]").forEach((el) => {
+          if (el.getAttribute("data-delete-guard") === "visible") el.style.display = "";
+          el.removeAttribute("data-delete-guard");
+        });
+        guardCleanupRef.current = null;
+        return;
+      }
+
       const canCreate = canCreateOnPage(path);
       const canDelete = canDeleteOnPage(path);
       document.body.classList.toggle("create-guard-disabled", !canCreate);
