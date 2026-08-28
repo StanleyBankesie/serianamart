@@ -241,12 +241,13 @@ export default function PosDayManagement() {
         const assigned = allTerminals.filter((t) =>
           assignedTerminalIds.has(Number(t?.id)),
         );
-        setTerminalOptions(assigned);
+        const available = assigned.length > 0 ? assigned : allTerminals;
+        setTerminalOptions(available);
 
-        const currentOk = assigned.some(
+        const currentOk = available.some(
           (t) => String(t?.code || "") === String(terminalId || ""),
         );
-        const nextCode = currentOk ? terminalId : assigned[0]?.code || "";
+        const nextCode = currentOk ? terminalId : available[0]?.code || "";
         if (nextCode) {
           setTerminalId(String(nextCode));
         } else {
@@ -994,156 +995,111 @@ export default function PosDayManagement() {
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* OPEN DAY CARD */}
         <div className="card">
           <div className="card-header flex justify-between items-center">
             <div className="card-title flex items-center gap-2">
               <span>Open Day</span>
               {dayOpen ? (
                 <span className="badge-success text-xs font-semibold px-2 py-0.5 rounded">
-                  Active Shift
+                  Active (Open)
                 </span>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              {dayOpen && (
-                <button
-                  type="button"
-                  className="btn btn-outline text-xs px-2.5 py-1 font-semibold"
-                  onClick={() => setShowForceOpenForm((p) => !p)}
-                  title="Toggle Open Day Form"
-                >
-                  {showForceOpenForm ? "Hide Form" : "🔄 Reopen / New Shift"}
-                </button>
+              ) : (
+                <span className="badge-danger text-xs font-semibold px-2 py-0.5 rounded">
+                  Closed
+                </span>
               )}
-              <div className="text-2xl">🌅</div>
             </div>
+            <div className="text-2xl">🌅</div>
           </div>
           <div className="card-body">
-            {statusLoading ? (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mb-2" />
-                <span className="text-sm">Checking day status...</span>
-              </div>
-            ) : !dayOpen || showForceOpenForm ? (
-              <form onSubmit={handleOpenSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">Opening Date & Time</label>
-                    <input
-                      type="datetime-local"
-                      className="input"
-                      value={openData.dateTime}
-                      onChange={(e) =>
-                        setOpenData((p) => ({ ...p, dateTime: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="md:ml-4">
-                    <label className="label">Opening Float (₵)</label>
-                    <input
-                      type="number"
-                      className="input"
-                      step="1"
-                      value={openData.float}
-                      onChange={(e) =>
-                        setOpenData((p) => ({
-                          ...p,
-                          float: e.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <div>
-                    <label className="label">Opening Main Account (₵)</label>
-                    <input
-                      type="number"
-                      className="input"
-                      step="0.01"
-                      value={String(momoOpeningMain)}
-                      onChange={(e) =>
-                        setMomoOpeningMain(Number(e.target.value || 0))
-                      }
-                    />
-                  </div>
-                  <div className="md:ml-4">
-                    <label className="label">
-                      Opening MoMo Pay Account (₵)
-                    </label>
-                    <input
-                      type="number"
-                      className="input"
-                      step="0.01"
-                      value={String(momoOpeningPay)}
-                      onChange={(e) =>
-                        setMomoOpeningPay(Number(e.target.value || 0))
-                      }
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="label">Notes</label>
-                  <textarea
-                    className="input w-full"
-                    rows={4}
-                    value={openData.notes}
-                    onChange={(e) =>
-                      setOpenData((p) => ({ ...p, notes: e.target.value }))
-                    }
-                  />
-                </div>
-
-                <button type="submit" className="btn-success w-full font-bold py-2.5">
-                  🌅 Open Day
-                </button>
-              </form>
-            ) : (
-              <div className="space-y-4">
-                <div className="alert-success rounded-lg p-4 flex items-center gap-2">
+            {dayOpen && (
+              <div className="alert-success rounded-lg p-3 mb-4 flex items-center justify-between gap-2 text-sm">
+                <div className="flex items-center gap-2">
                   <span>✓</span>
-                  <div>
-                    Day is currently open. Complete transactions and close day
-                    when finished.
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                    <div className="text-xs text-slate-600">Opened At</div>
-                    <div className="font-semibold">
-                      {fmtTime(openData.dateTime)}
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                    <div className="text-xs text-slate-600">Opening Float</div>
-                    <div className="font-bold">
-                      {fmtCurrency(openData.float)}
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                    <div className="text-xs text-slate-600">
-                      Opening Main Account
-                    </div>
-                    <div className="font-bold">
-                      {fmtCurrency(momoOpeningMain)}
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                    <div className="text-xs text-slate-600">
-                      Opening MoMo Pay Account
-                    </div>
-                    <div className="font-bold">
-                      {fmtCurrency(momoOpeningPay)}
-                    </div>
-                  </div>
+                  <span>Day is currently open (Opened at {fmtTime(openData.dateTime)}).</span>
                 </div>
               </div>
             )}
+            <form onSubmit={handleOpenSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Opening Date & Time</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={openData.dateTime}
+                    onChange={(e) =>
+                      setOpenData((p) => ({ ...p, dateTime: e.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="md:ml-4">
+                  <label className="label">Opening Float (₵)</label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="1"
+                    value={openData.float}
+                    onChange={(e) =>
+                      setOpenData((p) => ({
+                        ...p,
+                        float: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="label">Opening Main Account (₵)</label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="0.01"
+                    value={String(momoOpeningMain)}
+                    onChange={(e) =>
+                      setMomoOpeningMain(Number(e.target.value || 0))
+                    }
+                  />
+                </div>
+                <div className="md:ml-4">
+                  <label className="label">
+                    Opening MoMo Pay Account (₵)
+                  </label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="0.01"
+                    value={String(momoOpeningPay)}
+                    onChange={(e) =>
+                      setMomoOpeningPay(Number(e.target.value || 0))
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">Notes</label>
+                <textarea
+                  className="input w-full"
+                  rows={4}
+                  value={openData.notes}
+                  onChange={(e) =>
+                    setOpenData((p) => ({ ...p, notes: e.target.value }))
+                  }
+                />
+              </div>
+
+              <button type="submit" className="btn-success w-full font-bold py-2.5">
+                🌅 Open Day
+              </button>
+            </form>
           </div>
         </div>
 
+        {/* CLOSE DAY CARD */}
         <div className="card">
           <div className="card-header flex justify-between items-center">
             <div className="card-title flex items-center gap-2">
@@ -1157,278 +1113,242 @@ export default function PosDayManagement() {
             <div className="text-2xl">🌙</div>
           </div>
           <div className="card-body">
-            {statusLoading ? (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-500">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600 mb-2" />
-                <span className="text-sm">Checking day status...</span>
+            {!dayOpen && (
+              <div className="alert-danger rounded-lg p-3 mb-4 flex items-center gap-2 text-sm">
+                <span>ℹ️</span>
+                <span>Day is currently closed. Submit below to close or record reconciliation.</span>
               </div>
-            ) : !dayOpen ? (
-              <div className="space-y-4">
-                <div className="alert-success rounded-lg p-4 flex items-center gap-2">
-                  <span>✓</span>
-                  <div>Day is closed. Open a new day to start a new session.</div>
-                </div>
-                {sessionHistory.length > 0 && sessionHistory[0].endTime ? (
-                  <div className="space-y-3 pt-2">
-                    <div className="text-sm font-semibold text-slate-700">Last Closed Shift:</div>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                        <div className="text-xs text-slate-500">Closed At</div>
-                        <div className="font-semibold text-slate-800">{sessionHistory[0].end}</div>
-                      </div>
-                      <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                        <div className="text-xs text-slate-500">Actual Cash Recorded</div>
-                        <div className="font-semibold text-slate-800">{fmtCurrency(sessionHistory[0].actualCash)}</div>
-                      </div>
+            )}
+            <form onSubmit={handleCloseSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
+                  <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                    <div className="text-xs text-slate-600">
+                      Total Cash Sales
+                    </div>
+                    <div className="font-bold">
+                      {fmtCurrency(salesData.cash.amount)}
                     </div>
                   </div>
                 ) : null}
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    className="btn-info w-full py-2 font-semibold"
-                    onClick={handlePrint}
-                  >
-                    🖨️ Print Last Closing Report
-                  </button>
+                {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
+                  <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
+                    <div className="text-xs text-slate-600">Total MoMo</div>
+                    <div className="font-bold">
+                      {fmtCurrency(salesData.mobile.amount)}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex gap-3">
+                <div className="flex-1 rounded-lg border border-brand/30 bg-brand/5 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm text-slate-700 dark:text-slate-200">
+                      Cash entered. Confirm with denomination count.
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs py-1"
+                      onClick={() => setShowCashConfirmModal(true)}
+                    >
+                      Confirm Cash
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 rounded-lg border border-brand/30 bg-brand/5 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm text-slate-700 dark:text-slate-200">
+                      MoMo balance. Confirm with opening/closing.
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs py-1"
+                      onClick={() => setShowMomoConfirmModal(true)}
+                    >
+                      Confirm MoMo
+                    </button>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <form onSubmit={handleCloseSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                      <div className="text-xs text-slate-600">
-                        Total Cash Sales
-                      </div>
-                      <div className="font-bold">
-                        {fmtCurrency(salesData.cash.amount)}
-                      </div>
-                    </div>
-                  ) : null}
-                  {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
-                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50">
-                      <div className="text-xs text-slate-600">Total MoMo</div>
-                      <div className="font-bold">
-                        {fmtCurrency(salesData.mobile.amount)}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
 
-                <div className="flex gap-3">
-                  <div className="flex-1 rounded-lg border border-brand/30 bg-brand/5 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm text-slate-700 dark:text-slate-200">
-                        Cash entered. Confirm with denomination count.
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-primary text-xs py-1"
-                        onClick={() => setShowCashConfirmModal(true)}
-                      >
-                        Confirm Cash
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex-1 rounded-lg border border-brand/30 bg-brand/5 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm text-slate-700 dark:text-slate-200">
-                        MoMo balance. Confirm with opening/closing.
-                      </div>
-                      <button
-                        type="button"
-                        className="btn-primary text-xs py-1"
-                        onClick={() => setShowMomoConfirmModal(true)}
-                      >
-                        Confirm MoMo
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">Closing Date & Time</label>
-                    <input
-                      type="datetime-local"
-                      className="input"
-                      value={closing.dateTime}
-                      onChange={(e) =>
-                        setClosing((p) => ({ ...p, dateTime: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="md:ml-4">
-                    <label className="label">Actual Cash Counted (₵)</label>
-                    <input
-                      type="number"
-                      className="input"
-                      step="0.01"
-                      value={closing.actualCash}
-                      onChange={(e) =>
-                        setClosing((p) => ({
-                          ...p,
-                          actualCash: e.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
-                    <div>
-                      <label className="label">Expected Cash</label>
-                      <input
-                        type="text"
-                        className="input"
-                        disabled
-                        value={fmtCurrency(expectedCash)}
-                      />
-                    </div>
-                  ) : null}
-                  {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
-                    <div className="md:ml-4">
-                      <label className="label">Cash Variance</label>
-                      <input
-                        type="text"
-                        className="input"
-                        disabled
-                        value={fmtCurrency(cashVariance)}
-                        style={{
-                          color: cashVariance >= 0 ? "#28a745" : "#dc3545",
-                          fontWeight: 700,
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <div>
-                    <label className="label">Closing Main Account (₵)</label>
-                    <input
-                      type="number"
-                      className="input"
-                      step="0.01"
-                      value={String(momoClosingMain)}
-                      onChange={(e) =>
-                        setMomoClosingMain(Number(e.target.value || 0))
-                      }
-                    />
-                  </div>
-                  <div className="md:ml-4">
-                    <label className="label">
-                      Closing MoMo Pay Account (₵)
-                    </label>
-                    <input
-                      type="number"
-                      className="input"
-                      step="0.01"
-                      value={String(momoClosingPay)}
-                      onChange={(e) =>
-                        setMomoClosingPay(Number(e.target.value || 0))
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                  <div>
-                    <label className="label">Total MoMo Closing Balance</label>
-                    <input
-                      type="text"
-                      className="input"
-                      disabled
-                      value={fmtCurrency(momoTotalClosing)}
-                    />
-                  </div>
-                  <div className="md:ml-4">
-                    <label className="label">Expected MoMo Closing</label>
-                    <input
-                      type="text"
-                      className="input"
-                      disabled
-                      value={fmtCurrency(momoExpectedClosing)}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                  {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
-                    <div>
-                      <label className="label">MoMo Variance</label>
-                      <input
-                        type="text"
-                        className="input"
-                        disabled
-                        value={fmtCurrency(momoVariance)}
-                        style={{
-                          color: momoVariance >= 0 ? "#28a745" : "#dc3545",
-                          fontWeight: 700,
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                  <div className="md:ml-4">
-                    <label className="label">Enter float for next sales</label>
-                    <input
-                      type="number"
-                      className="input"
-                      step="1"
-                      value={closing.nextOpeningFloat}
-                      onChange={(e) =>
-                        setClosing((p) => ({
-                          ...p,
-                          nextOpeningFloat: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="label">Closing Notes</label>
-                  <textarea
-                    className="input w-full"
-                    rows={4}
-                    value={closing.notes}
+                  <label className="label">Closing Date & Time</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={closing.dateTime}
                     onChange={(e) =>
-                      setClosing((p) => ({ ...p, notes: e.target.value }))
+                      setClosing((p) => ({ ...p, dateTime: e.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="md:ml-4">
+                  <label className="label">Actual Cash Counted (₵)</label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="0.01"
+                    value={closing.actualCash}
+                    onChange={(e) =>
+                      setClosing((p) => ({
+                        ...p,
+                        actualCash: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {hasExceptional("POS.EXPECTED_CASH.VIEW") ? (
+                  <div>
+                    <label className="label">Expected Cash</label>
+                    <input
+                      type="text"
+                      className="input"
+                      disabled
+                      value={fmtCurrency(expectedCash)}
+                    />
+                  </div>
+                ) : null}
+                {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
+                  <div className="md:ml-4">
+                    <label className="label">Cash Variance</label>
+                    <input
+                      type="text"
+                      className="input"
+                      disabled
+                      value={fmtCurrency(cashVariance)}
+                      style={{
+                        color: cashVariance >= 0 ? "#28a745" : "#dc3545",
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="label">Closing Main Account (₵)</label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="0.01"
+                    value={String(momoClosingMain)}
+                    onChange={(e) =>
+                      setMomoClosingMain(Number(e.target.value || 0))
                     }
                   />
                 </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="btn-danger flex-1 px-4 py-2"
-                    onClick={async () => {
-                      if (!dayOpen) {
-                        toast.error("Open the day first");
-                        return;
-                      }
-                      if (!closing.dateTime) {
-                        toast.warn("Provide closing date/time");
-                        return;
-                      }
-                      await handleCloseSubmit({ preventDefault: () => {} });
-                    }}
-                  >
-                    🌙 Close Day
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-info flex-1 px-4 py-2"
-                    onClick={handlePrint}
-                  >
-                    🖨️ Print Report
-                  </button>
+                <div className="md:ml-4">
+                  <label className="label">
+                    Closing MoMo Pay Account (₵)
+                  </label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="0.01"
+                    value={String(momoClosingPay)}
+                    onChange={(e) =>
+                      setMomoClosingPay(Number(e.target.value || 0))
+                    }
+                  />
                 </div>
-              </form>
-            )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                <div>
+                  <label className="label">Total MoMo Closing Balance</label>
+                  <input
+                    type="text"
+                    className="input"
+                    disabled
+                    value={fmtCurrency(momoTotalClosing)}
+                  />
+                </div>
+                <div className="md:ml-4">
+                  <label className="label">Expected MoMo Closing</label>
+                  <input
+                    type="text"
+                    className="input"
+                    disabled
+                    value={fmtCurrency(momoExpectedClosing)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                {hasExceptional("POS.CASH_VARIANCE.VIEW") ? (
+                  <div>
+                    <label className="label">MoMo Variance</label>
+                    <input
+                      type="text"
+                      className="input"
+                      disabled
+                      value={fmtCurrency(momoVariance)}
+                      style={{
+                        color: momoVariance >= 0 ? "#28a745" : "#dc3545",
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+                ) : null}
+                <div className="md:ml-4">
+                  <label className="label">Enter float for next sales</label>
+                  <input
+                    type="number"
+                    className="input"
+                    step="1"
+                    value={closing.nextOpeningFloat}
+                    onChange={(e) =>
+                      setClosing((p) => ({
+                        ...p,
+                        nextOpeningFloat: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="label">Closing Notes</label>
+                <textarea
+                  className="input w-full"
+                  rows={4}
+                  value={closing.notes}
+                  onChange={(e) =>
+                    setClosing((p) => ({ ...p, notes: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-danger flex-1 px-4 py-2 font-bold"
+                  onClick={async () => {
+                    if (!closing.dateTime) {
+                      toast.warn("Provide closing date/time");
+                      return;
+                    }
+                    await handleCloseSubmit({ preventDefault: () => {} });
+                  }}
+                >
+                  🌙 Close Day
+                </button>
+                <button
+                  type="button"
+                  className="btn-info flex-1 px-4 py-2 font-bold"
+                  onClick={handlePrint}
+                >
+                  🖨️ Print Report
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </div>
