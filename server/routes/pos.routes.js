@@ -3369,7 +3369,36 @@ router.get(
         );
       }
 
-      const item = rows.length ? rows[0] : null;
+      let item = rows.length ? rows[0] : null;
+      if (item && String(item.status || "").toUpperCase() === "OPEN") {
+        const openDateStr = new Date(item.open_datetime || item.created_at).toISOString().slice(0, 10);
+        const todayDateStr = new Date().toISOString().slice(0, 10);
+        if (openDateStr < todayDateStr) {
+          // Auto-close stale unclosed shift from a previous date
+          await query(
+            `
+            UPDATE pos_day_status
+            SET status = 'CLOSED',
+                close_datetime = COALESCE(close_datetime, NOW()),
+                closed_by = :userId,
+                close_notes = COALESCE(close_notes, 'Auto-closed stale past-day shift')
+            WHERE id = :id
+            `,
+            { userId, id: item.id },
+          ).catch(() => {});
+          await query(
+            `
+            UPDATE pos_sessions
+            SET status = 'CLOSED',
+                end_time = NOW(),
+                closed_by = :userId
+            WHERE day_status_id = :id AND company_id = :companyId
+            `,
+            { userId, id: item.id, companyId },
+          ).catch(() => {});
+          item = null;
+        }
+      }
       if (item) {
         item.open_denomination_counts = coerceJsonValue(
           item.open_denomination_counts,

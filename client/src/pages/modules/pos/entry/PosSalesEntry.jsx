@@ -407,6 +407,9 @@ export default function PosSalesEntry() {
         const d = e.detail || {};
         const t = String(d.terminal || d.terminalCode || "");
         if (terminalCode && t && t !== terminalCode) return;
+        const eventUserId = d.userId;
+        const currentUserId = user?.id ?? user?.sub;
+        if (eventUserId && currentUserId && String(eventUserId) !== String(currentUserId)) return;
         const status = String(d.status || "").toUpperCase();
         if (status === "OPEN") {
           setDayExists(true);
@@ -421,27 +424,7 @@ export default function PosSalesEntry() {
     }
     window.addEventListener("omni.pos.day", onPosDayEvent);
     return () => window.removeEventListener("omni.pos.day", onPosDayEvent);
-  }, [terminalCode]);
-
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem("omni.pos.day");
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      const t = String(data?.terminal || data?.terminalCode || "");
-      if (terminalCode && t && t !== terminalCode) return;
-      const status = String(data?.status || "").toUpperCase();
-      if (status === "OPEN") {
-        setDayExists(true);
-        setDayOpen(true);
-        setDayStatus("OPEN");
-      } else if (status === "CLOSED") {
-        setDayExists(true);
-        setDayOpen(false);
-        setDayStatus("CLOSED");
-      }
-    } catch {}
-  }, [terminalCode]);
+  }, [terminalCode, user?.id, user?.sub]);
 
   useEffect(() => {
     let mounted = true;
