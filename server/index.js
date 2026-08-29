@@ -864,6 +864,9 @@ const _staticOpts = {
 const _frontendCandidates = [
   path.join(__dirname, "../client/dist"),
   path.join(process.cwd(), "client/dist"),
+  path.join(__dirname, "dist"),
+  path.join(process.cwd(), "dist"),
+  path.join(__dirname, "../dist"),
   path.join(__dirname, "public"),
   path.join(process.cwd(), "public"),
   path.join(__dirname, "../public"),
@@ -1084,18 +1087,30 @@ if (_spaFrontendPath && serveFrontendFlag) {
       // Try to find the file in any of our active static candidate directories
       const relativePath = req.path.replace(/^\//, "");
       for (const candidate of _activeFrontendPaths) {
-        const fullFilePath = path.join(candidate, relativePath);
-        if (fs.existsSync(fullFilePath) && fs.statSync(fullFilePath).isFile()) {
-          if (fullFilePath.endsWith(".js") || fullFilePath.endsWith(".mjs")) {
-            res.setHeader(
-              "Content-Type",
-              "application/javascript; charset=utf-8",
-            );
-          } else if (fullFilePath.endsWith(".css")) {
-            res.setHeader("Content-Type", "text/css; charset=utf-8");
+        const pathsToTry = [
+          path.join(candidate, relativePath),
+          path.join(candidate, "assets", path.basename(relativePath)),
+        ];
+        for (const fullFilePath of pathsToTry) {
+          if (fs.existsSync(fullFilePath) && fs.statSync(fullFilePath).isFile()) {
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            if (fullFilePath.endsWith(".js") || fullFilePath.endsWith(".mjs")) {
+              res.setHeader(
+                "Content-Type",
+                "application/javascript; charset=utf-8",
+              );
+            } else if (fullFilePath.endsWith(".css")) {
+              res.setHeader("Content-Type", "text/css; charset=utf-8");
+            }
+            return res.sendFile(fullFilePath);
           }
-          return res.sendFile(fullFilePath);
         }
+      }
+      if (req.path.endsWith(".css")) {
+        return res.status(404).type("text/css").send("/* 404 - CSS file not found */");
+      }
+      if (req.path.endsWith(".js") || req.path.endsWith(".mjs")) {
+        return res.status(404).type("application/javascript").send("/* 404 - JS file not found */");
       }
       return res.status(404).type("text/plain").send("Static file not found");
     }
