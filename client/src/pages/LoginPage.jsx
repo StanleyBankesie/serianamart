@@ -184,11 +184,12 @@ export default function LoginPage() {
     async function loadLoginBackground() {
       try {
         const resp = await api.get("/admin/settings/login-bg-info");
-        const meta = resp.data;
+        const meta = resp?.data;
         if (!mounted || !meta?.hasBackground) return;
         const version = meta.updatedAt || Date.now();
+        const base = api.defaults?.baseURL || "/api";
         setLoginBackgroundUrl(
-          `${api.defaults.baseURL}/admin/settings/login-background?v=${encodeURIComponent(
+          `${base}/admin/settings/login-background?v=${encodeURIComponent(
             String(version),
           )}`,
         );
@@ -198,25 +199,15 @@ export default function LoginPage() {
 
     async function loadLoginHeroBackground() {
       try {
-        let resp;
-        try {
-          resp = await api.get("/admin/settings/login-hero-bg-info");
-        } catch (e) {
-          if (api.defaults && api.defaults.baseURL) {
-            resp = await fetch(
-              api.defaults.baseURL + "/admin/settings/login-hero-bg-info",
-            ).then((r) => r.json());
-            resp = { data: resp };
-          }
-        }
-        const meta = resp.data;
+        const resp = await api.get("/admin/settings/login-hero-bg-info");
+        const meta = resp?.data;
         if (!mounted || !meta?.hasBackground) return;
         const version = meta.updatedAt || Date.now();
-        const base = api.defaults ? api.defaults.baseURL || "" : "";
+        const base = api.defaults?.baseURL || "/api";
         setLoginHeroImageUrl(
-          base +
-            "/admin/settings/login-hero-background?v=" +
-            encodeURIComponent(String(version)),
+          `${base}/admin/settings/login-hero-background?v=${encodeURIComponent(
+            String(version),
+          )}`,
         );
       } catch {}
     }

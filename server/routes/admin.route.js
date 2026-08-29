@@ -1729,42 +1729,42 @@ async function ensureLoginBrandingTable() {
 }
 
 // Get login background metadata
-router.get("/settings/login-bg-info", async (req, res, next) => {
+router.get("/settings/login-bg-info", async (req, res) => {
   try {
-    await ensureLoginBrandingTable();
+    await ensureLoginBrandingTable().catch(() => {});
     const rows = await query(
       `SELECT background_image IS NOT NULL AS has_background, updated_at
          FROM adm_login_branding
         WHERE id = 1
         LIMIT 1`,
-    );
+    ).catch(() => []);
     const row = rows[0] || {};
     res.json({
       hasBackground: Number(row.has_background || 0) === 1,
       updatedAt: row.updated_at || null,
     });
   } catch (err) {
-    next(err);
+    res.json({ hasBackground: false, updatedAt: null });
   }
 });
 
 // Get login hero background metadata
-router.get("/settings/login-hero-bg-info", async (req, res, next) => {
+router.get("/settings/login-hero-bg-info", async (req, res) => {
   try {
-    await ensureLoginBrandingTable();
+    await ensureLoginBrandingTable().catch(() => {});
     const rows = await query(
       `SELECT hero_image IS NOT NULL AS has_background, updated_at
          FROM adm_login_branding
         WHERE id = 1
         LIMIT 1`,
-    );
+    ).catch(() => []);
     const row = rows[0] || {};
     res.json({
       hasBackground: Number(row.has_background || 0) === 1,
       updatedAt: row.updated_at || null,
     });
   } catch (err) {
-    next(err);
+    res.json({ hasBackground: false, updatedAt: null });
   }
 });
 

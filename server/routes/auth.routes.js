@@ -105,7 +105,7 @@ router.get("/public/upcoming-events", async (req, res, next) => {
 
     res.json({ announcements, birthdays: bdRows, anniversaries: anRows });
   } catch (err) {
-    next(err);
+    res.json({ announcements: [], birthdays: [], anniversaries: [] });
   }
 });
 

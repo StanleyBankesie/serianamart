@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { toast } from "react-toastify";
-import api from "../api/client.js";
-import logoClear from "../assets/resources/OMNISUITE_LOGO_CLEAR.png";
+import { api } from "../api/client.js";
 import backgroundImage from "../assets/resources/BACKGROUND.jpg";
 import { format } from "date-fns";
 
@@ -21,45 +20,30 @@ export default function ForgotPasswordRequest() {
   
   const [loginBackgroundUrl, setLoginBackgroundUrl] = useState("");
   const [loginHeroImageUrl, setLoginHeroImageUrl] = useState("");
-  const [loginBackgroundVersion, setLoginBackgroundVersion] = useState("");
   const [carouselIndex, setCarouselIndex] = useState(0);
 
   useEffect(() => {
     let mounted = true;
-    async function loadLoginBackground() {
+    async function loadBackgrounds() {
       try {
-        const res = await api.get("/admin/settings/login-background-meta");
-        if (!mounted) return;
-        const { url, version } = res.data.data;
-        if (url) {
-          setLoginBackgroundUrl(
-            `${url}?v=${encodeURIComponent(String(version))}`,
-          );
+        const bgRes = await api.get("/admin/settings/login-bg-info");
+        if (mounted && bgRes.data?.hasBackground) {
+          const version = bgRes.data.updatedAt || Date.now();
+          const base = api.defaults?.baseURL || "/api";
+          setLoginBackgroundUrl(`${base}/admin/settings/login-background?v=${encodeURIComponent(String(version))}`);
+        }
+      } catch {}
+
+      try {
+        const heroRes = await api.get("/admin/settings/login-hero-bg-info");
+        if (mounted && heroRes.data?.hasBackground) {
+          const version = heroRes.data.updatedAt || Date.now();
+          const base = api.defaults?.baseURL || "/api";
+          setLoginHeroImageUrl(`${base}/admin/settings/login-hero-background?v=${encodeURIComponent(String(version))}`);
         }
       } catch {}
     }
-    loadLoginBackground().catch(() => {});
-
-    async function loadLoginHeroBackground() {
-      try {
-        let resp;
-        try { resp = await api.get("/admin/settings/login-hero-bg-info"); } catch (e) {
-          if (api.defaults && api.defaults.baseURL) {
-            resp = await fetch(api.defaults.baseURL + "/admin/settings/login-hero-bg-info").then(r => r.json());
-            resp = { data: resp };
-          }
-        }
-        const meta = resp.data;
-        if (!mounted || !meta?.hasBackground) return;
-        const version = meta.updatedAt || Date.now();
-        const base = api.defaults ? (api.defaults.baseURL || "") : "";
-        setLoginHeroImageUrl(
-          base + "/admin/settings/login-hero-background?v=" + encodeURIComponent(String(version))
-        );
-      } catch {}
-    }
-    loadLoginHeroBackground().catch(() => {});
-
+    loadBackgrounds();
     return () => {
       mounted = false;
     };
@@ -115,13 +99,6 @@ export default function ForgotPasswordRequest() {
           <div className="absolute inset-0 bg-white/90"></div>
           
           <div className="max-w-md w-full mx-auto relative z-10">
-            {/* Logo on top for all devices */}
-            <div className="flex justify-center mb-12">
-              <div className="bg-white/80 backdrop-blur px-5 py-2.5 rounded-full shadow-md flex items-center gap-3 border border-slate-100">
-                <img src="/OMNISUITE_ICON_CLEAR.png" alt="Omnisuite ERP" className="h-7 w-auto" />
-                <span className="font-bold text-slate-800 text-lg tracking-tight">Omnisuite ERP</span>
-              </div>
-            </div>
             {/* Logo on top for all devices */}
             <div className="flex justify-center mb-12">
               <div className="bg-white/80 backdrop-blur px-5 py-2.5 rounded-full shadow-md flex items-center gap-3 border border-slate-100">
@@ -209,7 +186,7 @@ export default function ForgotPasswordRequest() {
               <div className="flex-1 overflow-hidden relative h-6">
                 {CAROUSEL_MESSAGES.map((msg, idx) => (
                   <div 
-                    key={idx}
+                    key={idx} 
                     className="absolute inset-0 flex items-center text-sm font-medium whitespace-nowrap transition-all duration-500"
                     style={{
                       opacity: idx === carouselIndex ? 1 : 0,

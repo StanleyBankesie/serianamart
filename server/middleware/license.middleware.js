@@ -11,7 +11,15 @@ export async function requireLicense(req, res, next) {
       return next();
     }
     const url = req.originalUrl || req.url || "";
-    if (url.includes("/api/licenses") || url.includes("/api/auth") || url.includes("/api/login")) {
+    if (
+      url.includes("/api/licenses") ||
+      url.includes("/api/auth") ||
+      url.includes("/api/login") ||
+      url.includes("/public") ||
+      url.includes("/settings/login-") ||
+      url.includes("/ping") ||
+      url.includes("/health")
+    ) {
       return next();
     }
 
