@@ -66,13 +66,11 @@ export default function SocialFeedPage() {
       });
       const data = resp?.data || {};
       const items = Array.isArray(data.data) ? data.data : [];
-      if (items.length > 0) {
-        setPosts(items);
-        if (cacheKey) {
-          try {
-            localStorage.setItem(cacheKey, JSON.stringify(items));
-          } catch {}
-        }
+      setPosts(items);
+      if (cacheKey && items.length > 0) {
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(items));
+        } catch {}
       }
     } catch (err) {
       console.error("Error loading post history:", err);

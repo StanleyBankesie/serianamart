@@ -2453,6 +2453,15 @@ export const createVoucher = async (req, res, next) => {
           ? lines
           : [];
 
+    // Strict Double-Entry Validation
+    if (linesToSave.length > 0) {
+      const calcDebit = linesToSave.reduce((sum, l) => sum + Number(l?.debit || 0), 0);
+      const calcCredit = linesToSave.reduce((sum, l) => sum + Number(l?.credit || 0), 0);
+      if (Math.abs(calcDebit - calcCredit) > 0.05 && (normalizedVoucherTypeCode === "JV" || normalizedVoucherTypeCode === "CV" || linesToSave.length > 1)) {
+        throw new Error(`Double-entry balance mismatch: Total Debits (${calcDebit.toFixed(2)}) must equal Total Credits (${calcCredit.toFixed(2)}).`);
+      }
+    }
+
     // Auto-derive currency and exchange rate for the voucher header if missing
     if (!currencyId && linesToSave.length > 0) {
       const lineWithCurrency = linesToSave.find(l => l.currencyId || l.currency_id);

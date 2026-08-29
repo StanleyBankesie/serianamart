@@ -1913,6 +1913,97 @@ async function createCreditNoteForReturnApprovalTx(
 }
 
 router.get(
+  "/dashboard-stats",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const { companyId, branchId = null, branchIdsStr = "" } = req.scope || {};
+      const p = { companyId, branchId, branchIdsStr: String(branchIdsStr || "") };
+      const whereBranch = "(:branchId IS NULL OR branch_id = :branchId OR :branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr) OR branch_id IS NULL)";
+
+      const [
+        monthSalesData,
+        openQuotesData,
+        pendingDeliveriesData,
+        overdueInvoicesData,
+        allTimeSalesData,
+        prevMonthData,
+        todaySalesData
+      ] = await Promise.all([
+        query(`SELECT COALESCE(SUM(total_amount), 0) AS total, COUNT(*) AS count
+               FROM sal_invoices
+               WHERE (company_id = :companyId OR company_id IS NULL)
+                 AND ${whereBranch}
+                 AND MONTH(invoice_date) = MONTH(CURDATE())
+                 AND YEAR(invoice_date) = YEAR(CURDATE())
+                 AND status NOT IN ('CANCELLED', 'DRAFT')`, p).catch(() => [{ total: 0, count: 0 }]),
+        query(`SELECT COUNT(*) AS count
+               FROM sal_quotations
+               WHERE (company_id = :companyId OR company_id IS NULL)
+                 AND ${whereBranch}
+                 AND status IN ('OPEN', 'SENT', 'PENDING', 'DRAFT')`, p).catch(() => [{ count: 0 }]),
+        query(`SELECT COUNT(*) AS count
+               FROM sal_deliveries
+               WHERE (company_id = :companyId OR company_id IS NULL)
+                 AND ${whereBranch}
+                 AND status IN ('PENDING', 'IN_TRANSIT', 'PROCESSING', 'DRAFT')`, p).catch(() => [{ count: 0 }]),
+        query(`SELECT COUNT(*) AS count, COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0) AS total
+               FROM sal_invoices
+               WHERE (company_id = :companyId OR company_id IS NULL)
+                 AND ${whereBranch}
+                 AND due_date < CURDATE()
+                 AND status NOT IN ('PAID', 'CANCELLED', 'DRAFT')`, p).catch(() => [{ count: 0, total: 0 }]),
+        query(`SELECT COALESCE(SUM(total_amount), 0) AS total, COUNT(*) AS count
+               FROM sal_invoices
+               WHERE (company_id = :companyId OR company_id IS NULL)
+                 AND ${whereBranch}
+                 AND status NOT IN ('CANCELLED', 'DRAFT')`, p).catch(() => [{ total: 0, count: 0 }]),
+        query(`SELECT COALESCE(SUM(total_amount), 0) AS total
+               FROM sal_invoices
+               WHERE (company_id = :companyId OR company_id IS NULL)
+                 AND ${whereBranch}
+                 AND MONTH(invoice_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+                 AND YEAR(invoice_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+                 AND status NOT IN ('CANCELLED', 'DRAFT')`, p).catch(() => [{ total: 0 }]),
+        query(`SELECT COALESCE(SUM(total_amount), 0) AS total, COUNT(*) AS count
+               FROM sal_invoices
+               WHERE (company_id = :companyId OR company_id IS NULL)
+                 AND ${whereBranch}
+                 AND DATE(invoice_date) = CURDATE()
+                 AND status NOT IN ('CANCELLED', 'DRAFT')`, p).catch(() => [{ total: 0, count: 0 }]),
+      ]);
+
+      const thisMonth = Number(monthSalesData?.[0]?.total || 0);
+      const prevMonth = Number(prevMonthData?.[0]?.total || 0);
+      let growth = 0;
+      if (prevMonth > 0) {
+        growth = Math.round(((thisMonth - prevMonth) / prevMonth) * 100);
+      } else if (thisMonth > 0) {
+        growth = 100;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          salesThisMonth: thisMonth,
+          openQuotations: Number(openQuotesData?.[0]?.count || 0),
+          pendingDeliveries: Number(pendingDeliveriesData?.[0]?.count || 0),
+          overdueInvoices: Number(overdueInvoicesData?.[0]?.count || 0),
+          totalRevenue: Number(allTimeSalesData?.[0]?.total || 0),
+          salesGrowth: `${growth >= 0 ? '+' : ''}${growth}%`,
+          todaySales: Number(todaySalesData?.[0]?.total || 0),
+          invoiceCount: Number(monthSalesData?.[0]?.count || 0),
+        }
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
   "/prospects",
   requireAuth,
   requireCompanyScope,
@@ -5341,6 +5432,12 @@ router.post(
         if (prResult && prResult.campaignApplied) {
           unitPrice = prResult.price;
         }
+        const lineQty = Number(l.qty || l.quantity || 0);
+        if (lineQty <= 0) continue;
+        const discountPct = Number(l.discount_percent || 0);
+        const lineNet = Number(l.net || l.net_amount || (lineQty * unitPrice * (1 - discountPct / 100)));
+        const lineTax = Number(l.taxAmt || l.tax_amount || 0);
+        const lineTotal = Number(l.total || l.total_amount || (lineNet + lineTax));
         await conn.execute(
           `INSERT INTO sal_invoice_details
              (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom, remarks)
@@ -5349,12 +5446,12 @@ router.post(
           {
             invoiceId,
             itemId: Number(l.item_id),
-            quantity: Number(l.qty || l.quantity || 0),
+            quantity: lineQty,
             unitPrice,
-            discountPercent: Number(l.discount_percent || 0),
-            totalAmount: Number(l.total || l.total_amount || 0),
-            netAmount: Number(l.net || l.net_amount || 0),
-            taxAmount: Number(l.taxAmt || l.tax_amount || 0),
+            discountPercent: discountPct,
+            totalAmount: lineTotal,
+            netAmount: lineNet,
+            taxAmount: lineTax,
             taxType: Number(l.tax_type || l.taxType || l.tax_id || 0) || null,
             uom: l.uom || null,
             remarks: l.remarks || null,
@@ -5362,7 +5459,7 @@ router.post(
         );
         invoiceItemList.push({
           item_id: l.item_id,
-          quantity: l.qty || l.quantity || 0,
+          quantity: lineQty,
         });
         lineNo++;
       }
@@ -5707,6 +5804,12 @@ router.put(
         if (prResult && prResult.campaignApplied) {
           unitPrice = prResult.price;
         }
+        const lineQty = Number(l.qty || l.quantity || 0);
+        if (lineQty <= 0) continue;
+        const discountPct = Number(l.discount_percent || 0);
+        const lineNet = Number(l.net || l.net_amount || (lineQty * unitPrice * (1 - discountPct / 100)));
+        const lineTax = Number(l.taxAmt || l.tax_amount || 0);
+        const lineTotal = Number(l.total || l.total_amount || (lineNet + lineTax));
         await conn.execute(
           `INSERT INTO sal_invoice_details
              (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom, remarks)
@@ -5715,12 +5818,12 @@ router.put(
           {
             invoiceId: id,
             itemId: Number(l.item_id),
-            quantity: Number(l.qty || l.quantity || 0),
+            quantity: lineQty,
             unitPrice,
-            discountPercent: Number(l.discount_percent || 0),
-            totalAmount: Number(l.total || l.total_amount || 0),
-            netAmount: Number(l.net || l.net_amount || 0),
-            taxAmount: Number(l.taxAmt || l.tax_amount || 0),
+            discountPercent: discountPct,
+            totalAmount: lineTotal,
+            netAmount: lineNet,
+            taxAmount: lineTax,
             taxType: Number(l.tax_type || l.taxType || l.tax_id || 0) || null,
             uom: l.uom || null,
             remarks: l.remarks || null,

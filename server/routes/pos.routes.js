@@ -3824,7 +3824,7 @@ router.post(
         ? new Date()
         : openDate;
       const userId = req.user?.id ?? req.user?.sub ?? null;
-      const shiftName = String(shift || "Shift 1 (Morning)").trim();
+      const shiftName = String(shift || "Morning Shift").trim();
       const existing = await query(
         `
         SELECT id, status, open_datetime,

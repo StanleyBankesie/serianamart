@@ -310,6 +310,7 @@ export default function DashboardPermissions() {
       });
       await refreshPermissions();
       try {
+        localStorage.setItem("rbac:bump", String(Date.now()));
         window.dispatchEvent(new Event("rbac:changed"));
       } catch {}
       toast.success(
@@ -533,9 +534,9 @@ export default function DashboardPermissions() {
                                                 cards.forEach((hc) => {
                                                   if (getView("home", null, hc.key, null)) checkedCount++;
                                                 });
-                                                if (checkedCount >= 4) {
+                                                if (checkedCount >= 8) {
                                                   toast.error(
-                                                    "You can only select up to 4 cards for the Home dashboard."
+                                                    "You can only select up to 8 cards for the Home dashboard."
                                                   );
                                                   return;
                                                 }

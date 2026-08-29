@@ -288,10 +288,10 @@ function ProjectManagementLanding() {
       change: "Loading…",
       changeType: "neutral",
       path: "/project-management/projects",
-        actions: [
-          { label: "View", path: "/project-management/projects", type: "outline" },
-          { label: "New", path: "/project-management/projects/new", type: "primary" }
-        ],
+      actions: [
+        { label: "View", path: "/project-management/projects", type: "outline" },
+        { label: "New", path: "/project-management/projects/new", type: "primary" },
+      ],
     },
     {
       rbac_key: "open-tasks",
@@ -300,10 +300,10 @@ function ProjectManagementLanding() {
       change: "Loading…",
       changeType: "neutral",
       path: "/project-management/tasks",
-        actions: [
-          { label: "View", path: "/project-management/tasks", type: "outline" },
-          { label: "New", path: "/project-management/tasks/new", type: "primary" }
-        ],
+      actions: [
+        { label: "View", path: "/project-management/tasks", type: "outline" },
+        { label: "New", path: "/project-management/tasks/new", type: "primary" },
+      ],
     },
     {
       rbac_key: "total-budget",
@@ -312,9 +312,9 @@ function ProjectManagementLanding() {
       change: "Loading…",
       changeType: "neutral",
       path: "/project-management/reports",
-        actions: [
-          { label: "View", path: "/project-management/reports", type: "outline" }
-        ],
+      actions: [
+        { label: "View", path: "/project-management/reports", type: "outline" },
+      ],
     },
     {
       rbac_key: "total-hours",
@@ -323,10 +323,10 @@ function ProjectManagementLanding() {
       change: "Loading…",
       changeType: "neutral",
       path: "/project-management/timesheets",
-        actions: [
-          { label: "View", path: "/project-management/timesheets", type: "outline" },
-          { label: "New", path: "/project-management/timesheets/new", type: "primary" }
-        ],
+      actions: [
+        { label: "View", path: "/project-management/timesheets", type: "outline" },
+        { label: "New", path: "/project-management/timesheets/new", type: "primary" },
+      ],
     },
   ]);
 
@@ -352,8 +352,8 @@ function ProjectManagementLanding() {
             },
             {
               ...prev[2],
-              value: `GHS ${Number(d.totalBudget || 0).toLocaleString()}`,
-              change: `GHS ${Number(d.totalExpenses ?? 0).toLocaleString()} spent`,
+              value: `GH₵ ${Number(d.totalBudget || 0).toLocaleString()}`,
+              change: `GH₵ ${Number(d.totalExpenses ?? 0).toLocaleString()} spent`,
               changeType: "positive",
             },
             {
@@ -385,9 +385,9 @@ function ProjectManagementLanding() {
         {
           label: "Dashboard",
           path: "/project-management/dashboard",
-        actions: [
-          { label: "View", path: "/project-management/dashboard", type: "outline" }
-        ],
+          actions: [
+            { label: "View", path: "/project-management/dashboard", type: "outline" },
+          ],
           icon: "📊",
         },
       ]}
@@ -396,7 +396,6 @@ function ProjectManagementLanding() {
     />
   );
 }
-
 /**
  *  component
  *

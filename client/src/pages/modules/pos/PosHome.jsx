@@ -335,6 +335,7 @@ export default function PosHome() {
         <Route path="/invoices" element={<PosInvoiceList />} />
         <Route path="/post-to-finance" element={<PosPostToFinance />} />
         <Route path="/day-management" element={<PosDayManagement />} />
+        <Route path="/day" element={<PosDayManagement />} />
 
         <Route path="/reports" element={<PosReports />} />
         <Route path="/customer-history" element={<PosCustomerHistory />} />

@@ -218,25 +218,28 @@ export const salesFeatures = [
 ];
 
 /**
+        ],
+    type: "feature",
+  },
+];
+
+/**
  * SalesModuleHome component
  * Displays the main sales dashboard, including key statistics and module navigation sections.
  * 
  * @returns {JSX.Element} The sales module landing view.
  */
 const SalesModuleHome = () => {
-  const { isSuper } = usePermission();
   const [stats, setStats] = React.useState([
     {
       rbac_key: "sales-this-month",
       icon: "🟢",
-      value: "GHS 0",
+      value: "GH₵0.00",
       label: "Total Sales This Month",
       change: "",
       changeType: "neutral",
       path: "/sales/reports/invoice-summary",
-        actions: [
-          { label: "View", path: "/sales/reports/invoice-summary", type: "outline" }
-        ],
+      actions: [{ label: "View", path: "/sales/reports/invoice-summary", type: "outline" }],
     },
     {
       rbac_key: "open-quotations",
@@ -246,9 +249,7 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/quotation-summary",
-        actions: [
-          { label: "View", path: "/sales/reports/quotation-summary", type: "outline" }
-        ],
+      actions: [{ label: "View", path: "/sales/reports/quotation-summary", type: "outline" }],
     },
     {
       rbac_key: "pending-deliveries",
@@ -258,9 +259,7 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/delivery-register",
-        actions: [
-          { label: "View", path: "/sales/reports/delivery-register", type: "outline" }
-        ],
+      actions: [{ label: "View", path: "/sales/reports/delivery-register", type: "outline" }],
     },
     {
       rbac_key: "overdue-invoices",
@@ -270,21 +269,17 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/ar-aging",
-        actions: [
-          { label: "View", path: "/sales/reports/ar-aging", type: "outline" }
-        ],
+      actions: [{ label: "View", path: "/sales/reports/ar-aging", type: "outline" }],
     },
     {
       rbac_key: "total-revenue",
       icon: "💰",
-      value: "GHS 0",
+      value: "GH₵0.00",
       label: "Total Revenue",
       change: "",
       changeType: "neutral",
       path: "/sales/reports/invoice-summary",
-        actions: [
-          { label: "View", path: "/sales/reports/invoice-summary", type: "outline" }
-        ],
+      actions: [{ label: "View", path: "/sales/reports/invoice-summary", type: "outline" }],
     },
     {
       rbac_key: "sales-growth",
@@ -294,9 +289,7 @@ const SalesModuleHome = () => {
       change: "",
       changeType: "neutral",
       path: "/sales/reports/monthly-sales-trend",
-        actions: [
-          { label: "View", path: "/sales/reports/monthly-sales-trend", type: "outline" }
-        ],
+      actions: [{ label: "View", path: "/sales/reports/monthly-sales-trend", type: "outline" }],
     },
   ]);
 
@@ -304,103 +297,36 @@ const SalesModuleHome = () => {
     let mounted = true;
     async function load() {
       try {
-        const now = new Date();
-        const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const to = now.toISOString().slice(0, 10);
-        const from = firstOfMonth.toISOString().slice(0, 10);
-        const [dash, invoices, openQuotes, deliveries, prevMonthInvoices] =
-          await Promise.all([
-            isSuper
-              ? api.get("/bi/dashboards").catch(() => ({ data: {} }))
-              : Promise.resolve({ data: {} }),
-            api
-              .get("/sales/reports/invoice-summary", {
-                params: { from, to },
-              })
-              .catch(() => ({ data: {} })),
-            api
-              .get("/sales/reports/quotation-summary", {
-                params: { status: "OPEN" },
-              })
-              .catch(() => ({ data: {} })),
-            api.get("/sales/reports/delivery-register").catch(() => ({
-              data: {},
-            })),
-            (async () => {
-              const prevFrom = new Date(
-                now.getFullYear(),
-                now.getMonth() - 1,
-                1,
-              )
-                .toISOString()
-                .slice(0, 10);
-              const prevTo = new Date(now.getFullYear(), now.getMonth(), 0)
-                .toISOString()
-                .slice(0, 10);
-              return api
-                .get("/sales/reports/invoice-summary", {
-                  params: { from: prevFrom, to: prevTo },
-                })
-                .catch(() => ({ data: {} }));
-            })(),
-          ]);
-        const invoiceItems = Array.isArray(invoices?.data?.items)
-          ? invoices.data.items
-          : [];
-        const totalThisMonth = invoiceItems.reduce(
-          (a, r) => a + Number(r.total_amount || 0),
-          0,
-        );
-        const totalRevenue =
-          Number(dash?.data?.summary?.sales?.total || 0) || totalThisMonth;
-        const openQuotationsCount = Array.isArray(openQuotes?.data?.items)
-          ? openQuotes.data.items.length
-          : 0;
-        const pendingDelivs = Array.isArray(deliveries?.data?.items)
-          ? deliveries.data.items.filter(
-              (d) => String(d.status || "").toUpperCase() !== "DELIVERED",
-            ).length
-          : 0;
-        const overdueInvoices = invoiceItems.filter((r) => {
-          const dt = r.invoice_date ? new Date(r.invoice_date) : null;
-          const overdue =
-            dt &&
-            (now - dt) / (1000 * 60 * 60 * 24) > 30 &&
-            Number(r.balance_amount || 0) > 0;
-          return overdue;
-        }).length;
-        const prevItems = Array.isArray(prevMonthInvoices?.data?.items)
-          ? prevMonthInvoices.data.items
-          : [];
-        const totalPrevMonth = prevItems.reduce(
-          (a, r) => a + Number(r.total_amount || 0),
-          0,
-        );
-        const growth =
-          totalPrevMonth > 0
-            ? Math.round(
-                ((totalThisMonth - totalPrevMonth) * 100) / totalPrevMonth,
-              )
-            : 0;
+        const res = await api.get("/sales/dashboard-stats");
+        const data = res?.data?.data || res?.data || {};
         if (mounted) {
+          const totalThisMonth = Number(data.salesThisMonth || 0);
+          const openQuotes = Number(data.openQuotations || 0);
+          const pendingDelivs = Number(data.pendingDeliveries || 0);
+          const overdueInvs = Number(data.overdueInvoices || 0);
+          const totalRev = Number(data.totalRevenue || 0);
+          const growth = String(data.salesGrowth || "0%");
+
           setStats((prev) => {
             const next = [...prev];
             next[0] = {
               ...next[0],
-              value: `GHS ${totalThisMonth.toLocaleString()}`,
+              value: `GH₵${totalThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
             };
-            next[1] = { ...next[1], value: String(openQuotationsCount) };
+            next[1] = { ...next[1], value: String(openQuotes) };
             next[2] = { ...next[2], value: String(pendingDelivs) };
-            next[3] = { ...next[3], value: String(overdueInvoices) };
+            next[3] = { ...next[3], value: String(overdueInvs) };
             next[4] = {
               ...next[4],
-              value: `GHS ${totalRevenue.toLocaleString()}`,
+              value: `GH₵${totalRev.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
             };
-            next[5] = { ...next[5], value: `${growth}%` };
+            next[5] = { ...next[5], value: growth };
             return next;
           });
         }
-      } catch {}
+      } catch (err) {
+        console.error("Failed loading sales dashboard stats:", err);
+      }
     }
     load();
     return () => {
@@ -415,8 +341,7 @@ const SalesModuleHome = () => {
       description="Customer orders, quotations, invoicing, and sales analytics"
       stats={stats}
       headerActions={[
-        { label: "Dashboard", path: "/sales/dashboard",
-         icon: "📊" },
+        { label: "Dashboard", path: "/sales/dashboard", icon: "📊" },
       ]}
       sections={salesModuleSections}
       features={salesFeatures}

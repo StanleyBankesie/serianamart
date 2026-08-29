@@ -28,7 +28,7 @@ import { api } from "../../../api/client.js";
  */
 function fmt(n) {
   if (n == null || Number.isNaN(Number(n))) return "—";
-  return `₵${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `GH₵${Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 

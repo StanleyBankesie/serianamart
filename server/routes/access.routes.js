@@ -323,9 +323,9 @@ router.put(
           `DELETE FROM adm_dashboard_permissions
            WHERE user_id = :user_id
              AND module_key = :module_key
-             AND (dashboard_key = :dashboard_key OR (dashboard_key IS NULL AND :dashboard_key IS NULL))
-             AND (card_key = :card_key OR (card_key IS NULL AND :card_key IS NULL))
-             AND (ticker_key = :ticker_key OR (ticker_key IS NULL AND :ticker_key IS NULL))`,
+             AND dashboard_key <=> :dashboard_key
+             AND card_key <=> :card_key
+             AND ticker_key <=> :ticker_key`,
           payload,
         );
         await query(

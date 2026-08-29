@@ -94,8 +94,93 @@ const serveFrontendFlag = (() => {
 const app = express();
 app.set("trust proxy", 1);
 
-// Hook res.writeHead at the request level to completely strip connection headers,
-// bypassing any custom subclassing by Passenger.
+/* ---------------- CORS CONFIGURATION ---------------- */
+const allowedOrigins = (() => {
+  const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
+  const origins = raw
+    ? raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  const defaults = [
+    "https://serianamart.omnisuite-erp.com",
+    "https://serianaserver.omnisuite-erp.com",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:4002",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:4002",
+  ];
+  for (const d of defaults) {
+    if (!origins.includes(d)) origins.push(d);
+  }
+  return origins;
+})();
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (
+    origin.endsWith(".omnisuite-erp.com") ||
+    origin.includes("omnisuite-erp.com") ||
+    origin.includes("localhost") ||
+    origin.includes("127.0.0.1") ||
+    origin.includes("192.168.") ||
+    origin.includes("10.") ||
+    origin.includes("172.") ||
+    origin.startsWith("exp://") ||
+    origin.startsWith("http://") ||
+    origin.startsWith("https://")
+  ) {
+    return true;
+  }
+  return false;
+};
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (isAllowedOrigin(origin)) {
+      return cb(null, true);
+    }
+    return cb(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-company-id",
+    "x-branch-id",
+    "x-user-id",
+    "x-skip-offline-queue",
+    "x-access-token",
+    "Accept",
+    "Origin",
+    "X-Requested-With",
+  ],
+  optionsSuccessStatus: 200,
+};
+
+// Universal CORS & Preflight handler at the top of the stack
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-company-id, x-branch-id, x-user-id, x-skip-offline-queue, x-access-token, Accept, Origin, X-Requested-With");
+  }
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+  next();
+});
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
 app.use((req, res, next) => {
   const origWriteHead = res.writeHead;
   res.writeHead = function (statusCode, statusMessage, headers) {
@@ -325,61 +410,7 @@ const boolEnv = (v) => {
   return s === "1" || s === "true" || s === "yes" || s === "on";
 };
 
-/* ---------------- CORS ---------------- */
-const allowedOrigins = (() => {
-  const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
-  const origins = raw
-    ? raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-
-  // Always allow the production frontend domain by default
-  if (!origins.includes("https://serianamart.omnisuite-erp.com")) {
-    origins.push("https://serianamart.omnisuite-erp.com");
-  }
-  if (!origins.includes("https://serianaserver.omnisuite-erp.com")) {
-    origins.push("https://serianaserver.omnisuite-erp.com");
-  }
-  return origins;
-})();
-
-const corsOptions = {
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    // Allow local development networks, Expo Go, and physical mobile phone requests
-    if (
-      origin.includes("localhost") ||
-      origin.includes("127.0.0.1") ||
-      origin.includes("192.168.") ||
-      origin.includes("10.") ||
-      origin.includes("172.") ||
-      origin.startsWith("exp://") ||
-      origin.startsWith("http://") ||
-      origin.startsWith("https://")
-    ) {
-      return cb(null, true);
-    }
-    return cb(null, false);
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "x-company-id",
-    "x-branch-id",
-    "x-user-id",
-    "x-skip-offline-queue",
-    "x-access-token",
-  ],
-  optionsSuccessStatus: 204,
-};
-
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+/* ---------------- BODY PARSERS & INPUT SANITIZATION ---------------- */
 const bodyLimit = process.env.MAX_BODY_LIMIT || "10mb";
 app.use(express.json({ limit: bodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
@@ -1184,19 +1215,14 @@ server.on("clientError", (err, socket) => {
   } catch {}
 });
 
-// Timeouts to avoid long-hanging connections in managed hosting
+// Timeouts to avoid ERR_CONNECTION_CLOSED in managed hosting and reverse proxies (Nginx / Passenger / Cloudflare)
 try {
-  const keepAliveMs = process.env.KEEP_ALIVE_TIMEOUT_MS
-    ? Number(process.env.KEEP_ALIVE_TIMEOUT_MS)
-    : 0;
-  const headersMs = Number(process.env.HEADERS_TIMEOUT_MS || 65000);
+  const keepAliveMs = Number(process.env.KEEP_ALIVE_TIMEOUT_MS) || 65000;
+  const headersMs = Number(process.env.HEADERS_TIMEOUT_MS) || 66000;
   const requestMs = process.env.REQUEST_TIMEOUT_MS
     ? Number(process.env.REQUEST_TIMEOUT_MS)
     : undefined;
 
-  // This is CRITICAL for Plesk HTTP/2 + Nginx + Passenger environments.
-  // Setting this to 0 forces Node to send Connection: close,
-  // preventing Nginx from passing keep-alive to HTTP/2 clients which causes ERR_HTTP2_PROTOCOL_ERROR.
   server.keepAliveTimeout = keepAliveMs;
   server.headersTimeout = headersMs;
 

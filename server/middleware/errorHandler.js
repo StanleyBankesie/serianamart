@@ -22,6 +22,8 @@ function sanitizeBody(value) {
 
 /**
  * Formats and sends error responses.
+/**
+ * Formats and sends error responses.
  *
  * @param {Error} err - The error object.
  * @param {import('express').Request} req - Express request.
@@ -33,6 +35,14 @@ export function errorHandler(err, req, res, next) {
   if (res.headersSent) {
     return next(err);
   }
+
+  // Ensure CORS headers are preserved even on 500 / error responses
+  const origin = req.headers?.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+
   // Build the error response payload with status and message
   const status = err.status || 500;
   

@@ -76,7 +76,7 @@ export default function PosDayManagement() {
     dateTime: toLocalInputDateTime(new Date()),
     float: "",
     supervisor: "",
-    shift: "Shift 1 (Morning)",
+    shift: "Morning Shift",
     notes: "",
   });
   const [openChecklist, setOpenChecklist] = useState(new Array(6).fill(false));
@@ -365,12 +365,12 @@ export default function PosDayManagement() {
                 : item?.actual_cash !== null && item?.actual_cash !== undefined
                   ? String(item.actual_cash)
                   : "";
-          setOpenData({
+          setOpenData((prev) => ({
             dateTime: toLocalInputDateTime(new Date()),
             float: initialFloat,
-            shift: item?.shift || "Shift 1 (Morning)",
+            shift: prev.shift || item?.shift || "Morning Shift",
             notes: "",
-          });
+          }));
           setMomoOpeningMain(suggestedNextMomoMain || 0);
           setMomoOpeningPay(suggestedNextMomoPay || 0);
           setCloseDenomCounts(Array(DENOMINATIONS.length).fill(0));
@@ -394,7 +394,7 @@ export default function PosDayManagement() {
             item.opening_float === null || item.opening_float === undefined
               ? ""
               : String(item.opening_float),
-          shift: item.shift || "Shift 1 (Morning)",
+          shift: item.shift || "Morning Shift",
           notes: item.open_notes || "",
         });
         setMomoOpeningMain(Number(item.momo_opening_main || 0));
@@ -503,7 +503,7 @@ export default function PosDayManagement() {
         terminal: terminalId,
         openingDateTime: openData.dateTime,
         openingFloat: Number(openData.float || 0),
-        shift: openData.shift || "Shift 1 (Morning)",
+        shift: openData.shift || "Morning Shift",
         forceOpen: force,
         supervisor: undefined,
         notes: openData.notes,
@@ -521,7 +521,7 @@ export default function PosDayManagement() {
             item.opening_float === null || item.opening_float === undefined
               ? String(openData.float || "")
               : String(item.opening_float),
-          shift: item.shift || openData.shift || "Shift 1 (Morning)",
+          shift: item.shift || openData.shift || "Morning Shift",
           notes: item.open_notes || openData.notes,
         });
         setSessionHistory([
@@ -886,6 +886,7 @@ export default function PosDayManagement() {
         <h1>END OF DAY REPORT</h1>
         <div class="row"><strong>Terminal:</strong><span>${terminalId}</span></div>
         <div class="row"><strong>Cashier:</strong><span>${cashierName}</span></div>
+        <div class="row"><strong>Shift:</strong><span>${openData.shift || "Morning Shift"}</span></div>
         <div class="row"><strong>Date:</strong><span>${dateStr}</span></div>
         <div class="row"><strong>Opening Float:</strong><span>${fmtCurrency(
           openData.float,
@@ -991,6 +992,12 @@ export default function PosDayManagement() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <div className="text-slate-500 text-sm">Shift</div>
+            <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+              {openData.shift || "Morning Shift"}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             <div className="text-slate-500 text-sm">Date</div>
             <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
               {now.toLocaleDateString()}
@@ -1026,7 +1033,7 @@ export default function PosDayManagement() {
               <div className="alert-success rounded-lg p-3 mb-4 flex items-center justify-between gap-2 text-sm">
                 <div className="flex items-center gap-2">
                   <span>✓</span>
-                  <span>Day is currently open (Opened at {fmtTime(openData.dateTime)} by {cashierName}).</span>
+                  <span>Day is currently open ({openData.shift || "Morning Shift"}, Opened at {fmtTime(openData.dateTime)} by {cashierName}).</span>
                 </div>
               </div>
             )}
@@ -1045,6 +1052,24 @@ export default function PosDayManagement() {
                   />
                 </div>
                 <div className="md:ml-4">
+                  <label className="label">Shift</label>
+                  <select
+                    className="input"
+                    value={openData.shift || "Morning Shift"}
+                    onChange={(e) =>
+                      setOpenData((p) => ({ ...p, shift: e.target.value }))
+                    }
+                    disabled={dayOpen}
+                  >
+                    <option value="Morning Shift">Morning Shift</option>
+                    <option value="Afternoon Shift">Afternoon Shift</option>
+                    <option value="Night Shift">Night Shift</option>
+                    <option value="General Shift">General Shift</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
                   <label className="label">Opening Float (₵)</label>
                   <input
                     type="number"

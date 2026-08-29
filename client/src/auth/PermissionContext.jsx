@@ -24,7 +24,7 @@ import { DASHBOARD_CARDS } from "../data/dashboardCards.js";
 const PermissionContext = createContext();
 const RBAC_CACHE_KEY = "rbac.permission.snapshot.v1";
 const PAGE_PERM_RETRY_MS = 30_000;
-const DASHBOARD_PERM_POLL_MS = 5 * 60_000; // 5 minutes — reduced from 1 min to ease load on slow connections
+const DASHBOARD_PERM_POLL_MS = 15_000; // 15 seconds fast sync
 const BACKGROUND_GET_CONFIG = { __background: true };
 
 function isTransientBackendError(err) {
@@ -632,7 +632,26 @@ export const PermissionProvider = ({ children }) => {
     const mk = String(moduleKey || "");
     if (!mk) return false;
     if (isSuper) return true;
-    if (modules.size > 0) return modules.has(mk);
+    if (mk === "system-configuration" || mk === "system") {
+      return Number(user?.id) === 1 || Number(user?.id) === 2;
+    }
+    if (modules.size > 0) {
+      if (!modules.has(mk)) return false;
+      // If administration module, also verify user has at least one viewable administration feature
+      if (mk === "administration" || mk === "admin") {
+        const hasAdminFeature =
+          Array.from(roleFeatures).some(
+            (f) => f.startsWith("administration:") || f.startsWith("admin:"),
+          ) ||
+          Array.from(permByFeatureKey.keys()).some(
+            (f) =>
+              (f.startsWith("administration:") || f.startsWith("admin:")) &&
+              permByFeatureKey.get(f)?.can_view,
+          );
+        return hasAdminFeature;
+      }
+      return true;
+    }
     return isSuper;
   };
 
@@ -1183,8 +1202,17 @@ export const PermissionProvider = ({ children }) => {
     function onChanged() {
       refreshPermissions();
     }
+    function onStorage(e) {
+      if (e?.key === "rbac:bump") {
+        refreshPermissions();
+      }
+    }
     window.addEventListener("rbac:changed", onChanged);
-    return () => window.removeEventListener("rbac:changed", onChanged);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("rbac:changed", onChanged);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   const value = {
@@ -1234,25 +1262,6 @@ export const PermissionProvider = ({ children }) => {
       const comp = `${mk}|${t}|${normKey}`;
 
       if (mk === "home" && t === "card") {
-        let cardModule = null;
-        for (const [modKey, cardsList] of Object.entries(DASHBOARD_CARDS)) {
-          if (Array.isArray(cardsList) && cardsList.some((c) => c.key === normKey)) {
-            const modAlias = {
-              hr: "human-resources",
-              projects: "project-management",
-              service: "service-management",
-              bi: "business-intelligence",
-              executive: "executive-overview",
-              admin: "administration",
-            };
-            cardModule = modAlias[modKey] || modKey;
-            break;
-          }
-        }
-        if (cardModule && !isSuper && !modules.has("*") && !modules.has(cardModule)) {
-          return false;
-        }
-
         let hasHomeCardConfig = false;
         for (const k of dashboardViewMap.keys()) {
           if (k.startsWith("home|card|")) {
