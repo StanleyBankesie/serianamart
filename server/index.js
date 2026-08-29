@@ -181,69 +181,7 @@ app.use((req, res, next) => {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-app.use((req, res, next) => {
-  const origWriteHead = res.writeHead;
-  res.writeHead = function (statusCode, statusMessage, headers) {
-    this.removeHeader("Connection");
-    this.removeHeader("connection");
-    this.removeHeader("Keep-Alive");
-    this.removeHeader("keep-alive");
 
-    let headersObj = headers;
-    let statusMsg = statusMessage;
-
-    if (typeof statusMessage === "object") {
-      headersObj = statusMessage;
-      statusMsg = undefined;
-    }
-
-    if (headersObj) {
-      if (Array.isArray(headersObj)) {
-        for (let i = 0; i < headersObj.length; i++) {
-          const key = headersObj[i][0];
-          if (
-            key &&
-            (key.toLowerCase() === "connection" ||
-              key.toLowerCase() === "keep-alive")
-          ) {
-            headersObj.splice(i, 1);
-            i--;
-          }
-        }
-      } else if (typeof headersObj === "object") {
-        for (const k of Object.keys(headersObj)) {
-          const lower = k.toLowerCase();
-          if (lower === "connection" || lower === "keep-alive") {
-            delete headersObj[k];
-          }
-        }
-      }
-    }
-
-    const strip = (obj) => {
-      if (!obj) return;
-      for (const k of Object.getOwnPropertyNames(obj)) {
-        const lower = k.toLowerCase();
-        if (lower === "connection" || lower === "keep-alive") {
-          delete obj[k];
-        }
-      }
-    };
-    strip(this._headers);
-    const sym = Object.getOwnPropertySymbols(this).find(
-      (s) =>
-        s.toString().includes("Headers") || s.toString().includes("headers"),
-    );
-    if (sym) strip(this[sym]);
-
-    if (statusMsg) {
-      return origWriteHead.call(this, statusCode, statusMsg, headersObj);
-    } else {
-      return origWriteHead.call(this, statusCode, headersObj);
-    }
-  };
-  next();
-});
 
 app.use(
   helmet({
@@ -1015,7 +953,6 @@ app.use("/api/", healthRoutes);
 app.use("/", healthRoutes);
 
 app.use("/api", requireLicense);
-app.use("/", requireLicense);
 
 const apiPaths = [
   { path: "/licenses", router: licenseRoutes },
