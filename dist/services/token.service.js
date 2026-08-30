@@ -316,12 +316,12 @@ export async function ensureAuthTables() {
     ).catch(() => {});
   }
 
-  const [trigRows] = await query(
-    `SELECT TRIGGER_NAME FROM information_schema.triggers
-      WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME = 'trg_adm_users_pw_status'`,
-  );
-  if (!trigRows?.length) {
-    try {
+  try {
+    const trigRows = await query(
+      `SELECT TRIGGER_NAME FROM information_schema.triggers
+        WHERE TRIGGER_SCHEMA = DATABASE() AND TRIGGER_NAME = 'trg_adm_users_pw_status'`,
+    ).catch(() => []);
+    if (!trigRows || trigRows.length === 0) {
       await query(
         `CREATE TRIGGER trg_adm_users_pw_status
          BEFORE UPDATE ON adm_users
@@ -331,21 +331,29 @@ export async function ensureAuthTables() {
              SET NEW.status = 'Y';
            END IF;
          END`,
-      );
-    } catch (e) {
-      if (e?.code !== "ER_TRG_ALREADY_EXISTS") throw e;
+      ).catch((e) => {
+        if (e?.code !== "ER_TRG_ALREADY_EXISTS") {
+          console.warn("[ensureAuthTables] Notice: Trigger creation skipped:", e?.message);
+        }
+      });
     }
+  } catch (e) {
+    console.warn("[ensureAuthTables] Trigger check error:", e?.message);
   }
 
-  await query(
-    `CREATE EVENT IF NOT EXISTS evt_adm_users_expire
-     ON SCHEDULE EVERY 1 DAY
-     STARTS CURRENT_DATE + INTERVAL 1 DAY
-     DO
-       UPDATE adm_users
-       SET status = 'N', is_active = 0
-       WHERE DATE(valid_to) = CURDATE() AND is_active = 1 AND id != 1`,
-  );
+  try {
+    await query(
+      `CREATE EVENT IF NOT EXISTS evt_adm_users_expire
+       ON SCHEDULE EVERY 1 DAY
+       STARTS CURRENT_DATE + INTERVAL 1 DAY
+       DO
+         UPDATE adm_users
+         SET status = 'N', is_active = 0
+         WHERE DATE(valid_to) = CURDATE() AND is_active = 1 AND id != 1`,
+    ).catch((e) => {
+      console.warn("[ensureAuthTables] Notice: Event scheduler skipped (lacks EVENT privilege):", e?.message);
+    });
+  } catch {}
 }
 
 // Major Logic: Fetches all granted permissions across assigned roles and legacy settings

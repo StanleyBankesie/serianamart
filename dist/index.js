@@ -935,6 +935,25 @@ if (_earlyFrontendPath) {
   );
 }
 
+// Clean handlers for common root asset requests to avoid crash logging or 404 loops
+app.get(["/sw.js", "/manifest.webmanifest", "/favicon.ico", "/robots.txt"], (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  const fileName = req.path.replace(/^\//, "");
+  for (const candidate of _activeFrontendPaths) {
+    const filePath = path.join(candidate, fileName);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      if (fileName.endsWith(".js")) {
+        res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+      } else if (fileName.endsWith(".webmanifest")) {
+        res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+      }
+      return res.sendFile(filePath);
+    }
+  }
+  return res.status(204).end();
+});
+
 app.use(
   "/uploads",
   express.static(
