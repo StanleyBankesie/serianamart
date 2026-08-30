@@ -1,6 +1,6 @@
 export const DASHBOARD_CARDS = {
   sales: [
-    { key: "sales-total-revenue", label: "Total Revenue" },
+    { key: "sales-total-revenue", label: "Total Revenue This Month" },
     { key: "sales-pending-orders", label: "Pending Orders" },
     { key: "sales-active-customers", label: "Active Customers" },
   ],

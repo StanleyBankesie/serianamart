@@ -86,6 +86,7 @@ export const getHomeOverview = async (req, res, next) => {
       "total-customers": { text: "Active" },
       "average-order": { text: `${allTimeCount} Orders Total` },
       "monthly-revenue": { text: `${growthPct >= 0 ? '+' : ''}${growthPct}% vs last mo` },
+      "sales-total-revenue": { text: `${growthPct >= 0 ? '+' : ''}${growthPct}% vs last mo` },
     };
 
     res.json({

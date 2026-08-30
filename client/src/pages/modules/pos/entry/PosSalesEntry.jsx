@@ -2743,35 +2743,61 @@ export default function PosSalesEntry() {
                 >
                   Hold
                 </button>
-                <button
-                  type="button"
-                  className="btn-success w-full text-base"
-                  onClick={() => {
-                    const isCredit = selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s));
-                    if (isCredit && paymentStatus === "PAID") {
-                      setShowCreditPaymentModal(true);
-                    } else if (isCredit && paymentStatus === "UNPAID") {
-                      checkout();
-                    } else if (tendered < total && !additionalPaymentModeIds.length) {
-                      setSplitPrimaryAmount(tendered);
-                      setShowSplitPaymentModal(true);
-                    } else {
-                      checkout();
+
+                {receiptNo && !cart.length ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-primary flex-1 text-base font-semibold py-2.5 flex items-center justify-center gap-1 shadow-sm"
+                        onClick={newSale}
+                      >
+                        + New Sale
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary flex-1 text-base font-semibold py-2.5 flex items-center justify-center gap-1 shadow-sm"
+                        onClick={printReceipt}
+                      >
+                        🖨️ Print Receipt
+                      </button>
+                    </div>
+                    <div className="text-center text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 py-1.5 px-2 rounded-md">
+                      ✓ Sale Completed: {receiptNo}
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn-success w-full text-base"
+                    onClick={() => {
+                      const isCredit = selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s));
+                      if (isCredit && paymentStatus === "PAID") {
+                        setShowCreditPaymentModal(true);
+                      } else if (isCredit && paymentStatus === "UNPAID") {
+                        checkout();
+                      } else if (tendered < total && !additionalPaymentModeIds.length) {
+                        setSplitPrimaryAmount(tendered);
+                        setShowSplitPaymentModal(true);
+                      } else {
+                        checkout();
+                      }
+                    }}
+                    disabled={
+                      !cart.length ||
+                      saving ||
+                      paymentModesLoading ||
+                      !paymentModes.length ||
+                      !selectedPaymentModeId ||
+                      (selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s)) && !selectedCustomerId)
                     }
-                  }}
-                  disabled={
-                    !cart.length ||
-                    saving ||
-                    paymentModesLoading ||
-                    !paymentModes.length ||
-                    !selectedPaymentModeId ||
-                    (selectedPaymentMode && ["credit","on account","account"].some(s => String(selectedPaymentMode.name || "").toLowerCase().includes(s)) && !selectedCustomerId)
-                  }
-                >
-                  {tendered < total && !additionalPaymentModeIds.length
-                    ? `Amount Due: GH₵ ${(total - tendered).toFixed(2)}`
-                    : "Complete Sale"}
-                </button>
+                  >
+                    {tendered < total && !additionalPaymentModeIds.length
+                      ? `Amount Due: GH₵ ${(total - tendered).toFixed(2)}`
+                      : "Complete Sale"}
+                  </button>
+                )}
+
                 <Link
                   to="/pos/holds"
                   className="block text-center text-xs text-brand hover:text-brand-600 dark:text-brand-400 underline mt-1"
@@ -2786,16 +2812,16 @@ export default function PosSalesEntry() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md relative">
+          <div className="bg-white dark:bg-slate-900 rounded-lg p-6 w-full max-w-md relative shadow-xl border border-slate-200 dark:border-slate-800">
             <button
               type="button"
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-2xl leading-none"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl leading-none"
               onClick={newSale}
               title="Close and start new sale"
             >
               ×
             </button>
-            <div className="text-2xl font-bold text-brand-700">
+            <div className="text-2xl font-bold text-brand-700 dark:text-brand-400">
               Sale Completed
             </div>
             <div className="mt-4 space-y-2">
@@ -2880,20 +2906,20 @@ export default function PosSalesEntry() {
                 </div>
               </div>
             </div>
-            <div className="mt-6 flex gap-2">
+            <div className="mt-6 flex gap-3">
               <button
                 type="button"
-                className="flex-1 bg-brand-600 hover:bg-brand-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
+                className="btn btn-primary flex-1 font-semibold px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-1"
                 onClick={newSale}
               >
-                New Sale
+                + New Sale
               </button>
               <button
                 type="button"
-                className="flex-1 bg-white hover:bg-slate-50 text-slate-700 font-semibold px-4 py-2 rounded-lg border border-slate-300 transition-colors"
+                className="btn btn-secondary flex-1 font-semibold px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-1 border border-slate-300 dark:border-slate-700"
                 onClick={printReceipt}
               >
-                Print Receipt
+                🖨️ Print Receipt
               </button>
             </div>
           </div>

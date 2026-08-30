@@ -654,7 +654,7 @@ export default function HomePage() {
         else if (card.key === "bi-profit-margin") val = overview?.profitMargin || "24%";
         else if (card.key === "bi-top-product") val = overview?.topProduct || "Best Seller";
         else if (card.key === "sales-pending-orders") val = overview?.openQuotations || 0;
-        else if (card.key === "sales-total-revenue") val = overview?.allTimeRevenue || overview?.totalRevenue || overview?.monthlyRevenue || 0;
+        else if (card.key === "sales-total-revenue") val = overview?.monthlyRevenue || 0;
         else if (card.key === "purchase-total-value") val = overview?.totalPurchases || 0;
         else if (card.key === "purchase-pending-pos") val = overview?.activePOs || 0;
         else if (card.key === "purchase-active-suppliers") val = overview?.activeSuppliers || 0;

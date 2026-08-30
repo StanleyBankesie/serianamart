@@ -76,7 +76,7 @@ export const MODULES_REGISTRY = {
 
 
 
-          { key: "sales-total-revenue", label: "Total Revenue", type: "dashboard" },
+          { key: "sales-total-revenue", label: "Total Revenue This Month", type: "dashboard" },
       { key: "sales-pending-orders", label: "Pending Orders", type: "dashboard" },
       { key: "sales-active-customers", label: "Active Customers", type: "dashboard" },
 ]
