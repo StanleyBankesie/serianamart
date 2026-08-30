@@ -38,7 +38,11 @@ export const getHomeOverview = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const p = { companyId, branchId, branchIdsStr: String(branchIdsStr || '') };
-    const whereBranch = "(:branchId IS NULL OR branch_id = :branchId OR :branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr) OR branch_id IS NULL)";
+    const whereBranch = (branchId !== null && branchId !== undefined && String(branchId).trim() !== '')
+      ? "branch_id = :branchId"
+      : (branchIdsStr && String(branchIdsStr).trim() !== '')
+      ? "FIND_IN_SET(branch_id, :branchIdsStr)"
+      : "1=1";
     
     const [
       [todaySalesData],
@@ -48,22 +52,60 @@ export const getHomeOverview = async (req, res, next) => {
       [allTimeSalesData]
     ] = await Promise.all([
       safeQuery(`SELECT 
-          (SELECT COALESCE(SUM(total_amount),0) FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(invoice_date) = CURDATE() AND status NOT IN ('CANCELLED','DRAFT')) +
-          (SELECT COALESCE(SUM(net_amount),0) FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(sale_datetime) = CURDATE() AND status != 'VOID') as total,
-          (SELECT COUNT(*) FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(invoice_date) = CURDATE() AND status NOT IN ('CANCELLED','DRAFT')) +
-          (SELECT COUNT(*) FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(sale_datetime) = CURDATE() AND status != 'VOID') as count`, p, [{ total: 0, count: 0 }]),
+          (
+            (SELECT COALESCE(SUM(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)), 0) 
+             FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(sale_datetime) = CURDATE() AND status = 'COMPLETED')
+            -
+            (SELECT COALESCE(SUM(total_refund), 0) 
+             FROM pos_returns WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(return_datetime) = CURDATE())
+            +
+            (SELECT COALESCE(SUM(total_amount), 0) 
+             FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(invoice_date) = CURDATE() AND status NOT IN ('CANCELLED','DRAFT'))
+          ) as total,
+          (
+            (SELECT COUNT(*) FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(sale_datetime) = CURDATE() AND status = 'COMPLETED')
+            +
+            (SELECT COUNT(*) FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND DATE(invoice_date) = CURDATE() AND status NOT IN ('CANCELLED','DRAFT'))
+          ) as count`, p, [{ total: 0, count: 0 }]),
       safeQuery(`SELECT 
-          (SELECT COALESCE(SUM(total_amount),0) FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(invoice_date) = MONTH(CURDATE()) AND YEAR(invoice_date) = YEAR(CURDATE()) AND status NOT IN ('CANCELLED','DRAFT')) +
-          (SELECT COALESCE(SUM(net_amount),0) FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(sale_datetime) = MONTH(CURDATE()) AND YEAR(sale_datetime) = YEAR(CURDATE()) AND status != 'VOID') as total`, p, [{ total: 0 }]),
+          (
+            (SELECT COALESCE(SUM(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)), 0) 
+             FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(sale_datetime) = MONTH(CURDATE()) AND YEAR(sale_datetime) = YEAR(CURDATE()) AND status = 'COMPLETED')
+            -
+            (SELECT COALESCE(SUM(total_refund), 0) 
+             FROM pos_returns WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(return_datetime) = MONTH(CURDATE()) AND YEAR(return_datetime) = YEAR(CURDATE()))
+            +
+            (SELECT COALESCE(SUM(total_amount), 0) 
+             FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(invoice_date) = MONTH(CURDATE()) AND YEAR(invoice_date) = YEAR(CURDATE()) AND status NOT IN ('CANCELLED','DRAFT'))
+          ) as total`, p, [{ total: 0 }]),
       safeQuery(`SELECT 
-          (SELECT COALESCE(SUM(total_amount),0) FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(invoice_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(invoice_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND status NOT IN ('CANCELLED','DRAFT')) +
-          (SELECT COALESCE(SUM(net_amount),0) FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(sale_datetime) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(sale_datetime) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND status != 'VOID') as total`, p, [{ total: 0 }]),
+          (
+            (SELECT COALESCE(SUM(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)), 0) 
+             FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(sale_datetime) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(sale_datetime) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND status = 'COMPLETED')
+            -
+            (SELECT COALESCE(SUM(total_refund), 0) 
+             FROM pos_returns WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(return_datetime) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(return_datetime) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)))
+            +
+            (SELECT COALESCE(SUM(total_amount), 0) 
+             FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND MONTH(invoice_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND YEAR(invoice_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH)) AND status NOT IN ('CANCELLED','DRAFT'))
+          ) as total`, p, [{ total: 0 }]),
       safeQuery(`SELECT COUNT(*) as count FROM sal_customers WHERE (company_id = :companyId OR company_id IS NULL) AND is_active = 1`, p, [{ count: 0 }]),
       safeQuery(`SELECT 
-          (SELECT COALESCE(SUM(total_amount),0) FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND status NOT IN ('CANCELLED','DRAFT')) +
-          (SELECT COALESCE(SUM(net_amount),0) FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND status != 'VOID') as total,
-          (SELECT COUNT(*) FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND status NOT IN ('CANCELLED','DRAFT')) +
-          (SELECT COUNT(*) FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND status != 'VOID') as count`, p, [{ total: 0, count: 0 }]),
+          (
+            (SELECT COALESCE(SUM(COALESCE(gross_amount,0) + COALESCE(tax_amount,0) - COALESCE(discount_amount,0)), 0) 
+             FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND status = 'COMPLETED')
+            -
+            (SELECT COALESCE(SUM(total_refund), 0) 
+             FROM pos_returns WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch})
+            +
+            (SELECT COALESCE(SUM(total_amount), 0) 
+             FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND status NOT IN ('CANCELLED','DRAFT'))
+          ) as total,
+          (
+            (SELECT COUNT(*) FROM pos_sales WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND status = 'COMPLETED')
+            +
+            (SELECT COUNT(*) FROM sal_invoices WHERE (company_id = :companyId OR company_id IS NULL) AND ${whereBranch} AND status NOT IN ('CANCELLED','DRAFT'))
+          ) as count`, p, [{ total: 0, count: 0 }]),
     ]);
 
     const todaySales = Number(todaySalesData?.total || 0);
