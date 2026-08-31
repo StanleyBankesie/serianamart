@@ -1942,9 +1942,9 @@ export const listTaxCodeComponents = async (req, res, next) => {
 
 export const listVouchers = async (req, res, next) => {
   try {
-    const companyId = req.scope.companyId;
-    const branchId = req.scope.branchId;
-  const branchIdsStr = req.scope.branchIdsStr;
+    const companyId = req.scope?.companyId ?? null;
+    const branchId = req.scope?.branchId ?? null;
+    const branchIdsStr = String(req.scope?.branchIdsStr || "");
     const voucherTypeCode = req.query.voucherTypeCode
       ? String(req.query.voucherTypeCode).toUpperCase()
       : null;
@@ -1967,7 +1967,7 @@ export const listVouchers = async (req, res, next) => {
     const offset = (page - 1) * limit;
 
     const whereClause = `WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+          AND (:branchId IS NULL OR :branchId = 'all' OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
           AND (
             :normalizedVoucherTypeCode IS NULL OR
             vt.code = :normalizedVoucherTypeCode OR
@@ -2037,9 +2037,9 @@ export const listVouchers = async (req, res, next) => {
 
 export const getVoucherById = async (req, res, next) => {
   try {
-    const companyId = req.scope.companyId;
-    const branchId = req.scope.branchId;
-  const branchIdsStr = req.scope.branchIdsStr;
+    const companyId = req.scope?.companyId ?? null;
+    const branchId = req.scope?.branchId ?? null;
+    const branchIdsStr = String(req.scope?.branchIdsStr || "");
     const id = Number(req.params.id || 0);
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
     const headerRows = await query(
@@ -2056,7 +2056,7 @@ export const getVoucherById = async (req, res, next) => {
            ON c.id = v.currency_id
           AND c.company_id = v.company_id
         WHERE v.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
+          AND (:branchId IS NULL OR :branchId = 'all' OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
           AND v.id = :id
         LIMIT 1`,
       { companyId, branchId, branchIdsStr, id },
