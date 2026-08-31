@@ -70,12 +70,12 @@ export const financeSections = [
           <ActionButton key="view" label="View" path="/finance/contra-voucher" type="outline" featureKey="finance:contra-voucher" action="view" />,
           <ActionButton key="add" label="Add" path="/finance/contra-voucher/create" type="primary" featureKey="finance:contra-voucher" action="create" />
         ], },
-      { title: "Import Vouchers", path: "/finance/import", description: "Bulk import vouchers from Excel template", icon: "📥" , actions: [
-          <ActionButton key="view" label="View" path="/finance/import" type="outline" featureKey="finance:import" action="view" />,
-          <ActionButton key="add" label="Add" path="/finance/import/create" type="primary" featureKey="finance:import" action="create" />
+      { title: "Import Vouchers", path: "/finance/vouchers/import", description: "Bulk import vouchers from Excel template", icon: "📥" , actions: [
+          <ActionButton key="view" label="View" path="/finance/vouchers/import" type="outline" featureKey="finance:import" action="view" />,
+          <ActionButton key="add" label="Add" path="/finance/vouchers/import" type="primary" featureKey="finance:import" action="create" />
         ], },
-      { title: "Voucher Register Report", path: "/finance/reports", description: "Voucher listing with filters (report)", icon: "📊" , actions: [
-          <ActionButton key="view" label="View" path="/finance/reports" type="outline" featureKey="finance:reports" action="view" />,
+      { title: "Voucher Register Report", path: "/finance/reports/voucher-register", description: "Voucher listing with filters (report)", icon: "📊" , actions: [
+          <ActionButton key="view" label="View" path="/finance/reports/voucher-register" type="outline" featureKey="finance:reports" action="view" />,
         ], },
     ],
   },

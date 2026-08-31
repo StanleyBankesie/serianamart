@@ -1550,6 +1550,10 @@ export const listChartOfAccounts = async (req, res, next) => {
     await ensureAccountBalanceObjects();
     const companyId = req.scope.companyId;
     const search = req.query.search ? String(req.query.search).trim() : null;
+    const groupId = req.query.groupId ? Number(req.query.groupId) : null;
+    const nature = req.query.nature ? String(req.query.nature).trim().toUpperCase() : null;
+    const active = req.query.active !== undefined && req.query.active !== "" && req.query.active !== null ? Number(req.query.active) : null;
+    const postable = req.query.postable !== undefined && req.query.postable !== "" && req.query.postable !== null ? Number(req.query.postable) : null;
     const items = await query(
       `SELECT a.id, a.code, a.name, a.balance_type, a.is_postable, a.is_active, a.currency_id,
               c.code AS currency_code,
@@ -1558,14 +1562,18 @@ export const listChartOfAccounts = async (req, res, next) => {
               COALESCE(ab.balance_type, a.balance_type, CASE WHEN g.nature IN ('ASSET','EXPENSE') THEN 'DEBIT' ELSE 'CREDIT' END) AS current_balance_type,
               pg.id AS parent_group_id, pg.name AS parent_group_name
        FROM fin_accounts a
-       JOIN fin_account_groups g ON g.id = a.group_id AND g.company_id = a.company_id
-       LEFT JOIN fin_currencies c ON c.id = a.currency_id AND c.company_id = a.company_id
+       LEFT JOIN fin_account_groups g ON g.id = a.group_id
+       LEFT JOIN fin_currencies c ON c.id = a.currency_id
        LEFT JOIN fin_account_balances ab ON ab.account_id = a.id AND ab.company_id = a.company_id
-       LEFT JOIN fin_account_groups pg ON pg.id = g.parent_id AND pg.company_id = a.company_id
+       LEFT JOIN fin_account_groups pg ON pg.id = g.parent_id
        WHERE a.company_id = :companyId
          AND (:search IS NULL OR a.code LIKE CONCAT('%', :search, '%') OR a.name LIKE CONCAT('%', :search, '%') OR g.name LIKE CONCAT('%', :search, '%'))
+         AND (:groupId IS NULL OR a.group_id = :groupId)
+         AND (:nature IS NULL OR g.nature = :nature)
+         AND (:active IS NULL OR a.is_active = :active)
+         AND (:postable IS NULL OR a.is_postable = :postable)
        ORDER BY g.code ASC, a.code ASC`,
-      { companyId, search },
+      { companyId, search, groupId, nature, active, postable },
     );
     res.json({ items });
   } catch (e) {
@@ -2015,8 +2023,17 @@ export const listVouchers = async (req, res, next) => {
                   ),
                   v.narration
                 ) AS description,
-                v.narration AS remarks, v.total_debit, v.total_credit, v.balanced_amount,
-                v.total_debit AS total_amount,
+                v.narration AS remarks,
+                COALESCE(NULLIF(v.total_debit, 0), (SELECT SUM(l.debit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0) AS total_debit,
+                COALESCE(NULLIF(v.total_credit, 0), (SELECT SUM(l.credit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0) AS total_credit,
+                COALESCE(NULLIF(v.balanced_amount, 0), NULLIF(v.total_debit, 0), NULLIF(v.total_credit, 0), 0) AS balanced_amount,
+                GREATEST(
+                  COALESCE(v.total_debit, 0),
+                  COALESCE(v.total_credit, 0),
+                  COALESCE(v.balanced_amount, 0),
+                  COALESCE((SELECT SUM(l.debit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0),
+                  COALESCE((SELECT SUM(l.credit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0)
+                ) AS total_amount,
                 v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
                 v.currency_id, c.code AS currency_code
            FROM fin_vouchers v
@@ -2033,8 +2050,11 @@ export const listVouchers = async (req, res, next) => {
       try {
         items = await query(
           `SELECT v.id, v.voucher_no, v.voucher_date, COALESCE(NULLIF(TRIM(v.status), ''), 'APPROVED') AS status,
-                  v.narration AS description, v.narration AS remarks, v.total_debit, v.total_credit, v.balanced_amount,
-                  v.total_debit AS total_amount,
+                  v.narration AS description, v.narration AS remarks,
+                  COALESCE(v.total_debit, 0) AS total_debit,
+                  COALESCE(v.total_credit, 0) AS total_credit,
+                  COALESCE(v.balanced_amount, 0) AS balanced_amount,
+                  GREATEST(COALESCE(v.total_debit, 0), COALESCE(v.total_credit, 0), COALESCE(v.balanced_amount, 0)) AS total_amount,
                   v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name
              FROM fin_vouchers v
              LEFT JOIN fin_voucher_types vt
@@ -3026,18 +3046,21 @@ export const voucherRegisterReport = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
     const branchId = req.scope.branchId;
-  const branchIdsStr = req.scope.branchIdsStr;
+    const branchIdsStr = req.scope.branchIdsStr;
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
     const typeFilter = req.query.type ? String(req.query.type).toUpperCase() : null;
     const items = await query(
-      `SELECT v.id, v.voucher_no, v.voucher_date, v.status, v.total_debit, v.total_credit, v.narration,
+      `SELECT v.id, v.voucher_no, v.voucher_date,
+              COALESCE(NULLIF(TRIM(v.status), ''), 'APPROVED') AS status,
+              COALESCE(NULLIF(v.total_debit, 0), (SELECT SUM(l.debit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0) AS total_debit,
+              COALESCE(NULLIF(v.total_credit, 0), (SELECT SUM(l.credit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0) AS total_credit,
+              v.narration,
               COALESCE(
                 (
                   SELECT l.description
                     FROM fin_voucher_lines l
-                   WHERE l.company_id = v.company_id
-                     AND l.voucher_id = v.id
+                   WHERE l.voucher_id = v.id
                      AND NULLIF(TRIM(l.description), '') IS NOT NULL
                    ORDER BY l.line_no ASC, l.id ASC
                    LIMIT 1
@@ -3046,9 +3069,8 @@ export const voucherRegisterReport = async (req, res, next) => {
               ) AS description,
               vt.code AS voucher_type_code, vt.name AS voucher_type_name
          FROM fin_vouchers v
-         JOIN fin_voucher_types vt
+         LEFT JOIN fin_voucher_types vt
            ON vt.id = v.voucher_type_id
-          AND vt.company_id = v.company_id
         WHERE v.company_id = :companyId
           AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
           AND (:from IS NULL OR v.voucher_date >= :from)

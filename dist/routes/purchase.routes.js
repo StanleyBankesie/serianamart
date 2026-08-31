@@ -2783,14 +2783,10 @@ router.put(
           );
         }
       }
-      const { voucherId: grnVoucherId, voucherNo: grnVoucherNo } =
-        await postGrnAccrualTx(conn, {
-          companyId,
-          branchId, branchIdsStr,
-          grnId,
-          inventoryAccountRef: "1200",
-          grnClearingAccountRef: "2100",
-        });
+      // For Direct Purchase, GRN and Purchase Bill are created simultaneously in one step.
+      // We skip creating a separate intermediate GRN accrual Journal Voucher so it does not clutter the Journal Entries page.
+      const grnVoucherId = null;
+      const grnVoucherNo = null;
       const billNo = await nextSequentialNo("pur_bills", "bill_no", "PBL", conn);
       const [billHdr] = await conn.execute(
         `INSERT INTO pur_bills
@@ -11375,17 +11371,10 @@ router.post(
           purchaseUnitCost: d.unitPrice,
         });
       }
-      let grnVoucherId = null;
-      let grnVoucherNo = null;
-      try {
-         const gRes = await postGrnAccrualTx(conn, { grnId, companyId, branchId, branchIdsStr });
-         if (gRes?.voucherId) {
-             grnVoucherId = gRes.voucherId;
-             grnVoucherNo = gRes.voucherNo;
-         }
-      } catch(e) {
-         console.error("Direct Purchase GRN Voucher Error:", e);
-      }
+      // For Direct Purchase, GRN and Purchase Bill are created simultaneously in one step.
+      // We skip creating a separate intermediate GRN accrual Journal Voucher so it does not clutter the Journal Entries page.
+      const grnVoucherId = null;
+      const grnVoucherNo = null;
 
       const billNo = await nextSequentialNo("pur_bills", "bill_no", "PBL", conn);
       const [billHdr] = await conn.execute(

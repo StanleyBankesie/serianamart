@@ -1357,7 +1357,7 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                     <SortableHeader label="Voucher No" sortKey="voucher_no" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Date" sortKey="voucher_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <SortableHeader label="Description" sortKey="description" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
-                    <SortableHeader label="Amount" sortKey="balanced_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
+                    <SortableHeader label="Amount" sortKey="total_amount" currentKey={sortKey} direction={sortDir} onToggle={toggle} className="text-right" />
                     <SortableHeader label="Status" sortKey="status" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
                     <th className="text-right">Actions</th>
                     {(isPAYV || isRV || isJV) && <SortableHeader label="Created By" sortKey="created_by_username" currentKey={sortKey} direction={sortDir} onToggle={toggle} />}
@@ -1375,8 +1375,8 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                       </td>
                       <td>{new Date(v.voucher_date).toLocaleDateString()}</td>
                       <td>{renderDescription(v)}</td>
-                      <td className="text-right">
-                        {`GH₵ ${Number(v.balanced_amount || v.total_debit || 0).toLocaleString()}`}
+                      <td className="text-right font-medium">
+                        {`GH₵ ${Number(v.total_amount ?? v.amount ?? v.total_debit ?? v.total_credit ?? v.balanced_amount ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       </td>
                       <td>
                         <StatusBadge status={v.status} />
@@ -1385,16 +1385,13 @@ export default function VoucherListPage({ voucherTypeCode, title }) {
                         <div className="flex items-center justify-end gap-2">
                           {/* Slot 1: View */}
                           <div className="min-w-[80px]">
-                            {canPerformAction("finance:vouchers", "view") ? (
-                              <Link
-                                to={`/finance/${basePath}/${v.id}?mode=view`}
-                                className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
-                              >
-                                View
-                              </Link>
-                            ) : (
-                              <div className="w-full h-9" />
-                            )}
+                            <Link
+                              to={`/finance/${basePath}/${v.id}?mode=view`}
+                              data-rbac-exempt="true"
+                              className="w-full inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors h-9"
+                            >
+                              View
+                            </Link>
                           </div>
 
                           {/* Slot 2: Edit */}

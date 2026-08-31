@@ -98,25 +98,31 @@ export default function OpeningBalancesPage() {
   }, [scope?.branchId, user?.id]);
 
   async function loadData() {
-    if (!selectedFyId) return;
     try {
       setLoading(true);
-      const [accRes, obRes] = await Promise.all([
-        api.get("/finance/accounts", { params: { postable: 1, active: 1 } }),
-        api.get("/finance/opening-balances", {
-          params: { fiscalYearId: Number(selectedFyId) },
-        }),
-      ]);
-      const arr = accRes.data?.items || [];
+      const promises = [
+        api.get("/finance/accounts"),
+      ];
+      if (selectedFyId) {
+        promises.push(
+          api.get("/finance/opening-balances", {
+            params: { fiscalYearId: Number(selectedFyId) },
+          }).catch(() => ({ data: { items: [] } }))
+        );
+      }
+      const [accRes, obRes] = await Promise.all(promises);
+      const arr = accRes?.data?.items || accRes?.data || [];
       setAccounts(arr);
       const map = new Map();
-      for (const r of obRes.data?.items || []) {
-        map.set(String(r.account_id || r._id), {
-          debit: Number(r.opening_debit || 0),
-          credit: Number(r.opening_credit || 0),
-          currencyId: r.currency_id ? Number(r.currency_id) : (baseCurrencyId || null),
-          exchangeRate: Number(r.exchange_rate || 1) > 0 ? Number(r.exchange_rate) : 1,
-        });
+      if (obRes?.data?.items) {
+        for (const r of obRes.data.items || []) {
+          map.set(String(r.account_id || r._id), {
+            debit: Number(r.opening_debit || 0),
+            credit: Number(r.opening_credit || 0),
+            currencyId: r.currency_id ? Number(r.currency_id) : (baseCurrencyId || null),
+            exchangeRate: Number(r.exchange_rate || 1) > 0 ? Number(r.exchange_rate) : 1,
+          });
+        }
       }
       setOpeningMap(map);
     } catch (e) {
@@ -128,10 +134,13 @@ export default function OpeningBalancesPage() {
 
   useEffect(() => {
     loadFiscalYearsAndCurrencies();
+    loadData();
   }, []);
 
   useEffect(() => {
-    loadData();
+    if (selectedFyId) {
+      loadData();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFyId]);
 

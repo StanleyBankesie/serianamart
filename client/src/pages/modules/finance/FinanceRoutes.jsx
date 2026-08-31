@@ -153,6 +153,9 @@ export default function FinanceRoutes() {
         <Route path="credit-note/:id" element={<CreditNoteForm />} />
 
         <Route path="vouchers/import" element={<VoucherImportPage />} />
+        <Route path="import" element={<VoucherImportPage />} />
+        <Route path="import/create" element={<VoucherImportPage />} />
+        <Route path="import-vouchers" element={<VoucherImportPage />} />
 
         {/* Setup & Master Data */}
         <Route path="setup/account-groups" element={<AccountGroupsPage />} />
@@ -165,14 +168,20 @@ export default function FinanceRoutes() {
           path="setup/opening-balances"
           element={<OpeningBalancesPage />}
         />
+        <Route
+          path="opening-balances"
+          element={<OpeningBalancesPage />}
+        />
         <Route path="accounts" element={<AccountsPage />} />
 
         {/* Banking */}
         <Route path="bank-reconciliation" element={<BankReconciliationList />} />
         <Route path="bank-reconciliation/new" element={<BankReconciliationForm />} />
+        <Route path="bank-reconciliation/create" element={<BankReconciliationForm />} />
         <Route path="bank-reconciliation/:id" element={<BankReconciliationForm />} />
         <Route path="pdc-postings" element={<PdcPostingsList />} />
         <Route path="pdc-postings/new" element={<PdcPostingForm />} />
+        <Route path="pdc-postings/create" element={<PdcPostingForm />} />
         <Route path="pdc-postings/:id" element={<PdcPostingForm />} />
         <Route path="reports/bank-reconciliations" element={<BankReconciliationsReportPage />} />
         <Route path="reports/bank-reconciliation-transactions" element={<BankReconciliationTransactionReportPage />} />
@@ -183,10 +192,23 @@ export default function FinanceRoutes() {
           element={<VoucherRegisterReportPage />}
         />
         <Route
+          path="reports/voucher-register-report"
+          element={<VoucherRegisterReportPage />}
+        />
+        <Route
+          path="voucher-register"
+          element={<VoucherRegisterReportPage />}
+        />
+        <Route
+          path="reports"
+          element={<VoucherRegisterReportPage />}
+        />
+        <Route
           path="reports/trial-balance"
           element={<TrialBalanceReportPage />}
         />
         <Route path="reports/journal" element={<JournalReportPage />} />
+        <Route path="reports/journals" element={<JournalReportPage />} />
         <Route
           path="reports/general-ledger"
           element={<GeneralLedgerReportPage />}
@@ -209,6 +231,10 @@ export default function FinanceRoutes() {
         />
         <Route
           path="reports/outstanding-receivables"
+          element={<OutstandingReceivableReportPage />}
+        />
+        <Route
+          path="reports/outstanding-receivable"
           element={<OutstandingReceivableReportPage />}
         />
         <Route
