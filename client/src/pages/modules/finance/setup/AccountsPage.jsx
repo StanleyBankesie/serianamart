@@ -448,7 +448,16 @@ export default function AccountsPage() {
       {/* Main Table */}
       <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="table w-full">
+          <table className="table w-full table-fixed">
+            <colgroup>
+              <col style={{ width: "14.285%" }} />
+              <col style={{ width: "14.285%" }} />
+              <col style={{ width: "14.285%" }} />
+              <col style={{ width: "14.285%" }} />
+              <col style={{ width: "14.285%" }} />
+              <col style={{ width: "14.285%" }} />
+              <col style={{ width: "14.285%" }} />
+            </colgroup>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
                 <SortableHeader label="Account Code" sortKey="code" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -502,7 +511,7 @@ export default function AccountsPage() {
                               ))}
                             </select>
                           </td>
-                          <td className="py-2 px-3 text-xs font-semibold">
+                          <td className="py-2 px-3 text-xs font-semibold truncate">
                             {a.nature}
                           </td>
                           <td className="py-2 px-3">
@@ -519,7 +528,7 @@ export default function AccountsPage() {
                               ))}
                             </select>
                           </td>
-                          <td className="py-2 px-3 text-right font-mono">
+                          <td className="py-2 px-3 text-right font-mono truncate">
                             {Number(a.current_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
                           <td className="py-2 px-3 text-right">
@@ -545,24 +554,24 @@ export default function AccountsPage() {
                         </>
                       ) : (
                         <>
-                          <td className="py-3 px-4 font-mono font-bold text-brand dark:text-brand-300">
+                          <td className="py-3 px-4 font-mono font-bold text-brand dark:text-brand-300 truncate" title={a.code}>
                             {a.code}
                           </td>
-                          <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
+                          <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100 truncate" title={a.name}>
                             {a.name}
                           </td>
-                          <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs">
+                          <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs truncate" title={a.group_name || "—"}>
                             {a.group_name || "—"}
                           </td>
-                          <td className="py-3 px-4 text-xs font-semibold">
+                          <td className="py-3 px-4 text-xs font-semibold truncate">
                             <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700">
                               {a.nature || "—"}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-xs font-mono font-semibold">
+                          <td className="py-3 px-4 text-xs font-mono font-semibold truncate">
                             {a.currency_code || "Base"}
                           </td>
-                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
+                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-slate-100 truncate">
                             {Number(a.current_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} {a.current_balance_type || ""}
                           </td>
                           <td className="py-3 px-4 text-right">

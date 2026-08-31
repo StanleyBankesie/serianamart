@@ -86,7 +86,13 @@ export default function StockBalancesReportPage() {
   const totalReserveQty = filtered.reduce((acc, it) => acc + Number(it.reserve_qty || 0), 0);
   const totalAvailableQty = filtered.reduce((acc, it) => acc + Number(it.available_qty || 0), 0);
 
-  function exportExcel() {
+  async function exportExcel() {
+    const headerInfo = await fetchReportHeader(api);
+    const headerRows = buildExcelHeaderRows(headerInfo, {
+      title: "STOCK BALANCES REPORT",
+      period: `Generated: ${new Date().toLocaleDateString()}`,
+    });
+
     const exportData = sortedItems.map((r) => ({
       "Item Code": r.item_code || "-",
       "Item Name": r.item_name || "-",
@@ -95,42 +101,61 @@ export default function StockBalancesReportPage() {
       "Reserved Qty": Number(r.reserve_qty || 0),
       "Available Qty": Number(r.available_qty || 0),
     }));
-    const ws = XLSX.utils.json_to_sheet(exportData);
+    const ws = XLSX.utils.json_to_sheet([...headerRows, ...exportData]);
     ws["!cols"] = [{ wch: 15 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "StockBalances");
-    XLSX.writeFile(wb, `stock-balances-report.xlsx`);
+    XLSX.writeFile(wb, `stock-balances-${headerInfo.currCode}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
-  function exportPDF() {
+  async function exportPDF() {
+    const headerInfo = await fetchReportHeader(api);
     const doc = new jsPDF("p", "mm", "a4");
-    doc.setFontSize(16);
-    doc.text("Stock Balances Summary Report", 14, 15);
-    doc.setFontSize(9);
-    doc.text(`Generated on ${new Date().toLocaleDateString()} | Total Items: ${totalStockItems}`, 14, 22);
+    const margin = 14;
+    const pageW = 210;
 
-    let y = 30;
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.text("Item Code", 14, y);
-    doc.text("Item Name", 50, y);
-    doc.text("Total Qty", 120, y);
-    doc.text("Reserve Qty", 150, y);
-    doc.text("Available Qty", 180, y);
-    doc.line(14, y + 2, 196, y + 2);
-    y += 7;
-
-    doc.setFont("helvetica", "normal");
-    sortedItems.slice(0, 45).forEach((r) => {
-      doc.text(String(r.item_code || "-"), 14, y);
-      doc.text(String(r.item_name || "-").slice(0, 30), 50, y);
-      doc.text(String(Number(r.total_qty || 0)), 120, y);
-      doc.text(String(Number(r.reserve_qty || 0)), 150, y);
-      doc.text(String(Number(r.available_qty || 0)), 180, y);
-      y += 6;
+    let y = applyPdfHeader(doc, headerInfo, {
+      title: "STOCK BALANCES REPORT",
+      subtitle: `Warehouse: ${warehouseId ? warehouses.find(w => String(w.id) === String(warehouseId))?.name || warehouseId : "All Warehouses"}`,
+      kpis: [
+        { label: "TRACKED ITEMS", value: String(totalStockItems), color: [59, 130, 246] },
+        { label: "TOTAL QUANTITY", value: Number(totalStockQty).toLocaleString(), color: [16, 185, 129] },
+        { label: "TOTAL RESERVED", value: Number(totalReserveQty).toLocaleString(), color: [234, 88, 12] },
+        { label: "NET AVAILABLE", value: Number(totalAvailableQty).toLocaleString(), color: [16, 185, 129] },
+      ],
     });
 
-    doc.save(`stock-balances-report.pdf`);
+    // Table header
+    doc.setFillColor(30, 41, 59);
+    doc.rect(margin, y, pageW - margin * 2, 6, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text("ITEM CODE", margin + 2, y + 4.2);
+    doc.text("ITEM NAME", 52, y + 4.2);
+    doc.text("TOTAL QTY", 125, y + 4.2, { align: "right" });
+    doc.text("RESERVE QTY", 155, y + 4.2, { align: "right" });
+    doc.text("AVAILABLE QTY", pageW - margin - 2, y + 4.2, { align: "right" });
+    y += 8.5;
+    doc.setTextColor(51, 65, 85);
+
+    sortedItems.forEach((r) => {
+      if (y > 270) {
+        doc.addPage();
+        y = 15;
+      }
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(String(r.item_code || "-"), margin + 2, y);
+      doc.text(String(r.item_name || "-").slice(0, 32), 52, y);
+      doc.text(Number(r.total_qty || 0).toLocaleString(), 125, y, { align: "right" });
+      doc.text(Number(r.reserve_qty || 0).toLocaleString(), 155, y, { align: "right" });
+      doc.text(Number(r.available_qty || 0).toLocaleString(), pageW - margin - 2, y, { align: "right" });
+      y += 4.5;
+    });
+
+    applyPdfFooter(doc);
+    doc.save(`stock-balances-${headerInfo.currCode}-${new Date().toISOString().slice(0, 10)}.pdf`);
   }
 
   return (

@@ -24,8 +24,9 @@ import { useAuth } from "@/auth/AuthContext";
 import { usePermission } from "@/auth/PermissionContext";
 
 const TEMPLATE_HEADERS = [
-  "BRANCH_ID",
+  "BRANCH_NAME",
   "WAREHOUSE_NAME",
+  "BILL_TYPE",
   "SUPPLIER_NAME",
   "BILL_DATE",
   "DUE_DATE",
@@ -52,6 +53,8 @@ export default function PurchaseUploadPage() {
   const [warehouses, setWarehouses] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [items, setItems] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [purchaseType, setPurchaseType] = useState("LOCAL");
   const [updateFinanceVouchers, setUpdateFinanceVouchers] = useState(true);
   const [parsedBills, setParsedBills] = useState([]);
   const [preview, setPreview] = useState(false);
@@ -67,15 +70,18 @@ export default function PurchaseUploadPage() {
       api.get("/inventory/warehouses").catch(() => ({ data: [] })),
       api.get("/finance/currencies").catch(() => ({ data: [] })),
       api.get("/inventory/items").catch(() => ({ data: [] })),
-    ]).then(([brRes, whRes, curRes, itemRes]) => {
+      api.get("/purchase/suppliers").catch(() => ({ data: [] })),
+    ]).then(([brRes, whRes, curRes, itemRes, suppRes]) => {
       const bItems = brRes.data?.items || brRes.data || [];
       const wItems = whRes.data?.items || whRes.data || [];
       const cItems = curRes.data?.items || curRes.data || [];
       const itItems = itemRes.data?.items || itemRes.data || [];
+      const suppItems = suppRes.data?.items || suppRes.data || [];
       setBranches(bItems);
       setWarehouses(wItems);
       setCurrencies(cItems);
       setItems(itItems);
+      setSuppliers(suppItems);
       if (scope?.branchId) {
         setSelectedBranch(String(scope.branchId));
       } else if (bItems.length === 1) {
@@ -101,7 +107,9 @@ export default function PurchaseUploadPage() {
 
   const downloadTemplate = async () => {
     try {
-      const bId = selectedBranch || (branches[0] ? String(branches[0].id) : "1");
+      const selectedBranchObj = branches.find((b) => String(b.id) === String(selectedBranch));
+      const defaultBranchName = selectedBranchObj?.branch_name || selectedBranchObj?.name || branches[0]?.branch_name || branches[0]?.name || "Main Branch";
+
       const branchWhs = warehouses
         .filter((w) => !selectedBranch || String(w.branch_id) === String(selectedBranch))
         .map((w) => w.warehouse_name || w.name)
@@ -118,9 +126,12 @@ export default function PurchaseUploadPage() {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("PurchaseBills");
 
-      // Populate lookup sheet for autocomplete
+      // Populate lookup sheet for autocomplete & dropdown validation
       const lookupSheet = workbook.addWorksheet("LookupData");
       lookupSheet.getCell("A1").value = "ITEM_NAME";
+      lookupSheet.getCell("B1").value = "BRANCH_NAME";
+      lookupSheet.getCell("C1").value = "SUPPLIER_NAME";
+      lookupSheet.getCell("D1").value = "WAREHOUSE_NAME";
 
       const itemNames = items.length > 0
         ? items.map((it) => it.item_name || it.name).filter(Boolean)
@@ -130,12 +141,34 @@ export default function PurchaseUploadPage() {
         lookupSheet.getCell(`A${idx + 2}`).value = name;
       });
 
+      const branchNames = branches.length > 0
+        ? branches.map((b) => b.branch_name || b.name).filter(Boolean)
+        : [defaultBranchName];
+
+      branchNames.forEach((bName, idx) => {
+        lookupSheet.getCell(`B${idx + 2}`).value = bName;
+      });
+
+      const supplierNames = suppliers.length > 0
+        ? Array.from(new Set(suppliers.map((s) => s.supplier_name || s.name).filter(Boolean)))
+        : ["ABC Supplies Ltd", "Global Tech Ltd"];
+
+      supplierNames.forEach((sName, idx) => {
+        lookupSheet.getCell(`C${idx + 2}`).value = sName;
+      });
+
+      const whList = branchWhs.length > 0 ? branchWhs : [defaultWh];
+      whList.forEach((wName, idx) => {
+        lookupSheet.getCell(`D${idx + 2}`).value = wName;
+      });
+
       lookupSheet.state = "hidden";
 
       // Column definitions
       worksheet.columns = [
-        { header: "BRANCH_ID", key: "BRANCH_ID", width: 12 },
+        { header: "BRANCH_NAME", key: "BRANCH_NAME", width: 22 },
         { header: "WAREHOUSE_NAME", key: "WAREHOUSE_NAME", width: 22 },
+        { header: "BILL_TYPE", key: "BILL_TYPE", width: 16 },
         { header: "SUPPLIER_NAME", key: "SUPPLIER_NAME", width: 26 },
         { header: "BILL_DATE", key: "BILL_DATE", width: 14 },
         { header: "DUE_DATE", key: "DUE_DATE", width: 14 },
@@ -161,73 +194,90 @@ export default function PurchaseUploadPage() {
         fgColor: { argb: "FFE2E8F0" },
       };
 
+      const defaultBillType = purchaseType === "IMPORT" ? "IMPORT" : "LOCAL";
+      const sampleCurrency = purchaseType === "IMPORT" ? "USD" : (currencyList[0] || "GHS");
+      const sampleRate = purchaseType === "IMPORT" ? 15.5 : 1;
+
       // Add sample rows
       worksheet.addRow({
-        BRANCH_ID: bId,
+        BRANCH_NAME: defaultBranchName,
         WAREHOUSE_NAME: defaultWh,
-        SUPPLIER_NAME: "ABC Supplies Ltd",
+        BILL_TYPE: defaultBillType,
+        SUPPLIER_NAME: supplierNames[0] || "ABC Supplies Ltd",
         BILL_DATE: today,
         DUE_DATE: today,
         SUPPLIER_INVOICE_NO: "INV-9981",
         SUPPLIER_INVOICE_DATE: today,
         PAYMENT_TERMS: "30 Days",
-        CURRENCY: "GHS",
-        EXCHANGE_RATE: 1,
-        ITEM_NAME: "Office Paper A4",
+        CURRENCY: sampleCurrency,
+        EXCHANGE_RATE: sampleRate,
+        ITEM_NAME: itemNames[0] || "Office Paper A4",
         QTY: 10,
-        UNIT_PRICE: 45.0,
+        UNIT_PRICE: purchaseType === "IMPORT" ? 25.0 : 45.0,
         DISCOUNT_PERCENT: 0,
-        TAX_AMOUNT: 4.5,
-        DESCRIPTION: "Office Supplies Q1"
+        TAX_AMOUNT: purchaseType === "IMPORT" ? 0 : 4.5,
+        DESCRIPTION: purchaseType === "IMPORT" ? "Import Supplies Shipment" : "Local Office Supplies Q1"
       });
 
       worksheet.addRow({
-        BRANCH_ID: bId,
+        BRANCH_NAME: defaultBranchName,
         WAREHOUSE_NAME: defaultWh,
-        SUPPLIER_NAME: "ABC Supplies Ltd",
+        BILL_TYPE: defaultBillType,
+        SUPPLIER_NAME: supplierNames[0] || "ABC Supplies Ltd",
         BILL_DATE: today,
         DUE_DATE: today,
         SUPPLIER_INVOICE_NO: "INV-9981",
         SUPPLIER_INVOICE_DATE: today,
         PAYMENT_TERMS: "30 Days",
-        CURRENCY: "GHS",
-        EXCHANGE_RATE: 1,
-        ITEM_NAME: "Ballpoint Pens Box",
+        CURRENCY: sampleCurrency,
+        EXCHANGE_RATE: sampleRate,
+        ITEM_NAME: itemNames[1] || "Ballpoint Pens Box",
         QTY: 5,
-        UNIT_PRICE: 20.0,
+        UNIT_PRICE: purchaseType === "IMPORT" ? 12.0 : 20.0,
         DISCOUNT_PERCENT: 5,
-        TAX_AMOUNT: 1.9,
-        DESCRIPTION: "Office Supplies Q1"
+        TAX_AMOUNT: purchaseType === "IMPORT" ? 0 : 1.9,
+        DESCRIPTION: purchaseType === "IMPORT" ? "Import Supplies Shipment" : "Local Office Supplies Q1"
       });
 
       worksheet.addRow({
-        BRANCH_ID: bId,
+        BRANCH_NAME: defaultBranchName,
         WAREHOUSE_NAME: defaultWh,
-        SUPPLIER_NAME: "Global Tech Ltd",
+        BILL_TYPE: defaultBillType,
+        SUPPLIER_NAME: supplierNames[1] || supplierNames[0] || "Global Tech Ltd",
         BILL_DATE: today,
         DUE_DATE: today,
         SUPPLIER_INVOICE_NO: "INV-4412",
         SUPPLIER_INVOICE_DATE: today,
         PAYMENT_TERMS: "Immediate",
-        CURRENCY: "USD",
-        EXCHANGE_RATE: 15.5,
-        ITEM_NAME: "Wireless Router",
+        CURRENCY: sampleCurrency,
+        EXCHANGE_RATE: sampleRate,
+        ITEM_NAME: itemNames[2] || "Wireless Router",
         QTY: 2,
-        UNIT_PRICE: 120.0,
+        UNIT_PRICE: purchaseType === "IMPORT" ? 85.0 : 120.0,
         DISCOUNT_PERCENT: 0,
         TAX_AMOUNT: 0,
-        DESCRIPTION: "IT Equipment"
+        DESCRIPTION: purchaseType === "IMPORT" ? "IT Import Hardware" : "IT Equipment"
       });
 
       // Data validations
-      const whFormula = branchWhs.length > 0
-        ? `"${branchWhs.join(",")}"`
-        : `"${defaultWh}"`;
+      const branchFormula = `LookupData!$B$2:$B$${branchNames.length + 1}`;
+      const whFormula = `LookupData!$D$2:$D$${whList.length + 1}`;
+      const suppFormula = `LookupData!$C$2:$C$${supplierNames.length + 1}`;
+      const billTypeFormula = '"LOCAL,IMPORT"';
       const termsFormula = `"${paymentTermsList.join(",")}"`;
       const curFormula = `"${currencyList.join(",")}"`;
       const itemFormula = `LookupData!$A$2:$A$${itemNames.length + 1}`;
 
       for (let r = 2; r <= 1000; r++) {
+        // Col A: BRANCH_NAME
+        worksheet.getCell(`A${r}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [branchFormula],
+          showErrorMessage: true,
+          errorTitle: "Invalid Branch",
+          error: "Please select a branch from the dropdown list.",
+        };
         // Col B: WAREHOUSE_NAME
         worksheet.getCell(`B${r}`).dataValidation = {
           type: "list",
@@ -237,8 +287,26 @@ export default function PurchaseUploadPage() {
           errorTitle: "Invalid Warehouse",
           error: "Please select a warehouse from the dropdown list.",
         };
-        // Col H: PAYMENT_TERMS
-        worksheet.getCell(`H${r}`).dataValidation = {
+        // Col C: BILL_TYPE
+        worksheet.getCell(`C${r}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [billTypeFormula],
+          showErrorMessage: true,
+          errorTitle: "Invalid Bill Type",
+          error: "Please select LOCAL or IMPORT from the dropdown list.",
+        };
+        // Col D: SUPPLIER_NAME
+        worksheet.getCell(`D${r}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [suppFormula],
+          showErrorMessage: true,
+          errorTitle: "Invalid Supplier",
+          error: "Please select a supplier from the dropdown list.",
+        };
+        // Col I: PAYMENT_TERMS
+        worksheet.getCell(`I${r}`).dataValidation = {
           type: "list",
           allowBlank: true,
           formulae: [termsFormula],
@@ -246,8 +314,8 @@ export default function PurchaseUploadPage() {
           errorTitle: "Invalid Payment Terms",
           error: "Please select payment terms from the dropdown list.",
         };
-        // Col I: CURRENCY
-        worksheet.getCell(`I${r}`).dataValidation = {
+        // Col J: CURRENCY
+        worksheet.getCell(`J${r}`).dataValidation = {
           type: "list",
           allowBlank: true,
           formulae: [curFormula],
@@ -255,8 +323,8 @@ export default function PurchaseUploadPage() {
           errorTitle: "Invalid Currency",
           error: "Please select a currency from the dropdown list.",
         };
-        // Col K: ITEM_NAME (Type-ahead autocomplete dropdown)
-        worksheet.getCell(`K${r}`).dataValidation = {
+        // Col L: ITEM_NAME (Type-ahead autocomplete dropdown)
+        worksheet.getCell(`L${r}`).dataValidation = {
           type: "list",
           allowBlank: true,
           formulae: [itemFormula],
@@ -273,10 +341,10 @@ export default function PurchaseUploadPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "Purchase_Bills_Upload_Template.xlsx";
+      a.download = purchaseType === "IMPORT" ? "Import_Purchase_Bills_Template.xlsx" : "Local_Purchase_Bills_Template.xlsx";
       a.click();
       window.URL.revokeObjectURL(url);
-      toast.success("Template downloaded successfully");
+      toast.success(`${purchaseType === "IMPORT" ? "Import" : "Local"} purchase template downloaded successfully`);
     } catch (err) {
       console.error(err);
       toast.error("Failed to generate template");
@@ -331,55 +399,176 @@ export default function PurchaseUploadPage() {
 
     for (let i = 0; i < rawRows.length; i++) {
       const row = rawRows[i];
-      const supp = String(row.SUPPLIER_NAME || row.supplier_name || "").trim();
-      const billDate = formatDate(row.BILL_DATE || row.bill_date) || new Date().toISOString().slice(0, 10);
-      const suppInvNo = String(row.SUPPLIER_INVOICE_NO || row.supplier_invoice_no || row.supplier_invoice_number || "").trim();
-      const wh = String(row.WAREHOUSE_NAME || row.warehouse_name || "").trim();
+      const supp = String(
+        row.SUPPLIER_NAME ||
+        row["SUPPLIER NAME"] ||
+        row["Supplier Name"] ||
+        row.supplier_name ||
+        row.SUPPLIER ||
+        row.supplier ||
+        ""
+      ).trim();
 
       if (!supp) continue;
 
+      const billDate = formatDate(
+        row.BILL_DATE ||
+        row["BILL DATE"] ||
+        row["Bill Date"] ||
+        row.bill_date
+      ) || new Date().toISOString().slice(0, 10);
+
+      const suppInvNo = String(
+        row.SUPPLIER_INVOICE_NO ||
+        row["SUPPLIER INVOICE NO"] ||
+        row["Supplier Invoice No"] ||
+        row.SUPPLIER_INVOICE_NUMBER ||
+        row["SUPPLIER INVOICE NUMBER"] ||
+        row["Supplier Invoice Number"] ||
+        row.supplier_invoice_no ||
+        row.supplier_invoice_number ||
+        row.INVOICE_NO ||
+        row["INVOICE NO"] ||
+        row["Invoice No"] ||
+        row.invoice_no ||
+        row.INV_NO ||
+        row.inv_no ||
+        ""
+      ).trim();
+
+      const wh = String(
+        row.WAREHOUSE_NAME ||
+        row["WAREHOUSE NAME"] ||
+        row["Warehouse Name"] ||
+        row.warehouse_name ||
+        row.WAREHOUSE ||
+        row.warehouse ||
+        ""
+      ).trim();
+
+      const rawBillType = String(
+        row.BILL_TYPE ||
+        row["BILL TYPE"] ||
+        row["Bill Type"] ||
+        row.bill_type ||
+        ""
+      ).trim().toUpperCase();
+      const billType = (rawBillType === "IMPORT" || rawBillType === "LOCAL") ? rawBillType : purchaseType;
+
+      const brIdent = String(
+        row.BRANCH_NAME ||
+        row["BRANCH NAME"] ||
+        row["Branch Name"] ||
+        row.branch_name ||
+        row.BRANCH ||
+        row.branch ||
+        row.BRANCH_ID ||
+        row.branch_id ||
+        ""
+      ).trim();
+
+      const matchedBranch = branches.find(
+        (b) =>
+          (b.branch_name && b.branch_name.toLowerCase() === brIdent.toLowerCase()) ||
+          (b.branch_code && b.branch_code.toLowerCase() === brIdent.toLowerCase()) ||
+          String(b.id) === brIdent
+      );
+      const branchName = matchedBranch?.branch_name || brIdent || (branches.find((b) => String(b.id) === String(selectedBranch))?.branch_name || "");
+      const branchId = matchedBranch?.id || (selectedBranch ? Number(selectedBranch) : (branches[0]?.id || 1));
+
+      // Group all items with the same supplier invoice number under ONE purchase bill
+      const normalizedInvNo = suppInvNo.toLowerCase();
+      const normalizedSupp = supp.toLowerCase();
+      const normalizedBr = String(branchId);
+      const normalizedWh = wh.toLowerCase();
+
       const groupKey = suppInvNo
-        ? `SUPP_${supp}_INV_${suppInvNo}`
-        : `SUPP_${supp}_DATE_${billDate}_WH_${wh}_${i}`;
+        ? `INV_${normalizedInvNo}`
+        : `NOINV_SUPP_${normalizedSupp}_DATE_${billDate}_WH_${normalizedWh}_BR_${normalizedBr}`;
 
       if (!billMap.has(groupKey)) {
         billMap.set(groupKey, {
-          branch_id: row.BRANCH_ID || row.branch_id || selectedBranch || 1,
+          branch_id: branchId,
+          branch_name: branchName,
           warehouse_name: wh,
           supplier_name: supp,
+          bill_type: billType,
           bill_no: "",
           bill_date: billDate,
-          due_date: formatDate(row.DUE_DATE || row.due_date),
+          due_date: formatDate(row.DUE_DATE || row["DUE DATE"] || row["Due Date"] || row.due_date),
           supplier_invoice_number: suppInvNo,
-          supplier_invoice_date: formatDate(row.SUPPLIER_INVOICE_DATE || row.supplier_invoice_date),
-          payment_terms: String(row.PAYMENT_TERMS || row.payment_terms || "30 Days").trim(),
-          currency_code: String(row.CURRENCY || row.currency || row.CURRENCY_CODE || row.currency_code || "GHS").trim(),
-          exchange_rate: Number(row.EXCHANGE_RATE || row.exchange_rate || 1) || 1,
+          supplier_invoice_date: formatDate(
+            row.SUPPLIER_INVOICE_DATE ||
+            row["SUPPLIER INVOICE DATE"] ||
+            row["Supplier Invoice Date"] ||
+            row.supplier_invoice_date
+          ),
+          payment_terms: String(
+            row.PAYMENT_TERMS ||
+            row["PAYMENT TERMS"] ||
+            row["Payment Terms"] ||
+            row.payment_terms ||
+            "30 Days"
+          ).trim(),
+          currency_code: String(
+            row.CURRENCY ||
+            row["CURRENCY"] ||
+            row.currency ||
+            row.CURRENCY_CODE ||
+            row.currency_code ||
+            (billType === "IMPORT" ? "USD" : "GHS")
+          ).trim(),
+          exchange_rate: Number(
+            row.EXCHANGE_RATE ||
+            row["EXCHANGE RATE"] ||
+            row.exchange_rate ||
+            1
+          ) || 1,
           lines: [],
         });
       }
 
       const currentBill = billMap.get(groupKey);
-      const qty = Number(row.QTY ?? row.qty ?? 1);
-      const unitPrice = Number(row.UNIT_PRICE ?? row.unit_price ?? 0);
-      const discPct = Number(row.DISCOUNT_PERCENT ?? row.discount_percent ?? 0);
-      const taxAmt = Number(row.TAX_AMOUNT ?? row.tax_amount ?? 0);
+
+      const itemName = String(
+        row.ITEM_NAME ||
+        row["ITEM NAME"] ||
+        row["Item Name"] ||
+        row.item_name ||
+        row.ITEM_CODE ||
+        row["ITEM CODE"] ||
+        row.item_code ||
+        ""
+      ).trim();
+
+      if (!itemName) continue;
+
+      const qty = Number(row.QTY ?? row.qty ?? row.Quantity ?? row.quantity ?? 1);
+      const unitPrice = Number(row.UNIT_PRICE ?? row["UNIT PRICE"] ?? row["Unit Price"] ?? row.unit_price ?? row.price ?? 0);
+      const discPct = Number(row.DISCOUNT_PERCENT ?? row["DISCOUNT PERCENT"] ?? row["Discount %"] ?? row.discount_percent ?? 0);
+      const taxAmt = Number(row.TAX_AMOUNT ?? row["TAX AMOUNT"] ?? row["Tax Amount"] ?? row.tax_amount ?? row.tax ?? 0);
       const gross = qty * unitPrice;
       const net = gross - (gross * discPct) / 100;
       const total = net + taxAmt;
 
       currentBill.lines.push({
-        item_name: String(row.ITEM_NAME || row.item_name || row.ITEM_CODE || row.item_code || "").trim(),
+        item_name: itemName,
         qty,
         unit_price: unitPrice,
         discount_percent: discPct,
         tax_amount: taxAmt,
         line_total: total,
-        description: String(row.DESCRIPTION || row.description || "").trim(),
+        description: String(
+          row.DESCRIPTION ||
+          row["DESCRIPTION"] ||
+          row["Description"] ||
+          row.description ||
+          ""
+        ).trim(),
       });
     }
 
-    return Array.from(billMap.values());
+    return Array.from(billMap.values()).filter((b) => b.lines.length > 0);
   };
 
   const handleUpload = async () => {
@@ -394,6 +583,8 @@ export default function PurchaseUploadPage() {
     try {
       const resp = await api.post("/purchase/bulk-upload", {
         bills: parsedBills,
+        purchaseType,
+        bill_type: purchaseType,
         updateFinanceVouchers,
         branchId: selectedBranch ? Number(selectedBranch) : null,
       });
@@ -430,7 +621,7 @@ export default function PurchaseUploadPage() {
 
         <div className="card-body p-6 space-y-6">
           {/* Settings & Configuration */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 dark:bg-slate-800/40 p-5 rounded-xl border border-slate-200 dark:border-slate-700">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 dark:bg-slate-800/40 p-5 rounded-xl border border-slate-200 dark:border-slate-700">
             <div>
               <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300">
                 Target Branch
@@ -447,6 +638,36 @@ export default function PurchaseUploadPage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-2 block">
+                Purchase Type (Bill Type)
+              </label>
+              <div className="flex items-center gap-3 mt-1 bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+                <label className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-md cursor-pointer text-xs font-semibold transition-all ${purchaseType === "LOCAL" ? "bg-emerald-50 text-emerald-700 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-700 shadow-sm" : "text-slate-600 dark:text-slate-400 hover:text-slate-900"}`}>
+                  <input
+                    type="radio"
+                    name="purchaseType"
+                    value="LOCAL"
+                    checked={purchaseType === "LOCAL"}
+                    onChange={() => setPurchaseType("LOCAL")}
+                    className="text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5"
+                  />
+                  <span>Local Purchase</span>
+                </label>
+                <label className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-md cursor-pointer text-xs font-semibold transition-all ${purchaseType === "IMPORT" ? "bg-amber-50 text-amber-700 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700 shadow-sm" : "text-slate-600 dark:text-slate-400 hover:text-slate-900"}`}>
+                  <input
+                    type="radio"
+                    name="purchaseType"
+                    value="IMPORT"
+                    checked={purchaseType === "IMPORT"}
+                    onChange={() => setPurchaseType("IMPORT")}
+                    className="text-amber-600 focus:ring-amber-500 w-3.5 h-3.5"
+                  />
+                  <span>Import Purchase</span>
+                </label>
+              </div>
             </div>
 
             <div className="flex flex-col justify-center">
@@ -480,10 +701,10 @@ export default function PurchaseUploadPage() {
                   Step 1
                 </span>
                 <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Download Purchase Bills Template
+                  Download {purchaseType === "IMPORT" ? "Import" : "Local"} Purchase Bills Template
                 </h4>
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                  Get pre-formatted spreadsheet with required bill and item columns
+                  Get pre-formatted spreadsheet pre-configured for {purchaseType === "IMPORT" ? "Import" : "Local"} purchase bills
                 </p>
               </div>
               <button
@@ -622,9 +843,17 @@ export default function PurchaseUploadPage() {
                           <span className="badge badge-brand text-[11px] font-bold">
                             Bill #{idx + 1}: {b.bill_no || "Auto-Generate"}
                           </span>
+                          <span className={`badge text-[10px] font-bold ${b.bill_type === "IMPORT" ? "bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300" : "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300"}`}>
+                            {b.bill_type === "IMPORT" ? "Import Purchase" : "Local Purchase"}
+                          </span>
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
                             Supplier: {b.supplier_name}
                           </span>
+                          {b.branch_name && (
+                            <span className="badge badge-outline text-[10px] text-brand-700 bg-brand-50 border-brand-200">
+                              Branch: {b.branch_name}
+                            </span>
+                          )}
                           {b.warehouse_name && (
                             <span className="badge badge-outline text-[10px] text-slate-500">
                               Wh: {b.warehouse_name}
@@ -641,37 +870,67 @@ export default function PurchaseUploadPage() {
                         </div>
                       </div>
 
-                      <table className="table table-compact w-full text-xs">
-                        <thead>
-                          <tr>
-                            <th>Item Name</th>
-                            <th className="text-right">Qty</th>
-                            <th className="text-right">Unit Price</th>
-                            <th className="text-right">Disc %</th>
-                            <th className="text-right">Tax</th>
-                            <th className="text-right">Line Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {b.lines.map((l, lIdx) => (
-                            <tr key={lIdx}>
-                              <td>
-                                <span className="font-medium">{l.item_name || "Custom Item"}</span>
-                                {l.description && (
-                                  <span className="text-[10px] text-slate-400 block">{l.description}</span>
-                                )}
-                              </td>
-                              <td className="text-right">{l.qty}</td>
-                              <td className="text-right">{Number(l.unit_price).toFixed(2)}</td>
-                              <td className="text-right">{l.discount_percent}%</td>
-                              <td className="text-right">{Number(l.tax_amount).toFixed(2)}</td>
-                              <td className="text-right font-semibold text-slate-900 dark:text-slate-100">
-                                {Number(l.line_total).toFixed(2)}
-                              </td>
+                      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                        <table className="w-full text-xs table-fixed divide-y divide-slate-200 dark:divide-slate-700">
+                          <colgroup>
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                          </colgroup>
+                          <thead className="bg-slate-50 dark:bg-slate-800/60">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "left" }}>
+                                Item Name
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Qty
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Unit Price
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Disc %
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Tax
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Line Total
+                              </th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
+                            {b.lines.map((l, lIdx) => (
+                              <tr key={lIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                <td className="px-3 py-2.5 truncate" style={{ width: "16.666%", textAlign: "left", minWidth: 0 }}>
+                                  <span className="font-medium truncate block text-slate-800 dark:text-slate-200">{l.item_name || "Custom Item"}</span>
+                                  {l.description && (
+                                    <span className="text-[10px] text-slate-400 block truncate">{l.description}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300" style={{ width: "16.666%", textAlign: "right" }}>
+                                  {l.qty}
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300" style={{ width: "16.666%", textAlign: "right" }}>
+                                  {Number(l.unit_price).toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300" style={{ width: "16.666%", textAlign: "right" }}>
+                                  {l.discount_percent}%
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300" style={{ width: "16.666%", textAlign: "right" }}>
+                                  {Number(l.tax_amount).toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2.5 font-semibold text-slate-900 dark:text-slate-100" style={{ width: "16.666%", textAlign: "right", minWidth: 0 }}>
+                                  {Number(l.line_total).toFixed(2)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   );
                 })}

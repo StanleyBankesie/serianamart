@@ -24,6 +24,10 @@ import TransferAcceptanceList from "./TransferAcceptanceList.jsx";
 import TransferAcceptanceForm from "./TransferAcceptanceForm.jsx";
 import StockTakeList from "./StockTakeList.jsx";
 import StockTakeForm from "./StockTakeForm.jsx";
+import DailyStockTakeList from "./DailyStockTakeList.jsx";
+import DailyStockTakeForm from "./DailyStockTakeForm.jsx";
+import PhysicalStockTakeList from "./PhysicalStockTakeList.jsx";
+import PhysicalStockTakeForm from "./PhysicalStockTakeForm.jsx";
 import ItemGroupsList from "./ItemGroupsList.jsx";
 import ItemGroupForm from "./ItemGroupForm.jsx";
 import UnitConversionsList from "./UnitConversionsList.jsx";
@@ -132,23 +136,23 @@ export const inventorySections = [
       },
       {
         name: "Physical Inventory (Stock Take)",
-        path: "/inventory/stock-take",
+        path: "/inventory/physical-stock-take",
         actions: [
-          { label: "View", path: "/inventory/stock-take", type: "outline" },
-          { label: "New", path: "/inventory/stock-take/new", type: "primary" }
+          { label: "View", path: "/inventory/physical-stock-take", type: "outline" },
+          { label: "New", path: "/inventory/physical-stock-take/new", type: "primary" }
         ],
-        description: "Generate and manage physical stock counts",
+        description: "Formal comprehensive physical stock takes & audit controls",
         icon: "📋",
       },
       {
         name: "Daily Stock Take",
-        path: "/inventory/stock-take",
+        path: "/inventory/daily-stock-take",
         actions: [
-          { label: "View", path: "/inventory/stock-take", type: "outline" },
-          { label: "New", path: "/inventory/stock-take/new", type: "primary" }
+          { label: "View", path: "/inventory/daily-stock-take", type: "outline" },
+          { label: "New", path: "/inventory/daily-stock-take/new", type: "primary" }
         ],
-        description: "Perform physical stock counts",
-        icon: "📋",
+        description: "Routine daily operational verification & tolerance tracking",
+        icon: "📅",
       },
       {
         name: "Stock Updation",
@@ -828,7 +832,10 @@ export default function InventoryHome() {
       />
       <Route path="stock-reorder" element={<StockReorderPage />} />
       <Route path="stock-upload" element={<StockUploadPage />} />
-      <Route path="alerts/low-stock" element={<LowStockNotificationsPage />} />
+      <Route path="daily-stock-take" element={<DailyStockTakeList />} />
+      <Route path="daily-stock-take/:id" element={<DailyStockTakeForm />} />
+      <Route path="physical-stock-take" element={<PhysicalStockTakeList />} />
+      <Route path="physical-stock-take/:id" element={<PhysicalStockTakeForm />} />
       <Route path="stock-take" element={<StockTakeList />} />
       <Route path="stock-take/:id" element={<StockTakeForm />} />
       <Route path="grn-local" element={<GRNLocalList />} />
@@ -1013,12 +1020,22 @@ export const inventoryFeatures = [
   },
   {
     module_key: "inventory",
+    label: "Physical Stock Take",
+    path: "/inventory/physical-stock-take",
+    actions: [
+      { label: "View", path: "/inventory/physical-stock-take", type: "outline" },
+      { label: "New", path: "/inventory/physical-stock-take/new", type: "primary" }
+    ],
+    type: "feature",
+  },
+  {
+    module_key: "inventory",
     label: "Daily Stock Take",
-    path: "/inventory/stock-take",
-        actions: [
-          { label: "View", path: "/inventory/stock-take", type: "outline" },
-          { label: "New", path: "/inventory/stock-take/new", type: "primary" }
-        ],
+    path: "/inventory/daily-stock-take",
+    actions: [
+      { label: "View", path: "/inventory/daily-stock-take", type: "outline" },
+      { label: "New", path: "/inventory/daily-stock-take/new", type: "primary" }
+    ],
     type: "feature",
   },
   {

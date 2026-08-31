@@ -4493,26 +4493,33 @@ export const balanceSheetReport = async (req, res, next) => {
         credit: Number(ob.ob_credit || 0),
       });
     });
-
     // 3. Fetch voucher movements up to asOfDate
+    const filterBranchId = req.query.branchId && req.query.branchId !== 'all' ? Number(req.query.branchId) : null;
+
     const movements = await query(
       `SELECT a.id as account_id, a.code as account_code, a.name as account_name, a.group_id, g.nature,
-              SUM(COALESCE(vl.debit, 0)) AS mv_debit,
-              SUM(COALESCE(vl.credit, 0)) AS mv_credit
+              SUM(CASE WHEN v.id IS NOT NULL 
+                       AND v.company_id = :companyId 
+                       AND v.status = 'POSTED'
+                       AND (:filterBranchId IS NULL OR v.branch_id = :filterBranchId OR v.branch_id IS NULL)
+                       AND DATE(v.voucher_date) <= :asOfDate
+                  THEN COALESCE(vl.debit, 0) ELSE 0 END) AS mv_debit,
+              SUM(CASE WHEN v.id IS NOT NULL 
+                       AND v.company_id = :companyId 
+                       AND v.status = 'POSTED'
+                       AND (:filterBranchId IS NULL OR v.branch_id = :filterBranchId OR v.branch_id IS NULL)
+                       AND DATE(v.voucher_date) <= :asOfDate
+                  THEN COALESCE(vl.credit, 0) ELSE 0 END) AS mv_credit
        FROM fin_accounts a
        JOIN fin_account_groups g ON g.id = a.group_id
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
-       LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
-          AND v.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
-          AND v.voucher_date <= :asOfDate
-          AND v.status = 'POSTED'
+       LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id
        WHERE a.company_id = :companyId
          AND a.is_active = 1
          AND g.nature IN ('ASSET', 'LIABILITY', 'EQUITY')
        GROUP BY a.id, a.code, a.name, a.group_id, g.nature
        ORDER BY a.code ASC`,
-      { companyId, branchId: branchId || null, branchIdsStr, asOfDate },
+      { companyId, filterBranchId, asOfDate },
     );
 
     // 4. Build the hierarchical tree per section
@@ -4548,19 +4555,12 @@ export const balanceSheetReport = async (req, res, next) => {
         const totalCredit = Number(a.mv_credit || 0) + ob.credit;
         // For ASSET: positive balance = debit > credit
         // For LIABILITY/EQUITY: positive balance = credit > debit
-        let amount;
-        if (nature === "ASSET") {
-          amount = totalDebit - totalCredit;
-        } else {
-          amount = totalCredit - totalDebit;
-        }
-        const accNode = {
-          ...a,
-          type: "account",
-          amount,
-          ob_debit: ob.debit,
-          ob_credit: ob.credit,
-        };
+        const amt =
+          nature === "ASSET"
+            ? totalDebit - totalCredit
+            : totalCredit - totalDebit;
+
+        const accNode = { ...a, type: "account", amount: amt };
         if (groupMap.has(a.group_id)) {
           groupMap.get(a.group_id).accounts.push(accNode);
         }
@@ -4584,20 +4584,22 @@ export const balanceSheetReport = async (req, res, next) => {
       roots.forEach((r) => {
         grandTotal += calcTotal(r, 1);
       });
+
       return { items: roots, total: grandTotal };
     };
 
     const assets = buildTree("ASSET");
     const liabilities = buildTree("LIABILITY");
     const equity = buildTree("EQUITY");
-    const totalLiabEquity = liabilities.total + equity.total;
 
     res.json({
+      as_of: asOfDate,
       assets,
       liabilities,
       equity,
-      balance: assets.total - totalLiabEquity,
-      as_of_date: asOfDate,
+      total_assets: assets.total,
+      total_liabilities_equity: liabilities.total + equity.total,
+      is_balanced: Math.abs(assets.total - (liabilities.total + equity.total)) < 0.01,
     });
   } catch (e) {
     next(e);
@@ -4606,7 +4608,39 @@ export const balanceSheetReport = async (req, res, next) => {
 
 export const profitAndLossReport = async (req, res, next) => {
   try {
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    const { companyId } = req.scope || {};
+    const userId = Number(req.user?.sub || req.user?.id);
+
+    // User's assigned branches
+    let allowedBranches = Array.isArray(req.user?.branchIds)
+      ? req.user.branchIds.map(Number).filter(Boolean)
+      : [];
+    if (!allowedBranches.length && userId) {
+      const rows = await query(
+        `SELECT branch_id FROM adm_user_branches WHERE user_id = :userId`,
+        { userId },
+      );
+      allowedBranches = rows.map((r) => Number(r.branch_id)).filter(Boolean);
+    }
+
+    const rawId = process.env.LICENSE_SUPER_ADMIN_ID;
+    const superAdminId = rawId ? parseInt(String(rawId).trim(), 10) : 1;
+    const isSuper = Number(userId) === superAdminId || req.user?.is_super_admin || req.user?.role === "SUPER_ADMIN";
+
+    // Check if branchId was explicitly provided in query
+    let filterBranchId =
+      req.query.branchId && req.query.branchId !== "all"
+        ? Number(req.query.branchId)
+        : null;
+
+    // If non-admin user only has 1 assigned branch and didn't select one, default to that branch
+    if (!isSuper && !filterBranchId && allowedBranches.length === 1) {
+      filterBranchId = allowedBranches[0];
+    }
+
+    const isRestrictedUser = !isSuper && allowedBranches.length > 0;
+    const branchIdsStr = allowedBranches.join(",");
+
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
 
@@ -4618,26 +4652,63 @@ export const profitAndLossReport = async (req, res, next) => {
       { companyId },
     );
 
-    // 2. Fetch all accounts with balances for the period
+    // 2. Fetch opening balances for income and expense accounts
+    const openingBalances = await query(
+      `SELECT account_id,
+              SUM(COALESCE(opening_debit, 0)) as ob_debit,
+              SUM(COALESCE(opening_credit, 0)) as ob_credit
+       FROM fin_account_opening_balances
+       WHERE company_id = :companyId
+         AND (
+           (:filterBranchId IS NOT NULL AND (branch_id = :filterBranchId OR branch_id IS NULL))
+           OR (:filterBranchId IS NULL AND (:isRestricted = 0 OR FIND_IN_SET(branch_id, :branchIdsStr) OR branch_id IS NULL))
+         )
+         AND (:to IS NULL OR DATE(opening_date) <= :to)
+       GROUP BY account_id`,
+      { companyId, filterBranchId, isRestricted: isRestrictedUser ? 1 : 0, branchIdsStr, to },
+    );
+
+    const obMap = new Map();
+    openingBalances.forEach((ob) => {
+      obMap.set(Number(ob.account_id), {
+        debit: Number(ob.ob_debit || 0),
+        credit: Number(ob.ob_credit || 0),
+      });
+    });
+
+    // 3. Fetch all accounts with balances for the period
     const accountBalances = await query(
       `SELECT a.id as account_id, a.code as account_code, a.name as account_name, a.group_id, g.nature,
-              SUM(COALESCE(vl.debit, 0)) AS debit,
-              SUM(COALESCE(vl.credit, 0)) AS credit
+              SUM(CASE WHEN v.id IS NOT NULL 
+                       AND v.company_id = :companyId 
+                       AND (v.status NOT IN ('CANCELLED', 'VOID', 'REJECTED') OR v.status IS NULL)
+                       AND (
+                         (:filterBranchId IS NOT NULL AND (v.branch_id = :filterBranchId OR v.branch_id IS NULL))
+                         OR (:filterBranchId IS NULL AND (:isRestricted = 0 OR FIND_IN_SET(v.branch_id, :branchIdsStr) OR v.branch_id IS NULL))
+                       )
+                       AND (:from IS NULL OR DATE(v.voucher_date) >= :from)
+                       AND (:to IS NULL OR DATE(v.voucher_date) <= :to)
+                  THEN COALESCE(vl.debit, 0) ELSE 0 END) AS debit,
+              SUM(CASE WHEN v.id IS NOT NULL 
+                       AND v.company_id = :companyId 
+                       AND (v.status NOT IN ('CANCELLED', 'VOID', 'REJECTED') OR v.status IS NULL)
+                       AND (
+                         (:filterBranchId IS NOT NULL AND (v.branch_id = :filterBranchId OR v.branch_id IS NULL))
+                         OR (:filterBranchId IS NULL AND (:isRestricted = 0 OR FIND_IN_SET(v.branch_id, :branchIdsStr) OR v.branch_id IS NULL))
+                       )
+                       AND (:from IS NULL OR DATE(v.voucher_date) >= :from)
+                       AND (:to IS NULL OR DATE(v.voucher_date) <= :to)
+                  THEN COALESCE(vl.credit, 0) ELSE 0 END) AS credit
        FROM fin_accounts a
        JOIN fin_account_groups g ON g.id = a.group_id
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
-       LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
-          AND v.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
-          AND (:from IS NULL OR v.voucher_date >= :from)
-          AND (:to IS NULL OR v.voucher_date <= :to)
-          AND v.status = 'POSTED'
+       LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id
        WHERE a.company_id = :companyId
          AND a.is_active = 1
          AND g.nature IN ('INCOME', 'EXPENSE')
        GROUP BY a.id, a.code, a.name, a.group_id, g.nature
        ORDER BY a.code ASC`,
-      { companyId, branchId: branchId || null, branchIdsStr, from, to },
+      { companyId, filterBranchId, isRestricted: isRestrictedUser ? 1 : 0, branchIdsStr, from, to },
     );
 
     const buildTree = (nature) => {
@@ -4669,11 +4740,23 @@ export const profitAndLossReport = async (req, res, next) => {
       });
 
       filteredAccounts.forEach((a) => {
+        const ob = obMap.get(Number(a.account_id)) || { debit: 0, credit: 0 };
+        const totalDebit = Number(a.debit || 0) + ob.debit;
+        const totalCredit = Number(a.credit || 0) + ob.credit;
+
         const amt =
           nature === "INCOME"
-            ? Number(a.credit || 0) - Number(a.debit || 0)
-            : Number(a.debit || 0) - Number(a.credit || 0);
-        const accNode = { ...a, type: "account", amount: amt };
+            ? totalCredit - totalDebit
+            : totalDebit - totalCredit;
+
+        const accNode = {
+          ...a,
+          id: a.account_id,
+          name: a.account_name,
+          code: a.account_code,
+          type: "account",
+          amount: amt,
+        };
         if (groupMap.has(a.group_id)) {
           groupMap.get(a.group_id).accounts.push(accNode);
         }
@@ -4716,7 +4799,8 @@ export const profitAndLossReport = async (req, res, next) => {
 
 export const ratioAnalysisReport = async (req, res, next) => {
   try {
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    const { companyId } = req.scope || {};
+    const filterBranchId = req.query.branchId && req.query.branchId !== 'all' ? Number(req.query.branchId) : null;
     const asOf = req.query.to
       ? String(req.query.to)
       : new Date().toISOString().split("T")[0];
@@ -4724,39 +4808,46 @@ export const ratioAnalysisReport = async (req, res, next) => {
     // Get balance sheet data for ratio calculations
     const bsData = await query(
       `SELECT g.nature, 
-              SUM(COALESCE(vl.debit, 0) - COALESCE(vl.credit, 0)) AS balance
+              SUM(CASE WHEN v.id IS NOT NULL 
+                       AND v.company_id = :companyId 
+                       AND v.status = 'POSTED'
+                       AND (:filterBranchId IS NULL OR v.branch_id = :filterBranchId OR v.branch_id IS NULL)
+                       AND DATE(v.voucher_date) <= :asOf
+                  THEN (COALESCE(vl.debit, 0) - COALESCE(vl.credit, 0)) ELSE 0 END) AS balance
        FROM fin_accounts a
        JOIN fin_account_groups g ON g.id = a.group_id
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
-       LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
-          AND v.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
-          AND v.voucher_date <= :asOf
-          AND v.status = 'POSTED'
+       LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id
        WHERE a.company_id = :companyId
          AND a.is_active = 1
        GROUP BY g.nature`,
-      { companyId, branchId: branchId || null, branchIdsStr, asOf },
+      { companyId, filterBranchId, asOf },
     );
 
     // Get P&L data for profitability ratios
     const plData = await query(
       `SELECT g.nature,
-              SUM(COALESCE(vl.debit, 0)) AS debit,
-              SUM(COALESCE(vl.credit, 0)) AS credit
+              SUM(CASE WHEN v.id IS NOT NULL 
+                       AND v.company_id = :companyId 
+                       AND v.status = 'POSTED'
+                       AND (:filterBranchId IS NULL OR v.branch_id = :filterBranchId OR v.branch_id IS NULL)
+                       AND DATE(v.voucher_date) <= :asOf
+                  THEN COALESCE(vl.debit, 0) ELSE 0 END) AS debit,
+              SUM(CASE WHEN v.id IS NOT NULL 
+                       AND v.company_id = :companyId 
+                       AND v.status = 'POSTED'
+                       AND (:filterBranchId IS NULL OR v.branch_id = :filterBranchId OR v.branch_id IS NULL)
+                       AND DATE(v.voucher_date) <= :asOf
+                  THEN COALESCE(vl.credit, 0) ELSE 0 END) AS credit
        FROM fin_accounts a
        JOIN fin_account_groups g ON g.id = a.group_id
        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
-       LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
-          AND v.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
-          AND v.voucher_date <= :asOf
-          AND v.status = 'POSTED'
+       LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id
        WHERE a.company_id = :companyId
          AND a.is_active = 1
          AND g.nature IN ('INCOME', 'EXPENSE')
        GROUP BY g.nature`,
-      { companyId, branchId: branchId || null, branchIdsStr, asOf },
+      { companyId, filterBranchId, asOf },
     );
 
     // Calculate balances by nature

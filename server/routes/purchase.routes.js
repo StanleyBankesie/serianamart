@@ -231,6 +231,7 @@ async function ensurePurBillsPaymentStatusObjects() {
     );
   } catch (e) {}
 }
+ensurePurBillsPaymentStatusObjects().catch(() => {});
 
 async function ensureGrnUomConversionColumns() {
   if (!(await hasColumn("inv_goods_receipt_note_details", "input_uom"))) {
@@ -11342,6 +11343,7 @@ router.post(
   async (req, res, next) => {
     let conn;
     try {
+      await ensurePurBillsPaymentStatusObjects();
       const companyId = Number(req.scope?.companyId || req.user?.companyId || 0);
       const branchId = Number(req.body.branchId || req.scope?.branchId || req.user?.branchId || 0);
       const branchIdsStr = String(branchId || "");
@@ -11352,14 +11354,47 @@ router.post(
         return res.status(400).json({ message: "No purchase bills provided for upload" });
       }
 
+      // Consolidate bills by Supplier Invoice Number so multiple items under the same supplier invoice are saved under one purchase bill
+      const consolidatedBills = [];
+      const billGroupingMap = new Map();
+
+      for (const rawB of bills) {
+        const suppKey = String(rawB.supplier_name || rawB.supplier_code || rawB.supplier_id || "").trim().toLowerCase();
+        const invNoKey = String(rawB.supplier_invoice_number || rawB.supplier_invoice_no || "").trim().toLowerCase();
+        const branchKey = String(rawB.branch_id || rawB.branch_name || branchId || "").trim().toLowerCase();
+        const dateKey = String(rawB.bill_date || "").slice(0, 10);
+        const whKey = String(rawB.warehouse_id || rawB.warehouse_name || "").trim().toLowerCase();
+        const typeKey = String(rawB.bill_type || "").trim().toUpperCase();
+
+        const groupKey = invNoKey
+          ? `INV_${invNoKey}`
+          : (suppKey ? `SUPP_${suppKey}_DATE_${dateKey}_WH_${whKey}_BR_${branchKey}_TYPE_${typeKey}` : null);
+
+        const currentLines = Array.isArray(rawB.lines) && rawB.lines.length > 0 ? rawB.lines : [rawB];
+
+        if (groupKey && billGroupingMap.has(groupKey)) {
+          const existing = billGroupingMap.get(groupKey);
+          existing.lines.push(...currentLines);
+        } else {
+          const newBill = {
+            ...rawB,
+            lines: [...currentLines],
+          };
+          if (groupKey) {
+            billGroupingMap.set(groupKey, newBill);
+          }
+          consolidatedBills.push(newBill);
+        }
+      }
+
       conn = await pool.getConnection();
       await conn.beginTransaction();
 
       const createdBills = [];
       const errors = [];
 
-      for (let i = 0; i < bills.length; i++) {
-        const b = bills[i];
+      for (let i = 0; i < consolidatedBills.length; i++) {
+        const b = consolidatedBills[i];
         const supplierIdent = String(b.supplier_name || b.supplier_code || b.supplier_id || "").trim();
         if (!supplierIdent) {
           errors.push(`Row ${i + 1}: Supplier is missing`);
@@ -11391,6 +11426,25 @@ router.post(
         const paymentTerms = b.payment_terms || "30 Days";
         const currencyId = Number(b.currency_id || suppRows?.[0]?.currency_id || 1) || 1;
         const exchangeRate = Number(b.exchange_rate || 1) || 1;
+
+        let billBranchId = branchId;
+        const brIdent = String(b.branch_name || b.branch_code || b.branch || b.branch_id || "").trim();
+        if (brIdent) {
+          const [brRows] = await conn.execute(
+            `SELECT id FROM adm_branches 
+             WHERE company_id = :companyId AND (id = :brId OR code = :code OR LOWER(name) = LOWER(:name)) 
+             LIMIT 1`,
+            {
+              companyId,
+              brId: isNaN(Number(brIdent)) ? 0 : Number(brIdent),
+              code: brIdent,
+              name: brIdent,
+            }
+          );
+          if (brRows?.[0]?.id) {
+            billBranchId = Number(brRows[0].id);
+          }
+        }
 
         let billWarehouseId = warehouseIdDefault;
         const whIdent = String(b.warehouse_name || b.warehouse_code || b.warehouse || b.warehouse_id || "").trim();
@@ -11428,7 +11482,7 @@ router.post(
           let itemId = null;
           if (itemIdent) {
             const [itRows] = await conn.execute(
-              `SELECT id, item_code, item_name, purchase_price FROM inv_items 
+              `SELECT id, item_code, item_name FROM inv_items 
                WHERE company_id = :companyId AND (id = :itId OR item_code = :code OR LOWER(item_name) = LOWER(:name)) 
                LIMIT 1`,
               {
@@ -11468,6 +11522,8 @@ router.post(
           });
         }
 
+        const billType = String(b.bill_type || req.body.bill_type || req.body.purchaseType || "LOCAL").trim().toUpperCase() === "IMPORT" ? "IMPORT" : "LOCAL";
+
         const [billHdr] = await conn.execute(
           `INSERT INTO pur_bills
             (company_id, branch_id, bill_no, bill_date, supplier_id, po_id, grn_id, bill_type,
@@ -11475,17 +11531,18 @@ router.post(
              total_amount, discount_amount, tax_amount, freight_charges, other_charges, net_amount,
              warehouse_id, status, created_by)
            VALUES
-            (:companyId, :branchId, :billNo, :billDate, :supplierId, NULL, NULL, 'LOCAL',
+            (:companyId, :branchId, :billNo, :billDate, :supplierId, NULL, NULL, :billType,
              :dueDate, :currencyId, :exchangeRate, :paymentTerms, :supplierInvoiceNumber, :supplierInvoiceDate,
              :totalAmount, :discountAmount, :taxAmount, 0, 0, :netAmount,
              :warehouseId, 'POSTED', :createdBy)`,
           {
             companyId,
-            branchId,
-            branchIdsStr,
+            branchId: billBranchId,
+            branchIdsStr: String(billBranchId || ""),
             billNo,
             billDate: billDateYmd,
             supplierId,
+            billType,
             dueDate: dueDateYmd,
             currencyId,
             exchangeRate,
@@ -11527,8 +11584,8 @@ router.post(
           try {
             voucherResult = await postPurchaseBillVoucherTx(conn, {
               companyId,
-              branchId,
-              branchIdsStr,
+              branchId: billBranchId,
+              branchIdsStr: String(billBranchId || ""),
               billId,
               userId: req.user?.sub || req.user?.id || null,
               isDirectPurchase: false,

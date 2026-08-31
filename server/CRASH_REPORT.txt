@@ -38102,3 +38102,898 @@ Error: Invalid id
     at requireBranchScope (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:248:14)
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 --------------------------------------------------------------------------------
+
+[2026-08-31T13:14:16.875Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:22:11.267Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:25:55.557Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:26:11.560Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:32:42.574Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:34:01.300Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:34:24.656Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:35:30.343Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:42:11.250Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:42:15.444Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:47:01.198Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T13:47:04.662Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:274:16
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/access.js:243:7
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:17:22.270Z] HTTP_500
+Summary: Unknown column 'i.uom_id' in 'on clause'
+Request: GET /api/inventory/stock-takes/2 (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: GET
+url: /api/inventory/stock-takes/2
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Unknown column 'i.uom_id' in 'on clause'
+    at withPoolOperation.sqlText (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:584:42)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:447:13
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at withPoolOperation (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:446:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:682:20)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8375:23
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:17:28.780Z] HTTP_500
+Summary: Unknown column 'i.uom_id' in 'on clause'
+Request: GET /api/inventory/stock-takes/2 (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: GET
+url: /api/inventory/stock-takes/2
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Unknown column 'i.uom_id' in 'on clause'
+    at withPoolOperation.sqlText (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:584:42)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:447:13
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at withPoolOperation (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:446:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:682:20)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8375:23
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:17:29.733Z] HTTP_500
+Summary: Unknown column 'i.uom_id' in 'on clause'
+Request: GET /api/inventory/stock-takes/2 (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: GET
+url: /api/inventory/stock-takes/2
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Unknown column 'i.uom_id' in 'on clause'
+    at withPoolOperation.sqlText (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:584:42)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:447:13
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at withPoolOperation (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:446:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:682:20)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8375:23
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:17:32.114Z] HTTP_500
+Summary: Unknown column 'i.uom_id' in 'on clause'
+Request: GET /api/inventory/stock-takes/2 (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: GET
+url: /api/inventory/stock-takes/2
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Unknown column 'i.uom_id' in 'on clause'
+    at withPoolOperation.sqlText (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:584:42)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:447:13
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at withPoolOperation (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:446:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:682:20)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8375:23
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:18:49.209Z] HTTP_404
+Summary: Request failed with status 404
+Request: GET /api/inventory/categories (status 404)
+Context:
+requestId: mthdvjai-ovk6957u
+durationMs: 15
+method: GET
+url: /api/inventory/categories
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: null
+companyId: null
+branchId: null
+status: 404
+Technical details:
+(no stack)
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:18:49.455Z] HTTP_500
+Summary: Unknown column 'i.uom_id' in 'on clause'
+Request: GET /api/inventory/stock-takes/2 (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: GET
+url: /api/inventory/stock-takes/2
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Unknown column 'i.uom_id' in 'on clause'
+    at withPoolOperation.sqlText (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:584:42)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:447:13
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at withPoolOperation (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:446:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:682:20)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8375:23
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:18:49.952Z] HTTP_500
+Summary: Unknown column 'i.uom_id' in 'on clause'
+Request: GET /api/inventory/stock-takes/2 (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: GET
+url: /api/inventory/stock-takes/2
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Unknown column 'i.uom_id' in 'on clause'
+    at withPoolOperation.sqlText (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:584:42)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:447:13
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at withPoolOperation (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:446:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:682:20)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8375:23
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:18:50.728Z] HTTP_500
+Summary: Unknown column 'i.uom_id' in 'on clause'
+Request: GET /api/inventory/stock-takes/2 (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: GET
+url: /api/inventory/stock-takes/2
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Unknown column 'i.uom_id' in 'on clause'
+    at withPoolOperation.sqlText (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:584:42)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:447:13
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at withPoolOperation (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:446:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:682:20)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8375:23
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:18:51.809Z] HTTP_500
+Summary: Unknown column 'i.uom_id' in 'on clause'
+Request: GET /api/inventory/stock-takes/2 (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: GET
+url: /api/inventory/stock-takes/2
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Unknown column 'i.uom_id' in 'on clause'
+    at withPoolOperation.sqlText (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:584:42)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:447:13
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at withPoolOperation (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:446:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async query (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:682:20)
+    at async file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8375:23
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:44:59.727Z] HTTP_404
+Summary: Request failed with status 404
+Request: GET /api/inventory/categories (status 404)
+Context:
+requestId: mthet74c-1ptxlpx0
+durationMs: 3
+method: GET
+url: /api/inventory/categories
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: null
+companyId: null
+branchId: null
+status: 404
+Technical details:
+(no stack)
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:47:00.065Z] HTTP_500
+Summary: Duplicate entry '1-1-1-2026-08-31' for key 'uq_count'
+Request: POST /api/inventory/stock-takes (status 500)
+Context:
+status: 500
+code: ER_DUP_ENTRY
+method: POST
+url: /api/inventory/stock-takes
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"stock_take_type":"DAILY","stock_take_date":"2026-08-31","warehouse_id":"1","count_scope":"SELECTED_ITEMS","tolerance_pct":1,"remarks":"","item_ids":[2]}
+query: {}
+Technical details:
+Error: Duplicate entry '1-1-1-2026-08-31' for key 'uq_count'
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:48
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at Proxy.<anonymous> (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:18)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8489:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:47:42.918Z] HTTP_500
+Summary: Duplicate entry '1-1-1-2026-08-31' for key 'uq_count'
+Request: POST /api/inventory/stock-takes (status 500)
+Context:
+status: 500
+code: ER_DUP_ENTRY
+method: POST
+url: /api/inventory/stock-takes
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"stock_take_type":"DAILY","stock_take_date":"2026-08-31","warehouse_id":"1","count_scope":"SELECTED_ITEMS","tolerance_pct":0,"remarks":"","item_ids":[15]}
+query: {}
+Technical details:
+Error: Duplicate entry '1-1-1-2026-08-31' for key 'uq_count'
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:48
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at Proxy.<anonymous> (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:18)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8489:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T15:48:04.089Z] HTTP_500
+Summary: Duplicate entry '1-1-1-2026-08-31' for key 'uq_count'
+Request: POST /api/inventory/stock-takes (status 500)
+Context:
+status: 500
+code: ER_DUP_ENTRY
+method: POST
+url: /api/inventory/stock-takes
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"stock_take_type":"DAILY","stock_take_date":"2026-08-31","warehouse_id":"1","count_scope":"SELECTED_ITEMS","tolerance_pct":0,"remarks":"","item_ids":[15]}
+query: {}
+Technical details:
+Error: Duplicate entry '1-1-1-2026-08-31' for key 'uq_count'
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:48
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at Proxy.<anonymous> (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:18)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/inventory.routes.js:8489:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T16:08:48.993Z] HTTP_500
+Summary: Unknown column 'branch_code' in 'where clause'
+Request: POST /api/sales/bulk-upload (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: POST
+url: /api/sales/bulk-upload
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"invoices":[{"branch_id":1,"branch_name":"Head Office","warehouse_name":"Main Warehouse","customer_name":"1st page Ventures","invoice_no":"","invoice_date":"2026-08-31","due_date":"2026-08-31","price_type":"RETAIL","payment_type":"CREDIT","currency_code":"GHS","exchange_rate":1,"remarks":"January Retail Sales","lines":[{"item_name":"Bel Cola","qty":5,"unit_price":60,"discount_percent":0,"tax_amount":6,"line_total":306,"remarks":"January Retail Sales"},{"item_name":"fanta","qty":2,"unit_price":28,"discount_percent":0,"tax_amount":2.8,"line_total":58.8,"remarks":"January Retail Sales"}]},{"branch_id":1,"branch_name":"Head Office","warehouse_name":"Main Warehouse","customer_name":"Abandenden Ent","invoice_no":"","invoice_date":"2026-08-31","due_date":"2026-08-31","price_type":"WHOLESALE","payment_type":"CREDIT","currency_code":"GHS","exchange_rate":1,"remarks":"Bulk wholesale order","lines":[{"item_name":"softcare","qty":10,"unit_price":150,"discount_percent":0,"tax_amount":0,"line_total":1500,"remarks":"Bulk wholesale order"}]}],"updateFinanceVouchers":true,"branchId":1}
+query: {}
+Technical details:
+Error: Unknown column 'branch_code' in 'where clause'
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:48
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at Proxy.<anonymous> (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:18)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:9905:39
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T16:11:44.736Z] HTTP_500
+Summary: nextSequentialNo is not defined
+Request: POST /api/sales/bulk-upload (status 500)
+Context:
+status: 500
+code: null
+method: POST
+url: /api/sales/bulk-upload
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"invoices":[{"branch_id":1,"branch_name":"Head Office","warehouse_name":"Main Warehouse","customer_name":"1st page Ventures","invoice_no":"","invoice_date":"2026-08-31","due_date":"2026-08-31","price_type":"RETAIL","payment_type":"CREDIT","currency_code":"GHS","exchange_rate":1,"remarks":"January Retail Sales","lines":[{"item_name":"Bel Cola","qty":5,"unit_price":60,"discount_percent":0,"tax_amount":6,"line_total":306,"remarks":"January Retail Sales"},{"item_name":"fanta","qty":2,"unit_price":28,"discount_percent":0,"tax_amount":2.8,"line_total":58.8,"remarks":"January Retail Sales"}]},{"branch_id":1,"branch_name":"Head Office","warehouse_name":"Main Warehouse","customer_name":"Abandenden Ent","invoice_no":"","invoice_date":"2026-08-31","due_date":"2026-08-31","price_type":"WHOLESALE","payment_type":"CREDIT","currency_code":"GHS","exchange_rate":1,"remarks":"Bulk wholesale order","lines":[{"item_name":"softcare","qty":10,"unit_price":150,"discount_percent":0,"tax_amount":0,"line_total":1500,"remarks":"Bulk wholesale order"}]}],"updateFinanceVouchers":true,"branchId":1}
+query: {}
+Technical details:
+ReferenceError: nextSequentialNo is not defined
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:9942:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T16:17:18.512Z] HTTP_500
+Summary: Unknown column 'standard_cost' in 'field list'
+Request: POST /api/sales/bulk-upload (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: POST
+url: /api/sales/bulk-upload
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"invoices":[{"branch_id":1,"branch_name":"Head Office","warehouse_name":"Main Warehouse","customer_name":"1st page Ventures","invoice_no":"","invoice_date":"2026-08-31","due_date":"2026-08-31","price_type":"RETAIL","payment_type":"CREDIT","currency_code":"GHS","exchange_rate":1,"remarks":"January Retail Sales","lines":[{"item_name":"Bel Cola","qty":5,"unit_price":60,"discount_percent":0,"tax_amount":6,"line_total":306,"remarks":"January Retail Sales"},{"item_name":"fanta","qty":2,"unit_price":28,"discount_percent":0,"tax_amount":2.8,"line_total":58.8,"remarks":"January Retail Sales"}]},{"branch_id":1,"branch_name":"Head Office","warehouse_name":"Main Warehouse","customer_name":"Abandenden Ent","invoice_no":"","invoice_date":"2026-08-31","due_date":"2026-08-31","price_type":"WHOLESALE","payment_type":"CREDIT","currency_code":"GHS","exchange_rate":1,"remarks":"Bulk wholesale order","lines":[{"item_name":"softcare","qty":10,"unit_price":150,"discount_percent":0,"tax_amount":0,"line_total":1500,"remarks":"Bulk wholesale order"}]}],"updateFinanceVouchers":true,"branchId":1}
+query: {}
+Technical details:
+Error: Unknown column 'standard_cost' in 'field list'
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:48
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at Proxy.<anonymous> (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:18)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:9984:41
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T16:39:00.519Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/sales/invoices/next-no (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/sales/invoices/next-no
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:4721:15
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedAnyMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:97:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireBranchScope (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:248:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T17:06:31.984Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/sales/invoices/next-no (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/sales/invoices/next-no
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:4866:15
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedAnyMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:97:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireBranchScope (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:248:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T17:21:40.107Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/sales/invoices/next-no (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/sales/invoices/next-no
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:4873:15
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedAnyMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:97:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireBranchScope (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:248:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T17:24:30.526Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/sales/invoices/next-no (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/sales/invoices/next-no
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:4873:15
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedAnyMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:97:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireBranchScope (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:248:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T17:43:15.863Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/sales/invoices/next-no (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/sales/invoices/next-no
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:4873:15
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedAnyMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:97:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireBranchScope (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:248:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T17:57:19.504Z] HTTP_500
+Summary: Unknown column 'warehouse_id' in 'field list'
+Request: POST /api/purchase/bulk-upload (status 500)
+Context:
+status: 500
+code: ER_BAD_FIELD_ERROR
+method: POST
+url: /api/purchase/bulk-upload
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {"bills":[{"branch_id":1,"branch_name":"Head Office","warehouse_name":"Main Warehouse","supplier_name":"Asankwa Ent","bill_no":"","bill_date":"2026-08-31","due_date":"2026-08-31","supplier_invoice_number":"INV-9981","supplier_invoice_date":"2026-08-31","payment_terms":"30 Days","currency_code":"GHS","exchange_rate":1,"lines":[{"item_name":"Bigoo Cola","qty":1,"unit_price":45,"discount_percent":0,"tax_amount":4.5,"line_total":49.5,"description":"Office Supplies Q1"}]}],"updateFinanceVouchers":true,"branchId":1}
+query: {}
+Technical details:
+Error: Unknown column 'warehouse_id' in 'field list'
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:48
+    at withQueryTimeout (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:324:24)
+    at Proxy.<anonymous> (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/db/pool.js:550:18)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/purchase.routes.js:11490:38
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------

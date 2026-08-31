@@ -10,13 +10,14 @@ import { useUoms } from "@/hooks/useUoms";
 import { useExchangeRate } from "@/hooks/useExchangeRate";
 import UnitConversionModal from "@/components/UnitConversionModal";
 import { filterByPrefix } from "@/utils/searchUtils.js";
-import { Printer, Download, Plus } from "lucide-react";
+import { Printer, Download, Plus, AlertTriangle, X, ShieldAlert } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { useAuth } from "../../../../auth/AuthContext.jsx";
 import defaultLogo from "../../../../assets/resources/OMNISUITE_LOGO_FILL.png";
 import { toast } from "react-toastify";
 import { usePermission } from "../../../../auth/PermissionContext.jsx";
+import Swal from "sweetalert2";
 
 /**
  *  component
@@ -72,12 +73,32 @@ export default function InvoiceForm() {
     remarks: "",
     project_id: "",
     salesperson: "",
+    payment_type: "CASH",
+    payment_terms: "Net 30",
+    due_date: "",
     auto_receipt: false,
     payment_method: "Cash",
     deposit_account_id: "",
     payment_reference: "",
     cheque_date: "",
     paid_amount: "",
+  });
+
+  const [creditModal, setCreditModal] = useState({
+    isOpen: false,
+    isAuthorized: false,
+    customerId: null,
+    customerName: "",
+    effectiveLimit: 0,
+    currentBalance: 0,
+    invoiceTotal: 0,
+    projectedTotal: 0,
+    excess: 0,
+    tempLimitInput: "",
+    submitting: false,
+    workingLines: [],
+    sums: null,
+    invoiceNo: "",
   });
 
   const [lines, setLines] = useState([]);
@@ -892,19 +913,28 @@ export default function InvoiceForm() {
   function update(name, value) {
     let next = { ...form, [name]: value };
     if (name === "customer_id") {
-      const cust = customers.find((c) => c.id == value);
+      const cust = customers.find((c) => String(c.id) === String(value));
       next.address = cust?.address || "";
       next.address2 = cust?.address2 || "";
       next.city = cust?.city || "";
       next.state = cust?.state || "";
       next.country = cust?.country || "";
       next.phone = cust?.phone || cust?.customer_phone || "";
+      if (cust?.payment_terms) {
+        next.payment_terms = cust.payment_terms;
+        next.due_date = calcDueDate(next.invoice_date, cust.payment_terms);
+      }
       // Auto-apply customer's linked price type if available
       if (cust?.price_type_id) {
         next.price_type = String(cust.price_type_id);
       }
       fetchCustomerPrices();
       repriceLinesByPriceType(next.price_type, value);
+    }
+    if (name === "payment_terms" || name === "invoice_date") {
+      const invDate = name === "invoice_date" ? value : next.invoice_date;
+      const terms = name === "payment_terms" ? value : next.payment_terms;
+      next.due_date = calcDueDate(invDate, terms);
     }
     if (name === "sales_order_id" && value) {
       applyOrderToInvoice(value);
@@ -1275,10 +1305,17 @@ export default function InvoiceForm() {
     return s.slice(0, 10);
   }
 
-  function calcDueDate(dateStr, days) {
+  function calcDueDate(dateStr, terms) {
     if (!dateStr) return "";
     const d = new Date(dateStr);
-    d.setDate(d.getDate() + Number(days || 0));
+    let days = 0;
+    if (typeof terms === "number") {
+      days = terms;
+    } else if (typeof terms === "string") {
+      const match = terms.match(/\d+/);
+      if (match) days = parseInt(match[0], 10);
+    }
+    d.setDate(d.getDate() + (Number.isFinite(days) ? days : 0));
     return d.toISOString().split("T")[0];
   }
 
@@ -1338,6 +1375,100 @@ export default function InvoiceForm() {
         const tax = workingLines.reduce((s, l) => s + Number(l.taxAmt || 0), 0);
         return { sub, tax, total: sub + tax };
       })();
+
+      // Check customer credit limit enforcement if not immediate full cash/momo payment
+      if (form.customer_id && !form.auto_receipt) {
+        let creditStatus = null;
+        try {
+          const statusRes = await api.get(`/sales/customers/${form.customer_id}/credit-status`);
+          creditStatus = statusRes.data || null;
+        } catch (cErr) {
+          console.warn("Credit limit verification API notice:", cErr);
+        }
+
+        const selectedCust = customers.find((c) => String(c.id) === String(form.customer_id));
+        const isEnforced = Boolean(
+          creditStatus?.enforce_credit_limit ||
+          Number(selectedCust?.enforce_credit_limit) === 1 ||
+          selectedCust?.enforce_credit_limit === true ||
+          String(selectedCust?.enforce_credit_limit) === "true" ||
+          String(selectedCust?.enforce_credit_limit) === "1"
+        );
+
+        if (isEnforced) {
+          const effectiveLimit = Number(
+            creditStatus?.effective_credit_limit !== undefined
+              ? creditStatus.effective_credit_limit
+              : (selectedCust?.credit_limit || 0)
+          );
+          const currentBal = Number(creditStatus?.outstanding_balance || 0);
+          const newInvoiceAmt = Math.round(Number(sums.total || 0) * 100) / 100;
+          const projectedBal = currentBal + newInvoiceAmt;
+
+          if (projectedBal > effectiveLimit) {
+            const canOverride = typeof hasExceptional === "function" && hasExceptional("SALES.CREDIT_LIMIT.OVERRIDE");
+            const excess = projectedBal - effectiveLimit;
+            const custName = creditStatus?.customer_name || selectedCust?.customer_name || "Customer";
+
+            setCreditModal({
+              isOpen: true,
+              isAuthorized: Boolean(canOverride),
+              customerId: form.customer_id,
+              customerName: custName,
+              effectiveLimit,
+              currentBalance: currentBal,
+              invoiceTotal: newInvoiceAmt,
+              projectedTotal: projectedBal,
+              excess,
+              tempLimitInput: String(Math.ceil(projectedBal + 10)),
+              submitting: false,
+              workingLines,
+              sums,
+              invoiceNo,
+            });
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      await executeSaveInvoice(workingLines, sums, invoiceNo);
+    } catch (err) {
+      const msg = err?.response?.data?.message || "Error saving invoice";
+      setError(msg);
+      toast.error(msg);
+      setLoading(false);
+    }
+  }
+
+  async function handleConfirmCreditLimitIncrease() {
+    if (!creditModal.customerId || !creditModal.tempLimitInput) return;
+    const newLim = Number(creditModal.tempLimitInput);
+    if (!Number.isFinite(newLim) || newLim < Number(creditModal.projectedTotal)) {
+      toast.error(
+        `Temporary limit must be at least ${Number(creditModal.projectedTotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+      );
+      return;
+    }
+    setCreditModal((p) => ({ ...p, submitting: true }));
+    try {
+      await api.post(`/sales/customers/${creditModal.customerId}/temp-credit-limit`, {
+        new_credit_limit: newLim,
+      });
+      toast.success("Customer credit limit increased for today.");
+      const { workingLines, sums, invoiceNo } = creditModal;
+      setCreditModal((p) => ({ ...p, isOpen: false, submitting: false }));
+      await executeSaveInvoice(workingLines, sums, invoiceNo);
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Failed to increase temporary credit limit");
+      setCreditModal((p) => ({ ...p, submitting: false }));
+    }
+  }
+
+  async function executeSaveInvoice(workingLines, sums, invoiceNo) {
+    setLoading(true);
+    setError("");
+    try {
       const payload = {
         ...form,
         invoice_date: toYmd(form.invoice_date),
@@ -1347,6 +1478,7 @@ export default function InvoiceForm() {
         warehouse_id: form.warehouse_id ? Number(form.warehouse_id) : null,
         price_type: form.price_type,
         payment_type: form.payment_type,
+        payment_terms: form.payment_terms || "Net 30",
         currency_id: form.currency_id ? Number(form.currency_id) : null,
         exchange_rate: Number(form.exchange_rate || 1),
         total_amount: Math.round(Number(sums.total || 0) * 100) / 100,
@@ -1807,15 +1939,19 @@ export default function InvoiceForm() {
               </div>
               {form.payment_type === "CREDIT" && (
                 <div>
-                  <label className="label">Payment Date *</label>
-                  <input
-                    type="date"
-                    className="input"
-                    value={form.payment_date || ""}
-                    onChange={(e) => update("payment_date", e.target.value)}
-                    required={form.payment_type === "CREDIT"}
+                  <label className="label">Payment Terms</label>
+                  <select
+                    className="input w-56"
+                    value={form.payment_terms || "Net 30"}
+                    onChange={(e) => update("payment_terms", e.target.value)}
                     disabled={readOnly}
-                  />
+                  >
+                    <option value="Immediate">Immediate</option>
+                    <option value="Net 15">Net 15</option>
+                    <option value="Net 30">Net 30</option>
+                    <option value="Net 45">Net 45</option>
+                    <option value="Net 60">Net 60</option>
+                  </select>
                 </div>
               )}
               <div>
@@ -3038,6 +3174,124 @@ export default function InvoiceForm() {
               >
                 Back
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Credit Limit Exceeded Modal */}
+      {creditModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div
+            className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className={`p-4 flex items-center justify-between text-white ${creditModal.isAuthorized ? "bg-amber-600 dark:bg-amber-700" : "bg-rose-600 dark:bg-rose-700"}`}>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-white" />
+                <h3 className="text-base font-bold tracking-tight">
+                  {creditModal.isAuthorized ? "Credit Limit Exceeded - Daily Override" : "Credit Limit Exceeded"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreditModal((p) => ({ ...p, isOpen: false }))}
+                className="text-white/80 hover:text-white p-1 rounded-md transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2.5 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 dark:text-slate-400">Customer:</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-100">{creditModal.customerName}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 dark:text-slate-400">Current Credit Limit:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    {Number(creditModal.effectiveLimit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 dark:text-slate-400">Current Outstanding:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    {Number(creditModal.currentBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500 dark:text-slate-400">New Invoice Total:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    {Number(creditModal.invoiceTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="border-t border-slate-200 dark:border-slate-700 pt-2.5 flex justify-between items-center text-rose-600 dark:text-rose-400 font-bold">
+                  <span>Total Projected:</span>
+                  <span>
+                    {Number(creditModal.projectedTotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}{" "}
+                    <span className="text-xs font-normal">
+                      (Exceeds limit by {Number(creditModal.excess || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })})
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              {creditModal.isAuthorized ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed bg-amber-50 dark:bg-amber-950/30 p-3 rounded-lg border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300">
+                    As an authorized user, you can <strong>increase the credit limit for today only</strong> so this invoice can be completed. The limit will automatically revert back tomorrow.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Enter Temporary Credit Limit for Today:
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      min={Math.ceil(creditModal.projectedTotal || 0)}
+                      className="input w-full font-semibold"
+                      value={creditModal.tempLimitInput}
+                      onChange={(e) => setCreditModal((p) => ({ ...p, tempLimitInput: e.target.value }))}
+                      placeholder={`Enter at least ${Number(creditModal.projectedTotal || 0).toFixed(2)}`}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 leading-relaxed flex items-start gap-2.5">
+                  <ShieldAlert className="w-5 h-5 flex-shrink-0 text-rose-500 mt-0.5" />
+                  <div>
+                    You do not have exceptional permission to override or increase customer credit limits. Please contact a manager or system administrator.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2.5">
+              <button
+                type="button"
+                className="btn btn-secondary text-xs px-4"
+                onClick={() => setCreditModal((p) => ({ ...p, isOpen: false }))}
+                disabled={creditModal.submitting}
+              >
+                {creditModal.isAuthorized ? "Cancel" : "Close"}
+              </button>
+              {creditModal.isAuthorized && (
+                <button
+                  type="button"
+                  className="btn btn-success text-xs px-4"
+                  onClick={handleConfirmCreditLimitIncrease}
+                  disabled={
+                    creditModal.submitting ||
+                    !creditModal.tempLimitInput ||
+                    Number(creditModal.tempLimitInput) < Number(creditModal.projectedTotal)
+                  }
+                >
+                  {creditModal.submitting ? "Applying..." : "Increase for Today & Save"}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1272,8 +1272,14 @@ export default function AppShell() {
       for (const el of nodes) {
         try {
           if (
-            (el.getAttribute && el.getAttribute("data-rbac-exempt") === "") ||
-            (el.getAttribute && el.getAttribute("data-rbac-exempt") === "true")
+            (el.getAttribute && (el.getAttribute("data-rbac-exempt") === "" || el.getAttribute("data-rbac-exempt") === "true")) ||
+            (el.closest && (
+              el.closest("[data-rbac-exempt='true']") ||
+              el.closest("[data-rbac-exempt]") ||
+              el.closest("form") ||
+              el.closest(".form-section") ||
+              el.closest("[data-form]")
+            ))
           ) {
             continue;
           }

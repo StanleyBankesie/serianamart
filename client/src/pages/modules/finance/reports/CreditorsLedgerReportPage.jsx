@@ -9,6 +9,12 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import {
+  fetchReportHeader,
+  applyPdfHeader,
+  applyPdfFooter,
+  buildExcelHeaderRows,
+} from "../../../../utils/pdfUtils.js";
 import { filterAndSort } from "../../../../utils/searchUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
@@ -167,38 +173,58 @@ export default function CreditorsLedgerReportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, accountId, pollingCounter]);
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     const rows = Array.isArray(items) ? items : [];
     if (!rows.length) return;
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const headerInfo = await fetchReportHeader(api);
+    const selectedAcc = accounts.find((a) => String(a.id) === String(accountId));
+    const accTitle = selectedAcc ? `Supplier: ${selectedAcc.code} - ${selectedAcc.name}` : "All Creditors";
+    const headerRows = buildExcelHeaderRows(headerInfo, {
+      title: `CREDITORS LEDGER REPORT (${accTitle})`,
+      period: `${from || "Beginning"} to ${to || "Today"}`,
+    });
+    const ws = XLSX.utils.json_to_sheet([...headerRows, ...rows]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "CreditorsLedger");
-    XLSX.writeFile(wb, "creditors-ledger.xlsx");
+    XLSX.writeFile(wb, `creditors-ledger-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.xlsx`);
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     const rows = Array.isArray(items) ? items : [];
     if (!rows.length) return;
+    const headerInfo = await fetchReportHeader(api);
     const doc = new jsPDF("p", "mm", "a4");
-    let y = 15;
-    doc.setFontSize(14);
-    doc.text("Creditors Ledger Report", 10, y);
-    y += 8;
-    doc.setFontSize(9);
-    doc.text(`Period: ${from || "All"} to ${to || "All"}`, 10, y);
-    y += 8;
-    doc.setFontSize(10);
-    doc.text("Date", 10, y);
-    doc.text("Document", 45, y);
-    doc.text("Description", 95, y);
-    doc.text("Debit", 140, y);
-    doc.text("Credit", 165, y);
-    doc.text("Balance", 195, y, { align: "right" });
-    y += 4;
-    doc.line(10, y, 200, y);
-    y += 5;
+    const margin = 14;
+    const pageW = 210;
 
-    let running = 0;
+    const selectedAcc = accounts.find((a) => String(a.id) === String(accountId));
+    const accTitle = selectedAcc ? `Supplier: ${selectedAcc.code} - ${selectedAcc.name}` : "All Creditors";
+
+    let y = applyPdfHeader(doc, headerInfo, {
+      title: "CREDITORS LEDGER REPORT",
+      subtitle: `${accTitle}   |   Period: ${from || "Beginning"} to ${to || "Today"}`,
+      kpis: [
+        { label: "OPENING BALANCE", value: `${headerInfo.currPrefix}${Number(openingBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, color: [59, 130, 246] },
+        { label: "TOTAL TRANSACTIONS", value: `${rows.length}`, color: [16, 185, 129] },
+      ],
+    });
+
+    // Table header
+    doc.setFillColor(30, 41, 59);
+    doc.rect(margin, y, pageW - margin * 2, 6, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text("DATE", margin + 2, y + 4.2);
+    doc.text("DOC NO", 38, y + 4.2);
+    doc.text("DESCRIPTION", 75, y + 4.2);
+    doc.text(`DEBIT (${headerInfo.currCode})`, 135, y + 4.2, { align: "right" });
+    doc.text(`CREDIT (${headerInfo.currCode})`, 162, y + 4.2, { align: "right" });
+    doc.text(`BALANCE (${headerInfo.currCode})`, pageW - margin - 2, y + 4.2, { align: "right" });
+    y += 8.5;
+    doc.setTextColor(51, 65, 85);
+
+    let running = Number(openingBalance || 0);
     rows.forEach((r) => {
       if (y > 270) {
         doc.addPage();
@@ -206,21 +232,24 @@ export default function CreditorsLedgerReportPage() {
       }
       const dt = r.txn_date ? new Date(r.txn_date).toLocaleDateString() : "-";
       const docno = String(r.doc_no || "-");
-      const desc = String(r.description || "-").slice(0, 35);
+      const desc = String(r.description || "-").slice(0, 32);
       const dr = Number(r.debit || 0);
       const cr = Number(r.credit || 0);
       running += dr - cr;
 
-      doc.text(dt, 10, y);
-      doc.text(docno, 45, y);
-      doc.text(desc, 95, y);
-      doc.text(dr.toLocaleString(undefined, { minimumFractionDigits: 2 }), 140, y);
-      doc.text(cr.toLocaleString(undefined, { minimumFractionDigits: 2 }), 165, y);
-      doc.text(running.toLocaleString(undefined, { minimumFractionDigits: 2 }), 195, y, { align: "right" });
-      y += 6;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(dt, margin + 2, y);
+      doc.text(docno, 38, y);
+      doc.text(desc, 75, y);
+      doc.text(dr > 0 ? dr.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—", 135, y, { align: "right" });
+      doc.text(cr > 0 ? cr.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—", 162, y, { align: "right" });
+      doc.text(running.toLocaleString(undefined, { minimumFractionDigits: 2 }), pageW - margin - 2, y, { align: "right" });
+      y += 4.5;
     });
 
-    doc.save("creditors-ledger.pdf");
+    applyPdfFooter(doc);
+    doc.save(`creditors-ledger-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.pdf`);
   };
 
   let cumulativeBalance = 0;
@@ -440,7 +469,15 @@ export default function CreditorsLedgerReportPage() {
       {/* Main Ledger Table */}
       <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="table w-full">
+          <table className="table w-full table-fixed">
+            <colgroup>
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+            </colgroup>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
                 <SortableHeader label="Date" sortKey="txn_date" currentKey={sortKey} direction={sortDir} onToggle={toggle} />
@@ -481,12 +518,12 @@ export default function CreditorsLedgerReportPage() {
                       }`}
                     >
                       {/* Date */}
-                      <td className="py-3 px-4 whitespace-nowrap text-slate-600 dark:text-slate-400">
+                      <td className="py-3 px-4 truncate text-slate-600 dark:text-slate-400" title={txnDate ? new Date(txnDate).toLocaleDateString() : "—"}>
                         {txnDate ? new Date(txnDate).toLocaleDateString() : "—"}
                       </td>
 
                       {/* Doc No */}
-                      <td className="py-3 px-4 whitespace-nowrap font-mono text-xs">
+                      <td className="py-3 px-4 truncate font-mono text-xs" title={docNo || "—"}>
                         {isOpenRow ? (
                           <span className="px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300 rounded font-bold">
                             OPENING BALANCE
@@ -499,22 +536,22 @@ export default function CreditorsLedgerReportPage() {
                       </td>
 
                       {/* Description */}
-                      <td className="py-3 px-4 text-slate-800 dark:text-slate-200">
+                      <td className="py-3 px-4 text-slate-800 dark:text-slate-200 truncate" title={r.description || "—"}>
                         {r.description || "—"}
                       </td>
 
                       {/* Debit */}
-                      <td className="py-3 px-4 text-right font-mono text-slate-900 dark:text-slate-100">
+                      <td className="py-3 px-4 text-right font-mono text-slate-900 dark:text-slate-100 truncate">
                         {dr > 0 ? dr.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
                       </td>
 
                       {/* Credit */}
-                      <td className="py-3 px-4 text-right font-mono text-slate-900 dark:text-slate-100">
+                      <td className="py-3 px-4 text-right font-mono text-slate-900 dark:text-slate-100 truncate">
                         {cr > 0 ? cr.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}
                       </td>
 
                       {/* Running Balance */}
-                      <td className={`py-3 px-4 text-right font-mono font-bold ${
+                      <td className={`py-3 px-4 text-right font-mono font-bold truncate ${
                         cumulativeBalance < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"
                       }`}>
                         {Math.abs(cumulativeBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}

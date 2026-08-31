@@ -70,6 +70,8 @@ export default function CustomerForm() {
     price_type_id: "",
     currency_id: "",
     sales_account_id: "",
+    enforce_credit_limit: false,
+    credit_limit: "",
   });
 
   useEffect(() => {
@@ -168,7 +170,11 @@ export default function CustomerForm() {
       setError("");
       const response = await api.get(`/sales/customers/${id}`);
       if (response.data?.item) {
-        setForm(response.data.item);
+        const itm = response.data.item;
+        setForm({
+          ...itm,
+          enforce_credit_limit: Boolean(Number(itm.enforce_credit_limit) === 1 || itm.enforce_credit_limit === true || String(itm.enforce_credit_limit) === "true"),
+        });
       }
     } catch (err) {
       setError(err?.response?.data?.message || "Error fetching customer");
@@ -226,7 +232,8 @@ export default function CustomerForm() {
         customer_type: form.customer_type || "Individual",
         price_type_id: form.price_type_id || null,
         currency_id: form.currency_id || null,
-        credit_limit: Number(form.credit_limit || 0) || 0,
+        enforce_credit_limit: Boolean(form.enforce_credit_limit),
+        credit_limit: form.enforce_credit_limit ? (Number(form.credit_limit || 0) || 0) : 0,
         payment_terms: form.payment_terms || "Net 30",
         is_active: Boolean(form.is_active),
         sales_account_id: form.sales_account_id || null,
@@ -366,14 +373,30 @@ export default function CustomerForm() {
                       />
                     </div>
                     <div>
-                      <label className="label">Credit Limit</label>
-                      <input
-                        className="input"
-                        type="number"
-                        value={form.credit_limit || ""}
-                        onChange={(e) => update("credit_limit", e.target.value)}
-                      />
+                      <label className="label cursor-pointer flex items-center gap-2 pt-2">
+                        <input
+                          type="checkbox"
+                          className="checkbox checkbox-primary"
+                          checked={Boolean(form.enforce_credit_limit)}
+                          onChange={(e) => update("enforce_credit_limit", e.target.checked)}
+                        />
+                        <span className="font-semibold text-slate-700">Enforce Credit Limit</span>
+                      </label>
                     </div>
+                    {form.enforce_credit_limit ? (
+                      <div>
+                        <label className="label">Credit Limit Amount</label>
+                        <input
+                          className="input w-60"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Enter credit limit amount"
+                          value={form.credit_limit || ""}
+                          onChange={(e) => update("credit_limit", e.target.value)}
+                        />
+                      </div>
+                    ) : null}
                     <div>
                       <label className="label">Payment Terms</label>
                       <select

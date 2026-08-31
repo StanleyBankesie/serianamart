@@ -9,8 +9,20 @@ import { api } from "api/client";
 import { Link } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import {
+  fetchReportHeader,
+  applyPdfHeader,
+  applyPdfFooter,
+  buildExcelHeaderRows,
+} from "../../../../utils/pdfUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
+
+const fmt = (n) =>
+  Number(n || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 /**
  *  component
@@ -83,86 +95,107 @@ export default function CashFlowReportPage() {
             className="btn btn-ghost btn-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
             onClick={() => window.print()}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 00-2 2h2m2 4h10a2 2 0 002-2v-4a2 2 0 012-2H5a2 2 0 012 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-            </svg>
-            Print
+            🖨️ Print
           </button>
-          <div className="dropdown dropdown-end">
-            <label tabIndex={0} className="btn btn-primary btn-sm shadow-sm">
-              Export
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </label>
-            <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow-xl bg-base-100 rounded-box w-52 border border-slate-200 mt-2">
-              <li>
-                <button
-                  onClick={() => {
-                    const rows = Array.isArray(items) ? items : [];
-                    if (!rows.length) return;
-                    const ws = XLSX.utils.json_to_sheet(rows);
-                    const wb = XLSX.utils.book_new();
-                    XLSX.utils.book_append_sheet(wb, ws, "CashFlow");
-                    XLSX.writeFile(wb, "cash-flow.xlsx");
-                  }}
-                  disabled={!items.length}
-                >
-                  Download Excel
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => {
-                    const rows = Array.isArray(items) ? items : [];
-                    if (!rows.length) return;
-                    const doc = new jsPDF("p", "mm", "a4");
-                    let y = 15;
-                    doc.setFontSize(14);
-                    doc.text("Cash Flow", 10, y);
-                    y += 8;
-                    doc.setFontSize(10);
-                    doc.text("Bank", 10, y);
-                    doc.text("Account", 70, y);
-                    doc.text("Inflow", 130, y);
-                    doc.text("Outflow", 160, y);
-                    doc.text("Net", 190, y, { align: "right" });
-                    y += 4;
-                    doc.line(10, y, 200, y);
-                    y += 5;
-                    rows.forEach((r) => {
-                      if (y > 270) {
-                        doc.addPage();
-                        y = 15;
-                      }
-                      const bank = String(r.bank_name || "-").slice(0, 40);
-                      const acct = `${String(r.account_code || "-")} ${String(r.account_name || "").slice(0, 30)}`.trim();
-                      const inflow = String(Number(r.inflow || 0).toLocaleString());
-                      const outflow = String(Number(r.outflow || 0).toLocaleString());
-                      const net = String(Number(r.net || 0).toLocaleString());
-                      doc.text(bank, 10, y);
-                      doc.text(acct, 70, y);
-                      doc.text(inflow, 130, y);
-                      doc.text(outflow, 160, y);
-                      doc.text(net, 190, y, { align: "right" });
-                      y += 5;
-                    });
-                    y += 5;
-                    doc.setFontSize(11);
-                    doc.text(`Totals — Inflow: ${Number(totals.inflow || 0).toLocaleString()}`, 10, y);
-                    y += 6;
-                    doc.text(`Outflow: ${Number(totals.outflow || 0).toLocaleString()}`, 10, y);
-                    y += 6;
-                    doc.text(`Net: ${Number(totals.net || 0).toLocaleString()}`, 10, y);
-                    doc.save("cash-flow.pdf");
-                  }}
-                  disabled={!items.length}
-                >
-                  Download PDF
-                </button>
-              </li>
-            </ul>
-          </div>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={async () => {
+              const rows = Array.isArray(items) ? items : [];
+              if (!rows.length) return;
+              const headerInfo = await fetchReportHeader(api);
+              const headerRows = buildExcelHeaderRows(headerInfo, {
+                title: "STATEMENT OF CASH FLOWS",
+                period: `${from || "Beginning"} to ${to || "Today"}`,
+              });
+              const ws = XLSX.utils.json_to_sheet([...headerRows, ...rows]);
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, "CashFlow");
+              XLSX.writeFile(wb, `cash-flow-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.xlsx`);
+            }}
+            disabled={!items.length}
+          >
+            📊 Excel
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm shadow-sm"
+            onClick={async () => {
+              const rows = Array.isArray(items) ? items : [];
+              if (!rows.length) return;
+              const headerInfo = await fetchReportHeader(api);
+              const doc = new jsPDF("p", "mm", "a4");
+              const margin = 14;
+              const pageW = 210;
+
+              let y = applyPdfHeader(doc, headerInfo, {
+                title: "STATEMENT OF CASH FLOWS",
+                subtitle: `Period: ${from || "Beginning"} to ${to || "Today"}`,
+                kpis: [
+                  { label: "TOTAL INFLOW", value: `${headerInfo.currPrefix}${fmt(totals.inflow)}`, color: [16, 185, 129] },
+                  { label: "TOTAL OUTFLOW", value: `${headerInfo.currPrefix}${fmt(totals.outflow)}`, color: [239, 68, 68] },
+                  { label: "NET CASH FLOW", value: `${headerInfo.currPrefix}${fmt(totals.net)}`, color: totals.net >= 0 ? [16, 185, 129] : [239, 68, 68] },
+                ],
+              });
+
+              // Table header
+              doc.setFillColor(30, 41, 59);
+              doc.rect(margin, y, pageW - margin * 2, 6, "F");
+              doc.setFont("helvetica", "bold");
+              doc.setFontSize(7.5);
+              doc.setTextColor(255, 255, 255);
+              doc.text("BANK / CASH ACCOUNT", margin + 2, y + 4.2);
+              doc.text("ACCOUNT CODE", 80, y + 4.2);
+              doc.text(`INFLOW (${headerInfo.currCode})`, 130, y + 4.2, { align: "right" });
+              doc.text(`OUTFLOW (${headerInfo.currCode})`, 160, y + 4.2, { align: "right" });
+              doc.text(`NET (${headerInfo.currCode})`, pageW - margin - 2, y + 4.2, { align: "right" });
+              y += 8.5;
+              doc.setTextColor(51, 65, 85);
+
+              rows.forEach((r) => {
+                if (y > 270) {
+                  doc.addPage();
+                  y = 15;
+                }
+                const bank = String(r.bank_name || "-").slice(0, 32);
+                const acct = `${String(r.account_code || "-")} ${String(r.account_name || "").slice(0, 20)}`.trim();
+                const inflow = Number(r.inflow || 0) > 0 ? fmt(r.inflow) : "—";
+                const outflow = Number(r.outflow || 0) > 0 ? fmt(r.outflow) : "—";
+                const net = fmt(r.net);
+
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(7);
+                doc.text(bank, margin + 2, y);
+                doc.text(acct, 80, y);
+                doc.text(inflow, 130, y, { align: "right" });
+                doc.text(outflow, 160, y, { align: "right" });
+                doc.text(net, pageW - margin - 2, y, { align: "right" });
+                y += 4.5;
+              });
+
+              // Totals
+              if (y > 260) {
+                doc.addPage();
+                y = 15;
+              }
+              y += 2;
+              doc.setFillColor(241, 245, 249);
+              doc.rect(margin, y, pageW - margin * 2, 7, "F");
+              doc.setFont("helvetica", "bold");
+              doc.setFontSize(7.5);
+              doc.setTextColor(15, 23, 42);
+              doc.text("TOTAL CASH MOVEMENTS", margin + 2, y + 4.5);
+              doc.text(`${headerInfo.currPrefix}${fmt(totals.inflow)}`, 130, y + 4.5, { align: "right" });
+              doc.text(`${headerInfo.currPrefix}${fmt(totals.outflow)}`, 160, y + 4.5, { align: "right" });
+              doc.text(`${headerInfo.currPrefix}${fmt(totals.net)}`, pageW - margin - 2, y + 4.5, { align: "right" });
+
+              applyPdfFooter(doc);
+              doc.save(`cash-flow-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.pdf`);
+            }}
+            disabled={!items.length}
+          >
+            📄 PDF
+          </button>
         </div>
       </div>
 

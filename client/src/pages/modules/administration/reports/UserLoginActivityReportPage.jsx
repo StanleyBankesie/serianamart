@@ -10,6 +10,12 @@ import { api } from "api/client";
 import { Activity, UserCheck, ShieldAlert, Calendar, Filter, Printer, Download, RefreshCw } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import {
+  fetchReportHeader,
+  applyPdfHeader,
+  applyPdfFooter,
+  buildExcelHeaderRows,
+} from "../../../../utils/pdfUtils.js";
 
 export default function UserLoginActivityReportPage() {
   const [pollingCounter, setPollingCounter] = React.useState(0);
@@ -18,9 +24,11 @@ export default function UserLoginActivityReportPage() {
     return () => clearInterval(__pollId);
   }, []);
 
-  const today = new Date().toISOString().slice(0, 10);
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
+  const [from, setFrom] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  });
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [userId, setUserId] = useState("");
   const [users, setUsers] = useState([]);
   const [items, setItems] = useState([]);
@@ -28,86 +36,107 @@ export default function UserLoginActivityReportPage() {
   const [filter, setFilter] = useState("all");
 
   useEffect(() => {
-    async function loadUsers() {
+    (async () => {
       try {
-        const res = await api.get("/admin/users");
-        const u = res?.data?.data?.items || res?.data?.items || [];
-        setUsers(u);
+        const uRes = await api.get("/admin/users");
+        setUsers(Array.isArray(uRes?.data?.items) ? uRes.data.items : []);
       } catch {}
-    }
-    loadUsers();
-  }, [pollingCounter]);
+    })();
+  }, []);
 
   async function run() {
     try {
       setLoading(true);
-      const res = await api.get("/admin/reports/user-login-activity", {
-        params: { from: from || null, to: to || null, user_id: userId || null, filter },
+      const res = await api.get("/admin/user-login-activities", {
+        params: { from: from || null, to: to || null, userId: userId || null },
       });
       setItems(res.data?.items || []);
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to load activity report");
+      toast.error(e?.response?.data?.message || "Failed to load activities");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    const t = setTimeout(() => run(), 300);
-    return () => clearTimeout(t);
-  }, [from, to, userId, filter, pollingCounter]);
+    run();
+  }, [from, to, userId, pollingCounter]);
 
   const totalLogs = items.length;
   const loginCount = items.filter(r => (r.page_name || r.action || "").toLowerCase().includes("login")).length;
   const pageAccessCount = totalLogs - loginCount;
 
-  function exportExcel() {
+  async function exportExcel() {
+    if (!items.length) return;
+    const headerInfo = await fetchReportHeader(api);
+    const headerRows = buildExcelHeaderRows(headerInfo, {
+      title: "USER ACTIVITY & AUDIT REPORT",
+      period: `${from} to ${to}`,
+    });
+
     const exportData = items.map((r) => ({
       "Date & Time": r.event_time ? new Date(r.event_time).toLocaleString() : "-",
       User: r.user_name || r.username || "-",
       Module: r.module_name || "-",
-      "Page / Event": r.page_name || r.action || r.ref_no || "-",
+      "Page / Action": r.page_name || r.action || r.ref_no || "-",
       "IP Address": r.ip_address || "-",
       Location: r.location || "-",
     }));
-    const ws = XLSX.utils.json_to_sheet(exportData);
+    const ws = XLSX.utils.json_to_sheet([...headerRows, ...exportData]);
     ws["!cols"] = [{ wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 30 }, { wch: 15 }, { wch: 15 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "UserActivity");
-    XLSX.writeFile(wb, `user-activity-report-${from}-to-${to}.xlsx`);
+    XLSX.writeFile(wb, `user-activity-report-${headerInfo.currCode}-${from}-to-${to}.xlsx`);
   }
 
-  function exportPDF() {
+  async function exportPDF() {
+    if (!items.length) return;
+    const headerInfo = await fetchReportHeader(api);
     const doc = new jsPDF("l", "mm", "a4");
-    doc.setFontSize(16);
-    doc.text("User Activity & Audit Report", 14, 15);
-    doc.setFontSize(9);
-    doc.text(`Period: ${from} to ${to} | Generated on ${new Date().toLocaleDateString()}`, 14, 22);
+    const margin = 14;
+    const pageW = 297;
 
-    let y = 30;
-    doc.setFontSize(8);
+    let y = applyPdfHeader(doc, headerInfo, {
+      title: "USER ACTIVITY & AUDIT REPORT",
+      subtitle: `Period: ${from} to ${to}`,
+      kpis: [
+        { label: "LOGGED EVENTS", value: String(items.length), color: [59, 130, 246] },
+      ],
+    });
+
+    // Table header
+    doc.setFillColor(30, 41, 59);
+    doc.rect(margin, y, pageW - margin * 2, 6, "F");
     doc.setFont("helvetica", "bold");
-    doc.text("Date & Time", 14, y);
-    doc.text("User", 55, y);
-    doc.text("Module", 95, y);
-    doc.text("Page / Event", 135, y);
-    doc.text("IP Address", 210, y);
-    doc.text("Location", 250, y);
-    doc.line(14, y + 2, 280, y + 2);
-    y += 7;
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text("DATE & TIME", margin + 2, y + 4.2);
+    doc.text("USER", 55, y + 4.2);
+    doc.text("MODULE", 95, y + 4.2);
+    doc.text("PAGE / EVENT", 135, y + 4.2);
+    doc.text("IP ADDRESS", 210, y + 4.2);
+    doc.text("LOCATION", 250, y + 4.2);
+    y += 8.5;
+    doc.setTextColor(51, 65, 85);
 
-    doc.setFont("helvetica", "normal");
-    items.slice(0, 40).forEach((r) => {
-      doc.text(r.event_time ? new Date(r.event_time).toLocaleString().slice(0, 19) : "-", 14, y);
+    items.forEach((r) => {
+      if (y > 190) {
+        doc.addPage();
+        y = 15;
+      }
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(r.event_time ? new Date(r.event_time).toLocaleString().slice(0, 19) : "-", margin + 2, y);
       doc.text(String(r.user_name || r.username || "-").slice(0, 20), 55, y);
       doc.text(String(r.module_name || "-").slice(0, 20), 95, y);
       doc.text(String(r.page_name || r.action || r.ref_no || "-").slice(0, 35), 135, y);
       doc.text(String(r.ip_address || "-").slice(0, 15), 210, y);
       doc.text(String(r.location || "-").slice(0, 15), 250, y);
-      y += 6;
+      y += 4.5;
     });
 
-    doc.save(`user-activity-report-${from}-to-${to}.pdf`);
+    applyPdfFooter(doc);
+    doc.save(`user-activity-report-${headerInfo.currCode}-${from}-to-${to}.pdf`);
   }
 
   return (

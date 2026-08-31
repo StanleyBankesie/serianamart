@@ -387,7 +387,15 @@ export default function AccountGroupsPage() {
       {/* Main Table */}
       <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="table w-full">
+          <table className="table w-full table-fixed">
+            <colgroup>
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+            </colgroup>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
                 <th className="py-3 px-4 text-left">Code</th>
@@ -478,21 +486,21 @@ export default function AccountGroupsPage() {
                       </>
                     ) : (
                       <>
-                        <td className="py-3 px-4 font-mono font-bold text-brand dark:text-brand-300">
+                        <td className="py-3 px-4 font-mono font-bold text-brand dark:text-brand-300 truncate" title={g.code}>
                           {g.code}
                         </td>
-                        <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
+                        <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100 truncate" title={g.name}>
                           {g.name}
                         </td>
-                        <td className="py-3 px-4 text-xs font-semibold">
+                        <td className="py-3 px-4 text-xs font-semibold truncate">
                           <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded border border-slate-200 dark:border-slate-700">
                             {g.nature}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs">
+                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs truncate" title={g.parent_name || "—"}>
                           {g.parent_name || "—"}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
+                        <td className="py-3 px-4 text-right font-mono text-xs font-bold text-slate-700 dark:text-slate-300 truncate">
                           {typeof g.account_count === "number" ? g.account_count : "-"}
                         </td>
                         <td className="py-3 px-4 text-right">

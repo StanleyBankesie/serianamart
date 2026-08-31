@@ -10,6 +10,12 @@ import { api } from "api/client";
 import { CreditCard, AlertCircle, Download, Printer, RefreshCw, Calendar, Search } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import {
+  fetchReportHeader,
+  applyPdfHeader,
+  applyPdfFooter,
+  buildExcelHeaderRows,
+} from "../../../../utils/pdfUtils.js";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -18,53 +24,55 @@ export default function ExecOutstandingReceivablesPage() {
   React.useEffect(() => {
     const __pollId = setInterval(() => setPollingCounter(c => c + 1), 15000);
     return () => clearInterval(__pollId);
-  }, [pollingCounter]);
+  }, []);
 
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  });
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const totalOutstanding = items.reduce((s, r) => s + Number(r.outstanding || 0), 0);
-  const totalOverdue = items.filter((r) => String(r.status || "").toUpperCase() === "OVERDUE").reduce((s, r) => s + Number(r.outstanding || 0), 0);
-
   async function run() {
     try {
       setLoading(true);
-      const res = await api.get("/finance/reports/outstanding-receivable", {
+      const res = await api.get("/executive-overview/reports/outstanding-receivables", {
         params: { from: from || null, to: to || null },
       });
       setItems(res.data?.items || []);
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to load report");
+      toast.error(e?.response?.data?.message || "Failed to load receivables");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    const today = new Date();
-    const jan1 = new Date(today.getFullYear(), 0, 1);
-    setFrom(jan1.toISOString().slice(0, 10));
-    setTo(today.toISOString().slice(0, 10));
-  }, []);
-
-  useEffect(() => {
-    if (from || to) run();
+    run();
   }, [from, to, pollingCounter]);
 
   const filteredItems = items.filter((r) => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
-      (r.party_name || "").toLowerCase().includes(term) ||
-      (r.ref_no || "").toLowerCase().includes(term) ||
-      (r.status || "").toLowerCase().includes(term)
+      r.party_name?.toLowerCase().includes(term) ||
+      r.ref_no?.toLowerCase().includes(term)
     );
   });
 
-  function exportExcel() {
+  const totalOutstanding = filteredItems.reduce((acc, curr) => acc + Number(curr.outstanding || 0), 0);
+  const totalInvoiced = filteredItems.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+
+  async function exportExcel() {
+    if (!filteredItems.length) return;
+    const headerInfo = await fetchReportHeader(api);
+    const headerRows = buildExcelHeaderRows(headerInfo, {
+      title: "EXECUTIVE OUTSTANDING RECEIVABLES REPORT",
+      period: `${from} to ${to}`,
+    });
+
     const data = filteredItems.map((r) => ({
       "Due Date": r.due_date ? new Date(r.due_date).toLocaleDateString() : "—",
       Reference: r.ref_no || "—",
@@ -73,42 +81,60 @@ export default function ExecOutstandingReceivablesPage() {
       Outstanding: Number(r.outstanding || 0),
       Status: r.status || "—",
     }));
-    const ws = XLSX.utils.json_to_sheet(data);
+    const ws = XLSX.utils.json_to_sheet([...headerRows, ...data]);
     ws["!cols"] = [{ wch: 14 }, { wch: 18 }, { wch: 30 }, { wch: 15 }, { wch: 15 }, { wch: 12 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Outstanding Receivables");
-    XLSX.writeFile(wb, "outstanding-receivables.xlsx");
+    XLSX.writeFile(wb, `outstanding-receivables-${headerInfo.currCode}-${from}-to-${to}.xlsx`);
   }
 
-  function exportPDF() {
+  async function exportPDF() {
+    if (!filteredItems.length) return;
+    const headerInfo = await fetchReportHeader(api);
     const doc = new jsPDF("p", "mm", "a4");
-    doc.setFontSize(16);
-    doc.text("Executive Outstanding Receivables Report", 14, 15);
-    doc.setFontSize(9);
-    doc.text(`Period: ${from} to ${to} | Total Outstanding: ₵${fmt(totalOutstanding)}`, 14, 22);
+    const margin = 14;
+    const pageW = 210;
 
-    let y = 30;
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.text("Due Date", 14, y);
-    doc.text("Reference", 45, y);
-    doc.text("Party / Customer", 80, y);
-    doc.text("Amount", 145, y);
-    doc.text("Outstanding", 175, y);
-    doc.line(14, y + 2, 196, y + 2);
-    y += 7;
-
-    doc.setFont("helvetica", "normal");
-    filteredItems.slice(0, 45).forEach((r) => {
-      doc.text(r.due_date ? new Date(r.due_date).toLocaleDateString() : "—", 14, y);
-      doc.text(String(r.ref_no || "—").slice(0, 15), 45, y);
-      doc.text(String(r.party_name || "—").slice(0, 30), 80, y);
-      doc.text(fmt(r.amount), 145, y);
-      doc.text(fmt(r.outstanding), 175, y);
-      y += 6;
+    let y = applyPdfHeader(doc, headerInfo, {
+      title: "OUTSTANDING RECEIVABLES REPORT",
+      subtitle: `Period: ${from} to ${to}`,
+      kpis: [
+        { label: "TOTAL INVOICED", value: `${headerInfo.currPrefix}${fmt(totalInvoiced)}`, color: [59, 130, 246] },
+        { label: "TOTAL OUTSTANDING", value: `${headerInfo.currPrefix}${fmt(totalOutstanding)}`, color: [239, 68, 68] },
+      ],
     });
 
-    doc.save("outstanding-receivables.pdf");
+    // Table header
+    doc.setFillColor(30, 41, 59);
+    doc.rect(margin, y, pageW - margin * 2, 6, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text("DUE DATE", margin + 2, y + 4.2);
+    doc.text("REFERENCE", 45, y + 4.2);
+    doc.text("PARTY / CUSTOMER", 80, y + 4.2);
+    doc.text(`AMOUNT (${headerInfo.currCode})`, 145, y + 4.2, { align: "right" });
+    doc.text(`OUTSTANDING (${headerInfo.currCode})`, pageW - margin - 2, y + 4.2, { align: "right" });
+    y += 8.5;
+    doc.setTextColor(51, 65, 85);
+
+    filteredItems.forEach((r) => {
+      if (y > 270) {
+        doc.addPage();
+        y = 15;
+      }
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(r.due_date ? new Date(r.due_date).toLocaleDateString() : "—", margin + 2, y);
+      doc.text(String(r.ref_no || "—").slice(0, 15), 45, y);
+      doc.text(String(r.party_name || "—").slice(0, 26), 80, y);
+      doc.text(fmt(r.amount), 145, y, { align: "right" });
+      doc.text(fmt(r.outstanding), pageW - margin - 2, y, { align: "right" });
+      y += 4.5;
+    });
+
+    applyPdfFooter(doc);
+    doc.save(`outstanding-receivables-${headerInfo.currCode}-${from}-to-${to}.pdf`);
   }
 
   return (

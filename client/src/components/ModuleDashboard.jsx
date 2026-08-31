@@ -138,6 +138,7 @@ const ModuleDashboard = ({
   showAll = false,
   moduleKey,
   useSectionNavigation = false,
+  hideOtherPages = false,
 }) => {
   const [activeSection, setActiveSection] = React.useState(null);
   const navigate = useNavigate();
@@ -267,6 +268,7 @@ const ModuleDashboard = ({
 
   const allSections = React.useMemo(() => {
     const base = Array.isArray(sections) ? sections : [];
+    if (hideOtherPages) return base;
     const feats = Array.isArray(features) ? features : [];
     if (!feats.length) return base;
     const existing = new Set();
@@ -296,7 +298,7 @@ const ModuleDashboard = ({
         items: extras,
       },
     ];
-  }, [sections, features]);
+  }, [sections, features, hideOtherPages]);
 
   // Filter sections based on search term
   const normalizeForSearch = React.useCallback(

@@ -1302,8 +1302,8 @@ export default function DirectPurchase() {
           </div>
 
           <div className="mt-6">
-            <div className="overflow-x-auto rounded border border-[#dee2e6]">
-              <table className="table">
+            <div className="overflow-x-auto rounded border border-[#dee2e6]" data-rbac-exempt="true">
+              <table className="table" data-rbac-exempt="true">
                 <thead className="bg-[#f8f9fa]">
                   <tr>
                     <th style={{ width: 960 }}>Item Details</th>
@@ -1389,6 +1389,8 @@ export default function DirectPurchase() {
                           <td>
                             {!isViewMode && (
                               <button
+                                type="button"
+                                data-rbac-exempt="true"
                                 className="text-red-600 hover:text-red-900 transition-colors p-1"
                                 onClick={() => removeLine(i)}
                                 title="Remove item"

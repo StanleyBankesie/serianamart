@@ -186,7 +186,14 @@ export default function FiscalYearsPage() {
       {/* Main Table */}
       <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="table w-full">
+          <table className="table w-full table-fixed">
+            <colgroup>
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "20%" }} />
+            </colgroup>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
                 <th className="py-3 px-4 text-left">Fiscal Code</th>
@@ -207,16 +214,16 @@ export default function FiscalYearsPage() {
               ) : items.length > 0 ? (
                 items.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 px-4 font-bold font-mono text-brand dark:text-brand-300">
+                    <td className="py-3 px-4 font-bold font-mono text-brand dark:text-brand-300 truncate" title={r.code}>
                       {r.code}
                     </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400 font-mono text-xs">
+                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400 font-mono text-xs truncate">
                       {r.start_date ? String(r.start_date).split("T")[0] : "—"}
                     </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400 font-mono text-xs">
+                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400 font-mono text-xs truncate">
                       {r.end_date ? String(r.end_date).split("T")[0] : "—"}
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 truncate">
                       {r.is_open ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                           <CheckCircle2 size={12} /> Open Period
@@ -231,7 +238,7 @@ export default function FiscalYearsPage() {
                       {r.is_open ? (
                         <button
                           type="button"
-                          className="px-3 py-1 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors inline-flex items-center gap-1"
+                          className="px-3 py-1 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors inline-flex items-center gap-1 cursor-pointer"
                           onClick={() => closeYear(r.id)}
                         >
                           <Lock size={12} /> Close Period
@@ -239,7 +246,7 @@ export default function FiscalYearsPage() {
                       ) : (
                         <button
                           type="button"
-                          className="px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors inline-flex items-center gap-1"
+                          className="px-3 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors inline-flex items-center gap-1 cursor-pointer"
                           onClick={() => openYear(r.id)}
                         >
                           <Unlock size={12} /> Open Period

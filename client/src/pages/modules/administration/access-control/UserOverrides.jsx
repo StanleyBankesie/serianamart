@@ -34,6 +34,10 @@ export default function UserOverrides() {
       code: "SALES.INVOICE.AUTO_RECEIPT",
       label: "Sales Invoice - Paid Upon Invoicing (Immediate Settlement)",
     },
+    {
+      code: "SALES.CREDIT_LIMIT.OVERRIDE",
+      label: "Sales Invoice - Override / Increase Customer Credit Limit for Today",
+    },
     { code: "PURCHASE.GRN.REVERSE", label: "GRN Reversal" },
     { code: "PURCHASE.BILL.CANCEL", label: "Purchase Bill Cancellation" },
     { code: "MAINTENANCE.BILL.CANCEL", label: "Maintenance Bill Cancellation" },

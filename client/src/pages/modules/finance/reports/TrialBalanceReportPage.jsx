@@ -7,17 +7,14 @@ import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { api } from "api/client";
 import { Link } from "react-router-dom";
-import * as XLSX from "xlsx";
-import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
-import jsPDF from "jspdf";
-import useSort from "@/hooks/useSort.js";
-import SortableHeader from "@/components/SortableHeader.jsx";
+import {
+  fetchReportHeader,
+  applyPdfHeader,
+  applyPdfFooter,
+  buildExcelHeaderRows,
+} from "../../../../utils/pdfUtils.js";
 
-/**
- *  component
- * 
- * @returns {JSX.Element} The rendered component
- */
+const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export default function TrialBalanceReportPage() {
   const [pollingCounter, setPollingCounter] = React.useState(0);
   React.useEffect(() => {
@@ -288,8 +285,13 @@ export default function TrialBalanceReportPage() {
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => {
+                onClick={async () => {
                   if (!transformedItems.length) return;
+                  const headerInfo = await fetchReportHeader(api);
+                  const headerRows = buildExcelHeaderRows(headerInfo, {
+                    title: "TRIAL BALANCE REPORT",
+                    period: `${from || "Beginning"} to ${to || "Today"}`,
+                  });
                   const exportData = transformedItems.map((r) => ({
                     Account_Code: r.account_code,
                     Account_Name: r.account_name,
@@ -302,11 +304,11 @@ export default function TrialBalanceReportPage() {
                     Closing_Balance: r.closing_balance,
                     Closing_Type: r.closing_type,
                   }));
-                  const ws = XLSX.utils.json_to_sheet(exportData);
+                  const ws = XLSX.utils.json_to_sheet([...headerRows, ...exportData]);
                   autosizeWorksheetColumns(ws);
                   const wb = XLSX.utils.book_new();
                   XLSX.utils.book_append_sheet(wb, ws, "TrialBalance");
-                  XLSX.writeFile(wb, "trial-balance.xlsx");
+                  XLSX.writeFile(wb, `trial-balance-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.xlsx`);
                 }}
                 disabled={!transformedItems.length}
               >
@@ -315,48 +317,76 @@ export default function TrialBalanceReportPage() {
               <button
                 type="button"
                 className="btn-primary"
-                onClick={() => {
+                onClick={async () => {
                   if (!transformedItems.length) return;
+                  const headerInfo = await fetchReportHeader(api);
                   const doc = new jsPDF("p", "mm", "a4");
-                  let y = 15;
-                  doc.setFontSize(14);
-                  doc.text("Trial Balance", 10, y);
-                  y += 8;
-                  doc.setFontSize(9);
-                  doc.text("Account", 10, y);
-                  doc.text("Op. Bal", 90, y, { align: "right" });
-                  doc.text("Type", 100, y, { align: "center" });
-                  doc.text("Dr Amt", 130, y, { align: "right" });
-                  doc.text("Cr Amt", 160, y, { align: "right" });
-                  doc.text("Cls. Bal", 190, y, { align: "right" });
-                  doc.text("Type", 200, y, { align: "center" });
-                  y += 4;
-                  doc.line(10, y, 200, y);
-                  y += 5;
+                  const margin = 14;
+                  const pageW = 210;
+
+                  let y = applyPdfHeader(doc, headerInfo, {
+                    title: "TRIAL BALANCE REPORT",
+                    subtitle: `Period: ${from || "Beginning"} to ${to || "Today"}`,
+                    kpis: [
+                      { label: "OPENING (DR / CR)", value: `${headerInfo.currPrefix}${totals.opening_dr.toLocaleString()} / ${totals.opening_cr.toLocaleString()}`, color: [59, 130, 246] },
+                      { label: "TOTAL MOVEMENT", value: `${headerInfo.currPrefix}${totals.debit_amount.toLocaleString()}`, color: [16, 185, 129] },
+                      { label: "CLOSING (DR / CR)", value: `${headerInfo.currPrefix}${totals.closing_dr.toLocaleString()} / ${totals.closing_cr.toLocaleString()}`, color: [234, 88, 12] },
+                    ],
+                  });
+
+                  // Table header banner
+                  doc.setFillColor(30, 41, 59);
+                  doc.rect(margin, y, pageW - margin * 2, 6, "F");
+                  doc.setFont("helvetica", "bold");
+                  doc.setFontSize(7.5);
+                  doc.setTextColor(255, 255, 255);
+                  doc.text("ACCOUNT", margin + 2, y + 4.2);
+                  doc.text(`OP. BAL (${headerInfo.currCode})`, 88, y + 4.2, { align: "right" });
+                  doc.text("TYPE", 97, y + 4.2, { align: "center" });
+                  doc.text("DEBIT", 125, y + 4.2, { align: "right" });
+                  doc.text("CREDIT", 155, y + 4.2, { align: "right" });
+                  doc.text(`CLS. BAL (${headerInfo.currCode})`, 186, y + 4.2, { align: "right" });
+                  doc.text("TYPE", pageW - margin - 2, y + 4.2, { align: "right" });
+                  y += 8.5;
+                  doc.setTextColor(51, 65, 85);
+
                   transformedItems.forEach((r) => {
                     if (y > 270) {
                       doc.addPage();
                       y = 15;
                     }
-                    const acct = `${String(r.account_code || "-")} ${String(r.account_name || "").slice(0, 30)}`.trim();
-                    doc.text(acct, 10, y);
-                    doc.text(r.opening_balance > 0 ? r.opening_balance.toLocaleString() : "—", 90, y, { align: "right" });
-                    doc.text(r.opening_type, 100, y, { align: "center" });
-                    doc.text(r.debit_amount > 0 ? r.debit_amount.toLocaleString() : "—", 130, y, { align: "right" });
-                    doc.text(r.credit_amount > 0 ? r.credit_amount.toLocaleString() : "—", 160, y, { align: "right" });
-                    doc.text(r.closing_balance > 0 ? r.closing_balance.toLocaleString() : "—", 190, y, { align: "right" });
-                    doc.text(r.closing_type, 200, y, { align: "center" });
-                    y += 5;
+                    const acct = `${String(r.account_code || "-")} ${String(r.account_name || "").slice(0, 25)}`.trim();
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(7);
+                    doc.text(acct, margin + 2, y);
+                    doc.text(r.opening_balance > 0 ? r.opening_balance.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—", 88, y, { align: "right" });
+                    doc.text(r.opening_type, 97, y, { align: "center" });
+                    doc.text(r.debit_amount > 0 ? r.debit_amount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—", 125, y, { align: "right" });
+                    doc.text(r.credit_amount > 0 ? r.credit_amount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—", 155, y, { align: "right" });
+                    doc.text(r.closing_balance > 0 ? r.closing_balance.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—", 186, y, { align: "right" });
+                    doc.text(r.closing_type, pageW - margin - 2, y, { align: "right" });
+                    y += 4.5;
                   });
-                  y += 5;
-                  doc.setFontSize(10);
+
+                  // Summary Totals
+                  if (y > 260) {
+                    doc.addPage();
+                    y = 15;
+                  }
+                  y += 2;
+                  doc.setFillColor(241, 245, 249);
+                  doc.rect(margin, y, pageW - margin * 2, 7, "F");
                   doc.setFont("helvetica", "bold");
-                  doc.text(`Totals — Opening DR: ${totals.opening_dr.toLocaleString()}  CR: ${totals.opening_cr.toLocaleString()}`, 10, y);
-                  y += 6;
-                  doc.text(`Movement — Debit: ${totals.debit_amount.toLocaleString()}  Credit: ${totals.credit_amount.toLocaleString()}`, 10, y);
-                  y += 6;
-                  doc.text(`Closing — DR: ${totals.closing_dr.toLocaleString()}  CR: ${totals.closing_cr.toLocaleString()}`, 10, y);
-                  doc.save("trial-balance.pdf");
+                  doc.setFontSize(7.5);
+                  doc.setTextColor(15, 23, 42);
+                  doc.text("TOTALS", margin + 2, y + 4.5);
+                  doc.text(`${totals.opening_dr.toLocaleString(undefined, { minimumFractionDigits: 2 })} DR`, 88, y + 4.5, { align: "right" });
+                  doc.text(`${totals.debit_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 125, y + 4.5, { align: "right" });
+                  doc.text(`${totals.credit_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`, 155, y + 4.5, { align: "right" });
+                  doc.text(`${totals.closing_dr.toLocaleString(undefined, { minimumFractionDigits: 2 })} DR`, 186, y + 4.5, { align: "right" });
+
+                  applyPdfFooter(doc);
+                  doc.save(`trial-balance-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.pdf`);
                 }}
                 disabled={!transformedItems.length}
               >

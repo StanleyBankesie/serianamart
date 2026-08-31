@@ -24,7 +24,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { usePermission } from "@/auth/PermissionContext";
 
 const TEMPLATE_HEADERS = [
-  "BRANCH_ID",
+  "BRANCH_NAME",
   "WAREHOUSE_NAME",
   "CUSTOMER_NAME",
   "INVOICE_DATE",
@@ -51,6 +51,7 @@ export default function SalesUploadPage() {
   const [warehouses, setWarehouses] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [items, setItems] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [updateFinanceVouchers, setUpdateFinanceVouchers] = useState(true);
   const [parsedInvoices, setParsedInvoices] = useState([]);
   const [preview, setPreview] = useState(false);
@@ -66,15 +67,18 @@ export default function SalesUploadPage() {
       api.get("/inventory/warehouses").catch(() => ({ data: [] })),
       api.get("/finance/currencies").catch(() => ({ data: [] })),
       api.get("/inventory/items").catch(() => ({ data: [] })),
-    ]).then(([brRes, whRes, curRes, itemRes]) => {
+      api.get("/sales/customers").catch(() => ({ data: [] })),
+    ]).then(([brRes, whRes, curRes, itemRes, custRes]) => {
       const bItems = brRes.data?.items || brRes.data || [];
       const wItems = whRes.data?.items || whRes.data || [];
       const cItems = curRes.data?.items || curRes.data || [];
       const itItems = itemRes.data?.items || itemRes.data || [];
+      const custItems = custRes.data?.items || custRes.data || [];
       setBranches(bItems);
       setWarehouses(wItems);
       setCurrencies(cItems);
       setItems(itItems);
+      setCustomers(custItems);
       if (scope?.branchId) {
         setSelectedBranch(String(scope.branchId));
       } else if (bItems.length === 1) {
@@ -100,7 +104,9 @@ export default function SalesUploadPage() {
 
   const downloadTemplate = async () => {
     try {
-      const bId = selectedBranch || (branches[0] ? String(branches[0].id) : "1");
+      const selectedBranchObj = branches.find((b) => String(b.id) === String(selectedBranch));
+      const defaultBranchName = selectedBranchObj?.branch_name || selectedBranchObj?.name || branches[0]?.branch_name || branches[0]?.name || "Main Branch";
+
       const branchWhs = warehouses
         .filter((w) => !selectedBranch || String(w.branch_id) === String(selectedBranch))
         .map((w) => w.warehouse_name || w.name)
@@ -118,9 +124,12 @@ export default function SalesUploadPage() {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("SalesInvoices");
 
-      // Populate lookup sheet for autocomplete
+      // Populate lookup sheet for autocomplete & dropdown validation
       const lookupSheet = workbook.addWorksheet("LookupData");
       lookupSheet.getCell("A1").value = "ITEM_NAME";
+      lookupSheet.getCell("B1").value = "BRANCH_NAME";
+      lookupSheet.getCell("C1").value = "CUSTOMER_NAME";
+      lookupSheet.getCell("D1").value = "WAREHOUSE_NAME";
 
       const itemNames = items.length > 0
         ? items.map((it) => it.item_name || it.name).filter(Boolean)
@@ -130,11 +139,32 @@ export default function SalesUploadPage() {
         lookupSheet.getCell(`A${idx + 2}`).value = name;
       });
 
+      const branchNames = branches.length > 0
+        ? branches.map((b) => b.branch_name || b.name).filter(Boolean)
+        : [defaultBranchName];
+
+      branchNames.forEach((bName, idx) => {
+        lookupSheet.getCell(`B${idx + 2}`).value = bName;
+      });
+
+      const customerNames = customers.length > 0
+        ? Array.from(new Set(customers.map((c) => c.customer_name || c.name).filter(Boolean)))
+        : ["Walk-in Customer", "Apex Enterprises"];
+
+      customerNames.forEach((cName, idx) => {
+        lookupSheet.getCell(`C${idx + 2}`).value = cName;
+      });
+
+      const whList = branchWhs.length > 0 ? branchWhs : [defaultWh];
+      whList.forEach((wName, idx) => {
+        lookupSheet.getCell(`D${idx + 2}`).value = wName;
+      });
+
       lookupSheet.state = "hidden";
 
       // Column definitions
       worksheet.columns = [
-        { header: "BRANCH_ID", key: "BRANCH_ID", width: 12 },
+        { header: "BRANCH_NAME", key: "BRANCH_NAME", width: 22 },
         { header: "WAREHOUSE_NAME", key: "WAREHOUSE_NAME", width: 22 },
         { header: "CUSTOMER_NAME", key: "CUSTOMER_NAME", width: 26 },
         { header: "INVOICE_DATE", key: "INVOICE_DATE", width: 14 },
@@ -162,9 +192,9 @@ export default function SalesUploadPage() {
 
       // Add sample rows
       worksheet.addRow({
-        BRANCH_ID: bId,
+        BRANCH_NAME: defaultBranchName,
         WAREHOUSE_NAME: defaultWh,
-        CUSTOMER_NAME: "Walk-in Customer",
+        CUSTOMER_NAME: customerNames[0] || "Walk-in Customer",
         INVOICE_DATE: today,
         DUE_DATE: today,
         PRICE_TYPE: "RETAIL",
@@ -180,9 +210,9 @@ export default function SalesUploadPage() {
       });
 
       worksheet.addRow({
-        BRANCH_ID: bId,
+        BRANCH_NAME: defaultBranchName,
         WAREHOUSE_NAME: defaultWh,
-        CUSTOMER_NAME: "Walk-in Customer",
+        CUSTOMER_NAME: customerNames[0] || "Walk-in Customer",
         INVOICE_DATE: today,
         DUE_DATE: today,
         PRICE_TYPE: "RETAIL",
@@ -198,9 +228,9 @@ export default function SalesUploadPage() {
       });
 
       worksheet.addRow({
-        BRANCH_ID: bId,
+        BRANCH_NAME: defaultBranchName,
         WAREHOUSE_NAME: defaultWh,
-        CUSTOMER_NAME: "Apex Enterprises",
+        CUSTOMER_NAME: customerNames[1] || customerNames[0] || "Apex Enterprises",
         INVOICE_DATE: today,
         DUE_DATE: today,
         PRICE_TYPE: "WHOLESALE",
@@ -216,15 +246,24 @@ export default function SalesUploadPage() {
       });
 
       // Data validations
-      const whFormula = branchWhs.length > 0
-        ? `"${branchWhs.join(",")}"`
-        : `"${defaultWh}"`;
+      const branchFormula = `LookupData!$B$2:$B$${branchNames.length + 1}`;
+      const whFormula = `LookupData!$D$2:$D$${whList.length + 1}`;
+      const custFormula = `LookupData!$C$2:$C$${customerNames.length + 1}`;
       const priceFormula = `"${priceTypesList.join(",")}"`;
       const paymentFormula = `"${paymentTypesList.join(",")}"`;
       const curFormula = `"${currencyList.join(",")}"`;
       const itemFormula = `LookupData!$A$2:$A$${itemNames.length + 1}`;
 
       for (let r = 2; r <= 1000; r++) {
+        // Col A: BRANCH_NAME
+        worksheet.getCell(`A${r}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [branchFormula],
+          showErrorMessage: true,
+          errorTitle: "Invalid Branch",
+          error: "Please select a branch from the dropdown list.",
+        };
         // Col B: WAREHOUSE_NAME
         worksheet.getCell(`B${r}`).dataValidation = {
           type: "list",
@@ -233,6 +272,15 @@ export default function SalesUploadPage() {
           showErrorMessage: true,
           errorTitle: "Invalid Warehouse",
           error: "Please select a warehouse from the dropdown list.",
+        };
+        // Col C: CUSTOMER_NAME
+        worksheet.getCell(`C${r}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [custFormula],
+          showErrorMessage: true,
+          errorTitle: "Invalid Customer",
+          error: "Please select a customer from the dropdown list.",
         };
         // Col F: PRICE_TYPE
         worksheet.getCell(`F${r}`).dataValidation = {
@@ -344,13 +392,24 @@ export default function SalesUploadPage() {
 
       if (!cust) continue;
 
+      const brIdent = String(row.BRANCH_NAME || row.branch_name || row.BRANCH || row.branch || row.BRANCH_ID || row.branch_id || "").trim();
+      const matchedBranch = branches.find(
+        (b) =>
+          (b.branch_name && b.branch_name.toLowerCase() === brIdent.toLowerCase()) ||
+          (b.branch_code && b.branch_code.toLowerCase() === brIdent.toLowerCase()) ||
+          String(b.id) === brIdent
+      );
+      const branchName = matchedBranch?.branch_name || brIdent || (branches.find((b) => String(b.id) === String(selectedBranch))?.branch_name || "");
+      const branchId = matchedBranch?.id || (selectedBranch ? Number(selectedBranch) : (branches[0]?.id || 1));
+
       const groupKey = remarks
         ? `CUST_${cust}_DATE_${invDate}_REM_${remarks}`
         : `CUST_${cust}_DATE_${invDate}_WH_${wh}_${i}`;
 
       if (!invMap.has(groupKey)) {
         invMap.set(groupKey, {
-          branch_id: row.BRANCH_ID || row.branch_id || selectedBranch || 1,
+          branch_id: branchId,
+          branch_name: branchName,
           warehouse_name: wh,
           customer_name: cust,
           invoice_no: "",
@@ -631,6 +690,11 @@ export default function SalesUploadPage() {
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
                             Customer: {inv.customer_name}
                           </span>
+                          {inv.branch_name && (
+                            <span className="badge badge-outline text-[10px] text-brand-700 bg-brand-50 border-brand-200">
+                              Branch: {inv.branch_name}
+                            </span>
+                          )}
                           {inv.warehouse_name && (
                             <span className="badge badge-outline text-[10px] text-slate-500">
                               Wh: {inv.warehouse_name}
@@ -647,37 +711,67 @@ export default function SalesUploadPage() {
                         </div>
                       </div>
 
-                      <table className="table table-compact w-full text-xs">
-                        <thead>
-                          <tr>
-                            <th>Item Name</th>
-                            <th className="text-right">Qty</th>
-                            <th className="text-right">Unit Price</th>
-                            <th className="text-right">Disc %</th>
-                            <th className="text-right">Tax</th>
-                            <th className="text-right">Line Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {inv.lines.map((l, lIdx) => (
-                            <tr key={lIdx}>
-                              <td>
-                                <span className="font-medium">{l.item_name || "Custom Item"}</span>
-                                {l.remarks && (
-                                  <span className="text-[10px] text-slate-400 block">{l.remarks}</span>
-                                )}
-                              </td>
-                              <td className="text-right">{l.qty}</td>
-                              <td className="text-right">{Number(l.unit_price).toFixed(2)}</td>
-                              <td className="text-right">{l.discount_percent}%</td>
-                              <td className="text-right">{Number(l.tax_amount).toFixed(2)}</td>
-                              <td className="text-right font-semibold text-slate-900 dark:text-slate-100">
-                                {Number(l.line_total).toFixed(2)}
-                              </td>
+                      <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                        <table className="w-full text-xs table-fixed divide-y divide-slate-200 dark:divide-slate-700">
+                          <colgroup>
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                            <col style={{ width: "16.666%" }} />
+                          </colgroup>
+                          <thead className="bg-slate-50 dark:bg-slate-800/60">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "left" }}>
+                                Item Name
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Qty
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Unit Price
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Disc %
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Tax
+                              </th>
+                              <th className="px-3 py-2.5 text-right text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider" style={{ width: "16.666%", textAlign: "right" }}>
+                                Line Total
+                              </th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
+                            {inv.lines.map((l, lIdx) => (
+                              <tr key={lIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                <td className="px-3 py-2.5 truncate" style={{ width: "16.666%", textAlign: "left", minWidth: 0 }}>
+                                  <span className="font-medium truncate block text-slate-800 dark:text-slate-200">{l.item_name || "Custom Item"}</span>
+                                  {l.remarks && (
+                                    <span className="text-[10px] text-slate-400 block truncate">{l.remarks}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300" style={{ width: "16.666%", textAlign: "right" }}>
+                                  {l.qty}
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300" style={{ width: "16.666%", textAlign: "right" }}>
+                                  {Number(l.unit_price).toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300" style={{ width: "16.666%", textAlign: "right" }}>
+                                  {l.discount_percent}%
+                                </td>
+                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300" style={{ width: "16.666%", textAlign: "right" }}>
+                                  {Number(l.tax_amount).toFixed(2)}
+                                </td>
+                                <td className="px-3 py-2.5 font-semibold text-slate-900 dark:text-slate-100" style={{ width: "16.666%", textAlign: "right", minWidth: 0 }}>
+                                  {Number(l.line_total).toFixed(2)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   );
                 })}

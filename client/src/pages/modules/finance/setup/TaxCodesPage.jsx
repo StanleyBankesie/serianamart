@@ -758,19 +758,28 @@ export default function TaxCodesPage() {
       )}
 
       {/* ───── Tax Code List ───── */}
-      <div className="card">
-        <div className="card-body">
+      <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="card-body p-0">
           <div className="overflow-x-auto">
-            <table className="table">
+            <table className="table w-full table-fixed">
+              <colgroup>
+                <col style={{ width: "14.285%" }} />
+                <col style={{ width: "14.285%" }} />
+                <col style={{ width: "14.285%" }} />
+                <col style={{ width: "14.285%" }} />
+                <col style={{ width: "14.285%" }} />
+                <col style={{ width: "14.285%" }} />
+                <col style={{ width: "14.285%" }} />
+              </colgroup>
               <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Rate (%)</th>
-                  <th>Scope</th>
-                  <th>Status</th>
-                  <th />
+                <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                  <th className="py-3 px-4 text-left">Code</th>
+                  <th className="py-3 px-4 text-left">Name</th>
+                  <th className="py-3 px-4 text-left">Type</th>
+                  <th className="py-3 px-4 text-left">Rate (%)</th>
+                  <th className="py-3 px-4 text-left">Scope</th>
+                  <th className="py-3 px-4 text-left">Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1127,16 +1136,25 @@ export default function TaxCodesPage() {
               </form>
 
               <div className="overflow-x-auto">
-                <table className="table">
+                <table className="table w-full table-fixed">
+                  <colgroup>
+                    <col style={{ width: "14.285%" }} />
+                    <col style={{ width: "14.285%" }} />
+                    <col style={{ width: "14.285%" }} />
+                    <col style={{ width: "14.285%" }} />
+                    <col style={{ width: "14.285%" }} />
+                    <col style={{ width: "14.285%" }} />
+                    <col style={{ width: "14.285%" }} />
+                  </colgroup>
                   <thead>
-                    <tr>
-                      <th>Component</th>
-                      <th>Account Mapping</th>
-                      <th>Rate (%)</th>
-                      <th>Calculate On</th>
-                      <th>Sort</th>
-                      <th>Status</th>
-                      <th />
+                    <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
+                      <th className="py-3 px-4 text-left">Component</th>
+                      <th className="py-3 px-4 text-left">Account Mapping</th>
+                      <th className="py-3 px-4 text-left">Rate (%)</th>
+                      <th className="py-3 px-4 text-left">Calculate On</th>
+                      <th className="py-3 px-4 text-left">Sort</th>
+                      <th className="py-3 px-4 text-left">Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>

@@ -277,8 +277,8 @@ export default function FinanceHome() {
         { label: "Dashboard", path: "/finance/dashboard", icon: "📊" },
       ]}
       sections={financeSections}
-      features={financeFeatures}
       useSectionNavigation={true}
+      hideOtherPages={true}
     />
   );
 }

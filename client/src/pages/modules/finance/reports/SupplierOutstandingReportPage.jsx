@@ -4,6 +4,12 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import {
+  fetchReportHeader,
+  applyPdfHeader,
+  applyPdfFooter,
+  buildExcelHeaderRows,
+} from "../../../../utils/pdfUtils.js";
 
 const fmt = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : "—";
@@ -58,15 +64,19 @@ export default function SupplierOutstandingReportPage({ backPath = "/finance", b
     !supplierQuery || String(r.supplier_name || "").toLowerCase().includes(supplierQuery.toLowerCase())
   );
 
-  function exportExcel() {
+  async function exportExcel() {
+    const headerInfo = await fetchReportHeader(api);
     const wb = XLSX.utils.book_new();
 
     // Aging Summary Sheet
+    const headerRows = buildExcelHeaderRows(headerInfo, {
+      title: "SUPPLIER OUTSTANDING ANALYSIS",
+      period: `As at ${asOfDate || "Today"}`,
+    });
+
     const agingData = [
-      ["Supplier Outstanding Analysis", "", "", "", "", "", ""],
-      [`As at: ${asOfDate}`, "", "", "", "", "", ""],
-      [],
-      ["Supplier", "Current (≤0d)", "1-30 Days", "31-60 Days", "61-90 Days", ">90 Days", "Total Outstanding"],
+      ...headerRows.map((r) => [r.Section, "", "", "", "", "", ""]),
+      ["Supplier", `Current (${headerInfo.currCode})`, `1-30 Days (${headerInfo.currCode})`, `31-60 Days (${headerInfo.currCode})`, `61-90 Days (${headerInfo.currCode})`, `>90 Days (${headerInfo.currCode})`, `Total Outstanding (${headerInfo.currCode})`],
       ...filteredSummary.map((s) => [
         s.supplier_name, s.current, s["1_30"], s["31_60"], s["61_90"], s.over_90, s.total,
       ]),
@@ -79,7 +89,7 @@ export default function SupplierOutstandingReportPage({ backPath = "/finance", b
 
     // Detail Sheet
     const detailData = [
-      ["Supplier", "Bill No", "Bill Date", "Due Date", "Total", "Paid", "Outstanding", "Days Overdue", "Bucket"],
+      ["Supplier", "Bill No", "Bill Date", "Due Date", `Total (${headerInfo.currCode})`, `Paid (${headerInfo.currCode})`, `Outstanding (${headerInfo.currCode})`, "Days Overdue", "Bucket"],
       ...filteredDetail.map((r) => [
         r.supplier_name, r.bill_no, fmtDate(r.bill_date), fmtDate(r.due_date),
         Number(r.total_amount || 0), Number(r.paid || 0), Number(r.outstanding || 0),
@@ -90,53 +100,27 @@ export default function SupplierOutstandingReportPage({ backPath = "/finance", b
     ws2["!cols"] = [{ wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 12 }];
     XLSX.utils.book_append_sheet(wb, ws2, "Bill Detail");
 
-    XLSX.writeFile(wb, `supplier-outstanding-${asOfDate}.xlsx`);
+    XLSX.writeFile(wb, `supplier-outstanding-${headerInfo.currCode}-${asOfDate || "today"}.xlsx`);
   }
 
-  function exportPDF() {
+  async function exportPDF() {
+    const headerInfo = await fetchReportHeader(api);
     const doc = new jsPDF("l", "mm", "a4"); // landscape for aging table
     const pageW = 297;
     const margin = 12;
-    let y = margin;
 
-    // Header
-    doc.setFillColor(15, 23, 42);
-    doc.rect(0, 0, pageW, 26, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(15);
-    doc.setFont("helvetica", "bold");
-    doc.text("SUPPLIER OUTSTANDING ANALYSIS", pageW / 2, 11, { align: "center" });
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.text(`As at: ${asOfDate}   |   Generated: ${new Date().toLocaleDateString()}`, pageW / 2, 20, { align: "center" });
-    y = 32;
-    doc.setTextColor(15, 23, 42);
-
-    // KPI row
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "bold");
-    const kpis = [
-      { label: "Total Outstanding", value: `₵${fmt(totals.total)}` },
-      { label: "Current", value: `₵${fmt(totals.current)}` },
-      { label: "1-30 Days", value: `₵${fmt(totals["1_30"])}` },
-      { label: "31-60 Days", value: `₵${fmt(totals["31_60"])}` },
-      { label: "61-90 Days", value: `₵${fmt(totals["61_90"])}` },
-      { label: ">90 Days", value: `₵${fmt(totals.over_90)}` },
-    ];
-    const kpiW = (pageW - margin * 2) / kpis.length;
-    kpis.forEach((k, i) => {
-      const x = margin + i * kpiW;
-      doc.setFillColor(248, 250, 252);
-      doc.rect(x, y, kpiW - 2, 12, "F");
-      doc.setTextColor(100, 116, 139);
-      doc.setFontSize(7);
-      doc.text(k.label, x + kpiW / 2 - 1, y + 5, { align: "center" });
-      doc.setTextColor(15, 23, 42);
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.text(k.value, x + kpiW / 2 - 1, y + 10, { align: "center" });
+    let y = applyPdfHeader(doc, headerInfo, {
+      title: "SUPPLIER OUTSTANDING ANALYSIS",
+      subtitle: `As at: ${asOfDate || "Today"}`,
+      kpis: [
+        { label: "TOTAL OUTSTANDING", value: `${headerInfo.currPrefix}${fmt(totals.total)}`, color: [239, 68, 68] },
+        { label: "CURRENT", value: `${headerInfo.currPrefix}${fmt(totals.current)}`, color: [16, 185, 129] },
+        { label: "1-30 DAYS", value: `${headerInfo.currPrefix}${fmt(totals["1_30"])}`, color: [59, 130, 246] },
+        { label: "31-60 DAYS", value: `${headerInfo.currPrefix}${fmt(totals["31_60"])}`, color: [234, 88, 12] },
+        { label: "61-90 DAYS", value: `${headerInfo.currPrefix}${fmt(totals["61_90"])}`, color: [234, 88, 12] },
+        { label: ">90 DAYS", value: `${headerInfo.currPrefix}${fmt(totals.over_90)}`, color: [239, 68, 68] },
+      ],
     });
-    y += 18;
 
     // Table header
     doc.setFillColor(30, 41, 59);
@@ -144,13 +128,13 @@ export default function SupplierOutstandingReportPage({ backPath = "/finance", b
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(8);
     const cols = [
-      { label: "Supplier", x: margin + 1, w: 60 },
-      { label: "Current", x: margin + 63, w: 30, right: true },
-      { label: "1-30 Days", x: margin + 95, w: 30, right: true },
-      { label: "31-60 Days", x: margin + 127, w: 30, right: true },
-      { label: "61-90 Days", x: margin + 159, w: 30, right: true },
-      { label: ">90 Days", x: margin + 191, w: 30, right: true },
-      { label: "Total", x: pageW - margin - 1, w: 30, right: true },
+      { label: "SUPPLIER", x: margin + 1, w: 60 },
+      { label: `CURRENT (${headerInfo.currCode})`, x: margin + 63, w: 30, right: true },
+      { label: `1-30 DAYS (${headerInfo.currCode})`, x: margin + 95, w: 30, right: true },
+      { label: `31-60 DAYS (${headerInfo.currCode})`, x: margin + 127, w: 30, right: true },
+      { label: `61-90 DAYS (${headerInfo.currCode})`, x: margin + 159, w: 30, right: true },
+      { label: `>90 DAYS (${headerInfo.currCode})`, x: margin + 191, w: 30, right: true },
+      { label: `TOTAL (${headerInfo.currCode})`, x: pageW - margin - 1, w: 30, right: true },
     ];
     cols.forEach((c) => {
       if (c.right) doc.text(c.label, c.x, y + 5, { align: "right" });
@@ -185,6 +169,7 @@ export default function SupplierOutstandingReportPage({ backPath = "/finance", b
     doc.rect(margin, y - 1, pageW - margin * 2, 7, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
     doc.text("TOTALS", margin + 1, y + 4);
     doc.text(fmt(totals.current), margin + 93, y + 4, { align: "right" });
     doc.text(fmt(totals["1_30"]), margin + 125, y + 4, { align: "right" });
@@ -193,7 +178,8 @@ export default function SupplierOutstandingReportPage({ backPath = "/finance", b
     doc.text(fmt(totals.over_90), margin + 221, y + 4, { align: "right" });
     doc.text(fmt(totals.total), pageW - margin - 1, y + 4, { align: "right" });
 
-    doc.save(`supplier-outstanding-${asOfDate}.pdf`);
+    applyPdfFooter(doc);
+    doc.save(`supplier-outstanding-${headerInfo.currCode}-${asOfDate || "today"}.pdf`);
   }
 
   const agingBadge = (bucket) => {

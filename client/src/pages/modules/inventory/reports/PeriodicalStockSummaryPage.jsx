@@ -12,6 +12,12 @@ import { Link } from "react-router-dom";
 import { api } from "api/client";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
+import {
+  fetchReportHeader,
+  applyPdfHeader,
+  applyPdfFooter,
+  buildExcelHeaderRows,
+} from "../../../../utils/pdfUtils.js";
 
 /**
  *  component
@@ -142,39 +148,76 @@ export default function PeriodicalStockSummaryPage() {
   const { sorted: sorted_items, sortKey, sortDir, toggle } = useSort(items, "date", "desc");
 
 
-  function exportExcel() {
-    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+  async function exportExcel() {
+    const rows = sorted_items.length ? sorted_items : items;
     if (!rows || !rows.length) return;
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const headerInfo = await fetchReportHeader(api);
+    const headerRows = buildExcelHeaderRows(headerInfo, {
+      title: "PERIODICAL STOCK SUMMARY",
+      period: `${from || "Beginning"} to ${to || "Today"}`,
+    });
+    const ws = XLSX.utils.json_to_sheet([...headerRows, ...rows]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Report");
-    XLSX.writeFile(wb, "inventory-report.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "StockSummary");
+    XLSX.writeFile(wb, `periodical-stock-summary-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.xlsx`);
   }
 
-  function exportPDF() {
-    const rows = Array.isArray(items) ? items : (typeof sortedItems !== 'undefined' && Array.isArray(sortedItems) ? sortedItems : (typeof sorted_items !== 'undefined' && Array.isArray(sorted_items) ? sorted_items : []));
+  async function exportPDF() {
+    const rows = sorted_items.length ? sorted_items : items;
     if (!rows || !rows.length) return;
+    const headerInfo = await fetchReportHeader(api);
     const doc = new jsPDF("p", "mm", "a4");
-    doc.setFontSize(16);
-    doc.text("Inventory Report", 14, 15);
-    doc.setFontSize(10);
-    doc.text(`Generated on ${new Date().toLocaleDateString()}`, 14, 22);
-    
-    // Fallback simple PDF generation
-    const headers = Object.keys(rows[0] || {}).slice(0, 8);
-    const data = rows.map(r => headers.map(h => String(r[h] || "")));
-    
-    try {
-      doc.autoTable({
-        startY: 30,
-        head: [headers],
-        body: data,
-        styles: { fontSize: 8 }
-      });
-    } catch (e) {
-      doc.text("Data table (see Excel for full details)", 14, 30);
-    }
-    doc.save("inventory-report.pdf");
+    const margin = 14;
+    const pageW = 210;
+
+    let y = applyPdfHeader(doc, headerInfo, {
+      title: "PERIODICAL STOCK SUMMARY",
+      subtitle: `Period: ${from || "Beginning"} to ${to || "Today"}`,
+      kpis: [
+        { label: "TRACKED ITEMS", value: String(rows.length), color: [59, 130, 246] },
+      ],
+    });
+
+    // Table header
+    doc.setFillColor(30, 41, 59);
+    doc.rect(margin, y, pageW - margin * 2, 6, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text("ITEM CODE", margin + 2, y + 4.2);
+    doc.text("ITEM NAME", 40, y + 4.2);
+    doc.text("OPENING", 100, y + 4.2, { align: "right" });
+    doc.text("RECEIPTS", 130, y + 4.2, { align: "right" });
+    doc.text("ISSUES", 160, y + 4.2, { align: "right" });
+    doc.text("CLOSING", pageW - margin - 2, y + 4.2, { align: "right" });
+    y += 8.5;
+    doc.setTextColor(51, 65, 85);
+
+    rows.forEach((r) => {
+      if (y > 270) {
+        doc.addPage();
+        y = 15;
+      }
+      const code = String(r.item_code || "-");
+      const name = String(r.item_name || "-").slice(0, 24);
+      const op = Number(r.opening_qty || 0).toLocaleString();
+      const rec = Number(r.receipts_qty || 0).toLocaleString();
+      const iss = Number(r.issues_qty || 0).toLocaleString();
+      const cls = Number(r.closing_qty || 0).toLocaleString();
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.text(code, margin + 2, y);
+      doc.text(name, 40, y);
+      doc.text(op, 100, y, { align: "right" });
+      doc.text(rec, 130, y, { align: "right" });
+      doc.text(iss, 160, y, { align: "right" });
+      doc.text(cls, pageW - margin - 2, y, { align: "right" });
+      y += 4.5;
+    });
+
+    applyPdfFooter(doc);
+    doc.save(`periodical-stock-summary-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.pdf`);
   }
 
   return (

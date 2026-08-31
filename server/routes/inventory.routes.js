@@ -5150,6 +5150,37 @@ router.get(
   },
 );
 
+router.get(
+  ["/categories", "/item-categories"],
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemGroupTables();
+      const { companyId, branchId = null } = req.scope || {};
+      const rows = await query(
+        `
+        SELECT g.id, g.group_code, g.group_name, g.group_name AS category_name, g.parent_group_id,
+               CASE WHEN g.is_active = 1 THEN 1 ELSE 0 END AS is_active,
+               p.group_name AS parent_group_name,
+          g.created_at,
+          u.username AS created_by_name
+         FROM inv_item_groups g
+          LEFT JOIN inv_item_groups p ON p.id = g.parent_group_id
+        LEFT JOIN adm_users u ON u.id = g.created_by
+         WHERE g.company_id = :companyId AND g.branch_id = :branchId
+         ORDER BY g.group_name ASC
+        `,
+        { companyId, branchId },
+      );
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 router.post(
   "/item-groups",
   requireAuth,
@@ -8036,7 +8067,11 @@ router.put(
   },
 );
 
-// Daily Stock Count/Stock Take endpoints
+// Daily Stock Count / Physical Stock Take Enterprise Endpoints
+// =========================================================================
+// SHARED ENTERPRISE INVENTORY STOCK COUNT ENGINE (DAILY & PHYSICAL STOCK TAKE)
+// =========================================================================
+
 async function ensureStockCountTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS inv_daily_stock_counts (
@@ -8045,65 +8080,266 @@ async function ensureStockCountTables() {
       branch_id BIGINT UNSIGNED NOT NULL,
       warehouse_id BIGINT UNSIGNED NULL,
       stock_take_no VARCHAR(50) NULL,
+      stock_take_type VARCHAR(20) NOT NULL DEFAULT 'PHYSICAL',
+      count_scope VARCHAR(30) NOT NULL DEFAULT 'FULL_WAREHOUSE',
       count_date DATE NOT NULL,
+      category_id BIGINT UNSIGNED NULL,
+      tolerance_pct DECIMAL(5,2) DEFAULT 0.00,
+      is_blind_count TINYINT(1) DEFAULT 0,
       status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+      snapshot_at DATETIME NULL,
+      submitted_by BIGINT UNSIGNED NULL,
+      submitted_at DATETIME NULL,
+      reviewed_by BIGINT UNSIGNED NULL,
+      reviewed_at DATETIME NULL,
+      approved_by BIGINT UNSIGNED NULL,
+      approved_at DATETIME NULL,
+      recount_count INT UNSIGNED DEFAULT 0,
+      recount_reason TEXT NULL,
+      adjustment_id BIGINT UNSIGNED NULL,
+      total_items INT UNSIGNED DEFAULT 0,
+      total_variance_items INT UNSIGNED DEFAULT 0,
+      total_variance_value DECIMAL(18,4) DEFAULT 0,
       remarks TEXT,
       created_by BIGINT UNSIGNED,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_count (company_id, branch_id, warehouse_id, count_date),
-      KEY idx_count_scope (company_id, branch_id)
+      KEY idx_count_scope (company_id, branch_id),
+      KEY idx_type (stock_take_type)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `).catch(() => {});
-  await query(`
-    ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS stock_take_no VARCHAR(50) NULL
-  `).catch(() => {});
-  await query(`
-    ALTER TABLE inv_daily_stock_counts MODIFY COLUMN warehouse_id BIGINT UNSIGNED NULL
-  `).catch(() => {});
-  await query(`
-    ALTER TABLE inv_daily_stock_counts ADD UNIQUE KEY uq_stock_take_no (company_id, branch_id, stock_take_no)
-  `).catch(() => {});
+
+  // Drop legacy unique keys that prevent multiple stock takes or multiple daily counts per day
+  const dropLegacyIndexes = [
+    "ALTER TABLE inv_daily_stock_counts DROP INDEX uq_count",
+    "ALTER TABLE inv_daily_stock_counts DROP INDEX uq_daily_stock_count",
+    "ALTER TABLE inv_daily_stock_counts DROP INDEX uniq_count_day",
+    "ALTER TABLE inv_daily_stock_counts DROP INDEX uq_count_date",
+  ];
+  for (const q of dropLegacyIndexes) {
+    await query(q).catch(() => {});
+  }
+
+  // Add all needed columns if missing
+  const cols = [
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS stock_take_no VARCHAR(50) NULL",
+    "ALTER TABLE inv_daily_stock_counts MODIFY COLUMN warehouse_id BIGINT UNSIGNED NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS stock_take_type VARCHAR(20) NOT NULL DEFAULT 'PHYSICAL'",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS count_scope VARCHAR(30) NOT NULL DEFAULT 'FULL_WAREHOUSE'",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS count_type VARCHAR(30) NOT NULL DEFAULT 'FULL_COUNT'",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS category_id BIGINT UNSIGNED NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS tolerance_pct DECIMAL(5,2) DEFAULT 0.00",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS is_blind_count TINYINT(1) DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS snapshot_at DATETIME NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS submitted_by BIGINT UNSIGNED NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS submitted_at DATETIME NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS reviewed_by BIGINT UNSIGNED NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS reviewed_at DATETIME NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS approved_by BIGINT UNSIGNED NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS approved_at DATETIME NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS recount_count INT UNSIGNED DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS recount_reason TEXT NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS adjustment_id BIGINT UNSIGNED NULL",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS total_items INT UNSIGNED DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS total_variance_items INT UNSIGNED DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_counts ADD COLUMN IF NOT EXISTS total_variance_value DECIMAL(18,4) DEFAULT 0",
+  ];
+  for (const c of cols) {
+    await query(c).catch(() => {});
+  }
+
   await query(`
     CREATE TABLE IF NOT EXISTS inv_daily_stock_count_details (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       count_id BIGINT UNSIGNED NOT NULL,
       item_id BIGINT UNSIGNED NOT NULL,
-      qty_counted DECIMAL(18,3),
-      qty_system DECIMAL(18,3),
-      variance DECIMAL(18,3),
+      batch_no VARCHAR(100) NULL,
+      system_qty DECIMAL(18,3) DEFAULT 0,
+      movement_qty DECIMAL(18,3) DEFAULT 0,
+      expected_qty DECIMAL(18,3) DEFAULT 0,
+      physical_qty DECIMAL(18,3) NULL,
+      qty_counted DECIMAL(18,3) NULL,
+      qty_system DECIMAL(18,3) NULL,
+      variance DECIMAL(18,3) DEFAULT 0,
+      variance_qty DECIMAL(18,3) DEFAULT 0,
+      variance_pct DECIMAL(10,2) DEFAULT 0,
+      unit_cost DECIMAL(18,4) DEFAULT 0,
+      variance_value DECIMAL(18,4) DEFAULT 0,
+      variance_reason VARCHAR(100) NULL,
+      count_status VARCHAR(30) DEFAULT 'PENDING',
+      recount_qty DECIMAL(18,3) NULL,
+      location_name VARCHAR(100) NULL,
       remarks VARCHAR(255),
+      created_by BIGINT UNSIGNED NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       KEY idx_detail (count_id),
       KEY idx_item (item_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `).catch(() => {});
+
+  const detailCols = [
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS batch_no VARCHAR(100) NULL",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS system_qty DECIMAL(18,3) DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS movement_qty DECIMAL(18,3) DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS expected_qty DECIMAL(18,3) DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS physical_qty DECIMAL(18,3) NULL",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS variance_qty DECIMAL(18,3) DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS variance_pct DECIMAL(10,2) DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(18,4) DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS variance_value DECIMAL(18,4) DEFAULT 0",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS variance_reason VARCHAR(100) NULL",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS count_status VARCHAR(30) DEFAULT 'PENDING'",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS recount_qty DECIMAL(18,3) NULL",
+    "ALTER TABLE inv_daily_stock_count_details ADD COLUMN IF NOT EXISTS location_name VARCHAR(100) NULL",
+  ];
+  for (const dc of detailCols) {
+    await query(dc).catch(() => {});
+  }
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS inv_stock_count_logs (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      count_id BIGINT UNSIGNED NOT NULL,
+      actor_user_id BIGINT UNSIGNED NULL,
+      actor_name VARCHAR(100) NULL,
+      action VARCHAR(50) NOT NULL,
+      old_status VARCHAR(30) NULL,
+      new_status VARCHAR(30) NULL,
+      comments TEXT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_count_logs (count_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `).catch(() => {});
 }
 
-async function nextStockTakeNo(companyId, branchId) {
+async function logStockTakeAction(countId, actorUserId, actorName, action, oldStatus, newStatus, comments) {
+  try {
+    await query(
+      `INSERT INTO inv_stock_count_logs
+        (count_id, actor_user_id, actor_name, action, old_status, new_status, comments)
+       VALUES
+        (:countId, :actorUserId, :actorName, :action, :oldStatus, :newStatus, :comments)`,
+      {
+        countId,
+        actorUserId: actorUserId || null,
+        actorName: actorName || "System",
+        action,
+        oldStatus: oldStatus || null,
+        newStatus: newStatus || null,
+        comments: comments || null,
+      },
+    );
+  } catch {}
+}
+
+async function nextStockTakeNo(companyId, branchId, stockTakeType = "PHYSICAL") {
+  const prefix = String(stockTakeType).toUpperCase() === "DAILY" ? "DST-" : "STK-";
   const rows = await query(
     `
-    SELECT stock_take_no,
-          created_at,
-          u.username AS created_by_name
-         FROM inv_daily_stock_counts
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE company_id = :companyId
-      AND branch_id = :branchId
-      AND stock_take_no LIKE 'STK-%'
-    ORDER BY CAST(SUBSTRING(stock_take_no, 5) AS UNSIGNED) DESC
+    SELECT stock_take_no
+     FROM inv_daily_stock_counts
+     WHERE company_id = :companyId
+       AND (:branchId IS NULL OR branch_id = :branchId OR branch_id IS NULL)
+       AND stock_take_no LIKE :prefixPattern
+    ORDER BY CAST(SUBSTRING(stock_take_no, :prefixLen) AS UNSIGNED) DESC
     LIMIT 1
     `,
-    { companyId, branchId },
+    {
+      companyId: companyId || null,
+      branchId: branchId || null,
+      prefixPattern: `${prefix}%`,
+      prefixLen: prefix.length + 1,
+    },
   ).catch(() => []);
+
   let nextNum = 1;
   if (rows && rows.length) {
     const prev = String(rows[0].stock_take_no || "");
-    const numPart = prev.slice(4);
+    const numPart = prev.slice(prefix.length);
     const n = parseInt(numPart, 10);
     if (Number.isFinite(n)) nextNum = n + 1;
   }
-  return `STK-${String(nextNum).padStart(6, "0")}`;
+  return `${prefix}${String(nextNum).padStart(6, "0")}`;
 }
 
+// 1. GET /stock-takes - List stock takes with summary KPIs and type filter
+router.get(
+  "/stock-takes",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      await ensureStockCountTables();
+      const { companyId, branchId = null } = req.scope || {};
+      const { type, warehouse_id, status } = req.query || {};
+
+      let sql = `
+        SELECT c.id,
+               c.stock_take_no,
+               c.stock_take_type,
+               c.count_scope,
+               c.count_date AS stock_take_date,
+               c.count_type,
+               c.category_id,
+               c.tolerance_pct,
+               c.is_blind_count,
+               c.status,
+               c.warehouse_id,
+               w.warehouse_name,
+               cat.category_name,
+               c.snapshot_at,
+               c.submitted_at,
+               c.approved_at,
+               c.recount_count,
+               c.adjustment_id,
+               sa.adjustment_no,
+               c.total_items,
+               c.total_variance_items,
+               c.total_variance_value,
+               c.remarks,
+               c.created_at,
+               u.username AS created_by_name,
+               u_app.username AS approved_by_name,
+               COUNT(d.id) AS detail_lines_count
+         FROM inv_daily_stock_counts c
+        LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
+        LEFT JOIN inv_item_categories cat ON cat.id = c.category_id
+        LEFT JOIN inv_stock_adjustments sa ON sa.id = c.adjustment_id
+        LEFT JOIN adm_users u ON u.id = c.created_by
+        LEFT JOIN adm_users u_app ON u_app.id = c.approved_by
+        LEFT JOIN inv_daily_stock_count_details d ON d.count_id = c.id
+         WHERE c.company_id = :companyId
+           AND (:branchId IS NULL OR c.branch_id = :branchId OR c.branch_id IS NULL)
+      `;
+
+      const params = { companyId: companyId || null, branchId: branchId || null };
+
+      if (type && type !== "ALL") {
+        sql += ` AND c.stock_take_type = :stockTakeType`;
+        params.stockTakeType = String(type).toUpperCase();
+      }
+
+      if (warehouse_id && warehouse_id !== "ALL") {
+        sql += ` AND c.warehouse_id = :warehouseId`;
+        params.warehouseId = Number(warehouse_id);
+      }
+
+      if (status && status !== "ALL") {
+        sql += ` AND c.status = :status`;
+        params.status = String(status).toUpperCase();
+      }
+
+      sql += ` GROUP BY c.id ORDER BY c.id DESC`;
+
+      const rows = await query(sql, params);
+      res.json({ items: rows || [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// Backward compatible alias /daily-stock-count
 router.get(
   "/daily-stock-count",
   requireAuth,
@@ -8116,14 +8352,16 @@ router.get(
       const rows = await query(
         `
         SELECT c.id, c.warehouse_id, c.count_date, c.status,
+               c.stock_take_no, c.stock_take_type,
                w.warehouse_name, COUNT(d.id) AS item_count,
-          c.created_at,
-          u.username AS created_by_name
+               c.created_at,
+               u.username AS created_by_name
          FROM inv_daily_stock_counts c
         LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
         LEFT JOIN inv_daily_stock_count_details d ON d.count_id = c.id
         LEFT JOIN adm_users u ON u.id = c.created_by
-         WHERE c.company_id = :companyId AND c.branch_id = :branchId
+         WHERE c.company_id = :companyId
+           AND (:branchId IS NULL OR c.branch_id = :branchId OR c.branch_id IS NULL)
         GROUP BY c.id
         ORDER BY c.count_date DESC, c.id DESC
         `,
@@ -8136,39 +8374,85 @@ router.get(
   },
 );
 
+// 2. GET /stock-takes/:id - Full details, live reconciliation, audit logs
 router.get(
-  "/stock-takes",
+  "/stock-takes/:id",
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
   async (req, res, next) => {
     try {
       await ensureStockCountTables();
-      const { companyId, branchId = null } = req.scope || {};
-      const rows = await query(
+      const { companyId } = req.scope || {};
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+
+      const [hdr] = await query(
         `
-        SELECT c.id,
-               c.stock_take_no,
-               c.count_date AS stock_take_date,
-               c.status,
+        SELECT c.*,
                w.warehouse_name,
-          c.created_at,
-          u.username AS created_by_name
+               w.warehouse_code,
+               cat.category_name,
+               sa.adjustment_no,
+               u_cr.username AS created_by_name,
+               u_sub.username AS submitted_by_name,
+               u_rev.username AS reviewed_by_name,
+               u_app.username AS approved_by_name
          FROM inv_daily_stock_counts c
         LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
-        LEFT JOIN adm_users u ON u.id = c.created_by
-         WHERE c.company_id = :companyId AND c.branch_id = :branchId
-        ORDER BY c.count_date DESC, c.id DESC
+        LEFT JOIN inv_item_categories cat ON cat.id = c.category_id
+        LEFT JOIN inv_stock_adjustments sa ON sa.id = c.adjustment_id
+        LEFT JOIN adm_users u_cr ON u_cr.id = c.created_by
+        LEFT JOIN adm_users u_sub ON u_sub.id = c.submitted_by
+        LEFT JOIN adm_users u_rev ON u_rev.id = c.reviewed_by
+        LEFT JOIN adm_users u_app ON u_app.id = c.approved_by
+         WHERE c.id = :id AND c.company_id = :companyId
+        LIMIT 1
         `,
-        { companyId: companyId || null, branchId: branchId || null },
+        { id, companyId },
       );
-      res.json({ items: rows || [] });
+      if (!hdr) throw httpError(404, "NOT_FOUND", "Stock take not found");
+
+      // Query line items with details
+      const details = await query(
+        `
+        SELECT d.*,
+               i.item_code,
+               i.item_name,
+               i.uom,
+               uom.uom_name,
+               cat.category_name AS item_category,
+               COALESCE(d.unit_cost, i.cost_price, 0) AS effective_unit_cost
+         FROM inv_daily_stock_count_details d
+        LEFT JOIN inv_items i ON i.id = d.item_id
+        LEFT JOIN inv_item_categories cat ON cat.id = i.category_id
+        LEFT JOIN inv_uoms uom ON uom.id = i.uom_id
+         WHERE d.count_id = :id
+        ORDER BY i.item_code ASC, i.item_name ASC
+        `,
+        { id },
+      );
+
+      // Query audit logs
+      const logs = await query(
+        `
+        SELECT l.*, u.username AS actor_username
+         FROM inv_stock_count_logs l
+        LEFT JOIN adm_users u ON u.id = l.actor_user_id
+         WHERE l.count_id = :id
+        ORDER BY l.id ASC
+        `,
+        { id },
+      );
+
+      res.json({ item: hdr, details: details || [], logs: logs || [] });
     } catch (e) {
       next(e);
     }
   },
 );
 
+// Backward compatible alias
 router.get(
   "/daily-stock-count/:id",
   requireAuth,
@@ -8182,29 +8466,29 @@ router.get(
       const [hdr] = await query(
         `
         SELECT c.*, w.warehouse_name,
-          c.created_at,
-          u.username AS created_by_name
+               c.created_at,
+               u.username AS created_by_name
          FROM inv_daily_stock_counts c
         LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
         LEFT JOIN adm_users u ON u.id = c.created_by
          WHERE c.id = :id
         LIMIT 1
         `,
-        { id: id || null },
+        { id },
       );
       if (!hdr) throw httpError(404, "NOT_FOUND", "Stock count not found");
       const details = await query(
         `
         SELECT d.*, i.item_code, i.item_name,
-          d.created_at,
-          u.username AS created_by_name
+               d.created_at,
+               u.username AS created_by_name
          FROM inv_daily_stock_count_details d
         LEFT JOIN inv_items i ON i.id = d.item_id
         LEFT JOIN adm_users u ON u.id = d.created_by
          WHERE d.count_id = :id
         ORDER BY d.id
         `,
-        { id: id || null },
+        { id },
       );
       res.json({ item: hdr, details: details || [] });
     } catch (e) {
@@ -8213,135 +8497,7 @@ router.get(
   },
 );
 
-router.get(
-  "/stock-takes/:id",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  async (req, res, next) => {
-    try {
-      await ensureStockCountTables();
-      const id = toNumber(req.params.id);
-      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-      const [hdr] = await query(
-        `
-        SELECT c.*, w.warehouse_name,
-          c.created_at,
-          u.username AS created_by_name
-         FROM inv_daily_stock_counts c
-        LEFT JOIN inv_warehouses w ON w.id = c.warehouse_id
-        LEFT JOIN adm_users u ON u.id = c.created_by
-         WHERE c.id = :id
-        LIMIT 1
-        `,
-        { id: id || null },
-      );
-      if (!hdr) throw httpError(404, "NOT_FOUND", "Stock take not found");
-      const detailsRaw = await query(
-        `
-        SELECT d.*,
-          d.created_at,
-          u.username AS created_by_name
-         FROM inv_daily_stock_count_details d
-        LEFT JOIN adm_users u ON u.id = d.created_by
-         WHERE d.count_id = :id
-        ORDER BY d.id
-        `,
-        { id: id || null },
-      );
-      const item = {
-        stock_take_no: hdr.stock_take_no || null,
-        stock_take_date: hdr.count_date || null,
-        warehouse_id: hdr.warehouse_id || null,
-        status: hdr.status || "DRAFT",
-      };
-      const details = (detailsRaw || []).map((r) => ({
-        item_id: r.item_id,
-        physical_qty: r.qty_counted,
-      }));
-      res.json({ item, details });
-    } catch (e) {
-      next(e);
-    }
-  },
-);
-
-router.post(
-  "/daily-stock-count",
-  requireAuth,
-  requireCompanyScope,
-  requireBranchScope,
-  async (req, res, next) => {
-    const conn = await pool.getConnection();
-    try {
-      await ensureStockCountTables();
-      const { companyId, branchId, userId } = req.scope;
-      const body = req.body || {};
-      const warehouseId = toNumber(body.warehouse_id);
-      const countDate = toDateOnly(body.count_date || new Date().toISOString().split("T")[0]) || null;
-      const status =
-        (body.status ? String(body.status).trim() : null) || "DRAFT";
-      const remarks = body.remarks ? String(body.remarks).trim() || null : null;
-      const details = Array.isArray(body.details) ? body.details : [];
-
-      if (!warehouseId)
-        throw httpError(400, "VALIDATION_ERROR", "warehouse_id is required");
-
-      await conn.beginTransaction();
-      const [result] = await conn.execute(
-        `
-        INSERT INTO inv_daily_stock_counts
-        (company_id, branch_id, warehouse_id, count_date, status, remarks, created_by)
-        VALUES (:companyId, :branchId, :warehouseId, :countDate, :status, :remarks, :createdBy)
-        `,
-        {
-          companyId: companyId || null,
-          branchId: branchId || null,
-          warehouseId: warehouseId || null,
-          countDate: countDate || null,
-          status: status || "DRAFT",
-          remarks: remarks || null,
-          createdBy: userId || null,
-        },
-      );
-      const countId = result.insertId;
-
-      for (const line of details) {
-        const itemId = toNumber(line.item_id);
-        const qtyCount = Number(line.qty_counted || 0);
-        if (!itemId) continue;
-        await conn.execute(
-          `
-          INSERT INTO inv_daily_stock_count_details
-          (count_id, item_id, qty_counted, qty_system, variance, remarks)
-          VALUES (:countId, :itemId, :qtyCount, :qtySystem, :variance, :lineRemarks)
-          `,
-          {
-            countId: countId || null,
-            itemId: itemId || null,
-            qtyCount: qtyCount || 0,
-            qtySystem: Number(line.qty_system || 0) || 0,
-            variance: Number(line.variance || 0) || 0,
-            lineRemarks: line.remarks
-              ? String(line.remarks).trim() || null
-              : null,
-          },
-        );
-      }
-
-      await conn.commit();
-      res.status(201).json({ id: countId });
-    } catch (err) {
-      try {
-        await conn.rollback();
-      } catch {}
-      next(err);
-    } finally {
-      conn.release();
-    }
-  },
-);
-
+// 3. POST /stock-takes - Create Stock Take (Daily or Physical) in DRAFT status
 router.post(
   "/stock-takes",
   requireAuth,
@@ -8352,55 +8508,87 @@ router.post(
     try {
       await ensureStockCountTables();
       const { companyId, branchId = null } = req.scope || {};
+      const actorId = req.user?.sub || null;
+      const actorName = req.user?.username || req.user?.name || "User";
       const body = req.body || {};
-      const stockTakeNoRaw = body.stock_take_no;
-      const stockTakeDate =
-        toDateOnly(body.stock_take_date || new Date().toISOString().split("T")[0]) || null;
+
+      const stockTakeType = String(body.stock_take_type || "PHYSICAL").toUpperCase();
+      const stockTakeDate = toDateOnly(body.stock_take_date || new Date().toISOString().split("T")[0]);
       const warehouseId = toNumber(body.warehouse_id) || null;
-      const status =
-        (body.status ? String(body.status).trim() : null) || "DRAFT";
-      const details = Array.isArray(body.details) ? body.details : [];
-      if (!stockTakeDate)
-        throw httpError(400, "VALIDATION_ERROR", "stock_take_date is required");
-      const stockTakeNo =
-        stockTakeNoRaw && String(stockTakeNoRaw).trim()
-          ? String(stockTakeNoRaw).trim()
-          : await nextStockTakeNo(companyId, branchId);
+      const categoryId = toNumber(body.category_id) || null;
+      const countScope = String(body.count_scope || (stockTakeType === "DAILY" ? "SELECTED_ITEMS" : "FULL_WAREHOUSE")).toUpperCase();
+      const countType = String(body.count_type || "FULL_COUNT").toUpperCase();
+      const tolerancePct = Number(body.tolerance_pct || 0);
+      const isBlindCount = body.is_blind_count ? 1 : 0;
+      const remarks = body.remarks ? String(body.remarks).trim() : null;
+      const itemIds = Array.isArray(body.item_ids) ? body.item_ids.map(toNumber).filter(Boolean) : [];
+
+      if (!stockTakeDate) throw httpError(400, "VALIDATION_ERROR", "Date is required");
+
+      const stockTakeNo = await nextStockTakeNo(companyId, branchId, stockTakeType);
+
       await conn.beginTransaction();
       const [hdr] = await conn.execute(
         `
         INSERT INTO inv_daily_stock_counts
-          (company_id, branch_id, warehouse_id, stock_take_no, count_date, status)
+          (company_id, branch_id, warehouse_id, stock_take_no, stock_take_type, count_scope, count_type, count_date, category_id, tolerance_pct, is_blind_count, status, remarks, created_by)
         VALUES
-          (:companyId, :branchId, :warehouseId, :stockTakeNo, :countDate, :status)
+          (:companyId, :branchId, :warehouseId, :stockTakeNo, :stockTakeType, :countScope, :countType, :countDate, :categoryId, :tolerancePct, :isBlindCount, 'DRAFT', :remarks, :actorId)
         `,
         {
-          companyId: companyId || null,
-          branchId: branchId || null,
-          warehouseId: warehouseId || null,
-          stockTakeNo: stockTakeNo || null,
-          countDate: stockTakeDate || null,
-          status: status || "DRAFT",
+          companyId,
+          branchId,
+          warehouseId,
+          stockTakeNo,
+          stockTakeType,
+          countScope,
+          countType,
+          countDate: stockTakeDate,
+          categoryId,
+          tolerancePct,
+          isBlindCount,
+          remarks,
+          actorId,
         },
       );
       const countId = hdr.insertId;
-      for (const line of details) {
-        const itemId = toNumber(line.item_id);
-        const qty =
-          line.physical_qty === "" ? null : Number(line.physical_qty || 0);
-        if (!itemId) continue;
+
+      // If specific item list is pre-configured (e.g. Daily Stock Take selected items)
+      if (itemIds.length > 0) {
+        for (const itId of itemIds) {
+          await conn.execute(
+            `
+            INSERT INTO inv_daily_stock_count_details
+              (count_id, item_id, system_qty, movement_qty, expected_qty, count_status, created_by)
+            VALUES
+              (:countId, :itemId, 0, 0, 0, 'PENDING', :actorId)
+            `,
+            { countId, itemId: itId, actorId },
+          );
+        }
         await conn.execute(
-          `
-          INSERT INTO inv_daily_stock_count_details
-            (count_id, item_id, qty_counted)
-          VALUES
-            (:countId, :itemId, :qty)
-          `,
-          { countId: countId || null, itemId: itemId || null, qty: qty },
+          `UPDATE inv_daily_stock_counts SET total_items = :tot WHERE id = :countId`,
+          { tot: itemIds.length, countId },
         );
       }
+
+      await logStockTakeAction(
+        countId,
+        actorId,
+        actorName,
+        "CREATE",
+        null,
+        "DRAFT",
+        `${stockTakeType === "DAILY" ? "Daily" : "Physical"} Stock Take created with scope: ${countScope}${itemIds.length ? ` (${itemIds.length} preselected items)` : ""}`,
+      );
       await conn.commit();
-      res.status(201).json({ id: countId, stock_take_no: stockTakeNo });
+
+      res.status(201).json({
+        id: countId,
+        stock_take_no: stockTakeNo,
+        stock_take_type: stockTakeType,
+        status: "DRAFT",
+      });
     } catch (err) {
       try {
         await conn.rollback();
@@ -8412,8 +8600,9 @@ router.post(
   },
 );
 
-router.put(
-  "/daily-stock-count/:id",
+// 4. POST /stock-takes/:id/start-count - Captures snapshot baseline from inv_stock_balances
+router.post(
+  "/stock-takes/:id/start-count",
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
@@ -8421,65 +8610,99 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockCountTables();
-      const { companyId, branchId = null } = req.scope || {};
+      const { companyId } = req.scope || {};
       const id = toNumber(req.params.id);
-      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-      const body = req.body || {};
-      const countDate = toDateOnly(body.count_date) || null;
-      const status =
-        (body.status ? String(body.status).trim() : null) || "DRAFT";
-      const remarks = body.remarks ? String(body.remarks).trim() || null : null;
-      const details = Array.isArray(body.details) ? body.details : [];
+      const actorId = req.user?.sub || null;
+      const actorName = req.user?.username || req.user?.name || "User";
+
+      const [stk] = await query(
+        `SELECT * FROM inv_daily_stock_counts WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      );
+      if (!stk) throw httpError(404, "NOT_FOUND", "Stock take not found");
+      if (stk.status !== "DRAFT" && stk.status !== "RECOUNT_REQUIRED") {
+        throw httpError(400, "BAD_REQUEST", `Cannot start counting when status is ${stk.status}`);
+      }
 
       await conn.beginTransaction();
-      const [upd] = await conn.execute(
-        `
-        UPDATE inv_daily_stock_counts
-        SET count_date = :countDate, status = :status, remarks = :remarks
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
-        `,
-        {
-          id: id || null,
-          companyId: companyId || null,
-          branchId: branchId || null,
-          countDate: countDate || null,
-          status: status || "DRAFT",
-          remarks: remarks || null,
-        },
-      );
-      if (!upd.affectedRows)
-        throw httpError(404, "NOT_FOUND", "Stock count not found");
 
-      await conn.execute(
-        `DELETE FROM inv_daily_stock_count_details WHERE count_id = :id`,
-        { id: id || null },
+      // Check if details already exist (preselected items for Daily Stock Take)
+      const existingDetails = await query(
+        `SELECT item_id FROM inv_daily_stock_count_details WHERE count_id = :id`,
+        { id },
       );
 
-      for (const line of details) {
-        const itemId = toNumber(line.item_id);
-        const qtyCount = Number(line.qty_counted || 0);
-        if (!itemId) continue;
+      let itemScopeSql = `
+        SELECT i.id AS item_id,
+               i.cost_price,
+               COALESCE(sb.qty, 0) AS system_qty
+        FROM inv_items i
+        LEFT JOIN (
+          SELECT item_id, SUM(qty) AS qty
+          FROM inv_stock_balances
+          WHERE company_id = :companyId
+            ${stk.warehouse_id ? "AND warehouse_id = :warehouseId" : ""}
+          GROUP BY item_id
+        ) sb ON sb.item_id = i.id
+        WHERE i.company_id = :companyId
+      `;
+      const queryParams = { companyId, warehouseId: stk.warehouse_id || null };
+
+      if (existingDetails.length > 0) {
+        const itemIdsList = existingDetails.map((d) => d.item_id);
+        itemScopeSql += ` AND i.id IN (${itemIdsList.join(",")})`;
+      } else if (stk.category_id) {
+        itemScopeSql += ` AND i.category_id = :categoryId`;
+        queryParams.categoryId = stk.category_id;
+      }
+
+      const scopeItems = await query(itemScopeSql, queryParams);
+
+      await conn.execute(`DELETE FROM inv_daily_stock_count_details WHERE count_id = :id`, { id });
+
+      for (const it of scopeItems) {
+        const cost = Number(it.cost_price || 0);
+        const sysQty = Number(it.system_qty || 0);
         await conn.execute(
           `
           INSERT INTO inv_daily_stock_count_details
-          (count_id, item_id, qty_counted, qty_system, variance, remarks)
-          VALUES (:countId, :itemId, :qtyCount, :qtySystem, :variance, :lineRemarks)
+            (count_id, item_id, system_qty, movement_qty, expected_qty, physical_qty, variance_qty, variance_pct, unit_cost, variance_value, count_status, created_by)
+          VALUES
+            (:countId, :itemId, :sysQty, 0, :sysQty, NULL, 0, 0, :cost, 0, 'PENDING', :actorId)
           `,
           {
-            countId: id || null,
-            itemId: itemId || null,
-            qtyCount: qtyCount || 0,
-            qtySystem: Number(line.qty_system || 0) || 0,
-            variance: Number(line.variance || 0) || 0,
-            lineRemarks: line.remarks
-              ? String(line.remarks).trim() || null
-              : null,
+            countId: id,
+            itemId: it.item_id,
+            sysQty,
+            cost,
+            actorId,
           },
         );
       }
 
+      await conn.execute(
+        `
+        UPDATE inv_daily_stock_counts
+        SET status = 'COUNTING',
+            snapshot_at = NOW(),
+            total_items = :totItems
+        WHERE id = :id
+        `,
+        { id, totItems: scopeItems.length },
+      );
+
+      await logStockTakeAction(
+        id,
+        actorId,
+        actorName,
+        "START_COUNT",
+        stk.status,
+        "COUNTING",
+        `Captured baseline snapshot for ${scopeItems.length} items.`,
+      );
       await conn.commit();
-      res.json({ ok: true });
+
+      res.json({ ok: true, status: "COUNTING", total_items: scopeItems.length });
     } catch (err) {
       try {
         await conn.rollback();
@@ -8491,8 +8714,9 @@ router.put(
   },
 );
 
+// 5. PUT /stock-takes/:id/save-count - Save physical counts in progress
 router.put(
-  "/stock-takes/:id",
+  "/stock-takes/:id/save-count",
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
@@ -8500,59 +8724,556 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await ensureStockCountTables();
-      const { companyId, branchId = null } = req.scope || {};
+      const { companyId } = req.scope || {};
       const id = toNumber(req.params.id);
-      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
-      const body = req.body || {};
-      const stockTakeNoRaw = body.stock_take_no;
-      const stockTakeDate = toDateOnly(body.stock_take_date) || null;
-      const warehouseId = toNumber(body.warehouse_id) || null;
-      const status =
-        (body.status ? String(body.status).trim() : null) || "DRAFT";
-      const details = Array.isArray(body.details) ? body.details : [];
+      const { details = [] } = req.body || {};
+
+      const [stk] = await query(
+        `SELECT * FROM inv_daily_stock_counts WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      );
+      if (!stk) throw httpError(404, "NOT_FOUND", "Stock take not found");
+      if (stk.status !== "COUNTING" && stk.status !== "RECOUNT_REQUIRED" && stk.status !== "DRAFT") {
+        throw httpError(400, "BAD_REQUEST", `Cannot edit counts when status is ${stk.status}`);
+      }
+
       await conn.beginTransaction();
-      const [upd] = await conn.execute(
-        `
-        UPDATE inv_daily_stock_counts
-        SET stock_take_no = :stockTakeNo,
-            count_date = :countDate,
-            warehouse_id = :warehouseId,
-            status = :status
-        WHERE id = :id AND company_id = :companyId AND branch_id = :branchId
-        `,
-        {
-          id: id || null,
-          companyId: companyId || null,
-          branchId: branchId || null,
-          stockTakeNo: stockTakeNoRaw || null,
-          countDate: stockTakeDate || null,
-          warehouseId: warehouseId || null,
-          status: status || "DRAFT",
-        },
-      );
-      if (!upd.affectedRows)
-        throw httpError(404, "NOT_FOUND", "Stock take not found");
-      await conn.execute(
-        `DELETE FROM inv_daily_stock_count_details WHERE count_id = :id`,
-        { id: id || null },
-      );
+
       for (const line of details) {
+        const detailId = toNumber(line.id);
         const itemId = toNumber(line.item_id);
-        const qty =
-          line.physical_qty === "" ? null : Number(line.physical_qty || 0);
-        if (!itemId) continue;
+        const physicalQty = line.physical_qty === "" || line.physical_qty === null || line.physical_qty === undefined
+          ? null
+          : Number(line.physical_qty);
+        const varianceReason = line.variance_reason ? String(line.variance_reason).trim() : null;
+        const remarks = line.remarks ? String(line.remarks).trim() : null;
+
+        if (detailId) {
+          await conn.execute(
+            `
+            UPDATE inv_daily_stock_count_details
+            SET physical_qty = :physicalQty,
+                qty_counted = :physicalQty,
+                variance_reason = :varianceReason,
+                remarks = :remarks
+            WHERE id = :detailId AND count_id = :id
+            `,
+            { detailId, id, physicalQty, varianceReason, remarks },
+          );
+        } else if (itemId) {
+          await conn.execute(
+            `
+            UPDATE inv_daily_stock_count_details
+            SET physical_qty = :physicalQty,
+                qty_counted = :physicalQty,
+                variance_reason = :varianceReason,
+                remarks = :remarks
+            WHERE count_id = :id AND item_id = :itemId
+            `,
+            { id, itemId, physicalQty, varianceReason, remarks },
+          );
+        }
+      }
+
+      await conn.commit();
+      res.json({ ok: true, message: "Counts saved successfully" });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+// 6. POST /stock-takes/:id/submit-count - Reconciles interim movements, calculates variances, submits for review
+router.post(
+  "/stock-takes/:id/submit-count",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureStockCountTables();
+      const { companyId } = req.scope || {};
+      const id = toNumber(req.params.id);
+      const actorId = req.user?.sub || null;
+      const actorName = req.user?.username || req.user?.name || "User";
+
+      const [stk] = await query(
+        `SELECT * FROM inv_daily_stock_counts WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      );
+      if (!stk) throw httpError(404, "NOT_FOUND", "Stock take not found");
+      if (stk.status !== "COUNTING" && stk.status !== "RECOUNT_REQUIRED" && stk.status !== "DRAFT") {
+        throw httpError(400, "BAD_REQUEST", `Cannot submit when status is ${stk.status}`);
+      }
+
+      await conn.beginTransaction();
+
+      const details = await query(
+        `SELECT * FROM inv_daily_stock_count_details WHERE count_id = :id`,
+        { id },
+      );
+
+      let totalVarianceItems = 0;
+      let totalVarianceValue = 0;
+      const tolerancePct = Number(stk.tolerance_pct || 0);
+
+      for (const d of details) {
+        const sysQty = Number(d.system_qty || 0);
+        const cost = Number(d.unit_cost || 0);
+
+        let movementQty = 0;
+        if (stk.snapshot_at) {
+          const [mov] = await query(
+            `
+            SELECT COALESCE(SUM(qty_change), 0) AS mov_qty
+            FROM inv_stock_ledger
+            WHERE company_id = :companyId
+              ${stk.warehouse_id ? "AND warehouse_id = :warehouseId" : ""}
+              AND item_id = :itemId
+              AND created_at > :snapshotAt
+            `,
+            {
+              companyId,
+              warehouseId: stk.warehouse_id || null,
+              itemId: d.item_id,
+              snapshotAt: stk.snapshot_at,
+            },
+          );
+          movementQty = Number(mov?.mov_qty || 0);
+        }
+
+        const expectedQty = sysQty + movementQty;
+        const physicalQty = d.physical_qty !== null && d.physical_qty !== undefined ? Number(d.physical_qty) : null;
+
+        let varianceQty = 0;
+        let variancePct = 0;
+        let varianceVal = 0;
+        let countStatus = "PENDING";
+
+        if (physicalQty !== null) {
+          varianceQty = physicalQty - expectedQty;
+          variancePct = expectedQty !== 0 ? (varianceQty / expectedQty) * 100 : (varianceQty === 0 ? 0 : 100);
+          varianceVal = varianceQty * cost;
+
+          if (Math.abs(varianceQty) < 0.0001) {
+            countStatus = "MATCHED";
+          } else if (tolerancePct > 0 && Math.abs(variancePct) <= tolerancePct) {
+            countStatus = "WITHIN_TOLERANCE";
+            totalVarianceItems++;
+            totalVarianceValue += Math.abs(varianceVal);
+          } else if (varianceQty < 0) {
+            countStatus = "SHORTAGE";
+            totalVarianceItems++;
+            totalVarianceValue += Math.abs(varianceVal);
+          } else {
+            countStatus = "SURPLUS";
+            totalVarianceItems++;
+            totalVarianceValue += Math.abs(varianceVal);
+          }
+        }
+
         await conn.execute(
           `
-          INSERT INTO inv_daily_stock_count_details
-            (count_id, item_id, qty_counted)
-          VALUES
-            (:countId, :itemId, :qty)
+          UPDATE inv_daily_stock_count_details
+          SET movement_qty = :movementQty,
+              expected_qty = :expectedQty,
+              variance = :varianceQty,
+              variance_qty = :varianceQty,
+              variance_pct = :variancePct,
+              variance_value = :varianceVal,
+              count_status = :countStatus
+          WHERE id = :detailId
           `,
-          { countId: id || null, itemId: itemId || null, qty: qty },
+          {
+            detailId: d.id,
+            movementQty,
+            expectedQty,
+            varianceQty,
+            variancePct,
+            varianceVal,
+            countStatus,
+          },
         );
       }
+
+      await conn.execute(
+        `
+        UPDATE inv_daily_stock_counts
+        SET status = 'UNDER_REVIEW',
+            submitted_by = :actorId,
+            submitted_at = NOW(),
+            total_items = :totalItems,
+            total_variance_items = :totalVarianceItems,
+            total_variance_value = :totalVarianceValue
+        WHERE id = :id
+        `,
+        {
+          id,
+          actorId,
+          totalItems: details.length,
+          totalVarianceItems,
+          totalVarianceValue,
+        },
+      );
+
+      await logStockTakeAction(
+        id,
+        actorId,
+        actorName,
+        "SUBMIT_COUNT",
+        stk.status,
+        "UNDER_REVIEW",
+        `Count submitted for review. Identified ${totalVarianceItems} variance items with total variance value of ${totalVarianceValue.toFixed(2)}.`,
+      );
+
       await conn.commit();
-      res.json({ ok: true });
+      res.json({
+        ok: true,
+        status: "UNDER_REVIEW",
+        total_variance_items: totalVarianceItems,
+        total_variance_value: totalVarianceValue,
+      });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+// 7. POST /stock-takes/:id/request-recount - Supervisor requests recount
+router.post(
+  "/stock-takes/:id/request-recount",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureStockCountTables();
+      const { companyId } = req.scope || {};
+      const id = toNumber(req.params.id);
+      const actorId = req.user?.sub || null;
+      const actorName = req.user?.username || req.user?.name || "User";
+      const { reason = "" } = req.body || {};
+
+      const [stk] = await query(
+        `SELECT * FROM inv_daily_stock_counts WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      );
+      if (!stk) throw httpError(404, "NOT_FOUND", "Stock take not found");
+      if (stk.status !== "UNDER_REVIEW") {
+        throw httpError(400, "BAD_REQUEST", `Can only request recount when status is UNDER_REVIEW`);
+      }
+
+      await conn.beginTransaction();
+
+      await conn.execute(
+        `
+        UPDATE inv_daily_stock_count_details
+        SET recount_qty = physical_qty
+        WHERE count_id = :id
+        `,
+        { id },
+      );
+
+      await conn.execute(
+        `
+        UPDATE inv_daily_stock_counts
+        SET status = 'RECOUNT_REQUIRED',
+            recount_count = recount_count + 1,
+            recount_reason = :reason,
+            reviewed_by = :actorId,
+            reviewed_at = NOW()
+        WHERE id = :id
+        `,
+        { id, reason: reason || null, actorId },
+      );
+
+      await logStockTakeAction(
+        id,
+        actorId,
+        actorName,
+        "REQUEST_RECOUNT",
+        "UNDER_REVIEW",
+        "RECOUNT_REQUIRED",
+        `Recount requested (Cycle #${Number(stk.recount_count || 0) + 1}). Reason: ${reason || "Discrepancy review"}`,
+      );
+
+      await conn.commit();
+      res.json({ ok: true, status: "RECOUNT_REQUIRED" });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+// 8. POST /stock-takes/:id/approve - Approve the Stock Take
+router.post(
+  "/stock-takes/:id/approve",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureStockCountTables();
+      const { companyId } = req.scope || {};
+      const id = toNumber(req.params.id);
+      const actorId = req.user?.sub || null;
+      const actorName = req.user?.username || req.user?.name || "User";
+
+      const [stk] = await query(
+        `SELECT * FROM inv_daily_stock_counts WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      );
+      if (!stk) throw httpError(404, "NOT_FOUND", "Stock take not found");
+      if (stk.status !== "UNDER_REVIEW") {
+        throw httpError(400, "BAD_REQUEST", `Can only approve when status is UNDER_REVIEW`);
+      }
+
+      await conn.beginTransaction();
+
+      await conn.execute(
+        `
+        UPDATE inv_daily_stock_counts
+        SET status = 'APPROVED',
+            approved_by = :actorId,
+            approved_at = NOW()
+        WHERE id = :id
+        `,
+        { id, actorId },
+      );
+
+      await logStockTakeAction(
+        id,
+        actorId,
+        actorName,
+        "APPROVE",
+        "UNDER_REVIEW",
+        "APPROVED",
+        "Stock Take approved. Ready for inventory adjustment posting.",
+      );
+
+      await conn.commit();
+      res.json({ ok: true, status: "APPROVED" });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+// 9. POST /stock-takes/:id/post-adjustment - Generates inv_stock_adjustments and calls recordMovementTx atomically
+router.post(
+  "/stock-takes/:id/post-adjustment",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureStockCountTables();
+      await ensureStockAdjustmentTables();
+      const { companyId, branchId = null } = req.scope || {};
+      const id = toNumber(req.params.id);
+      const actorId = req.user?.sub || null;
+      const actorName = req.user?.username || req.user?.name || "User";
+
+      const [stk] = await query(
+        `SELECT * FROM inv_daily_stock_counts WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      );
+      if (!stk) throw httpError(404, "NOT_FOUND", "Stock take not found");
+      if (stk.status !== "APPROVED") {
+        throw httpError(400, "BAD_REQUEST", `Stock take must be APPROVED before posting adjustment (current status: ${stk.status})`);
+      }
+      if (stk.adjustment_id) {
+        throw httpError(400, "BAD_REQUEST", "Inventory adjustment has already been posted for this stock take.");
+      }
+
+      const details = await query(
+        `
+        SELECT d.*, i.item_code, i.item_name, i.uom
+        FROM inv_daily_stock_count_details d
+        JOIN inv_items i ON i.id = d.item_id
+        WHERE d.count_id = :id
+        `,
+        { id },
+      );
+
+      const varianceLines = details.filter((d) => Math.abs(Number(d.variance_qty || 0)) >= 0.0001);
+
+      await conn.beginTransaction();
+
+      let adjId = null;
+      let adjNo = null;
+
+      if (varianceLines.length > 0) {
+        adjNo = await nextAdjustmentNo(companyId);
+        const adjType = stk.stock_take_type === "DAILY" ? "DAILY_STOCK_TAKE" : "PHYSICAL_STOCK_TAKE";
+        const [adjHdr] = await conn.execute(
+          `
+          INSERT INTO inv_stock_adjustments
+            (company_id, branch_id, warehouse_id, adjustment_no, adjustment_date, adjustment_type, reference_doc, reason, status, remarks, created_by)
+          VALUES
+            (:companyId, :branchId, :warehouseId, :adjNo, NOW(), :adjType, :refDoc, 'Stock Take Variance Reconciliation', 'APPROVED', :remarks, :actorId)
+          `,
+          {
+            companyId,
+            branchId: stk.branch_id || branchId,
+            warehouseId: stk.warehouse_id || null,
+            adjNo,
+            adjType,
+            refDoc: stk.stock_take_no,
+            remarks: `Auto-generated from ${stk.stock_take_type === "DAILY" ? "Daily" : "Physical"} Stock Take ${stk.stock_take_no}. Reconciled ${varianceLines.length} discrepancies.`,
+            actorId,
+          },
+        );
+        adjId = adjHdr.insertId;
+
+        for (const line of varianceLines) {
+          const vQty = Number(line.variance_qty || 0);
+          const expQty = Number(line.expected_qty || 0);
+          const physQty = Number(line.physical_qty || 0);
+          const cost = Number(line.unit_cost || 0);
+          const uom = String(line.uom || "PCS");
+
+          await conn.execute(
+            `
+            INSERT INTO inv_stock_adjustment_details
+              (adjustment_id, item_id, current_stock, adjusted_stock, qty, uom, unit_cost, unit_price, line_total, remarks)
+            VALUES
+              (:adjId, :itemId, :currentStock, :adjustedStock, :qty, :uom, :unitCost, :unitPrice, :lineTotal, :remarks)
+            `,
+            {
+              adjId,
+              itemId: line.item_id,
+              currentStock: expQty,
+              adjustedStock: physQty,
+              qty: vQty,
+              uom,
+              unitCost: cost,
+              unitPrice: cost,
+              lineTotal: cost * Math.abs(vQty),
+              remarks: line.variance_reason || "Stock Take Variance",
+            },
+          );
+
+          await recordMovementTx(conn, {
+            companyId,
+            branchId: stk.branch_id || branchId,
+            warehouseId: stk.warehouse_id || null,
+            itemId: line.item_id,
+            transactionType: "STOCK_ADJUSTMENT",
+            qtyChange: vQty,
+            sourceRef: adjId,
+            createdBy: actorId,
+          });
+        }
+      }
+
+      await conn.execute(
+        `
+        UPDATE inv_daily_stock_counts
+        SET status = 'ADJUSTMENT_POSTED',
+            adjustment_id = :adjId
+        WHERE id = :id
+        `,
+        { id, adjId },
+      );
+
+      await logStockTakeAction(
+        id,
+        actorId,
+        actorName,
+        "POST_ADJUSTMENT",
+        "APPROVED",
+        "ADJUSTMENT_POSTED",
+        adjNo
+          ? `Inventory Adjustment ${adjNo} posted. Corrected balances for ${varianceLines.length} items.`
+          : "Stock Take closed. All items matched baseline (zero variances).",
+      );
+
+      await conn.commit();
+      res.json({
+        ok: true,
+        status: "ADJUSTMENT_POSTED",
+        adjustment_id: adjId,
+        adjustment_no: adjNo,
+        adjusted_items_count: varianceLines.length,
+      });
+    } catch (err) {
+      try {
+        await conn.rollback();
+      } catch {}
+      next(err);
+    } finally {
+      conn.release();
+    }
+  },
+);
+
+// 10. POST /stock-takes/:id/cancel - Cancels stock take
+router.post(
+  "/stock-takes/:id/cancel",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await ensureStockCountTables();
+      const { companyId } = req.scope || {};
+      const id = toNumber(req.params.id);
+      const actorId = req.user?.sub || null;
+      const actorName = req.user?.username || req.user?.name || "User";
+      const { reason = "" } = req.body || {};
+
+      const [stk] = await query(
+        `SELECT * FROM inv_daily_stock_counts WHERE id = :id AND company_id = :companyId LIMIT 1`,
+        { id, companyId },
+      );
+      if (!stk) throw httpError(404, "NOT_FOUND", "Stock take not found");
+      if (stk.status === "ADJUSTMENT_POSTED" || stk.status === "CLOSED") {
+        throw httpError(400, "BAD_REQUEST", "Cannot cancel an already posted/closed stock take");
+      }
+
+      await conn.beginTransaction();
+      await conn.execute(
+        `UPDATE inv_daily_stock_counts SET status = 'CANCELLED' WHERE id = :id`,
+        { id },
+      );
+      await logStockTakeAction(
+        id,
+        actorId,
+        actorName,
+        "CANCEL",
+        stk.status,
+        "CANCELLED",
+        `Stock Take cancelled. Reason: ${reason || "User cancelled"}`,
+      );
+      await conn.commit();
+
+      res.json({ ok: true, status: "CANCELLED" });
     } catch (err) {
       try {
         await conn.rollback();

@@ -273,7 +273,15 @@ export default function CostCentersPage() {
       {/* Main Table */}
       <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="table w-full">
+          <table className="table w-full table-fixed">
+            <colgroup>
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+            </colgroup>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
                 <th className="py-3 px-4 text-left">Code</th>
@@ -295,16 +303,16 @@ export default function CostCentersPage() {
               ) : items.length > 0 ? (
                 items.map((it) => (
                   <tr key={it.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-brand dark:text-brand-300">
+                    <td className="py-3 px-4 font-mono font-bold text-brand dark:text-brand-300 truncate" title={it.code}>
                       {it.code}
                     </td>
-                    <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100">
+                    <td className="py-3 px-4 font-semibold text-slate-900 dark:text-slate-100 truncate" title={it.name}>
                       {it.name}
                     </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs max-w-[260px] truncate">
+                    <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-xs truncate" title={it.description || "—"}>
                       {it.description || "—"}
                     </td>
-                    <td className="py-3 px-4 text-xs font-mono font-semibold">
+                    <td className="py-3 px-4 text-xs font-mono font-semibold truncate">
                       {it.default_currency_id
                         ? currencies.find(
                             (c) =>
@@ -312,7 +320,7 @@ export default function CostCentersPage() {
                           )?.code || "Base"
                         : "Base"}
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 truncate">
                       {Number(it.is_active) === 1 ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                           <CheckCircle2 size={12} /> Active
@@ -327,7 +335,7 @@ export default function CostCentersPage() {
                       <button
                         type="button"
                         onClick={() => edit(it)}
-                        className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors inline-flex items-center gap-1"
+                        className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors inline-flex items-center gap-1 cursor-pointer"
                       >
                         <Edit3 size={12} /> Edit
                       </button>

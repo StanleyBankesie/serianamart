@@ -41,6 +41,7 @@ export default function ProspectConversion() {
     customer_type: "Individual",
     contact_person: "",
     mobile: "",
+    enforce_credit_limit: false,
     credit_limit: "0.00",
     payment_terms: "Net 30",
   });
@@ -298,14 +299,30 @@ export default function ProspectConversion() {
                     />
                   </div>
                   <div>
-                    <label className="label">Credit Limit</label>
-                    <input
-                      className="input"
-                      type="number"
-                      value={form.credit_limit || ""}
-                      onChange={(e) => update("credit_limit", e.target.value)}
-                    />
+                    <label className="label cursor-pointer flex items-center gap-2 pt-2">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-primary"
+                        checked={Boolean(form.enforce_credit_limit)}
+                        onChange={(e) => update("enforce_credit_limit", e.target.checked)}
+                      />
+                      <span className="font-semibold text-slate-700">Enforce Credit Limit</span>
+                    </label>
                   </div>
+                  {form.enforce_credit_limit ? (
+                    <div>
+                      <label className="label">Credit Limit Amount</label>
+                      <input
+                        className="input"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Enter credit limit amount"
+                        value={form.credit_limit || ""}
+                        onChange={(e) => update("credit_limit", e.target.value)}
+                      />
+                    </div>
+                  ) : null}
                   <div>
                     <label className="label">Payment Terms</label>
                     <select

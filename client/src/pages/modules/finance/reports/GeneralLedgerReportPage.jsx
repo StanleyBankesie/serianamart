@@ -10,6 +10,12 @@ import { Link, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { autosizeWorksheetColumns } from "../../../../utils/xlsxUtils.js";
+import {
+  fetchReportHeader,
+  applyPdfHeader,
+  applyPdfFooter,
+  buildExcelHeaderRows,
+} from "../../../../utils/pdfUtils.js";
 import useSort from "@/hooks/useSort.js";
 import SortableHeader from "@/components/SortableHeader.jsx";
 
@@ -432,14 +438,21 @@ export default function GeneralLedgerReportPage() {
               <button
                 type="button"
                 className="btn-secondary px-4 whitespace-nowrap"
-                onClick={() => {
+                onClick={async () => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
-                  const ws = XLSX.utils.json_to_sheet(rows);
+                  const headerInfo = await fetchReportHeader(api);
+                  const selectedAcc = accounts.find((a) => String(a.id) === String(accountId));
+                  const accTitle = selectedAcc ? `Account: ${selectedAcc.code} - ${selectedAcc.name}` : "All Accounts";
+                  const headerRows = buildExcelHeaderRows(headerInfo, {
+                    title: `GENERAL LEDGER REPORT (${accTitle})`,
+                    period: `${from || "Beginning"} to ${to || "Today"}`,
+                  });
+                  const ws = XLSX.utils.json_to_sheet([...headerRows, ...rows]);
                   autosizeWorksheetColumns(ws);
                   const wb = XLSX.utils.book_new();
                   XLSX.utils.book_append_sheet(wb, ws, "GeneralLedger");
-                  XLSX.writeFile(wb, "general-ledger.xlsx");
+                  XLSX.writeFile(wb, `general-ledger-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.xlsx`);
                 }}
                 disabled={!items.length}
               >
@@ -448,30 +461,41 @@ export default function GeneralLedgerReportPage() {
               <button
                 type="button"
                 className="btn-primary px-4 whitespace-nowrap"
-                onClick={() => {
+                onClick={async () => {
                   const rows = Array.isArray(items) ? items : [];
                   if (!rows.length) return;
+                  const headerInfo = await fetchReportHeader(api);
                   const doc = new jsPDF("p", "mm", "a4");
-                  let y = 15;
-                  doc.setFontSize(14);
-                  doc.text("General Ledger", 10, y);
-                  y += 6;
-                  doc.setFontSize(10);
-                  doc.text(
-                    `Opening: ${Number(opening || 0).toLocaleString()}`,
-                    10,
-                    y,
-                  );
-                  y += 8;
-                  doc.text("Date", 10, y);
-                  doc.text("Voucher No", 40, y);
-                  doc.text("Description", 105, y);
-                  doc.text("Debit", 165, y);
-                  doc.text("Credit", 185, y);
-                  doc.text("Balance", 205, y, { align: "right" });
-                  y += 4;
-                  doc.line(10, y, 200, y);
-                  y += 5;
+                  const margin = 14;
+                  const pageW = 210;
+
+                  const selectedAcc = accounts.find((a) => String(a.id) === String(accountId));
+                  const accTitle = selectedAcc ? `Account: ${selectedAcc.code} - ${selectedAcc.name}` : "All Accounts";
+
+                  let y = applyPdfHeader(doc, headerInfo, {
+                    title: "GENERAL LEDGER REPORT",
+                    subtitle: `${accTitle}   |   Period: ${from || "Beginning"} to ${to || "Today"}`,
+                    kpis: [
+                      { label: "OPENING BALANCE", value: `${headerInfo.currPrefix}${Number(opening || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, color: [59, 130, 246] },
+                      { label: "TOTAL TRANSACTIONS", value: `${rows.length}`, color: [16, 185, 129] },
+                    ],
+                  });
+
+                  // Table Header
+                  doc.setFillColor(30, 41, 59);
+                  doc.rect(margin, y, pageW - margin * 2, 6, "F");
+                  doc.setFont("helvetica", "bold");
+                  doc.setFontSize(7.5);
+                  doc.setTextColor(255, 255, 255);
+                  doc.text("DATE", margin + 2, y + 4.2);
+                  doc.text("VOUCHER NO", 40, y + 4.2);
+                  doc.text("DESCRIPTION", 75, y + 4.2);
+                  doc.text(`DEBIT (${headerInfo.currCode})`, 135, y + 4.2, { align: "right" });
+                  doc.text(`CREDIT (${headerInfo.currCode})`, 162, y + 4.2, { align: "right" });
+                  doc.text(`BALANCE (${headerInfo.currCode})`, pageW - margin - 2, y + 4.2, { align: "right" });
+                  y += 8.5;
+                  doc.setTextColor(51, 65, 85);
+
                   rows.forEach((r) => {
                     if (y > 270) {
                       doc.addPage();
@@ -481,19 +505,24 @@ export default function GeneralLedgerReportPage() {
                       ? new Date(r.voucher_date).toLocaleDateString()
                       : "-";
                     const vn = String(r.voucher_no || "-");
-                    const desc = String(r.description || "-").slice(0, 45);
-                    const dr = String(Number(r.debit || 0).toLocaleString());
-                    const cr = String(Number(r.credit || 0).toLocaleString());
-                    const bal = String(Number(r.balance || 0).toLocaleString());
-                    doc.text(dt, 10, y);
+                    const desc = String(r.description || "-").slice(0, 32);
+                    const dr = Number(r.debit || 0) > 0 ? Number(r.debit).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—";
+                    const cr = Number(r.credit || 0) > 0 ? Number(r.credit).toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—";
+                    const bal = Number(r.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 });
+                    
+                    doc.setFont("helvetica", "normal");
+                    doc.setFontSize(7);
+                    doc.text(dt, margin + 2, y);
                     doc.text(vn, 40, y);
-                    doc.text(desc, 105, y);
-                    doc.text(dr, 165, y);
-                    doc.text(cr, 185, y);
-                    doc.text(bal, 205, y, { align: "right" });
-                    y += 5;
+                    doc.text(desc, 75, y);
+                    doc.text(dr, 135, y, { align: "right" });
+                    doc.text(cr, 162, y, { align: "right" });
+                    doc.text(bal, pageW - margin - 2, y, { align: "right" });
+                    y += 4.5;
                   });
-                  doc.save("general-ledger.pdf");
+
+                  applyPdfFooter(doc);
+                  doc.save(`general-ledger-${headerInfo.currCode}-${from || "all"}-to-${to || "today"}.pdf`);
                 }}
                 disabled={!items.length}
               >

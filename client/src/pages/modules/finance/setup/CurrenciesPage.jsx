@@ -300,7 +300,15 @@ export default function CurrenciesPage() {
       {/* Main Currencies Table */}
       <div className="card shadow-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="table w-full">
+          <table className="table w-full table-fixed">
+            <colgroup>
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+              <col style={{ width: "16.666%" }} />
+            </colgroup>
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs uppercase tracking-wider">
                 <th className="py-3 px-4 text-left">Code</th>
@@ -595,7 +603,13 @@ function RatesSection({ items }) {
       </form>
 
       <div className="overflow-x-auto">
-        <table className="table w-full">
+        <table className="table w-full table-fixed">
+          <colgroup>
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "25%" }} />
+            <col style={{ width: "25%" }} />
+          </colgroup>
           <thead>
             <tr className="text-xs uppercase bg-slate-100 dark:bg-slate-800">
               <th className="py-2 px-3 text-left">From</th>
