@@ -705,6 +705,13 @@ export const PermissionProvider = ({ children }) => {
     if (permByFeatureKey.has(allowKey)) return true;
     if (mk === "purchase") {
       if (
+        (seg === "purchase-upload" || seg === "upload") &&
+        (roleFeatures.has("purchase:purchase-upload") ||
+          permByFeatureKey.has("purchase:purchase-upload"))
+      ) {
+        return true;
+      }
+      if (
         seg === "direct-purchase" &&
         (roleFeatures.has("purchase:direct-purchases") ||
           permByFeatureKey.has("purchase:direct-purchases"))
@@ -717,7 +724,41 @@ export const PermissionProvider = ({ children }) => {
       )
         return true;
     }
+    if (mk === "sales") {
+      if (
+        (seg === "sales-upload" || seg === "upload") &&
+        (roleFeatures.has("sales:sales-upload") ||
+          permByFeatureKey.has("sales:sales-upload"))
+      ) {
+        return true;
+      }
+    }
+    if (mk === "finance") {
+      if (
+        (seg === "import-vouchers" || seg === "import") &&
+        (roleFeatures.has("finance:import-vouchers") ||
+          permByFeatureKey.has("finance:import-vouchers") ||
+          roleFeatures.has("finance:import") ||
+          permByFeatureKey.has("finance:import"))
+      ) {
+        return true;
+      }
+      if (
+        seg === "opening-balances" &&
+        (roleFeatures.has("finance:opening-balances") ||
+          permByFeatureKey.has("finance:opening-balances"))
+      ) {
+        return true;
+      }
+    }
     if (mk === "inventory") {
+      if (
+        seg === "stock-upload" &&
+        (roleFeatures.has("inventory:stock-upload") ||
+          permByFeatureKey.has("inventory:stock-upload"))
+      ) {
+        return true;
+      }
       if (
         seg === "items" &&
         (roleFeatures.has("inventory:item-master") ||
@@ -753,15 +794,30 @@ export const PermissionProvider = ({ children }) => {
     const mk = String(parts[0] || "");
     const seg = String(parts[1] || "");
 
+    const moduleInfo = MODULES_REGISTRY[mk];
+
     let isExclusive = false;
-    if (mk && seg) {
-      const moduleInfo = MODULES_REGISTRY[mk];
-      if (moduleInfo && moduleInfo.features) {
-        const feature = moduleInfo.features.find((f) => String(f.key) === seg);
-        if (feature && feature.isExclusive) {
-          isExclusive = true;
-        }
+    let exclusiveFeatureKey = null;
+    if (mk && moduleInfo && moduleInfo.features) {
+      const feature = moduleInfo.features.find((f) => {
+        const k = String(f.key);
+        return (
+          parts.slice(1).includes(k) ||
+          (k === "import-vouchers" && (parts.includes("import") || parts.includes("import-vouchers"))) ||
+          (k === "opening-balances" && parts.includes("opening-balances")) ||
+          (k === "stock-upload" && parts.includes("stock-upload")) ||
+          (k === "purchase-upload" && (parts.includes("purchase-upload") || parts.includes("upload"))) ||
+          (k === "sales-upload" && (parts.includes("sales-upload") || parts.includes("upload")))
+        );
+      });
+      if (feature && feature.isExclusive) {
+        isExclusive = true;
+        exclusiveFeatureKey = feature.key;
       }
+    }
+
+    if (isExclusive && exclusiveFeatureKey) {
+      return canAccessFeatureKey(mk, exclusiveFeatureKey);
     }
 
     if (!isExclusive) {
@@ -783,7 +839,6 @@ export const PermissionProvider = ({ children }) => {
     // Feature-level restrictions are applied on deeper paths and via UI filtering.
     if (parts.length === 1) return true;
 
-    const moduleInfo = MODULES_REGISTRY[mk];
     if (!seg) {
       return true;
     }
@@ -1096,7 +1151,17 @@ export const PermissionProvider = ({ children }) => {
       if (guardCleanupRef.current) guardCleanupRef.current();
 
       const path = window?.location?.pathname || "/";
-      if (path.startsWith("/pos/") || path === "/pos") {
+      if (
+        path.startsWith("/pos/") ||
+        path === "/pos" ||
+        path.endsWith("/new") ||
+        path.endsWith("/create") ||
+        path.includes("/new/") ||
+        path.includes("/create/") ||
+        path.includes("/edit") ||
+        /\/\d+$/.test(path) ||
+        /\/[0-9a-fA-F-]{8,}$/.test(path)
+      ) {
         document.body.classList.remove("create-guard-disabled", "delete-guard-disabled");
         document.querySelectorAll("[data-create-guard]").forEach((el) => {
           if (el.getAttribute("data-create-guard") === "visible") el.style.display = "";

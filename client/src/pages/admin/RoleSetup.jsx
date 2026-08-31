@@ -58,14 +58,18 @@ export default function RoleSetup() {
       acc[moduleKey] = {
         name: module.name,
         icon: module.icon,
-        features: (module.features || []).map((feature) => ({
-          key: feature.key,
-          label: feature.label,
-        })),
-        dashboards: (module.dashboards || []).map((dashboard) => ({
-          key: dashboard.key,
-          label: dashboard.label,
-        })),
+        features: (module.features || [])
+          .filter((feature) => !feature.isExclusive)
+          .map((feature) => ({
+            key: feature.key,
+            label: feature.label,
+          })),
+        dashboards: (module.dashboards || [])
+          .filter((dashboard) => !dashboard.isExclusive)
+          .map((dashboard) => ({
+            key: dashboard.key,
+            label: dashboard.label,
+          })),
       };
       return acc;
     },

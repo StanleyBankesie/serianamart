@@ -22,8 +22,11 @@ import {
   CheckCircle2
 } from "lucide-react";
 
+import { usePermission } from "@/auth/PermissionContext.jsx";
+
 export default function OpeningBalancesPage() {
   const { scope, user } = useAuth();
+  const { canAccessFeatureKey, isSuper } = usePermission();
   const [accessAllowed, setAccessAllowed] = useState(null);
   const [fiscalYears, setFiscalYears] = useState([]);
   const [selectedFyId, setSelectedFyId] = useState("");
@@ -58,8 +61,10 @@ export default function OpeningBalancesPage() {
       const curList = curRes.data?.items || [];
       setCurrencies(curList);
       const base = curList.find((c) => Number(c.is_base) === 1) || curList[0];
-      setBaseCurrencyCode(base?.code || "GHS");
-      setBaseCurrencyId(base?.id || 1);
+      if (base?.id) {
+        setBaseCurrencyId(Number(base.id));
+        setBaseCurrencyCode(base.code || "GHS");
+      }
 
       const rMap = new Map();
       if (base?.id) rMap.set(Number(base.id), 1.0);
@@ -75,9 +80,14 @@ export default function OpeningBalancesPage() {
     }
   }
 
-  // Check branch-level access restriction
+  // Check exclusive admin permission and branch-level access restriction
   useEffect(() => {
     async function checkAccess() {
+      const hasPerm = isSuper || canAccessFeatureKey("finance", "opening-balances");
+      if (!hasPerm) {
+        setAccessAllowed(false);
+        return;
+      }
       const bid = scope?.branchId;
       if (!bid) { setAccessAllowed(true); return; }
       try {
@@ -95,7 +105,7 @@ export default function OpeningBalancesPage() {
       }
     }
     if (user?.id) checkAccess();
-  }, [scope?.branchId, user?.id]);
+  }, [scope?.branchId, user?.id, isSuper, canAccessFeatureKey]);
 
   async function loadData() {
     try {

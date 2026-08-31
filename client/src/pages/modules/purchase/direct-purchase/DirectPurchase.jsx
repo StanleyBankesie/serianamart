@@ -363,7 +363,19 @@ export default function DirectPurchase() {
   };
 
   const addItemToLines = () => {
-    if (!newItem.item_id || !newItem.qty) return;
+    if (!newItem.item_id) {
+      toast.warning("Please search and select an item first");
+      const el = document.getElementById("dp-item-search");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.focus();
+      }
+      return;
+    }
+    if (!newItem.qty || Number(newItem.qty) <= 0) {
+      toast.warning("Please enter a valid quantity greater than 0");
+      return;
+    }
     const { taxTotal, taxableTotal } = calcNewItemTaxBreakdown();
     const it = items.find((x) => Number(x.id) === Number(newItem.item_id));
 
@@ -378,6 +390,7 @@ export default function DirectPurchase() {
       },
     ]);
 
+    setItemQueries((prev) => ({ ...prev, new: "" }));
     setNewItem({
       item_id: "",
       qty: 1,
@@ -390,6 +403,7 @@ export default function DirectPurchase() {
       mfg_date: "",
       exp_date: "",
     });
+    toast.success(`Added ${it?.item_name || "item"} to purchase`);
   };
 
   const totals = useMemo(() => {
@@ -1025,22 +1039,24 @@ export default function DirectPurchase() {
               />
             </div>
           </div>
-          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
-            <h3 className="text-sm font-semibold text-[#0E3646] mb-3">
+          {/* Add Item Card matching screenshot */}
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm mb-6">
+            <h3 className="text-sm font-bold text-[#0E3646] mb-4">
               Add Item
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-3">
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-3 items-end">
+              {/* Row 1 */}
+              {/* Item * */}
+              <div className="md:col-span-4">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Item *
                 </label>
                 <div className="relative">
                   <input
                     id="dp-item-search"
                     autoComplete="off"
-                    className="input w-full"
+                    className="input w-full text-xs"
                     placeholder="Scan barcode or type item name"
-                    autoFocus
                     value={itemQueries.new || ""}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -1119,27 +1135,31 @@ export default function DirectPurchase() {
                   })()}
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1 ">
+
+              {/* Qty * */}
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Qty *
                 </label>
                 <input
                   type="number"
                   name="qty"
-                  className="input w-32"
+                  className="input w-full text-xs"
                   value={newItem.qty}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
                   min="1"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+
+              {/* UOM */}
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   UOM
                 </label>
                 <select
                   name="uom"
-                  className="input"
+                  className="input w-full text-xs"
                   value={newItem.uom}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
@@ -1151,50 +1171,59 @@ export default function DirectPurchase() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+
+              {/* Price */}
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Price
                 </label>
                 <input
                   type="number"
                   name="unit_price"
-                  className="input w-32"
+                  className="input w-full text-xs"
                   value={newItem.unit_price}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+
+              {/* Total */}
+              <div className="md:col-span-1">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Total
                 </label>
                 <input
                   type="text"
                   disabled
-                  className="input w-32 bg-slate-100 dark:bg-slate-800 font-mono font-bold text-brand-700 dark:text-brand-300"
-                  value={(Number(newItem.qty || 0) * Number(newItem.unit_price || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  className="input w-full text-xs bg-slate-50 text-slate-700 font-semibold"
+                  value={(Number(newItem.qty || 0) * Number(newItem.unit_price || 0)).toFixed(2)}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+
+              {/* Disc % */}
+              <div className="md:col-span-1">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Disc %
                 </label>
                 <input
                   type="number"
                   name="discount_percent"
-                  className="input w-32"
+                  className="input w-full text-xs"
                   value={newItem.discount_percent}
                   onChange={handleNewItemChange}
                   disabled={isViewMode || !canEditDiscount()}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+
+              {/* Row 2 */}
+              {/* Tax Code */}
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Tax Code
                 </label>
                 <select
                   name="tax_code_id"
-                  className="input"
+                  className="input w-full text-xs"
                   value={newItem.tax_code_id}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
@@ -1207,85 +1236,65 @@ export default function DirectPurchase() {
                   ))}
                 </select>
               </div>
-              <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+
+              {/* Batch No */}
+              <div className="md:col-span-4">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Batch No
                 </label>
                 <input
                   type="text"
                   name="batch_no"
-                  className="input"
+                  className="input w-full text-xs"
                   value={newItem.batch_no}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
                   placeholder="Optional"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+
+              {/* Mfg Date */}
+              <div className="md:col-span-3">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Mfg Date
                 </label>
                 <input
                   type="date"
                   name="mfg_date"
-                  className="input"
+                  className="input w-full text-xs"
                   value={newItem.mfg_date}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
+
+              {/* Exp Date */}
+              <div className="md:col-span-3">
+                <label className="block text-xs font-medium text-slate-700 mb-1">
                   Exp Date
                 </label>
                 <input
                   type="date"
                   name="exp_date"
-                  className="input"
+                  className="input w-full text-xs"
                   value={newItem.exp_date}
                   onChange={handleNewItemChange}
                   disabled={isViewMode}
                 />
               </div>
-              <div className="lg:col-span-1 flex items-end">
-                {newItem.tax_code_id &&
-                calcNewItemTaxBreakdown().components.length > 0 ? (
-                  <div className="w-full mt-2 border border-slate-200 rounded-md p-2 bg-slate-50 text-xs">
-                    <div className="font-semibold text-slate-700 mb-1 border-b pb-1">
-                      Tax Breakdown
-                    </div>
-                    {calcNewItemTaxBreakdown().components.map((c) => (
-                      <div
-                        key={c.name}
-                        className="flex justify-between items-center py-0.5"
-                      >
-                        <span className="text-gray-600">
-                          {c.name} ({c.rate}%):
-                        </span>
-                        <span className="font-medium">
-                          {c.amount.toFixed(2)}
-                        </span>
-                      </div>
-                    ))}
-                    <div className="flex justify-between items-center border-t border-slate-200 mt-1 pt-1 font-bold">
-                      <span>Total Tax:</span>
-                      <span>
-                        {calcNewItemTaxBreakdown().taxTotal.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
             </div>
-            <div className="flex justify-end mt-3 px-1">
+
+            {/* Bottom Row with + Add Item button */}
+            <div className="flex justify-end mt-4 pt-1">
               {!isViewMode && (
                 <button
                   type="button"
-                  className="btn btn-primary px-6 flex items-center gap-2"
+                  id="dp-add-item-btn"
+                  data-rbac-exempt="true"
+                  className="px-5 py-2 bg-[#0E3646] hover:bg-[#082330] text-white rounded-lg font-medium text-sm shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
                   onClick={addItemToLines}
-                  disabled={!newItem.item_id || !newItem.qty}
                 >
-                  <span className="text-lg leading-none">+</span> Add Item
+                  <span className="text-base leading-none font-bold">+</span> Add Item
                 </button>
               )}
             </div>
@@ -1317,8 +1326,7 @@ export default function DirectPurchase() {
                         colSpan="10"
                         className="text-center py-10 text-gray-500 italic bg-gray-50"
                       >
-                        No items added yet. Use the section above to add items
-                        to this purchase.
+                        No items added yet. Use the section above to add items to this purchase.
                       </td>
                     </tr>
                   ) : (

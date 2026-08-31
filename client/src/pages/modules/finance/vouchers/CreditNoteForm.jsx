@@ -228,27 +228,27 @@ export default function CreditNoteForm() {
 
       const [vtRes, fyRes, accRes, taxRes, custRes, supRes, curRes] =
         await Promise.all([
-          api.get("/finance/voucher-types"),
-          api.get("/finance/fiscal-years"),
-          api.get("/finance/accounts"),
-          api.get("/finance/tax-codes", { params: { form: formParam } }),
-          api.get("/sales/customers?active=true"),
-          api.get("/purchase/suppliers?active=true"),
-          api.get("/finance/currencies"),
+          api.get("/finance/voucher-types").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/fiscal-years").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/accounts").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/tax-codes", { params: { form: formParam } }).catch(() => ({ data: { items: [] } })),
+          api.get("/sales/customers?active=true").catch(() => ({ data: { items: [] } })),
+          api.get("/purchase/suppliers?active=true").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/currencies").catch(() => ({ data: { items: [] } })),
         ]);
-      const vt = vtRes.data?.items || [];
-      const fys = fyRes.data?.items || [];
-      const acc = accRes.data?.items || [];
-      const taxes = (taxRes.data?.items || []).filter(
+      const vt = vtRes?.data?.items || [];
+      const fys = fyRes?.data?.items || [];
+      const acc = accRes?.data?.items || [];
+      const taxes = (taxRes?.data?.items || []).filter(
         (t) => Number(t.is_active || 0) === 1,
       );
-      const customers = Array.isArray(custRes.data?.items)
+      const customers = Array.isArray(custRes?.data?.items)
         ? custRes.data.items
         : [];
-      const suppliers = Array.isArray(supRes.data?.items)
+      const suppliers = Array.isArray(supRes?.data?.items)
         ? supRes.data.items
         : [];
-      const currs = Array.isArray(curRes.data?.items) ? curRes.data.items : [];
+      const currs = Array.isArray(curRes?.data?.items) ? curRes.data.items : [];
       const combinedPayees = [
         ...customers.map((c) => ({
           type: "CUSTOMER",
@@ -281,7 +281,7 @@ export default function CreditNoteForm() {
 
       if (!fiscalYearId && fys.length) setFiscalYearId(String(fys[0].id));
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to load finance setup");
+      console.warn("loadSetup non-blocking error:", e);
     }
   }
 
@@ -539,14 +539,11 @@ export default function CreditNoteForm() {
 
   useEffect(() => {
     loadSetup();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => {
-    if (isEdit && accounts.length > 0) {
+    if (isEdit) {
       loadVoucher();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, accounts.length]);
+  }, [id, isEdit]);
   useEffect(() => {
     async function loadNextNo() {
       if (isEdit) return;
@@ -3585,85 +3582,114 @@ export default function CreditNoteForm() {
                       <div>
                         <label className="label">Amount *</label>
                         <input
-                          className="input"
+                          className={`input font-medium ${disabledClass}`}
                           type="number"
                           min="0"
                           step="any"
-                          value={cnAmount || ""}
-                          onChange={(e) => setCnAmount(e.target.value)}
+                          value={cnTotalAmount}
+                          onChange={(e) => setCnTotalAmount(e.target.value)}
+                          placeholder="Amount"
+                          required
                           disabled={readOnly}
                         />
                       </div>
                       <div>
                         <label className="label">Exchange Rate</label>
                         <input
-                          className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
-                          value={cnExchangeRate || ""}
+                          className="input"
+                          value={dncnExchangeRate || "1"}
                           readOnly
-                          placeholder="1.00"
                         />
                       </div>
                       <div>
                         <label className="label">Total Amount</label>
                         <input
-                          className="input bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700 font-semibold"
-                          value={(() => {
-                            const amt = Number(cnAmount || 0);
-                            const rate = Number(cnExchangeRate || 1) || 1;
-                            const total = Math.round(amt * rate * 100) / 100;
-                            return total.toFixed(2);
-                          })()}
+                          className="input bg-slate-50 font-bold text-brand"
+                          value={`GH₵ ${(Number(cnTotalAmount || 0) * Number(dncnExchangeRate || 1)).toFixed(2)}`}
                           readOnly
                         />
                       </div>
-                      <div className="flex flex-col justify-end pb-2">
-                        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+                    </div>
+
+                    {/* Grid-2: Customer | Account | Tax Code */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div>
+                        <label className="label">Customer *</label>
+                        {readOnly ? (
                           <input
-                            type="checkbox"
-                            checked={cnIsTaxIncluded}
-                            onChange={(e) => {
-                              const checked = Boolean(e.target.checked);
-                              setCnIsTaxIncluded(checked);
-                              if (!checked) {
-                                setCnTaxCodeId("");
-                                setLines((prev) =>
-                                  prev.filter((l) => !l.accountId || true),
-                                );
-                              }
-                            }}
-                            disabled={readOnly}
+                            className="input font-medium"
+                            value={
+                              payees.find((p) => String(p.id) === String(selectedPayeeId))?.name ||
+                              (accounts.find((a) => String(a.id) === String(cnPayerAccountId))?.name) ||
+                              "-"
+                            }
+                            disabled
                           />
-                          <span className="font-medium">Is Tax Included</span>
-                        </label>
-                        {cnIsTaxIncluded && (
+                        ) : (
                           <select
-                            className={`input mt-1 ${readOnly ? disabledClass : ""}`}
-                            value={cnTaxCodeId || ""}
-                            onChange={(e) => setCnTaxCodeId(e.target.value)}
-                            disabled={readOnly}
+                            className="input"
+                            value={selectedPayeeId}
+                            onChange={(e) => {
+                              setSelectedPayeeId(e.target.value);
+                            }}
+                            required
                           >
-                            <option value="">Select tax code</option>
-                            {taxCodes.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.name || t.tax_name || t.code}
+                            <option value="">Select customer</option>
+                            {payees.filter(p => p.type === "CUSTOMER").map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.code} - {p.name}
                               </option>
                             ))}
                           </select>
                         )}
                       </div>
-                    </div>
-
-                    {/* Grid-2: Description */}
-                    <div className="mb-3">
-                      <label className="label">Description</label>
-                      <textarea
-                        className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand focus:border-brand resize-y"
-                        rows={4}
-                        value={cnDescription || ""}
-                        onChange={(e) => setCnDescription(e.target.value)}
-                        placeholder="Credit note description"
-                        disabled={readOnly}
-                      />
+                      <div>
+                        <label className="label">Account *</label>
+                        {readOnly ? (
+                          <input
+                            className="input"
+                            value={accounts.find((a) => String(a.id) === String(cnPayerAccountId))?.name || "-"}
+                            disabled
+                          />
+                        ) : (
+                          <select
+                            className="input"
+                            value={cnPayerAccountId}
+                            onChange={(e) => setCnPayerAccountId(e.target.value)}
+                            required
+                          >
+                            <option value="">Select ledger account</option>
+                            {accounts.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.code} - {a.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                      <div>
+                        <label className="label">Tax Code</label>
+                        {readOnly ? (
+                          <input
+                            className="input"
+                            value={taxCodes.find((t) => String(t.id) === String(cnTaxCodeId))?.code || "None"}
+                            disabled
+                          />
+                        ) : (
+                          <select
+                            className="input"
+                            value={cnTaxCodeId}
+                            onChange={(e) => setCnTaxCodeId(e.target.value)}
+                          >
+                            <option value="">No Tax</option>
+                            {taxCodes.map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.code} ({Number(t.rate || 0)}%)
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
                     </div>
                   </>
                 ) : isDN ? (
@@ -3685,14 +3711,15 @@ export default function CreditNoteForm() {
                       <div className="font-semibold text-slate-800 dark:text-slate-200">
                         Posting Lines
                       </div>
-                      <button
-                        type="button"
-                        className="btn-success"
-                        onClick={addLine}
-                        disabled={readOnly}
-                      >
-                        + Add Line
-                      </button>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="btn-success"
+                          onClick={addLine}
+                        >
+                          + Add Line
+                        </button>
+                      )}
                     </div>
 
                     <div className="overflow-x-auto">
@@ -3702,6 +3729,9 @@ export default function CreditNoteForm() {
                             <th>Account</th>
                             <th>Description</th>
                             {isCN || isDN ? (
+                              <th className="text-right w-32">Currency</th>
+                            ) : null}
+                            {isJV || isSV || isPV ? (
                               <>
                                 <th className="text-right w-28">Currency</th>
                                 <th className="text-right w-28">Exch. Rate</th>
@@ -3709,17 +3739,17 @@ export default function CreditNoteForm() {
                             ) : null}
                             <th
                               className="text-right"
-                              style={{ minWidth: "300px" }}
+                              style={{ minWidth: "180px" }}
                             >
                               Debit
                             </th>
                             <th
                               className="text-right"
-                              style={{ minWidth: "300px" }}
+                              style={{ minWidth: "180px" }}
                             >
                               Credit
                             </th>
-                            <th />
+                            {!readOnly && <th />}
                           </tr>
                         </thead>
                         <tbody>
@@ -3732,28 +3762,30 @@ export default function CreditNoteForm() {
                             const displayCode =
                               l.accountCode || accFromList?.code || "";
                             const accountLabel =
-                              isSV || isPV
-                                ? displayName
-                                : displayCode
-                                  ? `${displayCode} - ${displayName}`
-                                  : displayName;
-                            const isReadOnlySVorPV = readOnly && (isSV || isPV);
+                              displayName
+                                ? displayCode ? `${displayCode} - ${displayName}` : displayName
+                                : "";
+                            const isViewMode = readOnly;
                             return (
                               <tr key={idx}>
                                 <td>
-                                  {isReadOnlySVorPV ? (
-                                    <span className="font-medium text-slate-800 dark:text-slate-200">
-                                      {accountLabel || "-"}
-                                    </span>
+                                  {isViewMode ? (
+                                    <div>
+                                      <div className="font-medium text-slate-800 dark:text-slate-200">
+                                        {displayName || accountLabel || "-"}
+                                      </div>
+                                      {displayCode ? (
+                                        <div className="text-xs text-slate-500 font-mono">
+                                          {displayCode}
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   ) : (
-                                    <SearchableOptionInput
+                                    <select
+                                      className="input"
                                       value={l.accountId}
-                                      options={accounts.map((a) => ({
-                                        label: isSV || isPV ? a.name : `${a.code} - ${a.name}`,
-                                        value: a.id,
-                                      }))}
-                                      onSelect={(val) => {
-                                        const accId = val;
+                                      onChange={(e) => {
+                                        const accId = e.target.value;
                                         const acc = accounts.find(
                                           (a) => String(a.id) === String(accId),
                                         );
@@ -3764,13 +3796,20 @@ export default function CreditNoteForm() {
                                         });
                                         autoFetchLineRate(newCId, idx);
                                       }}
+                                      required
                                       disabled={readOnly}
-                                      required={true}
-                                    />
+                                    >
+                                      <option value="">Select account</option>
+                                      {accounts.map((a) => (
+                                        <option key={a.id} value={a.id}>
+                                          {a.code} - {a.name}
+                                        </option>
+                                      ))}
+                                    </select>
                                   )}
                                 </td>
                                 <td>
-                                  {isReadOnlySVorPV ? (
+                                  {isViewMode ? (
                                     <span className="text-slate-600 dark:text-slate-400">
                                       {l.description || "-"}
                                     </span>
@@ -3789,79 +3828,25 @@ export default function CreditNoteForm() {
                                   )}
                                 </td>
                                 {isCN || isDN ? (
-                                  <>
-                                    <td>
-                                      {readOnly ? (
-                                        <span className="text-slate-600 dark:text-slate-400">
-                                          {(() => {
-                                            const sel = (currencies || []).find(
-                                              (c) =>
-                                                String(c.id) ===
-                                                String(l.currencyId || ""),
-                                            );
-                                            return (
-                                              sel?.code ||
-                                              sel?.currency_code ||
-                                              (() => {
-                                                const acc = accounts.find(
-                                                  (a) =>
-                                                    String(a.id) ===
-                                                    String(l.accountId || ""),
-                                                );
-                                                return acc?.currency_code || "";
-                                              })()
-                                            );
-                                          })()}
-                                        </span>
-                                      ) : (
-                                        <select
-                                          className="input"
-                                          value={l.currencyId}
-                                          onChange={(e) => {
-                                            const cId = e.target.value;
-                                            updateLine(idx, {
-                                              currencyId: cId,
-                                            });
-                                            autoFetchLineRate(cId, idx);
-                                          }}
-                                          disabled={readOnly}
-                                        >
-                                          <option value="">
-                                            Base Currency
-                                          </option>
-                                          {currencies.map((c) => (
-                                            <option key={c.id} value={c.id}>
-                                              {c.code || c.currency_code}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      )}
-                                    </td>
-                                    <td>
-                                      <input
-                                        className="input text-right"
-                                        type="number"
-                                        min="0"
-                                        step="any"
-                                        value={l.exchangeRate}
-                                        onChange={(e) =>
-                                          updateLine(idx, {
-                                            exchangeRate: e.target.value,
-                                          })
-                                        }
-                                        disabled={readOnly}
-                                      />
-                                    </td>
-                                  </>
+                                  <td className="text-right">
+                                    {(() => {
+                                      const acc = accounts.find(
+                                        (a) =>
+                                          String(a.id) ===
+                                          String(l.accountId || ""),
+                                      );
+                                      return acc?.currency_code || "Base Currency";
+                                    })()}
+                                  </td>
                                 ) : null}
                                 <td
                                   className={
-                                    isReadOnlySVorPV
+                                    isViewMode
                                       ? "text-right font-mono"
                                       : ""
                                   }
                                 >
-                                  {isReadOnlySVorPV ? (
+                                  {isViewMode ? (
                                     <span
                                       className={
                                         Number(l.debit || 0) > 0
@@ -3898,12 +3883,12 @@ export default function CreditNoteForm() {
                                 </td>
                                 <td
                                   className={
-                                    isReadOnlySVorPV
+                                    isViewMode
                                       ? "text-right font-mono"
                                       : ""
                                   }
                                 >
-                                  {isReadOnlySVorPV ? (
+                                  {isViewMode ? (
                                     <span
                                       className={
                                         Number(l.credit || 0) > 0
@@ -3938,8 +3923,8 @@ export default function CreditNoteForm() {
                                     />
                                   )}
                                 </td>
-                                <td>
-                                  {!readOnly && (
+                                {!readOnly && (
+                                  <td>
                                     <button
                                       type="button"
                                       className="text-red-600 hover:text-red-700 text-sm font-medium"
@@ -3948,8 +3933,8 @@ export default function CreditNoteForm() {
                                     >
                                       Remove
                                     </button>
-                                  )}
-                                </td>
+                                  </td>
+                                )}
                               </tr>
                             );
                           })}
@@ -3961,11 +3946,11 @@ export default function CreditNoteForm() {
                       <div className="w-72 space-y-1">
                         <div className="flex justify-between text-sm">
                           <span>Total Debit</span>
-                          <span>{`GH₵ ${totals.debit.toFixed(2)}`}</span>
+                          <span className="font-semibold">{`GH₵ ${totals.debit.toFixed(2)}`}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span>Total Credit</span>
-                          <span>{`GH₵ ${totals.credit.toFixed(2)}`}</span>
+                          <span className="font-semibold">{`GH₵ ${totals.credit.toFixed(2)}`}</span>
                         </div>
                         <div
                           className={`flex justify-between text-sm font-semibold ${
@@ -3983,24 +3968,44 @@ export default function CreditNoteForm() {
                 )}
               </div>
 
-              <div className="flex justify-end gap-3">
-                <Link
-                  to={isCN ? "/finance/credit-note" : ".."}
-                  className="btn-success"
-                >
-                  Cancel
-                </Link>
-                <button
-                  type="submit"
-                  className="btn-success"
-                  disabled={
-                    loading ||
-                    readOnly ||
-                    (!(isPAYV && paymentType === "DIRECT") && !balanced)
-                  }
-                >
-                  {loading ? "Saving..." : "Save Voucher"}
-                </button>
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                {readOnly ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleDownloadVoucherPdf}
+                      className="px-4 py-2 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-200 text-sm font-medium flex items-center gap-1.5"
+                    >
+                      <span>📄</span> Print / Export PDF
+                    </button>
+                    <Link
+                      to={isCN ? "/finance/credit-note" : ".."}
+                      className="btn-success"
+                    >
+                      Back to List
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Link
+                      to={isCN ? "/finance/credit-note" : ".."}
+                      className="btn-secondary"
+                    >
+                      Cancel
+                    </Link>
+                    <button
+                      type="submit"
+                      className="btn-success"
+                      disabled={
+                        loading ||
+                        readOnly ||
+                        (!(isPAYV && paymentType === "DIRECT") && !balanced)
+                      }
+                    >
+                      {loading ? "Saving..." : "Save Voucher"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

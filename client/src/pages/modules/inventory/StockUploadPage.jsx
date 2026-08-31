@@ -11,6 +11,7 @@ import { autosizeWorksheetColumns } from "../../../utils/xlsxUtils";
 import { api } from "../../../api/client.js";
 import { Download } from "lucide-react";
 import { useAuth } from "../../../auth/AuthContext.jsx";
+import { usePermission } from "../../../auth/PermissionContext.jsx";
 
 /**
  *  component
@@ -19,6 +20,7 @@ import { useAuth } from "../../../auth/AuthContext.jsx";
  */
 export default function StockUploadPage() {
   const { scope, user } = useAuth();
+  const { canAccessFeatureKey, isSuper } = usePermission();
   const [accessAllowed, setAccessAllowed] = useState(null); // null = loading, true/false = decided
   const [items, setItems] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -35,9 +37,14 @@ export default function StockUploadPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope?.branchId]);
 
-  // Check if the current user is allowed to access this page based on branch setup
+  // Check exclusive admin permission and branch setup
   useEffect(() => {
     async function checkAccess() {
+      const hasPerm = isSuper || canAccessFeatureKey("inventory", "stock-upload");
+      if (!hasPerm) {
+        setAccessAllowed(false);
+        return;
+      }
       const bid = scope?.branchId;
       if (!bid) { setAccessAllowed(true); return; } // no branch scope => allow
       try {
@@ -56,7 +63,7 @@ export default function StockUploadPage() {
       }
     }
     if (user?.id) checkAccess();
-  }, [scope?.branchId, user?.id]);
+  }, [scope?.branchId, user?.id, isSuper, canAccessFeatureKey]);
 
 
   useEffect(() => {

@@ -38050,3 +38050,55 @@ Error: Invalid id
     at requireBranchScope (file:///C:/Users/stanl/demo/server/middleware/auth.js:248:14)
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 --------------------------------------------------------------------------------
+
+[2026-08-31T06:44:06.902Z] HTTP_401
+Summary: Invalid credentials
+Request: POST /api/login (status 401)
+Context:
+status: 401
+code: INVALID_CREDENTIALS
+method: POST
+url: /api/login
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: null
+companyId: null
+branchId: null
+body: {"username":"admin","password":"[REDACTED]","rememberMe":false}
+query: {}
+Technical details:
+Error: Invalid credentials
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at login (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/auth.controller.js:413:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-08-31T07:32:51.312Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/sales/invoices/next-no (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/sales/invoices/next-no
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 1
+companyId: 1
+branchId: 1
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/sales.route.js:4695:15
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedAnyMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:97:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireBranchScope (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:248:14)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------

@@ -9841,6 +9841,270 @@ router.get(
   },
 );
 
+router.post(
+  "/bulk-upload",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    let conn;
+    try {
+      const companyId = Number(req.scope?.companyId || req.user?.companyId || 0);
+      const branchId = Number(req.body.branchId || req.scope?.branchId || req.user?.branchId || 0);
+      const branchIdsStr = String(branchId || "");
+      const warehouseIdDefault = req.body.warehouseId || req.body.warehouse_id ? Number(req.body.warehouseId || req.body.warehouse_id) : null;
+      const { invoices = [], updateFinanceVouchers = false } = req.body;
+
+      if (!Array.isArray(invoices) || invoices.length === 0) {
+        return res.status(400).json({ message: "No sales invoices provided for upload" });
+      }
+
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      const createdInvoices = [];
+      const errors = [];
+
+      for (let i = 0; i < invoices.length; i++) {
+        const inv = invoices[i];
+        const custIdent = String(inv.customer_name || inv.customer_code || inv.customer_id || "").trim();
+        if (!custIdent) {
+          errors.push(`Row ${i + 1}: Customer is missing`);
+          continue;
+        }
+
+        const [custRows] = await conn.execute(
+          `SELECT id, customer_name, currency_id FROM sal_customers 
+           WHERE company_id = :companyId AND (id = :custId OR customer_code = :code OR LOWER(customer_name) = LOWER(:name)) 
+           LIMIT 1`,
+          {
+            companyId,
+            custId: isNaN(Number(custIdent)) ? 0 : Number(custIdent),
+            code: custIdent,
+            name: custIdent,
+          }
+        );
+
+        let customerId = custRows?.[0]?.id;
+        if (!customerId) {
+          errors.push(`Row ${i + 1}: Customer "${custIdent}" not found`);
+          continue;
+        }
+
+        const invDateYmd = inv.invoice_date ? String(inv.invoice_date).slice(0, 10) : toYmd(new Date());
+        const paymentDateYmd = inv.payment_date || inv.due_date ? String(inv.payment_date || inv.due_date).slice(0, 10) : null;
+        const priceType = String(inv.price_type || "RETAIL").toUpperCase();
+        const paymentType = String(inv.payment_type || "CREDIT").toUpperCase();
+        const currencyId = Number(inv.currency_id || custRows?.[0]?.currency_id || 1) || 1;
+        const exchangeRate = Number(inv.exchange_rate || 1) || 1;
+        const remarks = inv.remarks || null;
+
+        let invWarehouseId = warehouseIdDefault;
+        const whIdent = String(inv.warehouse_name || inv.warehouse_code || inv.warehouse || inv.warehouse_id || "").trim();
+        if (whIdent) {
+          const [whRows] = await conn.execute(
+            `SELECT id FROM inv_warehouses 
+             WHERE company_id = :companyId AND (id = :whId OR warehouse_code = :code OR LOWER(warehouse_name) = LOWER(:name)) 
+             LIMIT 1`,
+            {
+              companyId,
+              whId: isNaN(Number(whIdent)) ? 0 : Number(whIdent),
+              code: whIdent,
+              name: whIdent,
+            }
+          );
+          if (whRows?.[0]?.id) {
+            invWarehouseId = Number(whRows[0].id);
+          }
+        }
+
+        let invoiceNo = String(inv.invoice_no || "").trim();
+        if (!invoiceNo) {
+          invoiceNo = await nextSequentialNo("sal_invoices", "invoice_no", "INV", conn);
+        }
+
+        const lines = Array.isArray(inv.lines) && inv.lines.length > 0 ? inv.lines : [inv];
+        let grandTotal = 0;
+        let baseTotal = 0;
+        let taxTotal = 0;
+        let discountTotal = 0;
+
+        const preparedLines = [];
+        const itemLinesForVoucher = [];
+
+        for (const line of lines) {
+          const itemIdent = String(line.item_code || line.item_name || line.item_id || "").trim();
+          let itemId = null;
+          if (itemIdent) {
+            const [itRows] = await conn.execute(
+              `SELECT id, item_code, item_name, standard_cost, sales_price FROM inv_items 
+               WHERE company_id = :companyId AND (id = :itId OR item_code = :code OR LOWER(item_name) = LOWER(:name)) 
+               LIMIT 1`,
+              {
+                companyId,
+                itId: isNaN(Number(itemIdent)) ? 0 : Number(itemIdent),
+                code: itemIdent,
+                name: itemIdent,
+              }
+            );
+            if (itRows?.[0]?.id) {
+              itemId = Number(itRows[0].id);
+            }
+          }
+
+          const qty = Math.max(0, Number(line.qty || line.quantity || 1));
+          const unitPrice = Math.max(0, Number(line.unit_price || line.price || 0));
+          const discPct = Math.max(0, Number(line.discount_percent || 0));
+          const lineGross = qty * unitPrice;
+          const lineDisc = (lineGross * discPct) / 100;
+          const lineNet = lineGross - lineDisc;
+          const taxAmt = Math.max(0, Number(line.tax_amount || line.tax || 0));
+          const lineTotal = lineNet + taxAmt;
+
+          grandTotal += lineTotal;
+          baseTotal += lineNet;
+          taxTotal += taxAmt;
+          discountTotal += lineDisc;
+
+          preparedLines.push({
+            itemId,
+            qty,
+            unitPrice,
+            discountPercent: discPct,
+            netAmount: lineNet,
+            taxAmount: taxAmt,
+            totalAmount: lineTotal,
+            uom: line.uom || null,
+            remarks: line.remarks || null,
+          });
+
+          if (itemId) {
+            itemLinesForVoucher.push({
+              item_id: itemId,
+              quantity: qty,
+              unit_price: unitPrice,
+              net_amount: lineNet,
+            });
+          }
+        }
+
+        const [ins] = await conn.execute(
+          `INSERT INTO sal_invoices
+            (company_id, branch_id, invoice_no, invoice_date, customer_id, payment_status, status, total_amount, net_amount, balance_amount, tax_amount, price_type, payment_type, currency_id, exchange_rate, warehouse_id, remarks, payment_date, created_by)
+           VALUES
+            (:companyId, :branchId, :invoiceNo, :invoiceDate, :customerId, 'UNPAID', 'POSTED', :totalAmount, :netAmount, :balanceAmount, :taxAmount, :priceType, :paymentType, :currencyId, :exchangeRate, :warehouseId, :remarks, :paymentDate, :createdBy)`,
+          {
+            companyId,
+            branchId,
+            branchIdsStr,
+            invoiceNo,
+            invoiceDate: invDateYmd,
+            customerId: Number(customerId),
+            totalAmount: grandTotal,
+            netAmount: grandTotal,
+            balanceAmount: grandTotal,
+            taxAmount: taxTotal,
+            priceType,
+            paymentType,
+            currencyId,
+            exchangeRate,
+            warehouseId: invWarehouseId,
+            remarks,
+            paymentDate: paymentDateYmd,
+            createdBy: req.user?.id || req.user?.sub || null,
+          }
+        );
+
+        const invoiceId = Number(ins.insertId);
+
+        for (const pl of preparedLines) {
+          await conn.execute(
+            `INSERT INTO sal_invoice_details
+               (invoice_id, item_id, quantity, unit_price, discount_percent, total_amount, net_amount, tax_amount, tax_type, uom, remarks)
+             VALUES
+               (:invoiceId, :itemId, :quantity, :unitPrice, :discountPercent, :totalAmount, :netAmount, :taxAmount, NULL, :uom, :remarks)`,
+            {
+              invoiceId,
+              itemId: pl.itemId,
+              quantity: pl.qty,
+              unitPrice: pl.unitPrice,
+              discountPercent: pl.discountPercent,
+              totalAmount: pl.totalAmount,
+              netAmount: pl.netAmount,
+              taxAmount: pl.taxAmount,
+              uom: pl.uom,
+              remarks: pl.remarks,
+            }
+          );
+        }
+
+        let voucherId = null;
+        if (updateFinanceVouchers) {
+          try {
+            voucherId = await createPostedSalesVoucherForInvoiceTx(conn, {
+              companyId,
+              branchId,
+              branchIdsStr,
+              invoiceId,
+              invoiceNo,
+              invoiceDate: invDateYmd,
+              customerId: Number(customerId),
+              grandTotal,
+              baseTotal,
+              taxTotal,
+              discountTotal,
+              currencyId,
+              exchangeRate,
+              createdBy: req.user?.id || req.user?.sub || null,
+              lineTaxes: [],
+              itemLines: itemLinesForVoucher,
+              remarks,
+            });
+            if (voucherId) {
+              await conn.execute("UPDATE sal_invoices SET voucher_id = :vid WHERE id = :iid", {
+                vid: voucherId,
+                iid: invoiceId,
+              }).catch(() => {});
+            }
+          } catch (vErr) {
+            console.error("Voucher posting error for uploaded sales invoice:", vErr);
+          }
+        }
+
+        createdInvoices.push({
+          invoiceId,
+          invoiceNo,
+          customerName: custRows[0].customer_name,
+          grandTotal,
+          voucherId: voucherId || null,
+        });
+      }
+
+      if (createdInvoices.length === 0 && errors.length > 0) {
+        await conn.rollback();
+        return res.status(400).json({ message: errors.join(", ") });
+      }
+
+      await conn.commit();
+      res.json({
+        success: true,
+        createdCount: createdInvoices.length,
+        createdInvoices,
+        errors,
+      });
+    } catch (err) {
+      if (conn) {
+        try {
+          await conn.rollback();
+        } catch {}
+      }
+      next(err);
+    } finally {
+      if (conn) conn.release();
+    }
+  }
+);
+
 export default router;
 
 export { createSalesReturnCreditNoteTx, createCreditNoteForReturnApprovalTx };

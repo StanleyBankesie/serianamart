@@ -2098,17 +2098,24 @@ export const getVoucherById = async (req, res, next) => {
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid id"));
     const headerRows = await query(
       `SELECT v.id, v.voucher_no, v.voucher_date, COALESCE(NULLIF(TRIM(v.status), ''), 'APPROVED') AS status, v.project_id, v.cost_center_id,
-              v.narration AS remarks, v.narration, v.total_debit, v.total_credit, v.balanced_amount,
-              v.total_debit AS total_amount,
+              v.narration AS remarks, v.narration,
+              COALESCE(NULLIF(v.total_debit, 0), (SELECT SUM(l.debit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0) AS total_debit,
+              COALESCE(NULLIF(v.total_credit, 0), (SELECT SUM(l.credit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0) AS total_credit,
+              COALESCE(NULLIF(v.balanced_amount, 0), NULLIF(v.total_debit, 0), NULLIF(v.total_credit, 0), 0) AS balanced_amount,
+              GREATEST(
+                COALESCE(v.total_debit, 0),
+                COALESCE(v.total_credit, 0),
+                COALESCE(v.balanced_amount, 0),
+                COALESCE((SELECT SUM(l.debit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0),
+                COALESCE((SELECT SUM(l.credit) FROM fin_voucher_lines l WHERE l.voucher_id = v.id), 0)
+              ) AS total_amount,
               v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
               v.currency_id, c.code AS currency_code, v.exchange_rate
          FROM fin_vouchers v
-         JOIN fin_voucher_types vt
+         LEFT JOIN fin_voucher_types vt
            ON vt.id = v.voucher_type_id
-          AND vt.company_id = v.company_id
          LEFT JOIN fin_currencies c
            ON c.id = v.currency_id
-          AND c.company_id = v.company_id
         WHERE v.company_id = :companyId
           AND (:branchId IS NULL OR :branchId = 'all' OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
           AND v.id = :id
@@ -2122,11 +2129,10 @@ export const getVoucherById = async (req, res, next) => {
               l.currency_id, l.exchange_rate, l.tax_code_id, l.payment_method, l.reference_no,
               a.code AS account_code, a.name AS account_name
          FROM fin_voucher_lines l
-         LEFT JOIN fin_accounts a ON a.id = l.account_id AND a.company_id = :companyId
-        WHERE l.company_id = :companyId
-          AND l.voucher_id = :voucherId
+         LEFT JOIN fin_accounts a ON a.id = l.account_id
+        WHERE l.voucher_id = :voucherId
         ORDER BY l.line_no ASC, l.id ASC`,
-      { companyId, voucherId: id },
+      { voucherId: id },
     );
 
     let additionalLines = [];
@@ -2138,11 +2144,10 @@ export const getVoucherById = async (req, res, next) => {
                 l.currency_id, l.exchange_rate, l.tax_code_id, l.payment_method, l.reference_no,
                 a.code AS account_code, a.name AS account_name
            FROM fin_voucher_lines l
-           LEFT JOIN fin_accounts a ON a.id = l.account_id AND a.company_id = :companyId
-          WHERE l.company_id = :companyId
-            AND l.voucher_id = :linkedId
+           LEFT JOIN fin_accounts a ON a.id = l.account_id
+          WHERE l.voucher_id = :linkedId
           ORDER BY l.line_no ASC, l.id ASC`,
-        { companyId, linkedId }
+        { linkedId }
       );
     }
 

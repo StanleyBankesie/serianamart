@@ -72,12 +72,12 @@ export default function UserPermissions() {
     if (selectedRole) {
       const allFeatureKeys = [];
 
-      // Collect all feature keys from module hierarchy
+      // Collect all feature keys from module hierarchy (excluding exclusive ones)
       Object.entries(moduleHierarchy).forEach(([moduleKey, module]) => {
-        module.features.forEach((feature) => {
+        (module.features || []).filter(f => !f.isExclusive).forEach((feature) => {
           allFeatureKeys.push(`${moduleKey}:${feature.key}`);
         });
-        module.dashboards.forEach((dashboard) => {
+        (module.dashboards || []).filter(d => !d.isExclusive).forEach((dashboard) => {
           allFeatureKeys.push(`${moduleKey}:${dashboard.key}`);
         });
       });
@@ -248,10 +248,10 @@ export default function UserPermissions() {
                         (m) => String(m.module_key) === String(moduleKey),
                       );
                       const moduleFeatures = Array.isArray(module?.features)
-                        ? module.features
+                        ? module.features.filter(f => !f.isExclusive)
                         : [];
                       const moduleDashboards = Array.isArray(module?.dashboards)
-                        ? module.dashboards
+                        ? module.dashboards.filter(d => !d.isExclusive)
                         : [];
 
                       return (

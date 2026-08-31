@@ -64,6 +64,7 @@ export const FEATURES_REGISTRY = {
       { feature_key: "sales:discount-schemes", type: "feature", label: "Discount Schemes", path: "/sales/discount-schemes" },
       { feature_key: "sales:customer-credit", type: "feature", label: "Customer Credit", path: "/sales/customer-credit" },
       { feature_key: "sales:bulk-upload", type: "feature", label: "Bulk Customer Upload", path: "/sales/bulk-upload" },
+      { feature_key: "sales:sales-upload", type: "feature", label: "Sales Upload", path: "/sales/sales-upload" },
       { feature_key: "sales:prospect-customers", type: "feature", label: "Prospective Customers", path: "/sales/prospect-customers" },
       { feature_key: "sales:prospect-conversion", type: "feature", label: "Prospect Conversion", path: "/sales/prospect-conversion" },
     ],
@@ -89,6 +90,7 @@ export const FEATURES_REGISTRY = {
       { feature_key: "purchase:port-clearances", type: "feature", label: "Port Clearances", path: "/purchase/port-clearances" },
       { feature_key: "purchase:purchase-bills-local", type: "feature", label: "Local Purchase Bills", path: "/purchase/purchase-bills-local" },
       { feature_key: "purchase:purchase-bills-import", type: "feature", label: "Import Purchase Bills", path: "/purchase/purchase-bills-import" },
+      { feature_key: "purchase:purchase-upload", type: "feature", label: "Purchase Upload", path: "/purchase/purchase-upload" },
       { feature_key: "purchase:suppliers", type: "feature", label: "Suppliers", path: "/purchase/suppliers" },
       { feature_key: "purchase:purchase-returns", type: "feature", label: "Purchase Returns", path: "/purchase/purchase-returns" },
 
@@ -183,6 +185,7 @@ export const FEATURES_REGISTRY = {
       { feature_key: "finance:bank-reconciliation", type: "feature", label: "Bank Reconciliation", path: "/finance/bank-reconciliation" },
       { feature_key: "finance:fixed-assets", type: "feature", label: "Fixed Assets", path: "/finance/fixed-assets" },
       { feature_key: "finance:opening-balances", type: "feature", label: "Opening Balances", path: "/finance/opening-balances" },
+      { feature_key: "finance:import-vouchers", type: "feature", label: "Import Vouchers", path: "/finance/vouchers/import" },
       { feature_key: "finance:pdc-postings", type: "feature", label: "Post-Dated Cheques", path: "/finance/pdc-postings" },
 
       { feature_key: "finance:audittrailreport", type: "feature", label: " Audit Trail Report", path: "/finance/reports/audittrailreport" },

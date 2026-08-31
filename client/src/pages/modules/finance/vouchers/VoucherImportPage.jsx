@@ -24,12 +24,16 @@ const TEMPLATE_HEADERS = [
   "cheque_date",
 ];
 
+import { usePermission } from "@/auth/PermissionContext.jsx";
+import { AlertCircle, ArrowLeft } from "lucide-react";
+
 /**
  *  component
  * 
  * @returns {JSX.Element} The rendered component
  */
 export default function VoucherImportPage() {
+  const { canAccessFeatureKey, isSuper } = usePermission();
   const fileRef = useRef(null);
   const [parsedRows, setParsedRows] = useState([]);
   const [preview, setPreview] = useState(false);
@@ -38,13 +42,31 @@ export default function VoucherImportPage() {
   const [branches, setBranches] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState("");
 
+  const hasAccess = isSuper || canAccessFeatureKey("finance", "import-vouchers");
+
   useEffect(() => {
+    if (!hasAccess) return;
     api.get("/admin/branches").then((r) => {
       const items = r.data?.items || [];
       setBranches(items);
       if (items.length === 1) setSelectedBranch(String(items[0].id));
     }).catch(() => {});
-  }, []);
+  }, [hasAccess]);
+
+  if (!hasAccess) {
+    return (
+      <div className="p-8 text-center max-w-lg mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl mt-12 space-y-4">
+        <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Access Restricted</h2>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          You do not have permission to access the Import Vouchers page. This exclusive permission can only be granted by a System Administrator under Admin Permissions in System Configuration.
+        </p>
+        <Link to="/finance" className="btn btn-secondary text-xs px-4 py-2 inline-flex items-center gap-1.5">
+          <ArrowLeft size={14} /> Return to Finance
+        </Link>
+      </div>
+    );
+  }
 
   const downloadTemplate = () => {
     const bId = selectedBranch || "";

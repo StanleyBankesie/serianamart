@@ -42,6 +42,7 @@ import DeliveryRegisterReportPage from "./reports/DeliveryRegisterReportPage.jsx
 import DebtorsBalanceReportPage from "./reports/DebtorsBalanceReportPage.jsx";
 import SalesProfitabilityReportPage from "./reports/SalesProfitabilityReportPage.jsx";
 import SalesTrackingReportPage from "./reports/SalesTrackingReportPage.jsx";
+import SalesUploadPage from "./SalesUploadPage.jsx";
 
 /**
  * ActionButton component
@@ -77,10 +78,10 @@ export const salesFeatures = [
     module_key: "sales",
     label: "Quotations",
     path: "/sales/quotations",
-        actions: [
-          { label: "View", path: "/sales/quotations", type: "outline" },
-          { label: "New", path: "/sales/quotations/new", type: "primary" }
-        ],
+    actions: [
+      { label: "View", path: "/sales/quotations", type: "outline" },
+      { label: "New", path: "/sales/quotations/new", type: "primary" }
+    ],
     type: "feature",
   },
   {
@@ -354,38 +355,36 @@ export const salesModuleSections = [
     icon: "💳",
     title: "Sales Transactions",
     badge: "Operations",
-      items: [
-        {
-          title: "Quotations",
-          path: "/sales/quotations",
-        
-          feature_key: "quotations",
-          description: "Create and manage customer quotations",
-          icon: "📋",
-          actions: [
-            <ActionButton
-              key="view"
-              label="View"
-              path="/sales/quotations"
-              type="outline"
-              featureKey="sales:quotations"
-              action="view"
-            />,
-            <ActionButton
-              key="new"
-              label="New"
-              path="/sales/quotations/new"
-              type="primary"
-              featureKey="sales:quotations"
-              action="create"
-            />,
-          ],
-        },
-        {
-          title: "Sales Orders",
-          path: "/sales/sales-orders",
-        
-          feature_key: "sales-orders",
+    items: [
+      {
+        title: "Quotations",
+        path: "/sales/quotations",
+        feature_key: "quotations",
+        description: "Create and manage customer quotations",
+        icon: "📋",
+        actions: [
+          <ActionButton
+            key="view"
+            label="View"
+            path="/sales/quotations"
+            type="outline"
+            featureKey="sales:quotations"
+            action="view"
+          />,
+          <ActionButton
+            key="new"
+            label="New"
+            path="/sales/quotations/new"
+            type="primary"
+            featureKey="sales:quotations"
+            action="create"
+          />,
+        ],
+      },
+      {
+        title: "Sales Orders",
+        path: "/sales/sales-orders",
+        feature_key: "sales-orders",
           description: "Process customer orders and track fulfillment",
           icon: "🛒",
           actions: [
@@ -434,11 +433,33 @@ export const salesModuleSections = [
           ],
         },
         {
+          title: "Sales Upload",
+          path: "/sales/sales-upload",
+          feature_key: "sales-upload",
+          description: "Download template and bulk upload sales invoices into the system",
+          icon: "📥",
+          actions: [
+            <ActionButton
+              key="view"
+              label="View"
+              path="/sales/sales-upload"
+              type="outline"
+              featureKey="sales:sales-upload"
+              action="view"
+            />,
+            <ActionButton
+              key="upload"
+              label="Upload"
+              path="/sales/sales-upload"
+              type="primary"
+              featureKey="sales:sales-upload"
+              action="create"
+            />,
+          ],
+        },
+        {
           title: "Sales Returns",
           path: "/sales/returns",
-        
-          feature_key: "returns",
-          description: "Manage returned products and credit notes",
           icon: "🔙",
           actions: [
             <ActionButton
@@ -753,6 +774,7 @@ export const salesModuleSections = [
           title: "Customer Order History",
           path: "/sales/reports/customer-order-history",
         
+        
           description: "Per-customer timeline",
           icon: "🗂️",
         },
@@ -760,14 +782,12 @@ export const salesModuleSections = [
           title: "Customer Accounts",
           path: "/sales/reports/customer-history",
         
-          description:
-            "Complete customer transaction history including returns",
+          description: "Complete customer transaction history including returns",
           icon: "📋",
         },
         {
           title: "Cancelled / Rejected Orders",
           path: "/sales/reports/cancelled-orders",
-        
           description: "Identify revenue loss",
           icon: "🛑",
         },
@@ -805,6 +825,8 @@ export default function SalesHome() {
         <Route path="/invoices" element={<InvoiceList />} />
         <Route path="/invoices/new" element={<InvoiceForm />} />
         <Route path="/invoices/:id" element={<InvoiceForm />} />
+        <Route path="/sales-upload" element={<SalesUploadPage />} />
+        <Route path="sales-upload" element={<SalesUploadPage />} />
         <Route path="/delivery" element={<DeliveryList />} />
         <Route path="/delivery/new" element={<DeliveryForm />} />
         <Route path="/delivery/:id" element={<DeliveryForm />} />
@@ -831,191 +853,191 @@ export default function SalesHome() {
         <Route
           path="/reports/prospect-customer-list"
           element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(() => import("./reports/CustomerListReportPage.jsx")),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/quotation-summary"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/QuotationSummaryReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/quotation-conversion"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/QuotationConversionReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/sales-order-status"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/SalesOrderStatusReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/invoice-summary"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/InvoiceSummaryReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/ar-aging"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/AccountsReceivableAgingReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/revenue-by-customer"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/RevenueByCustomerReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/revenue-by-product"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/RevenueByProductReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/discount-utilization"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/DiscountUtilizationReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/price-list"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(() => import("./reports/PriceListReportPage.jsx")),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/monthly-sales-trend"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/MonthlySalesTrendReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/customer-order-history"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/CustomerOrderHistoryReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/cancelled-orders"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/CancelledOrdersReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route
-        path="/reports/customer-history"
-        element={
-          <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-            {React.createElement(
-              React.lazy(
-                () => import("./reports/CustomerHistoryReportPage.jsx"),
-              ),
-            )}
-          </React.Suspense>
-        }
-      />
-      <Route path="/reports/sales-return" element={<SalesReturnReportPage />} />
-      <Route
-        path="/reports/sales-register"
-        element={<SalesRegisterReportPage />}
-      />
-      <Route
-        path="/reports/delivery-register"
-        element={<DeliveryRegisterReportPage />}
-      />
-      <Route
-        path="/reports/debtors-balance"
-        element={<DebtorsBalanceReportPage />}
-      />
-      <Route
-        path="/reports/sales-profitability"
-        element={<SalesProfitabilityReportPage />}
-      />
-      <Route
-        path="/reports/sales-tracking"
-        element={<SalesTrackingReportPage />}
-      />
-      <Route path="/returns" element={<SalesReturnList />} />
-      <Route path="/returns/new" element={<SalesReturnForm />} />
-      <Route path="/returns/:id" element={<SalesReturnForm />} />
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(() => import("./reports/CustomerListReportPage.jsx")),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/quotation-summary"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/QuotationSummaryReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/quotation-conversion"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/QuotationConversionReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/sales-order-status"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/SalesOrderStatusReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/invoice-summary"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/InvoiceSummaryReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/ar-aging"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/AccountsReceivableAgingReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/revenue-by-customer"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/RevenueByCustomerReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/revenue-by-product"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/RevenueByProductReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/discount-utilization"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/DiscountUtilizationReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/price-list"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(() => import("./reports/PriceListReportPage.jsx")),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/monthly-sales-trend"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/MonthlySalesTrendReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/customer-order-history"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/CustomerOrderHistoryReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/cancelled-orders"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/CancelledOrdersReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route
+          path="/reports/customer-history"
+          element={
+            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
+              {React.createElement(
+                React.lazy(
+                  () => import("./reports/CustomerHistoryReportPage.jsx"),
+                ),
+              )}
+            </React.Suspense>
+          }
+        />
+        <Route path="/reports/sales-return" element={<SalesReturnReportPage />} />
+        <Route
+          path="/reports/sales-register"
+          element={<SalesRegisterReportPage />}
+        />
+        <Route
+          path="/reports/delivery-register"
+          element={<DeliveryRegisterReportPage />}
+        />
+        <Route
+          path="/reports/debtors-balance"
+          element={<DebtorsBalanceReportPage />}
+        />
+        <Route
+          path="/reports/sales-profitability"
+          element={<SalesProfitabilityReportPage />}
+        />
+        <Route
+          path="/reports/sales-tracking"
+          element={<SalesTrackingReportPage />}
+        />
+        <Route path="/returns" element={<SalesReturnList />} />
+        <Route path="/returns/new" element={<SalesReturnForm />} />
+        <Route path="/returns/:id" element={<SalesReturnForm />} />
       </Routes>
     </ModuleLayout>
   );

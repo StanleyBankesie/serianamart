@@ -210,27 +210,27 @@ export default function SalesVoucherForm() {
 
       const [vtRes, fyRes, accRes, taxRes, custRes, supRes, curRes] =
         await Promise.all([
-          api.get("/finance/voucher-types"),
-          api.get("/finance/fiscal-years"),
-          api.get("/finance/accounts"),
-          api.get("/finance/tax-codes", { params: { form: formParam } }),
-          api.get("/sales/customers?active=true"),
-          api.get("/purchase/suppliers?active=true"),
-          api.get("/finance/currencies"),
+          api.get("/finance/voucher-types").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/fiscal-years").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/accounts").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/tax-codes", { params: { form: formParam } }).catch(() => ({ data: { items: [] } })),
+          api.get("/sales/customers?active=true").catch(() => ({ data: { items: [] } })),
+          api.get("/purchase/suppliers?active=true").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/currencies").catch(() => ({ data: { items: [] } })),
         ]);
-      const vt = vtRes.data?.items || [];
-      const fys = fyRes.data?.items || [];
-      const acc = accRes.data?.items || [];
-      const taxes = (taxRes.data?.items || []).filter(
+      const vt = vtRes?.data?.items || [];
+      const fys = fyRes?.data?.items || [];
+      const acc = accRes?.data?.items || [];
+      const taxes = (taxRes?.data?.items || []).filter(
         (t) => Number(t.is_active || 0) === 1,
       );
-      const customers = Array.isArray(custRes.data?.items)
+      const customers = Array.isArray(custRes?.data?.items)
         ? custRes.data.items
         : [];
-      const suppliers = Array.isArray(supRes.data?.items)
+      const suppliers = Array.isArray(supRes?.data?.items)
         ? supRes.data.items
         : [];
-      const currs = Array.isArray(curRes.data?.items) ? curRes.data.items : [];
+      const currs = Array.isArray(curRes?.data?.items) ? curRes.data.items : [];
       const combinedPayees = [
         ...customers.map((c) => ({
           type: "CUSTOMER",
@@ -263,7 +263,7 @@ export default function SalesVoucherForm() {
 
       if (!fiscalYearId && fys.length) setFiscalYearId(String(fys[0].id));
     } catch (e) {
-      toast.error(e?.response?.data?.message || "Failed to load finance setup");
+      console.warn("loadSetup non-blocking error:", e);
     }
   }
 
@@ -345,14 +345,11 @@ export default function SalesVoucherForm() {
 
   useEffect(() => {
     loadSetup();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => {
-    if (isEdit && accounts.length > 0) {
+    if (isEdit) {
       loadVoucher();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, accounts.length]);
+  }, [id, isEdit]);
   useEffect(() => {
     async function loadNextNo() {
       if (isEdit) return;
@@ -2996,19 +2993,32 @@ export default function SalesVoucherForm() {
             <div className="flex justify-between items-center text-white">
               <div>
                 <h1 className="text-2xl font-bold dark:text-brand-300">
-                  {title}
+                  {readOnly && voucherNoPreview ? `${title}: ${voucherNoPreview}` : title}
                 </h1>
-                <p className="text-sm mt-1">
-                  Create a new voucher (double-entry enforced)
+                <p className="text-sm mt-1 text-white/90">
+                  {readOnly
+                    ? "Voucher details and double-entry postings (View Mode)"
+                    : isEdit
+                      ? "Edit voucher details and double-entry postings"
+                      : "Create a new voucher (double-entry enforced)"}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
+                {readOnly && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadVoucherPdf}
+                    className="px-3 py-1.5 rounded bg-white text-brand font-medium text-sm hover:bg-slate-100 flex items-center gap-1 shadow-sm"
+                  >
+                    <span>📄</span> Print / PDF
+                  </button>
+                )}
                 <button onClick={() => window.history.back()} className="btn-success">
                   Back
                 </button>
-                {voucherStatus === "APPROVED" ? (
-                  <span className="px-2 py-1 rounded bg-green-500 text-white text-sm font-medium">
-                    Approved
+                {voucherStatus ? (
+                  <span className={`px-2.5 py-1 rounded text-white text-xs font-semibold uppercase tracking-wider ${voucherStatus === 'APPROVED' ? 'bg-emerald-600' : voucherStatus === 'POSTED' ? 'bg-blue-600' : 'bg-slate-600'}`}>
+                    {voucherStatus}
                   </span>
                 ) : null}
               </div>
@@ -3034,7 +3044,7 @@ export default function SalesVoucherForm() {
                   <div>
                     <label className="label">Voucher No</label>
                     <input
-                      className="input"
+                      className="input font-semibold text-brand"
                       value={
                         voucherNoPreview ||
                         (isJV
@@ -3253,14 +3263,15 @@ export default function SalesVoucherForm() {
                       <div className="font-semibold text-slate-800 dark:text-slate-200">
                         Posting Lines
                       </div>
-                      <button
-                        type="button"
-                        className="btn-success"
-                        onClick={addLine}
-                        disabled={readOnly}
-                      >
-                        + Add Line
-                      </button>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="btn-success"
+                          onClick={addLine}
+                        >
+                          + Add Line
+                        </button>
+                      )}
                     </div>
 
                     <div className="overflow-x-auto">
@@ -3280,17 +3291,17 @@ export default function SalesVoucherForm() {
                             ) : null}
                             <th
                               className="text-right"
-                              style={{ minWidth: "300px" }}
+                              style={{ minWidth: "180px" }}
                             >
                               Debit
                             </th>
                             <th
                               className="text-right"
-                              style={{ minWidth: "300px" }}
+                              style={{ minWidth: "180px" }}
                             >
                               Credit
                             </th>
-                            <th />
+                            {!readOnly && <th />}
                           </tr>
                         </thead>
                         <tbody>
@@ -3308,14 +3319,21 @@ export default function SalesVoucherForm() {
                                 : displayCode
                                   ? `${displayCode} - ${displayName}`
                                   : displayName;
-                            const isReadOnlySVorPV = readOnly && (isSV || isPV);
+                            const isViewMode = readOnly;
                             return (
                               <tr key={idx}>
                                 <td>
-                                  {isReadOnlySVorPV ? (
-                                    <span className="font-medium text-slate-800 dark:text-slate-200">
-                                      {accountLabel || "-"}
-                                    </span>
+                                  {isViewMode ? (
+                                    <div>
+                                      <div className="font-medium text-slate-800 dark:text-slate-200">
+                                        {displayName || accountLabel || "-"}
+                                      </div>
+                                      {displayCode ? (
+                                        <div className="text-xs text-slate-500 font-mono">
+                                          {displayCode}
+                                        </div>
+                                      ) : null}
+                                    </div>
                                   ) : (
                                     <select
                                       className="input"
@@ -3347,7 +3365,7 @@ export default function SalesVoucherForm() {
                                   )}
                                 </td>
                                 <td>
-                                  {isReadOnlySVorPV ? (
+                                  {isViewMode ? (
                                     <span className="text-slate-600 dark:text-slate-400">
                                       {l.description || "-"}
                                     </span>
@@ -3373,56 +3391,71 @@ export default function SalesVoucherForm() {
                                           String(a.id) ===
                                           String(l.accountId || ""),
                                       );
-                                      return acc?.currency_code || "";
+                                      return acc?.currency_code || "Base Currency";
                                     })()}
                                   </td>
                                 ) : null}
                                 {isJV || isSV || isPV ? (
                                   <>
-                                    <td>
-                                      <select
-                                        className="input"
-                                        value={l.currencyId}
-                                        onChange={(e) => {
-                                          const cId = e.target.value;
-                                          updateLine(idx, { currencyId: cId });
-                                          autoFetchLineRate(cId, idx);
-                                        }}
-                                        disabled={readOnly}
-                                      >
-                                        <option value="">Base Currency</option>
-                                        {currencies.map((c) => (
-                                          <option key={c.id} value={c.id}>
-                                            {c.code || c.currency_code}
-                                          </option>
-                                        ))}
-                                      </select>
+                                    <td className="text-right">
+                                      {isViewMode ? (
+                                        <span className="text-sm text-slate-700 dark:text-slate-300">
+                                          {(() => {
+                                            const c = (currencies || []).find((cur) => String(cur.id) === String(l.currencyId || ""));
+                                            return c?.code || c?.currency_code || baseCurrency?.code || "GHS";
+                                          })()}
+                                        </span>
+                                      ) : (
+                                        <select
+                                          className="input"
+                                          value={l.currencyId}
+                                          onChange={(e) => {
+                                            const cId = e.target.value;
+                                            updateLine(idx, { currencyId: cId });
+                                            autoFetchLineRate(cId, idx);
+                                          }}
+                                          disabled={readOnly}
+                                        >
+                                          <option value="">Base Currency</option>
+                                          {currencies.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                              {c.code || c.currency_code}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      )}
                                     </td>
-                                    <td>
-                                      <input
-                                        className="input text-right"
-                                        type="number"
-                                        min="0"
-                                        step="any"
-                                        value={l.exchangeRate}
-                                        onChange={(e) =>
-                                          updateLine(idx, {
-                                            exchangeRate: e.target.value,
-                                          })
-                                        }
-                                        disabled={readOnly}
-                                      />
+                                    <td className="text-right">
+                                      {isViewMode ? (
+                                        <span className="text-sm font-mono text-slate-700 dark:text-slate-300">
+                                          {Number(l.exchangeRate || 1).toFixed(2)}
+                                        </span>
+                                      ) : (
+                                        <input
+                                          className="input text-right"
+                                          type="number"
+                                          min="0"
+                                          step="any"
+                                          value={l.exchangeRate}
+                                          onChange={(e) =>
+                                            updateLine(idx, {
+                                              exchangeRate: e.target.value,
+                                            })
+                                          }
+                                          disabled={readOnly}
+                                        />
+                                      )}
                                     </td>
                                   </>
                                 ) : null}
                                 <td
                                   className={
-                                    isReadOnlySVorPV
+                                    isViewMode
                                       ? "text-right font-mono"
                                       : ""
                                   }
                                 >
-                                  {isReadOnlySVorPV ? (
+                                  {isViewMode ? (
                                     <span
                                       className={
                                         Number(l.debit || 0) > 0
@@ -3459,12 +3492,12 @@ export default function SalesVoucherForm() {
                                 </td>
                                 <td
                                   className={
-                                    isReadOnlySVorPV
+                                    isViewMode
                                       ? "text-right font-mono"
                                       : ""
                                   }
                                 >
-                                  {isReadOnlySVorPV ? (
+                                  {isViewMode ? (
                                     <span
                                       className={
                                         Number(l.credit || 0) > 0
@@ -3499,8 +3532,8 @@ export default function SalesVoucherForm() {
                                     />
                                   )}
                                 </td>
-                                <td>
-                                  {!readOnly && (
+                                {!readOnly && (
+                                  <td>
                                     <button
                                       type="button"
                                       className="text-red-600 hover:text-red-700 text-sm font-medium"
@@ -3509,8 +3542,8 @@ export default function SalesVoucherForm() {
                                     >
                                       Remove
                                     </button>
-                                  )}
-                                </td>
+                                  </td>
+                                )}
                               </tr>
                             );
                           })}
@@ -3522,11 +3555,11 @@ export default function SalesVoucherForm() {
                       <div className="w-72 space-y-1">
                         <div className="flex justify-between text-sm">
                           <span>Total Debit</span>
-                          <span>{`GH₵ ${totals.debit.toFixed(2)}`}</span>
+                          <span className="font-semibold">{`GH₵ ${totals.debit.toFixed(2)}`}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span>Total Credit</span>
-                          <span>{`GH₵ ${totals.credit.toFixed(2)}`}</span>
+                          <span className="font-semibold">{`GH₵ ${totals.credit.toFixed(2)}`}</span>
                         </div>
                         <div
                           className={`flex justify-between text-sm font-semibold ${
@@ -3544,21 +3577,42 @@ export default function SalesVoucherForm() {
                 )}
               </div>
 
-              <div className="flex justify-end gap-3">
-                <button onClick={() => window.history.back()} className="btn-success">
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-success"
-                  disabled={
-                    loading ||
-                    readOnly ||
-                    (!(isPAYV && paymentType === "DIRECT") && !balanced)
-                  }
-                >
-                  {loading ? "Saving..." : "Save Voucher"}
-                </button>
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                {readOnly ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleDownloadVoucherPdf}
+                      className="px-4 py-2 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-200 text-sm font-medium flex items-center gap-1.5"
+                    >
+                      <span>📄</span> Print / Export PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.history.back()}
+                      className="btn-success"
+                    >
+                      Back to List
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => window.history.back()} type="button" className="btn-secondary">
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn-success"
+                      disabled={
+                        loading ||
+                        readOnly ||
+                        (!(isPAYV && paymentType === "DIRECT") && !balanced)
+                      }
+                    >
+                      {loading ? "Saving..." : "Save Voucher"}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

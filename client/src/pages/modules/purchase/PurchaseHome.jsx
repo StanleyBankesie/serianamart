@@ -47,6 +47,7 @@ import GeneralRequisitionForm from "./general-requisitions/GeneralRequisitionFor
 import PurchaseReturnList from "../inventory/purchase-returns/PurchaseReturnList.jsx";
 import PurchaseReturnForm from "../inventory/purchase-returns/PurchaseReturnForm.jsx";
 import PurchaseSetupPage from "./setup/PurchaseSetupPage.jsx";
+import PurchaseUploadPage from "./PurchaseUploadPage.jsx";
 
 function PurchaseFeaturePage({ title, description }) {
   return (
@@ -191,6 +192,16 @@ export const purchaseSections = [
         ],
         description: "Create and manage import purchase bills",
         icon: "🧾",
+      },
+      {
+        name: "Purchase Upload",
+        path: "/purchase/purchase-upload",
+        actions: [
+          { label: "View", path: "/purchase/purchase-upload", type: "outline", featureKey: "purchase:purchase-upload" },
+          { label: "Upload", path: "/purchase/purchase-upload", type: "primary", featureKey: "purchase:purchase-upload" }
+        ],
+        description: "Download template and bulk upload purchase bills into the system",
+        icon: "📥",
       },
     ],
   },
@@ -512,10 +523,14 @@ function PurchaseHomeIndex() {
       stats={stats}
       moduleKey="purchase"
       headerActions={[
-        { label: "Dashboard", path: "/purchase/dashboard",
-        actions: [
-          { label: "View", path: "/purchase/dashboard", type: "outline" }
-        ], icon: "📊" },
+        {
+          label: "Dashboard",
+          path: "/purchase/dashboard",
+          actions: [
+            { label: "View", path: "/purchase/dashboard", type: "outline" }
+          ],
+          icon: "📊"
+        },
       ]}
       sections={purchaseSections}
     />
@@ -527,27 +542,6 @@ export default function PurchaseHome() {
     <ModuleLayout sections={purchaseSections} moduleKey="purchase">
       <Routes>
         <Route index element={<PurchaseHomeIndex />} />
-        <Route
-          path="service-confirmation/new"
-          element={<ServiceConfirmationForm />}
-        />
-        <Route
-          path="service-confirmation/:id"
-          element={<ServiceConfirmationForm />}
-        />
-        <Route path="suppliers" element={<SuppliersList />} />
-        <Route path="setup" element={<PurchaseSetupPage />} />
-        <Route path="suppliers/new" element={<SupplierForm />} />
-        <Route path="suppliers/:id" element={<SupplierForm />} />
-        <Route
-          path="suppliers/mass-upload"
-          element={
-            <PurchaseFeaturePage
-              title="Mass Suppliers Upload"
-              description="Import suppliers in bulk from file"
-            />
-          }
-        />
         <Route path="direct-purchase" element={<DirectPurchaseList />} />
         <Route path="direct-purchase/new" element={<DirectPurchase />} />
         <Route path="direct-purchase/:id" element={<DirectPurchase />} />
@@ -627,150 +621,30 @@ export default function PurchaseHome() {
           path="purchase-bills-import/:id"
           element={<PurchaseBillsForm />}
         />
-        <Route
-          path="reports/import-order-tracking"
-          element={<ImportOrderTrackingReportPage />}
-        />
-        <Route
-          path="reports/local-order-tracking"
-          element={<LocalOrderTrackingReportPage />}
-        />
-        <Route
-          path="reports/purchase-tracking"
-          element={<PurchaseTrackingReportPage />}
-        />
-        <Route
-          path="reports/supplier-quotation-analysis"
-          element={<SupplierQuotationAnalysisReportPage />}
-        />
-        <Route
-          path="reports/pending-grn-to-bill-local"
-          element={<PendingGrnToBillLocalReportPage />}
-        />
-        <Route
-          path="reports/pending-grn-to-bill-import"
-          element={<PendingGrnToBillImportReportPage />}
-        />
-        <Route
-          path="reports/import-order-list"
-          element={<ImportOrderListReportPage />}
-        />
-        <Route
-          path="reports/pending-shipments"
-          element={<PendingShipmentDetailsReportPage />}
-        />
-        <Route
-          path="reports/purchase-register"
-          element={<PurchaseRegisterReportPage />}
-        />
-        <Route
-          path="reports/department-analysis"
-          element={React.createElement(
-            React.lazy(
-              () =>
-                import("./reports/DepartmentPurchaseAnalysisReportPage.jsx"),
-            ),
-          )}
-        />
-        <Route
-          path="reports/import-cost-breakdown"
-          element={React.createElement(
-            React.lazy(
-              () => import("./reports/ImportCostBreakdownReportPage.jsx"),
-            ),
-          )}
-        />
-        <Route
-          path="reports/lead-time-analysis"
-          element={React.createElement(
-            React.lazy(
-              () => import("./reports/LeadTimeAnalysisReportPage.jsx"),
-            ),
-          )}
-        />
-        <Route
-          path="reports/cancelled-pos"
-          element={React.createElement(
-            React.lazy(
-              () => import("./reports/CancelledPurchaseOrdersReportPage.jsx"),
-            ),
-          )}
-        />
-        <Route
-          path="reports/purchase-returns-analysis"
-          element={React.createElement(
-            React.lazy(
-              () => import("./reports/PurchaseReturnsAnalysisReportPage.jsx"),
-            ),
-          )}
-        />
-        <Route
-          path="reports/item-purchase-history"
-          element={React.createElement(
-            React.lazy(
-              () => import("./reports/ItemPurchaseHistoryReportPage.jsx"),
-            ),
-          )}
-        />
-        <Route
-          path="reports/price-variance"
-          element={React.createElement(
-            React.lazy(() => import("./reports/PriceVarianceReportPage.jsx")),
-          )}
-        />
-        <Route
-          path="reports/supplier-performance"
-          element={React.createElement(
-            React.lazy(
-              () => import("./reports/SupplierPerformanceReportPage.jsx"),
-            ),
-          )}
-        />
-        <Route
-          path="reports/supplier-outstanding-payables"
-          element={React.createElement(
-            React.lazy(
-              () =>
-                import("./reports/SupplierOutstandingPayablesReportPage.jsx"),
-            ),
-          )}
-        />
-        <Route
-          path="reports/purchase-aging"
-          element={React.createElement(
-            React.lazy(() => import("./reports/PurchaseAgingReportPage.jsx")),
-          )}
-        />
-        <Route
-          path="dashboard"
-          element={
-            <React.Suspense fallback={<div className="p-4">Loading...</div>}>
-              {React.createElement(
-                React.lazy(() => import("./PurchaseDashboardPage.jsx")),
-              )}
-            </React.Suspense>
-          }
-        />
+        <Route path="purchase-upload" element={<PurchaseUploadPage />} />
+        <Route path="upload" element={<PurchaseUploadPage />} />
         <Route path="purchase-returns" element={<PurchaseReturnList />} />
         <Route path="purchase-returns/new" element={<PurchaseReturnForm />} />
         <Route path="purchase-returns/:id" element={<PurchaseReturnForm />} />
+        <Route path="suppliers" element={<SuppliersList />} />
+        <Route path="suppliers/new" element={<SupplierForm />} />
+        <Route path="suppliers/:id" element={<SupplierForm />} />
+        <Route path="setup" element={<PurchaseSetupPage />} />
         <Route
-          path="procurement-overview"
-          element={
-            <PurchaseFeaturePage
-              title="Procurement Overview"
-              description="Procurement overview dashboard"
-            />
-          }
+          path="service-bills"
+          element={<ServiceBillsList />}
         />
         <Route
-          path="supplier-analytics"
-          element={
-            <PurchaseFeaturePage
-              title="Supplier Analytics"
-              description="Supplier performance analytics and metrics"
-            />
-          }
+          path="service-bills/new"
+          element={<ServiceBillForm />}
+        />
+        <Route
+          path="service-bills/:id"
+          element={<ServiceBillForm />}
+        />
+        <Route
+          path="service-confirmation"
+          element={<ServiceConfirmationsList />}
         />
         <Route
           path="service-confirmation/new"
@@ -780,19 +654,6 @@ export default function PurchaseHome() {
           path="service-confirmation/:id"
           element={<ServiceConfirmationForm />}
         />
-        <Route path="suppliers" element={<SuppliersList />} />
-        <Route path="setup" element={<PurchaseSetupPage />} />
-        <Route path="suppliers/new" element={<SupplierForm />} />
-        <Route path="suppliers/:id" element={<SupplierForm />} />
-        <Route
-          path="suppliers/mass-upload"
-          element={
-            <PurchaseFeaturePage
-              title="Mass Suppliers Upload"
-              description="Import suppliers in bulk from file"
-            />
-          }
-        />
         <Route
           path="reports/import-order-tracking"
           element={<ImportOrderTrackingReportPage />}
@@ -915,27 +776,6 @@ export default function PurchaseHome() {
                 React.lazy(() => import("./PurchaseDashboardPage.jsx")),
               )}
             </React.Suspense>
-          }
-        />
-        <Route path="purchase-returns" element={<PurchaseReturnList />} />
-        <Route path="purchase-returns/new" element={<PurchaseReturnForm />} />
-        <Route path="purchase-returns/:id" element={<PurchaseReturnForm />} />
-        <Route
-          path="procurement-overview"
-          element={
-            <PurchaseFeaturePage
-              title="Procurement Overview"
-              description="Procurement overview dashboard"
-            />
-          }
-        />
-        <Route
-          path="supplier-analytics"
-          element={
-            <PurchaseFeaturePage
-              title="Supplier Analytics"
-              description="Supplier analytics dashboard"
-            />
           }
         />
         <Route path="*" element={<Navigate to="/purchase" replace />} />

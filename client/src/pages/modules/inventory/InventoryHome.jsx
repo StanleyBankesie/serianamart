@@ -131,15 +131,6 @@ export const inventorySections = [
         icon: "⚖️",
       },
       {
-        name: "Opening Balances",
-        path: "/inventory/dashboard",
-        actions: [
-          { label: "View", path: "/inventory/dashboard", type: "outline" }
-        ],
-        description: "Set initial stock balances",
-        icon: "🏁",
-      },
-      {
         name: "Physical Inventory (Stock Take)",
         path: "/inventory/stock-take",
         actions: [

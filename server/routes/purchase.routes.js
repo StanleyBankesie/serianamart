@@ -185,6 +185,11 @@ async function ensurePurBillsPaymentStatusObjects() {
         "ALTER TABLE pur_bills ADD COLUMN amount_paid DECIMAL(18,2) NOT NULL DEFAULT 0",
       );
     }
+    if (!(await hasColumn("pur_bills", "warehouse_id"))) {
+      await pool.query(
+        "ALTER TABLE pur_bills ADD COLUMN warehouse_id BIGINT UNSIGNED NULL",
+      );
+    }
     if (!(await hasColumn("pur_bills", "payment_status"))) {
       await pool.query(
         "ALTER TABLE pur_bills ADD COLUMN payment_status VARCHAR(30) NULL",
@@ -11328,6 +11333,251 @@ router.post("/bills/fix-voucher/:id", async (req, res, next) => {
         if (conn) conn.release();
     }
 });
+
+router.post(
+  "/bulk-upload",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    let conn;
+    try {
+      const companyId = Number(req.scope?.companyId || req.user?.companyId || 0);
+      const branchId = Number(req.body.branchId || req.scope?.branchId || req.user?.branchId || 0);
+      const branchIdsStr = String(branchId || "");
+      const warehouseIdDefault = req.body.warehouseId || req.body.warehouse_id ? Number(req.body.warehouseId || req.body.warehouse_id) : null;
+      const { bills = [], updateFinanceVouchers = false } = req.body;
+
+      if (!Array.isArray(bills) || bills.length === 0) {
+        return res.status(400).json({ message: "No purchase bills provided for upload" });
+      }
+
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      const createdBills = [];
+      const errors = [];
+
+      for (let i = 0; i < bills.length; i++) {
+        const b = bills[i];
+        const supplierIdent = String(b.supplier_name || b.supplier_code || b.supplier_id || "").trim();
+        if (!supplierIdent) {
+          errors.push(`Row ${i + 1}: Supplier is missing`);
+          continue;
+        }
+
+        const [suppRows] = await conn.execute(
+          `SELECT id, supplier_name, currency_id FROM pur_suppliers 
+           WHERE company_id = :companyId AND (id = :suppId OR supplier_code = :code OR LOWER(supplier_name) = LOWER(:name)) 
+           LIMIT 1`,
+          {
+            companyId,
+            suppId: isNaN(Number(supplierIdent)) ? 0 : Number(supplierIdent),
+            code: supplierIdent,
+            name: supplierIdent,
+          }
+        );
+
+        let supplierId = suppRows?.[0]?.id;
+        if (!supplierId) {
+          errors.push(`Row ${i + 1}: Supplier "${supplierIdent}" not found`);
+          continue;
+        }
+
+        const billDateYmd = b.bill_date ? String(b.bill_date).slice(0, 10) : toYmd(new Date());
+        const dueDateYmd = b.due_date ? String(b.due_date).slice(0, 10) : null;
+        const suppInvDateYmd = b.supplier_invoice_date ? String(b.supplier_invoice_date).slice(0, 10) : null;
+        const suppInvNo = b.supplier_invoice_number || null;
+        const paymentTerms = b.payment_terms || "30 Days";
+        const currencyId = Number(b.currency_id || suppRows?.[0]?.currency_id || 1) || 1;
+        const exchangeRate = Number(b.exchange_rate || 1) || 1;
+
+        let billWarehouseId = warehouseIdDefault;
+        const whIdent = String(b.warehouse_name || b.warehouse_code || b.warehouse || b.warehouse_id || "").trim();
+        if (whIdent) {
+          const [whRows] = await conn.execute(
+            `SELECT id FROM inv_warehouses 
+             WHERE company_id = :companyId AND (id = :whId OR warehouse_code = :code OR LOWER(warehouse_name) = LOWER(:name)) 
+             LIMIT 1`,
+            {
+              companyId,
+              whId: isNaN(Number(whIdent)) ? 0 : Number(whIdent),
+              code: whIdent,
+              name: whIdent,
+            }
+          );
+          if (whRows?.[0]?.id) {
+            billWarehouseId = Number(whRows[0].id);
+          }
+        }
+
+        let billNo = String(b.bill_no || "").trim();
+        if (!billNo) {
+          billNo = await nextSequentialNo("pur_bills", "bill_no", "PBL", conn);
+        }
+
+        const lines = Array.isArray(b.lines) && b.lines.length > 0 ? b.lines : [b];
+        let totalAmount = 0;
+        let totalDiscount = 0;
+        let totalTax = 0;
+        let netAmount = 0;
+
+        const preparedLines = [];
+        for (const line of lines) {
+          const itemIdent = String(line.item_code || line.item_name || line.item_id || "").trim();
+          let itemId = null;
+          if (itemIdent) {
+            const [itRows] = await conn.execute(
+              `SELECT id, item_code, item_name, purchase_price FROM inv_items 
+               WHERE company_id = :companyId AND (id = :itId OR item_code = :code OR LOWER(item_name) = LOWER(:name)) 
+               LIMIT 1`,
+              {
+                companyId,
+                itId: isNaN(Number(itemIdent)) ? 0 : Number(itemIdent),
+                code: itemIdent,
+                name: itemIdent,
+              }
+            );
+            if (itRows?.[0]?.id) {
+              itemId = Number(itRows[0].id);
+            }
+          }
+
+          const qty = Math.max(0, Number(line.qty || line.quantity || 1));
+          const unitPrice = Math.max(0, Number(line.unit_price || line.price || 0));
+          const discPct = Math.max(0, Number(line.discount_percent || 0));
+          const lineGross = qty * unitPrice;
+          const lineDisc = (lineGross * discPct) / 100;
+          const lineNet = lineGross - lineDisc;
+          const taxAmt = Math.max(0, Number(line.tax_amount || line.tax || 0));
+          const lineTotal = lineNet + taxAmt;
+
+          totalAmount += lineGross;
+          totalDiscount += lineDisc;
+          totalTax += taxAmt;
+          netAmount += lineTotal;
+
+          preparedLines.push({
+            itemId,
+            qty,
+            unitPrice,
+            discountPercent: discPct,
+            taxAmount: taxAmt,
+            lineTotal,
+            taxCodeId: line.tax_code_id || null,
+          });
+        }
+
+        const [billHdr] = await conn.execute(
+          `INSERT INTO pur_bills
+            (company_id, branch_id, bill_no, bill_date, supplier_id, po_id, grn_id, bill_type,
+             due_date, currency_id, exchange_rate, payment_terms, supplier_invoice_number, supplier_invoice_date,
+             total_amount, discount_amount, tax_amount, freight_charges, other_charges, net_amount,
+             warehouse_id, status, created_by)
+           VALUES
+            (:companyId, :branchId, :billNo, :billDate, :supplierId, NULL, NULL, 'LOCAL',
+             :dueDate, :currencyId, :exchangeRate, :paymentTerms, :supplierInvoiceNumber, :supplierInvoiceDate,
+             :totalAmount, :discountAmount, :taxAmount, 0, 0, :netAmount,
+             :warehouseId, 'POSTED', :createdBy)`,
+          {
+            companyId,
+            branchId,
+            branchIdsStr,
+            billNo,
+            billDate: billDateYmd,
+            supplierId,
+            dueDate: dueDateYmd,
+            currencyId,
+            exchangeRate,
+            paymentTerms,
+            supplierInvoiceNumber: suppInvNo,
+            supplierInvoiceDate: suppInvDateYmd,
+            totalAmount,
+            discountAmount: totalDiscount,
+            taxAmount: totalTax,
+            netAmount,
+            warehouseId: billWarehouseId,
+            createdBy: req.user?.sub || req.user?.id || null,
+          }
+        );
+
+        const billId = Number(billHdr.insertId);
+
+        for (const pl of preparedLines) {
+          await conn.execute(
+            `INSERT INTO pur_bill_details
+              (bill_id, item_id, uom_id, qty, unit_price, discount_percent, tax_amount, line_total, tax_code_id)
+             VALUES
+              (:billId, :itemId, NULL, :qty, :unitPrice, :discountPercent, :taxAmount, :lineTotal, :taxCodeId)`,
+            {
+              billId,
+              itemId: pl.itemId,
+              qty: pl.qty,
+              unitPrice: pl.unitPrice,
+              discountPercent: pl.discountPercent,
+              taxAmount: pl.taxAmount,
+              lineTotal: pl.lineTotal,
+              taxCodeId: pl.taxCodeId,
+            }
+          );
+        }
+
+        let voucherResult = null;
+        if (updateFinanceVouchers) {
+          try {
+            voucherResult = await postPurchaseBillVoucherTx(conn, {
+              companyId,
+              branchId,
+              branchIdsStr,
+              billId,
+              userId: req.user?.sub || req.user?.id || null,
+              isDirectPurchase: false,
+            });
+            if (voucherResult?.voucherId) {
+              await conn.execute("UPDATE pur_bills SET voucher_id = :vid WHERE id = :bid", {
+                vid: voucherResult.voucherId,
+                bid: billId,
+              });
+            }
+          } catch (vErr) {
+            console.error("Voucher posting error for uploaded bill:", vErr);
+          }
+        }
+
+        createdBills.push({
+          billId,
+          billNo,
+          supplierName: suppRows[0].supplier_name,
+          netAmount,
+          voucherId: voucherResult?.voucherId || null,
+          voucherNo: voucherResult?.voucherNo || null,
+        });
+      }
+
+      if (createdBills.length === 0 && errors.length > 0) {
+        await conn.rollback();
+        return res.status(400).json({ message: errors.join(", ") });
+      }
+
+      await conn.commit();
+      res.json({
+        success: true,
+        createdCount: createdBills.length,
+        createdBills,
+        errors,
+      });
+    } catch (err) {
+      if (conn) {
+        try {
+          await conn.rollback();
+        } catch {}
+      }
+      next(err);
+    } finally {
+      if (conn) conn.release();
+    }
+  }
+);
 
 export default router;
 

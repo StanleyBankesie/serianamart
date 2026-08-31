@@ -120,7 +120,13 @@ export default function AdminPermissionsPage() {
     }
   };
 
-  const availableFeatures = selectedModule ? MODULES_REGISTRY[selectedModule]?.features || [] : [];
+  const exclusiveModules = Object.keys(MODULES_REGISTRY).filter(mKey => 
+    (MODULES_REGISTRY[mKey]?.features || []).some(f => f.isExclusive)
+  );
+
+  const availableFeatures = selectedModule 
+    ? (MODULES_REGISTRY[selectedModule]?.features || []).filter(f => f.isExclusive) 
+    : [];
 
   return (
     <div className="container mx-auto p-6">
@@ -174,7 +180,7 @@ export default function AdminPermissionsPage() {
                   required
                 >
                   <option value="">Select Module...</option>
-                  {Object.keys(MODULES_REGISTRY).map(mKey => (
+                  {exclusiveModules.map(mKey => (
                     <option key={mKey} value={mKey}>
                       {MODULES_REGISTRY[mKey].name}
                     </option>
