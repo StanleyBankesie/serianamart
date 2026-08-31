@@ -3078,83 +3078,76 @@ export const voucherRegisterReport = async (req, res, next) => {
 
 export const paymentDueReport = async (req, res, next) => {
   try {
-    await ensurePurBillsPaymentStatusObjects();
+    await ensurePurBillsPaymentStatusObjects().catch(() => null);
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const from = req.query.from ? String(req.query.from) : null;
     const to = req.query.to ? String(req.query.to) : null;
-    let conn = null;
-    let maintPaidExpr = "0";
+
+    let purBills = [];
     try {
-      conn = await pool.getConnection();
-      const hasMaintAmountPaid = await hasColumn(
-        conn,
-        "maint_bills",
-        "amount_paid",
+      purBills = await query(
+        `SELECT pb.id, pb.bill_no AS ref_no, pb.bill_date, pb.due_date, s.supplier_name AS party_name,
+                pb.total_amount AS amount, (pb.total_amount - COALESCE(pb.amount_paid, 0)) AS outstanding,
+                COALESCE(pb.payment_status, 'UNPAID') AS status
+           FROM pur_bills pb
+           LEFT JOIN pur_suppliers s ON s.id = pb.supplier_id
+          WHERE pb.company_id = :companyId
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(pb.branch_id, :branchIdsStr)) OR pb.branch_id IS NULL)
+            AND (:from IS NULL OR pb.due_date >= :from)
+            AND (:to IS NULL OR pb.due_date <= :to)
+            AND (pb.total_amount - COALESCE(pb.amount_paid, 0)) > 0
+            AND COALESCE(pb.payment_status, 'UNPAID') <> 'FULLY PAID'
+          ORDER BY pb.due_date ASC`,
+        { companyId, branchId, branchIdsStr, from, to },
       );
-      maintPaidExpr = hasMaintAmountPaid ? "COALESCE(mb.amount_paid, 0)" : "0";
-    } catch {
-      maintPaidExpr = "0";
-    } finally {
-      try {
-        conn?.release();
-      } catch {}
+    } catch (pbErr) {
+      console.error("[paymentDueReport purBills error]:", pbErr);
+      purBills = [];
     }
 
-    // Query pur_bills (local purchase bills)
-    const purBills = await query(
-      `SELECT pb.id, pb.bill_no AS ref_no, pb.bill_date, pb.due_date, s.supplier_name AS party_name,
-              pb.total_amount AS amount, (pb.total_amount - COALESCE(pb.amount_paid, 0)) AS outstanding,
-              COALESCE(pb.payment_status, 'UNPAID') AS status
-         FROM pur_bills pb
-         LEFT JOIN pur_suppliers s ON s.id = pb.supplier_id
-        WHERE pb.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
-          AND (:from IS NULL OR pb.due_date >= :from)
-          AND (:to IS NULL OR pb.due_date <= :to)
-          AND (pb.total_amount - COALESCE(pb.amount_paid, 0)) > 0
-          AND COALESCE(pb.payment_status, 'UNPAID') <> 'FULLY PAID'
-        ORDER BY pb.due_date ASC`,
-      { companyId, branchId, branchIdsStr, from, to },
-    );
+    let maintBills = [];
+    try {
+      maintBills = await query(
+        `SELECT mb.id, mb.bill_no AS ref_no, mb.bill_date, mb.due_date, s.supplier_name AS party_name,
+                mb.total_amount AS amount, (mb.total_amount - COALESCE(mb.amount_paid, 0)) AS outstanding,
+                COALESCE(mb.payment_status, 'UNPAID') AS status
+           FROM maint_bills mb
+           LEFT JOIN pur_suppliers s ON s.id = mb.supplier_id
+          WHERE mb.company_id = :companyId
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(mb.branch_id, :branchIdsStr)) OR mb.branch_id IS NULL)
+            AND (:from IS NULL OR mb.due_date >= :from)
+            AND (:to IS NULL OR mb.due_date <= :to)
+            AND (mb.total_amount - COALESCE(mb.amount_paid, 0)) > 0
+            AND COALESCE(mb.payment_status, 'UNPAID') <> 'FULLY PAID'
+          ORDER BY mb.due_date ASC`,
+        { companyId, branchId, branchIdsStr, from, to },
+      );
+    } catch (mbErr) {
+      maintBills = [];
+    }
 
-    // Query maint_bills (maintenance bills) - exclude if due_date < today AND payment_status = PAID
-    const maintBills = await query(
-      `SELECT mb.id, mb.bill_no AS ref_no, mb.bill_date, mb.due_date, s.supplier_name AS party_name,
-              mb.total_amount AS amount, (mb.total_amount - ${maintPaidExpr}) AS outstanding,
-              COALESCE(mb.payment_status, 'UNPAID') AS status
-         FROM maint_bills mb
-         LEFT JOIN pur_suppliers s ON s.id = mb.supplier_id
-        WHERE mb.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
-          AND (:from IS NULL OR mb.due_date >= :from)
-          AND (:to IS NULL OR mb.due_date <= :to)
-          AND (mb.total_amount - ${maintPaidExpr}) > 0
-          AND COALESCE(mb.payment_status, 'UNPAID') <> 'FULLY PAID'
-        ORDER BY mb.due_date ASC`,
-      { companyId, branchId, branchIdsStr, from, to },
-    );
+    let serviceBills = [];
+    try {
+      serviceBills = await query(
+        `SELECT sb.id, sb.bill_no AS ref_no, sb.bill_date, sb.due_date, sb.client_name AS party_name,
+                sb.total_amount AS amount, (sb.total_amount - COALESCE(sb.amount_paid, 0)) AS outstanding,
+                COALESCE(sb.payment_status, 'UNPAID') AS status
+           FROM pur_service_bills sb
+          WHERE sb.company_id = :companyId
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(sb.branch_id, :branchIdsStr)) OR sb.branch_id IS NULL)
+            AND (:from IS NULL OR sb.due_date >= :from)
+            AND (:to IS NULL OR sb.due_date <= :to)
+            AND (sb.total_amount - COALESCE(sb.amount_paid, 0)) > 0
+            AND NOT (sb.due_date < CURRENT_DATE AND COALESCE(sb.payment_status, 'UNPAID') = 'PAID')
+          ORDER BY sb.due_date ASC`,
+        { companyId, branchId, branchIdsStr, from, to },
+      );
+    } catch (sbErr) {
+      serviceBills = [];
+    }
 
-    // Query pur_service_bills (service bills) - exclude if due_date < today AND payment_status = PAID
-    const serviceBills = await query(
-      `SELECT sb.id, sb.bill_no AS ref_no, sb.bill_date, sb.due_date, sb.client_name AS party_name,
-              sb.total_amount AS amount, (sb.total_amount - COALESCE(sb.amount_paid, 0)) AS outstanding,
-              COALESCE(sb.payment_status, 'UNPAID') AS status
-         FROM pur_service_bills sb
-        WHERE sb.company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
-          AND (:from IS NULL OR sb.due_date >= :from)
-          AND (:to IS NULL OR sb.due_date <= :to)
-          AND (sb.total_amount - COALESCE(sb.amount_paid, 0)) > 0
-          AND NOT (sb.due_date < CURRENT_DATE AND COALESCE(sb.payment_status, 'UNPAID') = 'PAID')
-        ORDER BY sb.due_date ASC`,
-      { companyId, branchId, branchIdsStr, from, to },
-    );
-
-    // Combine all results
     const allItems = [...purBills, ...maintBills, ...serviceBills];
-
-    // Sort by due_date
-    allItems.sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+    allItems.sort((a, b) => new Date(a.due_date || a.bill_date) - new Date(b.due_date || b.bill_date));
 
     res.json({ items: allItems });
   } catch (e) {
@@ -3833,27 +3826,56 @@ export const listOpeningBalances = async (req, res, next) => {
     const fiscalYearId = req.query.fiscalYearId
       ? Number(req.query.fiscalYearId)
       : null;
-    const items = await query(
-      `SELECT ob.id, ob.fiscal_year_id, fy.code AS fiscal_year_code,
-              ob.account_id, a.code AS account_code, a.name AS account_name,
-              ob.branch_id,
-              COALESCE(ob.currency_id, base_c.id) AS currency_id,
-              COALESCE(c.code, base_c.code) AS currency_code,
-              COALESCE(c.symbol, base_c.symbol) AS currency_symbol,
-              COALESCE(ob.exchange_rate, 1.000000) AS exchange_rate,
-              COALESCE(ob.opening_date, fy.start_date) AS opening_date,
-              ob.opening_debit, ob.opening_credit
-         FROM fin_account_opening_balances ob
-         JOIN fin_fiscal_years fy ON fy.id = ob.fiscal_year_id
-         JOIN fin_accounts a ON a.id = ob.account_id
-         LEFT JOIN fin_currencies c ON c.id = ob.currency_id
-         LEFT JOIN fin_currencies base_c ON base_c.company_id = ob.company_id AND base_c.is_base = 1
-        WHERE ob.company_id = :companyId
-          AND (:fiscalYearId IS NULL OR ob.fiscal_year_id = :fiscalYearId)
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(ob.branch_id, :branchIdsStr)) OR ob.branch_id IS NULL)
-        ORDER BY a.code ASC, ob.id DESC`,
-      { companyId, branchId, branchIdsStr, fiscalYearId },
-    );
+
+    let items = [];
+    try {
+      items = await query(
+        `SELECT ob.id, ob.fiscal_year_id, fy.code AS fiscal_year_code,
+                ob.account_id, a.code AS account_code, a.name AS account_name,
+                ob.branch_id,
+                COALESCE(ob.currency_id, base_c.id) AS currency_id,
+                COALESCE(c.code, base_c.code) AS currency_code,
+                COALESCE(c.symbol, base_c.symbol) AS currency_symbol,
+                COALESCE(ob.exchange_rate, 1.000000) AS exchange_rate,
+                COALESCE(ob.opening_date, fy.start_date) AS opening_date,
+                ob.opening_debit, ob.opening_credit
+           FROM fin_account_opening_balances ob
+           LEFT JOIN fin_fiscal_years fy ON fy.id = ob.fiscal_year_id
+           LEFT JOIN fin_accounts a ON a.id = ob.account_id
+           LEFT JOIN fin_currencies c ON c.id = ob.currency_id
+           LEFT JOIN fin_currencies base_c ON base_c.company_id = ob.company_id AND base_c.is_base = 1
+          WHERE ob.company_id = :companyId
+            AND (:fiscalYearId IS NULL OR ob.fiscal_year_id = :fiscalYearId)
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(ob.branch_id, :branchIdsStr)) OR ob.branch_id IS NULL)
+          ORDER BY a.code ASC, ob.id DESC`,
+        { companyId, branchId, branchIdsStr, fiscalYearId },
+      );
+    } catch (obErr) {
+      console.error("[listOpeningBalances Error]:", obErr);
+      await query(`
+        CREATE TABLE IF NOT EXISTS fin_account_opening_balances (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          company_id BIGINT UNSIGNED NOT NULL,
+          fiscal_year_id BIGINT UNSIGNED NOT NULL,
+          account_id BIGINT UNSIGNED NOT NULL,
+          branch_id BIGINT UNSIGNED NULL,
+          currency_id BIGINT UNSIGNED NULL,
+          exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000,
+          opening_date DATE NULL,
+          opening_debit DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+          opening_credit DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_ob_company (company_id),
+          KEY idx_ob_fy (fiscal_year_id),
+          KEY idx_ob_acc (account_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `).catch(() => null);
+
+      items = [];
+    }
+
     res.json({ items });
   } catch (e) {
     next(e);
@@ -5855,26 +5877,46 @@ export const forcePostableAccounts = async (req, res, next) => {
 
 export const listCostCenters = async (req, res, next) => {
   try {
-    const companyId = req.scope.companyId;
-    const branchId = req.scope.branchId;
-  const branchIdsStr = req.scope.branchIdsStr;
+    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
 
-    // Schema maintenance
-    await query(
-      `ALTER TABLE fin_cost_centers ADD COLUMN IF NOT EXISTS branch_id BIGINT UNSIGNED NULL AFTER company_id`,
-    );
-    await query(
-      `ALTER TABLE fin_cost_centers ADD COLUMN IF NOT EXISTS updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at`,
-    );
+    let items = [];
+    try {
+      items = await query(
+        `SELECT id, company_id, branch_id, code, name, description, default_currency_id, is_active, created_at, updated_at
+           FROM fin_cost_centers
+          WHERE company_id = :companyId
+            AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
+          ORDER BY code ASC`,
+        { companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '' },
+      );
+    } catch (tblErr) {
+      await query(`
+        CREATE TABLE IF NOT EXISTS fin_cost_centers (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          company_id BIGINT UNSIGNED NOT NULL,
+          branch_id BIGINT UNSIGNED NULL,
+          code VARCHAR(50) NOT NULL,
+          name VARCHAR(150) NOT NULL,
+          description TEXT NULL,
+          default_currency_id BIGINT UNSIGNED NULL,
+          is_active TINYINT(1) NOT NULL DEFAULT 1,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_cc_company (company_id),
+          KEY idx_cc_code (code)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `).catch(() => null);
 
-    const items = await query(
-      `SELECT id, company_id, branch_id, code, name, description, default_currency_id, is_active, created_at, updated_at
-         FROM fin_cost_centers
-        WHERE company_id = :companyId
-          AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR branch_id IS NULL)
-        ORDER BY code ASC`,
-      { companyId, branchId: branchId || null, branchIdsStr: branchIdsStr || '' },
-    );
+      items = await query(
+        `SELECT id, company_id, code, name, description, is_active
+           FROM fin_cost_centers
+          WHERE company_id = :companyId
+          ORDER BY code ASC`,
+        { companyId },
+      ).catch(() => []);
+    }
+
     res.json({ items });
   } catch (e) {
     next(e);
