@@ -38997,3 +38997,26 @@ Error: Unknown column 'warehouse_id' in 'field list'
     at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/purchase.routes.js:11490:38
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 --------------------------------------------------------------------------------
+
+[2026-08-31T22:35:24.696Z] HTTP_400
+Summary: Active terminal code is missing from the request.
+Request: POST /api/pos/sales (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: POST
+url: /api/pos/sales
+ip: ::ffff:127.0.0.1
+origin: http://localhost:5173
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36
+userId: 10
+companyId: 1
+branchId: 1
+body: {"payment_method":"CASH","payment_mode_id":1,"payments":[{"payment_mode_id":1,"amount":11.988,"method":"CASH"}],"customer_id":null,"customer_name":null,"payment_status":null,"lines":[{"item_id":36,"name":"Appletizer","quantity":1,"price":9.99,"discount":0}],"items":[{"item_id":36,"name":"Appletizer","quantity":1,"price":9.99,"discount":0}],"status":"COMPLETED","terminal":"","subtotal":9.99,"tax_total":1.9980000000000002,"grand_total":11.988,"amount_paid":11.99,"change_due":0.002000000000000668,"tax_rate_percent":20,"tax_type":"Inclusive","tax_code_id":1,"tax_components":[{"id":1,"name":"NHIL[2.5%] ON SALES","amount":0.25},{"id":2,"name":"GETFund[2.5%] ON SALES","amount":0.25},{"id":14,"name":"VAT[15%] ON SALES","amount":1.5}]}
+query: {}
+Technical details:
+Error: Active terminal code is missing from the request.
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:3013:15
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------

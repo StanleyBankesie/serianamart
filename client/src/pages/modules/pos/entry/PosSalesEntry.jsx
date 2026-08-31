@@ -2214,7 +2214,7 @@ export default function PosSalesEntry() {
   }
 
   return (
-    <div className="space-y-3 pos-sales-entry pr-1">
+    <div className="space-y-3 pos-sales-entry pr-1" data-rbac-exempt="true">
       <div className="flex items-center justify-between">
         <div>
           <Link
@@ -2802,10 +2802,11 @@ export default function PosSalesEntry() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-slate-900 rounded-lg p-6 w-full max-w-md relative shadow-xl border border-slate-200 dark:border-slate-800">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" data-rbac-exempt="true">
+          <div className="bg-white dark:bg-slate-900 rounded-lg p-6 w-full max-w-md relative shadow-xl border border-slate-200 dark:border-slate-800" data-rbac-exempt="true">
             <button
               type="button"
+              data-rbac-exempt="true"
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-2xl leading-none"
               onClick={newSale}
               title="Close and start new sale"
@@ -2897,9 +2898,10 @@ export default function PosSalesEntry() {
                 </div>
               </div>
             </div>
-            <div className="mt-6 flex gap-3">
+            <div className="mt-6 flex gap-3" data-rbac-exempt="true">
               <button
                 type="button"
+                data-rbac-exempt="true"
                 className="btn btn-primary flex-1 font-semibold px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-1"
                 onClick={newSale}
               >
@@ -2907,6 +2909,7 @@ export default function PosSalesEntry() {
               </button>
               <button
                 type="button"
+                data-rbac-exempt="true"
                 className="btn btn-secondary flex-1 font-semibold px-4 py-2.5 rounded-lg shadow-sm flex items-center justify-center gap-1 border border-slate-300 dark:border-slate-700"
                 onClick={printReceipt}
               >

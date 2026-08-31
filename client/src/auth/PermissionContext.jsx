@@ -1198,8 +1198,10 @@ export const PermissionProvider = ({ children }) => {
                 el.closest("form") ||
                 el.closest("[data-form]") ||
                 el.closest(".form-section") ||
+                el.closest(".pos-sales-entry") ||
                 el.getAttribute?.("data-rbac-exempt") === "true" ||
-                el.closest("[data-rbac-exempt='true']")
+                el.closest("[data-rbac-exempt='true']") ||
+                el.closest("[data-rbac-exempt]")
               ) {
                 return;
               }
@@ -1231,8 +1233,10 @@ export const PermissionProvider = ({ children }) => {
                   el.closest("form") ||
                   el.closest("[data-form]") ||
                   el.closest(".form-section") ||
+                  el.closest(".pos-sales-entry") ||
                   el.getAttribute?.("data-rbac-exempt") === "true" ||
-                  el.closest("[data-rbac-exempt='true']")
+                  el.closest("[data-rbac-exempt='true']") ||
+                  el.closest("[data-rbac-exempt]")
                 ) {
                   return;
                 }
