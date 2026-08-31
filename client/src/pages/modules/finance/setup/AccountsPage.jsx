@@ -22,7 +22,8 @@ import {
   X,
   CreditCard,
   Building2,
-  DollarSign
+  DollarSign,
+  Trash2
 } from "lucide-react";
 
 export default function AccountsPage() {
@@ -39,6 +40,7 @@ export default function AccountsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const [groupId, setGroupId] = useState("");
+  const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [currencyId, setCurrencyId] = useState("");
   const [baseCurrencyId, setBaseCurrencyId] = useState("");
@@ -74,7 +76,7 @@ export default function AccountsPage() {
       const base = c.find(cur => Number(cur.is_base) === 1 || cur.is_base === true);
       if (base) {
         setBaseCurrencyId(base.id);
-        setCurrencyId(base.id);
+        if (!currencyId) setCurrencyId(base.id);
       }
     } catch (e) {
       toast.error(e?.response?.data?.message || "Failed to load accounts");
@@ -92,6 +94,27 @@ export default function AccountsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, filterGroupId, natureFilter, activeFilter]);
 
+  const handleGroupSelect = (selGrpId) => {
+    setGroupId(selGrpId);
+    if (!selGrpId) {
+      setCode("");
+      return;
+    }
+    const grp = groups.find((g) => String(g.id) === String(selGrpId));
+    if (grp) {
+      const natureMap = { ASSET: 1, LIABILITY: 2, EQUITY: 3, INCOME: 4, EXPENSE: 5 };
+      const naturePrefix = (natureMap[grp.nature] || 9).toString();
+      const existingInGroup = items.filter((a) => String(a.group_id) === String(selGrpId));
+      let nextSeq = existingInGroup.length + 1;
+      let gen = `${naturePrefix}${String(nextSeq).padStart(3, "0")}`;
+      while (items.some((a) => a.code === gen)) {
+        nextSeq++;
+        gen = `${naturePrefix}${String(nextSeq).padStart(3, "0")}`;
+      }
+      setCode(gen);
+    }
+  };
+
   async function create(e) {
     e.preventDefault();
     try {
@@ -99,21 +122,14 @@ export default function AccountsPage() {
         toast.error("Account Group is required");
         return;
       }
-      const grp = groups.find((g) => String(g.id) === String(groupId));
-      const prefix = grp ? grp.code : "ACC";
-      const existingInGroup = items.filter(
-        (a) => String(a.group_id) === String(groupId),
-      );
-      let nextSeq = existingInGroup.length + 1;
-      let genCode = `${prefix}.${String(nextSeq).padStart(3, "0")}`;
-      while (items.some((a) => a.code === genCode)) {
-        nextSeq++;
-        genCode = `${prefix}.${String(nextSeq).padStart(3, "0")}`;
+      if (!name.trim()) {
+        toast.error("Account Name is required");
+        return;
       }
 
       await api.post("/finance/accounts", {
         groupId: Number(groupId),
-        code: genCode,
+        code: code ? code.trim() : null,
         name: name.trim(),
         currencyId: currencyId ? Number(currencyId) : null,
         isPostable: 1,
@@ -122,12 +138,29 @@ export default function AccountsPage() {
 
       toast.success("Account created successfully");
       setGroupId("");
+      setCode("");
       setName("");
       setCurrencyId(baseCurrencyId);
       setShowCreateModal(false);
       load();
     } catch (e2) {
       toast.error(e2?.response?.data?.message || "Failed to create account");
+    }
+  }
+
+  async function handleDeleteAccount(id, accountName) {
+    if (!window.confirm(`Are you sure you want to permanently delete account "${accountName}"?`)) {
+      return;
+    }
+    try {
+      setLoading(true);
+      await api.delete(`/finance/accounts/${id}`);
+      toast.success("Account deleted successfully");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || "Failed to delete account");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -252,7 +285,8 @@ export default function AccountsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                className="btn-success text-xs px-3.5 py-2 flex items-center gap-1.5 font-bold"
+                data-rbac-exempt="true"
+                className="btn-success text-xs px-3.5 py-2 flex items-center gap-1.5 font-bold cursor-pointer"
                 onClick={() => setShowCreateModal(true)}
               >
                 <Plus size={15} /> Create Account
@@ -325,7 +359,7 @@ export default function AccountsPage() {
               </h2>
               <button
                 type="button"
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-bold"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 font-bold cursor-pointer"
                 onClick={() => setShowCreateModal(false)}
               >
                 <X size={18} />
@@ -338,7 +372,7 @@ export default function AccountsPage() {
                 <select
                   className="input w-full text-sm"
                   value={groupId}
-                  onChange={(e) => setGroupId(e.target.value)}
+                  onChange={(e) => handleGroupSelect(e.target.value)}
                   required
                 >
                   <option value="">Select Account Group</option>
@@ -348,6 +382,34 @@ export default function AccountsPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Account Code</label>
+                  <input
+                    className="input w-full text-sm font-mono"
+                    placeholder="Auto-generated if empty"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Currency</label>
+                  <select
+                    className="input w-full text-sm"
+                    value={currencyId}
+                    onChange={(e) => setCurrencyId(e.target.value)}
+                  >
+                    <option value="">Default (Base Currency)</option>
+                    {currencies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} - {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -361,31 +423,20 @@ export default function AccountsPage() {
                 />
               </div>
 
-              <div>
-                <label className="label font-semibold text-xs text-slate-700 dark:text-slate-300 mb-1 block">Currency</label>
-                <select
-                  className="input w-full text-sm"
-                  value={currencyId}
-                  onChange={(e) => setCurrencyId(e.target.value)}
-                >
-                  <option value="">Default (Base Currency)</option>
-                  {currencies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.code} - {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  className="btn btn-secondary text-xs px-4 py-2"
+                  data-rbac-exempt="true"
+                  className="btn btn-secondary text-xs px-4 py-2 cursor-pointer"
                   onClick={() => setShowCreateModal(false)}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn-success text-xs px-4 py-2 flex items-center gap-1">
+                <button
+                  type="submit"
+                  data-rbac-exempt="true"
+                  className="btn-success text-xs px-4 py-2 flex items-center gap-1 font-bold cursor-pointer"
+                >
                   <Plus size={14} /> Save Account
                 </button>
               </div>
@@ -474,14 +525,16 @@ export default function AccountsPage() {
                           <td className="py-2 px-3 text-right">
                             <div className="flex justify-end gap-1.5">
                               <button
-                                className="btn-success text-xs px-2.5 py-1 flex items-center gap-1"
+                                data-rbac-exempt="true"
+                                className="btn-success text-xs px-2.5 py-1 flex items-center gap-1 cursor-pointer"
                                 disabled={loading}
                                 onClick={saveEdit}
                               >
                                 <Save size={12} /> Save
                               </button>
                               <button
-                                className="btn btn-secondary text-xs px-2.5 py-1"
+                                data-rbac-exempt="true"
+                                className="btn btn-secondary text-xs px-2.5 py-1 cursor-pointer"
                                 disabled={loading}
                                 onClick={cancelEdit}
                               >
@@ -513,11 +566,21 @@ export default function AccountsPage() {
                             {Number(a.current_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} {a.current_balance_type || ""}
                           </td>
                           <td className="py-3 px-4 text-right">
-                            <div className="flex justify-end items-center gap-2">
+                            <div className="flex justify-end items-center gap-1.5">
+                              <button
+                                type="button"
+                                data-rbac-exempt="true"
+                                className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                onClick={() => startEdit(a)}
+                                disabled={loading}
+                              >
+                                <Edit3 size={12} /> Edit
+                              </button>
                               {a.is_active ? (
                                 <button
                                   type="button"
-                                  className="px-2.5 py-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                                  data-rbac-exempt="true"
+                                  className="px-2.5 py-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors cursor-pointer"
                                   disabled={loading}
                                   onClick={() => {
                                     if (window.confirm("Deactivate this account?")) {
@@ -530,21 +593,14 @@ export default function AccountsPage() {
                               ) : (
                                 <button
                                   type="button"
-                                  className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors"
+                                  data-rbac-exempt="true"
+                                  className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors cursor-pointer"
                                   disabled={loading}
                                   onClick={() => handleToggleActive(a.id, 1)}
                                 >
                                   Activate
                                 </button>
                               )}
-                              <button
-                                type="button"
-                                className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors flex items-center gap-1"
-                                onClick={() => startEdit(a)}
-                                disabled={loading}
-                              >
-                                <Edit3 size={12} /> Edit
-                              </button>
                             </div>
                           </td>
                         </>
@@ -554,8 +610,18 @@ export default function AccountsPage() {
                 })
               ) : (
                 <tr>
-                  <td colSpan="7" className="text-center py-10 text-slate-400">
-                    No accounts found matching filters.
+                  <td colSpan="7" className="text-center py-12 text-slate-500">
+                    <div className="flex flex-col items-center gap-3">
+                      <span>No accounts found matching filters.</span>
+                      <button
+                        type="button"
+                        data-rbac-exempt="true"
+                        className="btn-success text-xs px-3 py-1.5 flex items-center gap-1 cursor-pointer font-semibold"
+                        onClick={() => setShowCreateModal(true)}
+                      >
+                        <Plus size={14} /> Create First Account
+                      </button>
+                    </div>
                   </td>
                 </tr>
               )}

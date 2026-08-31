@@ -1646,22 +1646,50 @@ export const createAccount = async (req, res, next) => {
     const natureCode = natureMap[nature] || 9;
     const naturePrefix = natureCode.toString();
 
-    // Find the next available numeric 4-digit code in this nature's series
-    const maxRows = await query(
-      `SELECT MAX(CAST(code AS UNSIGNED)) as maxCode 
-       FROM fin_accounts 
-       WHERE company_id = :companyId 
-         AND code REGEXP '^[1-5][0-9]{3}$' 
-         AND code LIKE :prefix`,
-      { companyId, prefix: `${naturePrefix}%` },
-    );
+    let code = req.body.code ? String(req.body.code).trim() : null;
+    if (!code) {
+      // Find the next available numeric 4-digit code in this nature's series
+      const maxRows = await query(
+        `SELECT MAX(CAST(code AS UNSIGNED)) as maxCode 
+         FROM fin_accounts 
+         WHERE company_id = :companyId 
+           AND code REGEXP '^[1-5][0-9]{3}$' 
+           AND code LIKE :prefix`,
+        { companyId, prefix: `${naturePrefix}%` },
+      );
 
-    let code;
-    if (maxRows[0] && maxRows[0].maxCode) {
-      code = (Number(maxRows[0].maxCode) + 1).toString();
-    } else {
-      // Start from nature base + 1 (e.g., 1001, 2001, etc.)
-      code = (natureCode * 1000 + 1).toString();
+      if (maxRows[0] && maxRows[0].maxCode) {
+        code = (Number(maxRows[0].maxCode) + 1).toString();
+      } else {
+        // Start from nature base + 1 (e.g., 1001, 2001, etc.)
+        code = (natureCode * 1000 + 1).toString();
+      }
+    }
+
+    // Ensure uniqueness
+    const existingCode = await query(
+      "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+      { companyId, code },
+    );
+    if (existingCode.length) {
+      if (req.body.code) {
+        return next(
+          httpError(400, "DUPLICATE_CODE", `Account code '${code}' already exists. Please choose a different code.`),
+        );
+      }
+      let seq = 1;
+      while (true) {
+        const candidate = `${naturePrefix}${String(seq).padStart(3, "0")}`;
+        const check = await query(
+          "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code LIMIT 1",
+          { companyId, code: candidate },
+        );
+        if (!check.length) {
+          code = candidate;
+          break;
+        }
+        seq++;
+      }
     }
 
     const result = await query(
@@ -1671,7 +1699,7 @@ export const createAccount = async (req, res, next) => {
         companyId,
         groupId,
         code,
-        name,
+        name: name.trim(),
         currencyId: currencyId || null,
         isPostable: isPostable === undefined ? 1 : Number(Boolean(isPostable)),
         isControlAccount:
@@ -1704,22 +1732,34 @@ export const updateAccount = async (req, res, next) => {
 
     if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid ID"));
 
+    if (code) {
+      const dup = await query(
+        "SELECT id FROM fin_accounts WHERE company_id = :companyId AND code = :code AND id <> :id LIMIT 1",
+        { companyId, code: String(code).trim(), id },
+      );
+      if (dup.length) {
+        return next(
+          httpError(400, "DUPLICATE_CODE", `Account code '${code}' already exists.`),
+        );
+      }
+    }
+
     await query(
-      `UPDATE fin_accounts 
-       SET group_id = COALESCE(:groupId, group_id),
-           name = COALESCE(:name, name),
-           code = COALESCE(:code, code),
-           currency_id = :currencyId,
-           is_postable = COALESCE(:isPostable, is_postable),
-           is_control_account = COALESCE(:isControlAccount, is_control_account),
-           is_active = COALESCE(:isActive, is_active)
+      `UPDATE fin_accounts SET
+        group_id = COALESCE(:groupId, group_id),
+        name = COALESCE(:name, name),
+        code = COALESCE(:code, code),
+        currency_id = :currencyId,
+        is_postable = COALESCE(:isPostable, is_postable),
+        is_control_account = COALESCE(:isControlAccount, is_control_account),
+        is_active = COALESCE(:isActive, is_active)
        WHERE id = :id AND company_id = :companyId`,
       {
         id,
         companyId,
         groupId: groupId || null,
-        name: name || null,
-        code: code || null,
+        name: name ? name.trim() : null,
+        code: code ? code.trim() : null,
         currencyId: currencyId || null,
         isPostable:
           isPostable === undefined ? null : Number(Boolean(isPostable)),
@@ -1749,6 +1789,64 @@ export const updateAccountActiveStatus = async (req, res, next) => {
       { id, companyId, isActive: Number(Boolean(isActive)) },
     );
     res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteAccount = async (req, res, next) => {
+  try {
+    const companyId = req.scope.companyId;
+    const id = Number(req.params.id || 0);
+    if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid ID"));
+
+    const acc = await query(
+      "SELECT id, code, name FROM fin_accounts WHERE id = :id AND company_id = :companyId",
+      { id, companyId },
+    );
+    if (!acc.length) {
+      return next(httpError(404, "NOT_FOUND", "Account not found"));
+    }
+
+    // Check references in transactions
+    const [voucherLines] = await query(
+      "SELECT COUNT(*) AS cnt FROM fin_voucher_lines WHERE account_id = :id",
+      { id },
+    );
+    if (Number(voucherLines?.cnt || 0) > 0) {
+      return next(
+        httpError(
+          400,
+          "REFERENCED_RESOURCE",
+          "Cannot delete this account because financial vouchers/transactions are posted to it. You can deactivate it instead.",
+        ),
+      );
+    }
+
+    const [bankAccs] = await query(
+      "SELECT COUNT(*) AS cnt FROM fin_bank_accounts WHERE gl_account_id = :id",
+      { id },
+    );
+    if (Number(bankAccs?.cnt || 0) > 0) {
+      return next(
+        httpError(
+          400,
+          "REFERENCED_RESOURCE",
+          "Cannot delete this account because it is linked to a bank account. Remove or reassign the bank account first.",
+        ),
+      );
+    }
+
+    await query(
+      "DELETE FROM fin_account_balances WHERE account_id = :id AND company_id = :companyId",
+      { id, companyId },
+    );
+    await query(
+      "DELETE FROM fin_accounts WHERE id = :id AND company_id = :companyId",
+      { id, companyId },
+    );
+
+    res.json({ success: true, message: "Account deleted successfully" });
   } catch (e) {
     next(e);
   }
@@ -4069,13 +4167,81 @@ export const getAccountGroupsTree = async (req, res, next) => {
 export const createAccountGroup = async (req, res, next) => {
   try {
     const companyId = req.scope.companyId;
-    const { code, name, nature, parentId, isActive } = req.body || {};
-    if (!code || !name || !nature)
+    let { code, name, nature, parentId, isActive } = req.body || {};
+    if (!name || !nature)
       throw httpError(
         400,
         "VALIDATION_ERROR",
-        "code, name, nature are required",
+        "name and nature are required",
       );
+
+    name = String(name).trim();
+    nature = String(nature).trim().toUpperCase();
+
+    if (!code) {
+      const parent = parentId
+        ? (
+            await query(
+              "SELECT code FROM fin_account_groups WHERE id = :parentId AND company_id = :companyId",
+              { parentId, companyId },
+            )
+          )[0]
+        : null;
+      const makeToken = (s) =>
+        String(s || "")
+          .replace(/[^A-Za-z0-9]/g, "")
+          .toUpperCase()
+          .slice(0, 10);
+      const part = makeToken(name) || "GRP";
+      if (parent && parent.code) {
+        code = `${parent.code}.${part}`;
+      } else {
+        const base =
+          nature === "ASSET"
+            ? "AST"
+            : nature === "LIABILITY"
+              ? "LIA"
+              : nature === "EQUITY"
+                ? "EQU"
+                : nature === "INCOME"
+                  ? "INC"
+                  : "EXP";
+        code = `${base}_${part}`;
+      }
+    }
+
+    code = String(code).trim().toUpperCase();
+
+    // Check duplicate code
+    const existing = await query(
+      "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND code = :code LIMIT 1",
+      { companyId, code },
+    );
+    if (existing.length) {
+      if (req.body.code) {
+        return next(
+          httpError(
+            400,
+            "DUPLICATE_CODE",
+            `Account Group code '${code}' already exists.`,
+          ),
+        );
+      }
+      let seq = 1;
+      while (true) {
+        const candidate = `${code}_${seq}`;
+        const check = await query(
+          "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND code = :code LIMIT 1",
+          { companyId, code: candidate },
+        );
+        if (!check.length) {
+          code = candidate;
+          break;
+        }
+        seq++;
+      }
+    }
+
     const result = await query(
       "INSERT INTO fin_account_groups (company_id, code, name, nature, parent_id, is_active) VALUES (:companyId, :code, :name, :nature, :parentId, :isActive)",
       {
@@ -4087,7 +4253,7 @@ export const createAccountGroup = async (req, res, next) => {
         isActive: isActive === undefined ? 1 : Number(Boolean(isActive)),
       },
     );
-    res.status(201).json({ id: result.insertId });
+    res.status(201).json({ id: result.insertId, code });
   } catch (e) {
     next(e);
   }
@@ -4151,23 +4317,93 @@ export const updateAccountGroup = async (req, res, next) => {
     ) {
       return next(httpError(400, "VALIDATION_ERROR", "Invalid nature"));
     }
+    if (code) {
+      const dup = await query(
+        "SELECT id FROM fin_account_groups WHERE company_id = :companyId AND code = :code AND id <> :id LIMIT 1",
+        { companyId, code: String(code).trim().toUpperCase(), id },
+      );
+      if (dup.length) {
+        return next(
+          httpError(
+            400,
+            "DUPLICATE_CODE",
+            `Account Group code '${code}' already exists.`,
+          ),
+        );
+      }
+    }
     await query(
       `UPDATE fin_account_groups
           SET code = COALESCE(:code, code),
               name = COALESCE(:name, name),
               nature = COALESCE(:nature, nature),
-              parent_id = COALESCE(:parentId, parent_id)
+              parent_id = :parentId
         WHERE company_id = :companyId AND id = :id`,
       {
         companyId,
         id,
-        code: code || null,
-        name: name || null,
+        code: code ? String(code).trim().toUpperCase() : null,
+        name: name ? String(name).trim() : null,
         nature: nature || null,
-        parentId: parentId === undefined ? null : parentId || null,
+        parentId: parentId ? Number(parentId) : null,
       },
     );
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteAccountGroup = async (req, res, next) => {
+  try {
+    const companyId = req.scope.companyId;
+    const id = Number(req.params.accountGroupId || req.params.id || 0);
+    if (!id) return next(httpError(400, "VALIDATION_ERROR", "Invalid ID"));
+
+    const rows = await query(
+      "SELECT id, code, name FROM fin_account_groups WHERE id = :id AND company_id = :companyId",
+      { id, companyId },
+    );
+    if (!rows.length) {
+      return next(httpError(404, "NOT_FOUND", "Account group not found"));
+    }
+
+    // Check child accounts
+    const [accRows] = await query(
+      "SELECT COUNT(*) AS cnt FROM fin_accounts WHERE group_id = :id AND company_id = :companyId",
+      { id, companyId },
+    );
+    if (Number(accRows?.[0]?.cnt || 0) > 0) {
+      return next(
+        httpError(
+          400,
+          "REFERENCED_RESOURCE",
+          "Cannot delete this group because it contains accounts. Please delete or reassign accounts first.",
+        ),
+      );
+    }
+
+    // Check child groups
+    const [childGroups] = await query(
+      "SELECT COUNT(*) AS cnt FROM fin_account_groups WHERE parent_id = :id AND company_id = :companyId",
+      { id, companyId },
+    );
+    if (Number(childGroups?.cnt || 0) > 0) {
+      return next(
+        httpError(
+          400,
+          "REFERENCED_RESOURCE",
+          "Cannot delete this group because it has child sub-groups. Please delete or reassign sub-groups first.",
+        ),
+      );
+    }
+
+    await query(
+      "DELETE FROM fin_account_groups WHERE id = :id AND company_id = :companyId",
+      { id, companyId },
+    );
+
+    res.json({ success: true, message: "Account group deleted successfully" });
   } catch (e) {
     next(e);
   }

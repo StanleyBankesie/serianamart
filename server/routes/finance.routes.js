@@ -83,6 +83,14 @@ router.put(
   financeController.updateAccountActiveStatus,
 );
 
+router.delete(
+  "/accounts/:id",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.deleteAccount,
+);
+
 router.get(
   "/accounts/:id/balance",
   requireAuth,
@@ -215,12 +223,28 @@ router.put(
   financeController.updateAccountGroup,
 );
 
+router.put(
+  "/account-groups/:id/active",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.setAccountGroupActive,
+);
+
 router.patch(
   "/account-groups/:id/active",
   requireAuth,
   requireCompanyScope,
   financeController.requireIdParam("id"),
   financeController.setAccountGroupActive,
+);
+
+router.delete(
+  "/account-groups/:id",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.deleteAccountGroup,
 );
 
 // Tax Codes
