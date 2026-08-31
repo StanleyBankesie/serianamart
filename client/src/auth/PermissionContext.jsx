@@ -832,7 +832,18 @@ export const PermissionProvider = ({ children }) => {
       return globalOverrides[act] === true;
     }
 
-    const perm = permByFeatureKey.get(fk);
+    let perm = permByFeatureKey.get(fk);
+    if (!perm) {
+      if (fk === "purchase:direct-purchase") {
+        perm = permByFeatureKey.get("purchase:direct-purchases");
+      } else if (fk === "purchase:direct-purchases") {
+        perm = permByFeatureKey.get("purchase:direct-purchase");
+      } else if (fk === "inventory:items") {
+        perm = permByFeatureKey.get("inventory:item-master");
+      } else if (fk === "inventory:item-master") {
+        perm = permByFeatureKey.get("inventory:items");
+      }
+    }
     if (!perm) return false;
 
     const key =

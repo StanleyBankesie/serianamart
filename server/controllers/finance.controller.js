@@ -1945,34 +1945,36 @@ export const listVouchers = async (req, res, next) => {
     const companyId = req.scope?.companyId ?? null;
     const branchId = req.scope?.branchId ?? null;
     const branchIdsStr = String(req.scope?.branchIdsStr || "");
-    const voucherTypeCode = req.query.voucherTypeCode
-      ? String(req.query.voucherTypeCode).toUpperCase()
-      : null;
-    const from = req.query.from ? String(req.query.from) : null;
-    const to = req.query.to ? String(req.query.to) : null;
+    const rawVoucherCode = req.query.voucherTypeCode
+      ? String(req.query.voucherTypeCode).trim().toUpperCase()
+      : "";
+    const from = req.query.from ? String(req.query.from).trim() : null;
+    const to = req.query.to ? String(req.query.to).trim() : null;
     const status = req.query.status
-      ? String(req.query.status).toUpperCase()
+      ? String(req.query.status).trim().toUpperCase()
       : null;
-    const normalizedVoucherTypeCode = voucherTypeCode
-      ? String(voucherTypeCode).toUpperCase()
-      : null;
-    const voucherTypeCodeAlt =
-      normalizedVoucherTypeCode === "PV"
-        ? "PUV"
-        : normalizedVoucherTypeCode === "PUV"
-          ? "PV"
-          : null;
-    const page = Math.max(1, parseInt(req.query.page || "1", 10));
-    const limit = Math.max(1, parseInt(req.query.limit || "50", 10));
+
+    let typeCond = "1=1";
+    if (rawVoucherCode) {
+      let matchingCodes = [rawVoucherCode];
+      if (["PV", "PAYV", "PUV"].includes(rawVoucherCode)) {
+        matchingCodes = ["PV", "PAYV", "PUV"];
+      } else if (["RV", "RCPV"].includes(rawVoucherCode)) {
+        matchingCodes = ["RV", "RCPV"];
+      } else if (["JV", "JOURNAL"].includes(rawVoucherCode)) {
+        matchingCodes = ["JV", "JOURNAL"];
+      }
+      const quoted = matchingCodes.map((c) => `'${c.replace(/'/g, "''")}'`).join(", ");
+      typeCond = `vt.code IN (${quoted})`;
+    }
+
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+    const limit = Math.max(1, Math.min(500, parseInt(String(req.query.limit || "50"), 10) || 50));
     const offset = (page - 1) * limit;
 
     const whereClause = `WHERE v.company_id = :companyId
           AND (:branchId IS NULL OR :branchId = 'all' OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
-          AND (
-            :normalizedVoucherTypeCode IS NULL OR
-            vt.code = :normalizedVoucherTypeCode OR
-            (:voucherTypeCodeAlt IS NOT NULL AND vt.code = :voucherTypeCodeAlt)
-          )
+          AND ${typeCond}
           AND (:status IS NULL OR v.status = :status)
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)`;
@@ -1982,8 +1984,6 @@ export const listVouchers = async (req, res, next) => {
       companyId,
       branchId,
       branchIdsStr,
-      normalizedVoucherTypeCode,
-      voucherTypeCodeAlt,
       status,
       from,
       to,
@@ -2018,8 +2018,8 @@ export const listVouchers = async (req, res, next) => {
            ON c.id = v.currency_id
           AND c.company_id = v.company_id
         ${whereClause}
-        ORDER BY v.voucher_date DESC, v.id DESC LIMIT :limit OFFSET :offset`,
-      { ...params, limit, offset },
+        ORDER BY v.voucher_date DESC, v.id DESC LIMIT ${limit} OFFSET ${offset}`,
+      params,
     );
     res.json({ 
       items,

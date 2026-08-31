@@ -90,6 +90,7 @@ export default function DirectPurchaseList() {
         <div className="flex gap-2">
           <button
             className="btn btn-primary"
+            data-rbac-exempt="true"
             onClick={() => navigate("/purchase/direct-purchase/new")}
           >
             Create Direct Purchase
