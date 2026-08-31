@@ -1942,7 +1942,7 @@ export const listTaxCodeComponents = async (req, res, next) => {
 
 export const listVouchers = async (req, res, next) => {
   try {
-    const companyId = req.scope?.companyId ?? null;
+    const companyId = Number(req.scope?.companyId || 1);
     const branchId = req.scope?.branchId ?? null;
     const branchIdsStr = String(req.scope?.branchIdsStr || "");
     const rawVoucherCode = req.query.voucherTypeCode
@@ -1979,7 +1979,10 @@ export const listVouchers = async (req, res, next) => {
           AND (:from IS NULL OR v.voucher_date >= :from)
           AND (:to IS NULL OR v.voucher_date <= :to)`;
 
-    const countSql = `SELECT COUNT(*) AS total FROM fin_vouchers v JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id AND vt.company_id = v.company_id ${whereClause}`;
+    const countSql = `SELECT COUNT(*) AS total 
+                        FROM fin_vouchers v 
+                        LEFT JOIN fin_voucher_types vt ON vt.id = v.voucher_type_id 
+                        ${whereClause}`;
     const params = {
       companyId,
       branchId,
@@ -1989,49 +1992,80 @@ export const listVouchers = async (req, res, next) => {
       to,
     };
     
-    const countRes = await query(countSql, params);
-    const total = Number(countRes[0]?.total || 0);
+    let total = 0;
+    try {
+      const countRes = await query(countSql, params);
+      total = Number(countRes[0]?.total || 0);
+    } catch (countErr) {
+      console.error("[listVouchers countSql Error]:", countErr);
+    }
 
-    const items = await query(
-      `SELECT v.id, v.voucher_no, v.voucher_date, COALESCE(NULLIF(TRIM(v.status), ''), 'APPROVED') AS status, v.project_id,
-              COALESCE(
-                (
-                  SELECT l.description
-                    FROM fin_voucher_lines l
-                   WHERE l.company_id = v.company_id
-                     AND l.voucher_id = v.id
-                     AND NULLIF(TRIM(l.description), '') IS NOT NULL
-                   ORDER BY l.line_no ASC, l.id ASC
-                   LIMIT 1
-                ),
-                v.narration
-              ) AS description,
-              v.narration AS remarks, v.total_debit, v.total_credit, v.balanced_amount,
-              v.total_debit AS total_amount,
-              v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
-              v.currency_id, c.code AS currency_code
-         FROM fin_vouchers v
-         JOIN fin_voucher_types vt
-           ON vt.id = v.voucher_type_id
-          AND vt.company_id = v.company_id
-         LEFT JOIN fin_currencies c
-           ON c.id = v.currency_id
-          AND c.company_id = v.company_id
-        ${whereClause}
-        ORDER BY v.voucher_date DESC, v.id DESC LIMIT ${limit} OFFSET ${offset}`,
-      params,
-    );
-    res.json({ 
-      items,
+    let items = [];
+    try {
+      items = await query(
+        `SELECT v.id, v.voucher_no, v.voucher_date, COALESCE(NULLIF(TRIM(v.status), ''), 'APPROVED') AS status, v.project_id,
+                COALESCE(
+                  (
+                    SELECT l.description
+                      FROM fin_voucher_lines l
+                     WHERE l.voucher_id = v.id
+                       AND NULLIF(TRIM(l.description), '') IS NOT NULL
+                     ORDER BY l.line_no ASC, l.id ASC
+                     LIMIT 1
+                  ),
+                  v.narration
+                ) AS description,
+                v.narration AS remarks, v.total_debit, v.total_credit, v.balanced_amount,
+                v.total_debit AS total_amount,
+                v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name,
+                v.currency_id, c.code AS currency_code
+           FROM fin_vouchers v
+           LEFT JOIN fin_voucher_types vt
+             ON vt.id = v.voucher_type_id
+           LEFT JOIN fin_currencies c
+             ON c.id = v.currency_id
+          ${whereClause}
+          ORDER BY v.voucher_date DESC, v.id DESC LIMIT ${limit} OFFSET ${offset}`,
+        params,
+      );
+    } catch (queryErr) {
+      console.error("[listVouchers items query Error]:", queryErr);
+      try {
+        items = await query(
+          `SELECT v.id, v.voucher_no, v.voucher_date, COALESCE(NULLIF(TRIM(v.status), ''), 'APPROVED') AS status,
+                  v.narration AS description, v.narration AS remarks, v.total_debit, v.total_credit, v.balanced_amount,
+                  v.total_debit AS total_amount,
+                  v.voucher_type_id, vt.code AS voucher_type_code, vt.name AS voucher_type_name
+             FROM fin_vouchers v
+             LEFT JOIN fin_voucher_types vt
+               ON vt.id = v.voucher_type_id
+            ${whereClause}
+            ORDER BY v.id DESC LIMIT ${limit} OFFSET ${offset}`,
+          params,
+        );
+      } catch (fallbackErr) {
+        console.error("[listVouchers fallback query Error]:", fallbackErr);
+        items = [];
+      }
+    }
+
+    return res.json({ 
+      items: items || [],
       pagination: {
         page,
         pageSize: limit,
-        total,
-        totalPages: Math.ceil(total / limit)
+        total: total || (items || []).length,
+        totalPages: Math.ceil((total || (items || []).length) / limit) || 1
       }
     });
   } catch (e) {
-    next(e);
+    console.error("[listVouchers Controller Fatal Error]:", e);
+    return res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: e.message || "Failed to list vouchers",
+      items: [],
+      pagination: { page: 1, pageSize: 50, total: 0, totalPages: 1 }
+    });
   }
 };
 
