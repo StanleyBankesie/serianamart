@@ -88,14 +88,12 @@ export default function DirectPurchaseList() {
           </p>
         </div>
         <div className="flex gap-2">
-          {canAccessPath("/purchase/direct-purchase/new") && (
-            <button
-              className="btn btn-primary"
-              onClick={() => navigate("/purchase/direct-purchase/new")}
-            >
-              Create Direct Purchase
-            </button>
-          )}
+          <button
+            className="btn btn-primary"
+            onClick={() => navigate("/purchase/direct-purchase/new")}
+          >
+            Create Direct Purchase
+          </button>
         </div>
       </div>
       {error && <div className="alert alert-error">{error}</div>}
