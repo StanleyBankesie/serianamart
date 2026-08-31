@@ -1186,25 +1186,31 @@ export const PermissionProvider = ({ children }) => {
 
       let timer = null;
       const createSelectors =
-        'a[href*="/new"], a[href*="/create"], .btn-success, .btn-primary';
+        'a[href*="/new"], a[href*="/create"], .list-header .btn-primary, .list-header .btn-success';
       const applyGuards = () => {
         if (timer) return;
         timer = requestAnimationFrame(() => {
           timer = null;
           if (!canCreate) {
             document.querySelectorAll(createSelectors).forEach((el) => {
-              const exempt =
-                el.getAttribute?.("data-rbac-exempt") === "" ||
-                el.getAttribute?.("data-rbac-exempt") === "true";
-              if (exempt) return;
+              // Never hide elements inside forms, detail views, or marked exempt
+              if (
+                el.closest("form") ||
+                el.closest("[data-form]") ||
+                el.closest(".form-section") ||
+                el.getAttribute?.("data-rbac-exempt") === "true" ||
+                el.closest("[data-rbac-exempt='true']")
+              ) {
+                return;
+              }
               const text = (el.textContent || "").trim();
               const href = (el.getAttribute("href") || "").toLowerCase();
               if (
                 href.includes("/new") ||
                 href.includes("/create") ||
-                /^\+/.test(text) ||
-                /\bNew\b/.test(text) ||
-                /\bCreate\b/.test(text)
+                /^(New|Create)\s+[A-Z]/i.test(text) ||
+                text === "New" ||
+                text === "Create"
               ) {
                 if (!el.hasAttribute("data-create-guard")) {
                   el.setAttribute(
@@ -1220,10 +1226,16 @@ export const PermissionProvider = ({ children }) => {
             document
               .querySelectorAll('.btn-danger, a[href*="/delete"]')
               .forEach((el) => {
-                const exempt =
-                  el.getAttribute?.("data-rbac-exempt") === "" ||
-                  el.getAttribute?.("data-rbac-exempt") === "true";
-                if (exempt) return;
+                // Never hide elements inside forms or marked exempt
+                if (
+                  el.closest("form") ||
+                  el.closest("[data-form]") ||
+                  el.closest(".form-section") ||
+                  el.getAttribute?.("data-rbac-exempt") === "true" ||
+                  el.closest("[data-rbac-exempt='true']")
+                ) {
+                  return;
+                }
                 const text = (el.textContent || "").trim().toLowerCase();
                 const href = (el.getAttribute("href") || "").toLowerCase();
                 if (

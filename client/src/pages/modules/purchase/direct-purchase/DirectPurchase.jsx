@@ -1285,13 +1285,14 @@ export default function DirectPurchase() {
             </div>
 
             {/* Bottom Row with + Add Item button */}
-            <div className="flex justify-end mt-4 pt-1">
+            <div className="flex justify-end mt-4 pt-1" data-rbac-exempt="true">
               {!isViewMode && (
                 <button
                   type="button"
                   id="dp-add-item-btn"
                   data-rbac-exempt="true"
-                  className="px-5 py-2 bg-[#0E3646] hover:bg-[#082330] text-white rounded-lg font-medium text-sm shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                  style={{ display: "inline-flex" }}
+                  className="px-5 py-2 bg-[#0E3646] hover:bg-[#082330] text-white rounded-lg font-medium text-sm shadow-sm items-center gap-1.5 transition-all cursor-pointer"
                   onClick={addItemToLines}
                 >
                   <span className="text-base leading-none font-bold">+</span> Add Item
