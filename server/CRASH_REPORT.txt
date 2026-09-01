@@ -39020,3 +39020,25 @@ Error: Active terminal code is missing from the request.
     at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/routes/pos.routes.js:3013:15
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 --------------------------------------------------------------------------------
+
+[2026-09-01T13:12:45.605Z] SERVER_ERROR
+Summary: listen EADDRINUSE: address already in use :::4002
+Technical details:
+Error: listen EADDRINUSE: address already in use :::4002
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/index.js:1226:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-09-01T13:13:39.791Z] SERVER_ERROR
+Summary: listen EADDRINUSE: address already in use :::4002
+Technical details:
+Error: listen EADDRINUSE: address already in use :::4002
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/index.js:1226:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------

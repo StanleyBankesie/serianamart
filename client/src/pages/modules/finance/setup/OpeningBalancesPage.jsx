@@ -116,7 +116,10 @@ export default function OpeningBalancesPage() {
       if (selectedFyId) {
         promises.push(
           api.get("/finance/opening-balances", {
-            params: { fiscalYearId: Number(selectedFyId) },
+            params: {
+              fiscalYearId: Number(selectedFyId),
+              branchId: scope?.branchId || undefined,
+            },
           }).catch(() => ({ data: { items: [] } }))
         );
       }
@@ -283,7 +286,12 @@ export default function OpeningBalancesPage() {
       }
       const resp = await api.post(
         "/finance/opening-balances/bulk",
-        { fiscalYearId: fy, openingDate, items },
+        {
+          fiscalYearId: fy,
+          openingDate,
+          items,
+          branchId: scope?.branchId || null,
+        },
         { headers: { "x-skip-offline-queue": "1" } },
       );
       const n = Number(resp?.data?.upserted || items.length || 0);

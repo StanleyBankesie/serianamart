@@ -499,6 +499,7 @@ router.get(
   "/opening-balances",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   financeController.listOpeningBalances,
 );
 
@@ -506,6 +507,7 @@ router.post(
   "/opening-balances",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   financeController.upsertOpeningBalance,
 );
 
@@ -513,6 +515,7 @@ router.post(
   "/opening-balances/bulk",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   financeController.bulkUpsertOpeningBalances,
 );
 

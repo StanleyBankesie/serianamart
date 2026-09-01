@@ -3996,7 +3996,15 @@ export const listOpeningBalances = async (req, res, next) => {
 
 export const upsertOpeningBalance = async (req, res, next) => {
   try {
-    const { companyId, branchId = null } = req.scope || {};
+    const companyId = Number(req.scope?.companyId || req.user?.companyId || req.body?.companyId || 1);
+    const branchId =
+      req.body?.branchId !== undefined && req.body?.branchId !== null
+        ? req.body.branchId
+          ? Number(req.body.branchId)
+          : null
+        : req.scope?.branchId
+        ? Number(req.scope.branchId)
+        : null;
     const { fiscalYearId, accountId, currencyId, exchangeRate, openingDate, openingDebit, openingCredit } =
       req.body || {};
     if (!fiscalYearId || !accountId)
@@ -4005,22 +4013,34 @@ export const upsertOpeningBalance = async (req, res, next) => {
         "VALIDATION_ERROR",
         "fiscalYearId, accountId are required",
       );
-    await query(
-      `DELETE FROM fin_account_opening_balances
-        WHERE company_id = :companyId
-          AND fiscal_year_id = :fiscalYearId
-          AND account_id = :accountId`,
-      { companyId, fiscalYearId: Number(fiscalYearId), accountId: Number(accountId) },
-    );
-    const deb = Number(openingDebit || 0);
-    const cred = Number(openingCredit || 0);
+
+    const deb = Math.max(0, Number(openingDebit || 0));
+    const cred = Math.max(0, Number(openingCredit || 0));
     const curId = currencyId ? Number(currencyId) : null;
     const rate = Number(exchangeRate || 1) > 0 ? Number(exchangeRate) : 1;
+    let itemDate = openingDate ? String(openingDate).slice(0, 10) : null;
+    if (!itemDate || !/^\d{4}-\d{2}-\d{2}$/.test(itemDate)) {
+      const [fyRow] = await query(
+        "SELECT start_date FROM fin_fiscal_years WHERE id = :fiscalYearId AND company_id = :companyId LIMIT 1",
+        { fiscalYearId: Number(fiscalYearId), companyId },
+      );
+      const sd = fyRow?.[0]?.start_date;
+      itemDate = sd instanceof Date ? sd.toISOString().slice(0, 10) : sd ? String(sd).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    }
+
     let insertId = null;
     if (deb > 0 || cred > 0) {
       const result = await query(
-        `INSERT INTO fin_account_opening_balances (company_id, fiscal_year_id, account_id, branch_id, currency_id, exchange_rate, opening_date, opening_debit, opening_credit)
-         VALUES (:companyId, :fiscalYearId, :accountId, :branchId, :curId, :rate, :openingDate, :openingDebit, :openingCredit)`,
+        `INSERT INTO fin_account_opening_balances 
+           (company_id, fiscal_year_id, account_id, branch_id, currency_id, exchange_rate, opening_date, opening_debit, opening_credit)
+         VALUES 
+           (:companyId, :fiscalYearId, :accountId, :branchId, :curId, :rate, :itemDate, :openingDebit, :openingCredit)
+         ON DUPLICATE KEY UPDATE
+           currency_id = VALUES(currency_id),
+           exchange_rate = VALUES(exchange_rate),
+           opening_date = VALUES(opening_date),
+           opening_debit = VALUES(opening_debit),
+           opening_credit = VALUES(opening_credit)`,
         {
           companyId,
           fiscalYearId: Number(fiscalYearId),
@@ -4028,12 +4048,26 @@ export const upsertOpeningBalance = async (req, res, next) => {
           branchId: branchId || null,
           curId,
           rate,
-          openingDate: openingDate || null,
+          itemDate,
           openingDebit: deb,
           openingCredit: cred,
         },
       );
       insertId = result.insertId || null;
+    } else {
+      await query(
+        `DELETE FROM fin_account_opening_balances
+          WHERE company_id = :companyId
+            AND fiscal_year_id = :fiscalYearId
+            AND account_id = :accountId
+            AND (branch_id = :branchId OR (:branchId IS NULL AND branch_id IS NULL))`,
+        {
+          companyId,
+          fiscalYearId: Number(fiscalYearId),
+          accountId: Number(accountId),
+          branchId: branchId || null,
+        },
+      );
     }
     res.status(201).json({ id: insertId, success: true });
   } catch (e) {
@@ -4044,7 +4078,15 @@ export const upsertOpeningBalance = async (req, res, next) => {
 export const bulkUpsertOpeningBalances = async (req, res, next) => {
   const conn = await pool.getConnection();
   try {
-    const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
+    const companyId = Number(req.scope?.companyId || req.user?.companyId || req.body?.companyId || 1);
+    const branchId =
+      req.body?.branchId !== undefined && req.body?.branchId !== null
+        ? req.body.branchId
+          ? Number(req.body.branchId)
+          : null
+        : req.scope?.branchId
+        ? Number(req.scope.branchId)
+        : null;
     const { fiscalYearId, items, openingDate } = req.body || {};
     if (!fiscalYearId || !Array.isArray(items))
       throw httpError(
@@ -4054,44 +4096,41 @@ export const bulkUpsertOpeningBalances = async (req, res, next) => {
       );
     await conn.beginTransaction();
 
-    let effectiveDate = openingDate || null;
-    if (!effectiveDate) {
+    let effectiveDate = openingDate ? String(openingDate).slice(0, 10) : null;
+    if (!effectiveDate || !/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) {
       const [fyRow] = await conn.execute(
         "SELECT start_date FROM fin_fiscal_years WHERE id = :fiscalYearId AND company_id = :companyId LIMIT 1",
         { fiscalYearId: Number(fiscalYearId), companyId }
       );
-      effectiveDate = fyRow?.[0]?.start_date || new Date().toISOString().slice(0, 10);
+      const sd = fyRow?.[0]?.start_date;
+      effectiveDate = sd instanceof Date ? sd.toISOString().slice(0, 10) : sd ? String(sd).slice(0, 10) : new Date().toISOString().slice(0, 10);
     }
 
     let affected = 0;
     for (const it of items) {
-      const accountId = Number(it?.accountId);
-      const openingDebit = Number(it?.openingDebit || 0);
-      const openingCredit = Number(it?.openingCredit || 0);
-      const currencyId = it?.currencyId ? Number(it.currencyId) : null;
-      const exchangeRate = Number(it?.exchangeRate || 1) > 0 ? Number(it.exchangeRate) : 1;
-      const itemDate = it?.openingDate || effectiveDate;
+      const accountId = Number(it?.accountId || it?.account_id || it?.id);
+      const openingDebit = Math.max(0, Number(it?.openingDebit || it?.opening_debit || it?.debit || 0));
+      const openingCredit = Math.max(0, Number(it?.openingCredit || it?.opening_credit || it?.credit || 0));
+      const currencyId = it?.currencyId || it?.currency_id ? Number(it.currencyId || it.currency_id) : null;
+      const exchangeRate = Number(it?.exchangeRate || it?.exchange_rate || 1) > 0 ? Number(it.exchangeRate || it.exchange_rate) : 1;
+      let itemDate = it?.openingDate || it?.opening_date ? String(it.openingDate || it.opening_date).slice(0, 10) : effectiveDate;
+      if (!itemDate || !/^\d{4}-\d{2}-\d{2}$/.test(itemDate)) {
+        itemDate = effectiveDate;
+      }
       if (!Number.isFinite(accountId) || accountId <= 0) continue;
-
-      // Ensure exact 1 row exists for this account/fiscal year
-      await conn.execute(
-        `DELETE FROM fin_account_opening_balances
-          WHERE company_id = :companyId
-            AND fiscal_year_id = :fiscalYearId
-            AND account_id = :accountId`,
-        {
-          companyId,
-          fiscalYearId: Number(fiscalYearId),
-          accountId,
-        },
-      );
 
       if (openingDebit > 0 || openingCredit > 0) {
         await conn.execute(
           `INSERT INTO fin_account_opening_balances
              (company_id, fiscal_year_id, account_id, branch_id, currency_id, exchange_rate, opening_date, opening_debit, opening_credit)
            VALUES
-             (:companyId, :fiscalYearId, :accountId, :branchId, :currencyId, :exchangeRate, :itemDate, :openingDebit, :openingCredit)`,
+             (:companyId, :fiscalYearId, :accountId, :branchId, :currencyId, :exchangeRate, :itemDate, :openingDebit, :openingCredit)
+           ON DUPLICATE KEY UPDATE
+             currency_id = VALUES(currency_id),
+             exchange_rate = VALUES(exchange_rate),
+             opening_date = VALUES(opening_date),
+             opening_debit = VALUES(opening_debit),
+             opening_credit = VALUES(opening_credit)`,
           {
             companyId,
             fiscalYearId: Number(fiscalYearId),
@@ -4102,6 +4141,20 @@ export const bulkUpsertOpeningBalances = async (req, res, next) => {
             itemDate,
             openingDebit,
             openingCredit,
+          },
+        );
+      } else {
+        await conn.execute(
+          `DELETE FROM fin_account_opening_balances
+            WHERE company_id = :companyId
+              AND fiscal_year_id = :fiscalYearId
+              AND account_id = :accountId
+              AND (branch_id = :branchId OR (:branchId IS NULL AND branch_id IS NULL))`,
+          {
+            companyId,
+            fiscalYearId: Number(fiscalYearId),
+            accountId,
+            branchId: branchId || null,
           },
         );
       }
