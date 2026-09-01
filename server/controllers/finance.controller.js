@@ -3932,12 +3932,62 @@ export const closeFiscalYear = async (req, res, next) => {
   }
 };
 
+export async function ensureOpeningBalancesTable(connOrPool = pool) {
+  try {
+    await connOrPool.execute(`
+      CREATE TABLE IF NOT EXISTS fin_account_opening_balances (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        company_id BIGINT UNSIGNED NOT NULL,
+        fiscal_year_id BIGINT UNSIGNED NOT NULL,
+        account_id BIGINT UNSIGNED NOT NULL,
+        branch_id BIGINT UNSIGNED NULL,
+        currency_id BIGINT UNSIGNED NULL,
+        exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000,
+        opening_date DATE NULL,
+        opening_debit DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+        opening_credit DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_ob_company (company_id),
+        KEY idx_ob_fy (fiscal_year_id),
+        KEY idx_ob_acc (account_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `).catch(() => {});
+
+    const cols = [
+      { name: "branch_id", sql: "ADD COLUMN branch_id BIGINT UNSIGNED NULL AFTER account_id" },
+      { name: "currency_id", sql: "ADD COLUMN currency_id BIGINT UNSIGNED NULL AFTER branch_id" },
+      { name: "exchange_rate", sql: "ADD COLUMN exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000 AFTER currency_id" },
+      { name: "opening_date", sql: "ADD COLUMN opening_date DATE NULL AFTER exchange_rate" },
+      { name: "opening_debit", sql: "ADD COLUMN opening_debit DECIMAL(18,2) NOT NULL DEFAULT 0.00 AFTER opening_date" },
+      { name: "opening_credit", sql: "ADD COLUMN opening_credit DECIMAL(18,2) NOT NULL DEFAULT 0.00 AFTER opening_debit" },
+      { name: "created_by", sql: "ADD COLUMN created_by BIGINT UNSIGNED NULL" },
+    ];
+
+    for (const c of cols) {
+      try {
+        await connOrPool.execute(`ALTER TABLE fin_account_opening_balances ${c.sql}`);
+      } catch (_) {}
+    }
+
+    try {
+      await connOrPool.execute(`
+        ALTER TABLE fin_account_opening_balances
+        ADD UNIQUE KEY uq_opening_unique (company_id, fiscal_year_id, account_id, branch_id)
+      `);
+    } catch (_) {}
+  } catch (_) {}
+}
+
 export const listOpeningBalances = async (req, res, next) => {
   try {
     const { companyId, branchId = null, branchIdsStr = '' } = req.scope || {};
     const fiscalYearId = req.query.fiscalYearId
       ? Number(req.query.fiscalYearId)
       : null;
+
+    await ensureOpeningBalancesTable().catch(() => {});
 
     let items = [];
     try {
@@ -3964,27 +4014,6 @@ export const listOpeningBalances = async (req, res, next) => {
       );
     } catch (obErr) {
       console.error("[listOpeningBalances Error]:", obErr);
-      await query(`
-        CREATE TABLE IF NOT EXISTS fin_account_opening_balances (
-          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-          company_id BIGINT UNSIGNED NOT NULL,
-          fiscal_year_id BIGINT UNSIGNED NOT NULL,
-          account_id BIGINT UNSIGNED NOT NULL,
-          branch_id BIGINT UNSIGNED NULL,
-          currency_id BIGINT UNSIGNED NULL,
-          exchange_rate DECIMAL(18,6) NOT NULL DEFAULT 1.000000,
-          opening_date DATE NULL,
-          opening_debit DECIMAL(18,2) NOT NULL DEFAULT 0.00,
-          opening_credit DECIMAL(18,2) NOT NULL DEFAULT 0.00,
-          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          PRIMARY KEY (id),
-          KEY idx_ob_company (company_id),
-          KEY idx_ob_fy (fiscal_year_id),
-          KEY idx_ob_acc (account_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-      `).catch(() => null);
-
       items = [];
     }
 
@@ -3996,15 +4025,12 @@ export const listOpeningBalances = async (req, res, next) => {
 
 export const upsertOpeningBalance = async (req, res, next) => {
   try {
+    await ensureOpeningBalancesTable().catch(() => {});
     const companyId = Number(req.scope?.companyId || req.user?.companyId || req.body?.companyId || 1);
     const branchId =
-      req.body?.branchId !== undefined && req.body?.branchId !== null
-        ? req.body.branchId
-          ? Number(req.body.branchId)
-          : null
-        : req.scope?.branchId
-        ? Number(req.scope.branchId)
-        : null;
+      req.body?.branchId !== undefined && req.body?.branchId !== null && req.body?.branchId !== "" && req.body?.branchId !== "null"
+        ? (Number(req.body.branchId) > 0 ? Number(req.body.branchId) : null)
+        : (req.scope?.branchId ? Number(req.scope.branchId) : null);
     const { fiscalYearId, accountId, currencyId, exchangeRate, openingDate, openingDebit, openingCredit } =
       req.body || {};
     if (!fiscalYearId || !accountId)
@@ -4076,17 +4102,14 @@ export const upsertOpeningBalance = async (req, res, next) => {
 };
 
 export const bulkUpsertOpeningBalances = async (req, res, next) => {
+  await ensureOpeningBalancesTable().catch(() => {});
   const conn = await pool.getConnection();
   try {
     const companyId = Number(req.scope?.companyId || req.user?.companyId || req.body?.companyId || 1);
     const branchId =
-      req.body?.branchId !== undefined && req.body?.branchId !== null
-        ? req.body.branchId
-          ? Number(req.body.branchId)
-          : null
-        : req.scope?.branchId
-        ? Number(req.scope.branchId)
-        : null;
+      req.body?.branchId !== undefined && req.body?.branchId !== null && req.body?.branchId !== "" && req.body?.branchId !== "null"
+        ? (Number(req.body.branchId) > 0 ? Number(req.body.branchId) : null)
+        : (req.scope?.branchId ? Number(req.scope.branchId) : null);
     const { fiscalYearId, items, openingDate } = req.body || {};
     if (!fiscalYearId || !Array.isArray(items))
       throw httpError(

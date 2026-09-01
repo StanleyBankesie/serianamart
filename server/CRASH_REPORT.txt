@@ -39042,3 +39042,14 @@ Error: listen EADDRINUSE: address already in use :::4002
     at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/index.js:1226:10
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 --------------------------------------------------------------------------------
+
+[2026-09-01T13:22:59.903Z] SERVER_ERROR
+Summary: listen EADDRINUSE: address already in use :::4002
+Technical details:
+Error: listen EADDRINUSE: address already in use :::4002
+    at Server.setupListenHandle [as _listen2] (node:net:1937:16)
+    at listenInCluster (node:net:1994:12)
+    at Server.listen (node:net:2099:7)
+    at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/index.js:1226:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
