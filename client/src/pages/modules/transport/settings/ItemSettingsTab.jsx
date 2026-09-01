@@ -10,6 +10,7 @@ import { toast } from "react-toastify";
 import { api } from "@/api/client";
 import { filterAndSort } from "@/utils/searchUtils.js";
 import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { autosizeWorksheetColumns } from "@/utils/xlsxUtils";
 import SortableHeader from "@/components/SortableHeader.jsx";
 import { usePermission } from "@/auth/PermissionContext.jsx";
@@ -338,9 +339,22 @@ export default function ItemSettingsTab() {
       }
       const headers = rowsCsv[0].map((h) => String(h || "").trim());
 
-      // Basic validation of headers
-      const requiredHeaders = ["ITEM_NAME*", "ITEM_TYPE*", "BASE_UOM*"];
-      const missing = requiredHeaders.filter((h) => !headers.includes(h));
+      // Flexible validation of headers
+      const hasItemName = headers.some((h) =>
+        /item.*name/i.test(h.replace(/[*_\s]/g, " ")),
+      );
+      const hasItemType = headers.some((h) =>
+        /item.*type/i.test(h.replace(/[*_\s]/g, " ")),
+      );
+      const hasUom = headers.some((h) =>
+        /(base.*uom|unit.*of.*measure|uom)/i.test(h.replace(/[*_\s]/g, " ")),
+      );
+
+      const missing = [];
+      if (!hasItemName) missing.push("ITEM_NAME* (Item Name)");
+      if (!hasItemType) missing.push("ITEM_TYPE* (Item Type)");
+      if (!hasUom) missing.push("BASE_UOM* (Unit of Measure)");
+
       if (missing.length > 0) {
         toast.error(
           `Invalid file format: Missing required header(s): ${missing.join(", ")}`,
@@ -453,8 +467,35 @@ export default function ItemSettingsTab() {
           }
           if (name) {
             itemTypeSet.add(name);
-            if (code) itemTypeNameToCode.set(name, code);
+            if (code) {
+              itemTypeNameToCode.set(name, code);
+              itemTypeCodeToCode.set(name, code);
+            }
           }
+        });
+
+        const standardMappings = [
+          ["RAW MATERIAL", "RAW_MATERIAL"],
+          ["RAW_MATERIAL", "RAW_MATERIAL"],
+          ["FINISHED GOOD", "FINISHED_GOOD"],
+          ["FINISHED GOODS", "FINISHED_GOOD"],
+          ["FINISHED_GOOD", "FINISHED_GOOD"],
+          ["SERVICE", "SERVICE"],
+          ["SERVICES", "SERVICE"],
+          ["CONSUMABLE", "CONSUMABLE"],
+          ["CONSUMABLES", "CONSUMABLE"],
+          ["EQUIPMENT", "EQUIPMENT"],
+          ["SPARE PART", "SPARE_PART"],
+          ["SPARE PARTS", "SPARE_PART"],
+          ["SPARE_PART", "SPARE_PART"],
+          ["ASSET", "ASSET"],
+          ["ASSETS", "ASSET"],
+        ];
+        standardMappings.forEach(([n, c]) => {
+          itemTypeSet.add(n);
+          itemTypeSet.add(c);
+          itemTypeNameToCode.set(n, c);
+          itemTypeCodeToCode.set(n, c);
         });
       } catch (_) {
         // proceed without maps; numeric IDs in CSV will still work via fallback below
@@ -470,11 +511,121 @@ export default function ItemSettingsTab() {
           // pad values with empties to match headers length
           for (let k = values.length; k < headers.length; k++) values.push("");
         }
-        const rowData = {};
+        const rawMap = {};
         headers.forEach((h, idx) => {
-          const key = h.replace("*", "");
-          rowData[key] = values[idx] ?? "";
+          rawMap[h] = values[idx] ?? "";
         });
+
+        const getVal = (aliases) => {
+          for (const a of aliases) {
+            const cleanA = a.replace(/[*_\s]/g, "").toUpperCase();
+            for (const [k, v] of Object.entries(rawMap)) {
+              const cleanK = k.replace(/[*_\s]/g, "").toUpperCase();
+              if (
+                cleanK === cleanA &&
+                v !== undefined &&
+                v !== null &&
+                String(v).trim() !== ""
+              ) {
+                return String(v).trim();
+              }
+            }
+          }
+          return "";
+        };
+
+        const rowData = {
+          ITEM_CODE: getVal(["ITEM_CODE", "ITEM CODE", "CODE"]),
+          ITEM_NAME: getVal(["ITEM_NAME", "ITEM NAME", "NAME", "ITEM"]),
+          ITEM_TYPE: getVal(["ITEM_TYPE", "ITEM TYPE", "TYPE"]),
+          ITEM_CATEGORY: getVal([
+            "ITEM_CATEGORY",
+            "ITEM CATEGORY",
+            "CATEGORY",
+            "CATEGORY NAME",
+          ]),
+          ITEM_CATEGORY_CODE: getVal([
+            "ITEM_CATEGORY_CODE",
+            "CATEGORY CODE",
+          ]),
+          ITEM_CATEGORY_ID: getVal(["ITEM_CATEGORY_ID", "CATEGORY ID"]),
+          ITEM_GROUP: getVal([
+            "ITEM_GROUP",
+            "ITEM GROUP",
+            "GROUP",
+            "GROUP NAME",
+          ]),
+          ITEM_GROUP_CODE: getVal(["ITEM_GROUP_CODE", "GROUP CODE"]),
+          ITEM_GROUP_ID: getVal(["ITEM_GROUP_ID", "GROUP ID"]),
+          BASE_UOM: getVal([
+            "BASE_UOM",
+            "BASE UOM",
+            "UNIT OF MEASURE",
+            "UNIT_OF_MEASURE",
+            "UOM",
+            "UNIT",
+          ]),
+          BARCODE: getVal(["BARCODE", "BAR CODE"]),
+          STANDARD_COST: getVal([
+            "STANDARD_COST",
+            "STANDARD COST",
+            "COST PRICE",
+            "COST_PRICE",
+            "COST",
+          ]),
+          SELLING_PRICE: getVal(["SELLING_PRICE", "SELLING PRICE", "PRICE"]),
+          CURRENCY_CODE: getVal([
+            "CURRENCY",
+            "CURRENCY_CODE",
+            "CURRENCY CODE",
+          ]),
+          VAT_PURCHASE_CODE: getVal([
+            "PURCHAS VAT CODE",
+            "PURCHASE VAT CODE",
+            "VAT_PURCHASE_CODE",
+            "VAT_ON_PURCHASE",
+            "VAT PURCHASE",
+            "PURCHASE VAT",
+          ]),
+          VAT_SALES_CODE: getVal([
+            "SALES VAT CODE",
+            "VAT_SALES_CODE",
+            "VAT_ON_SALES",
+            "VAT SALES",
+            "SALES VAT",
+          ]),
+          PURCHASE_ACCOUNT_ID: getVal([
+            "PURCHASE_ACCOUNT_ID",
+            "PURCHASE ACCOUNT ID",
+            "PURCHASE_ACCOUNT",
+            "PURCHASE ACCOUNT",
+          ]),
+          SALES_ACCOUNT_ID: getVal([
+            "SALES_ACCOUNT_ID",
+            "SALES ACCOUNT ID",
+            "SALES_ACCOUNT",
+            "SALES ACCOUNT",
+          ]),
+          DESCRIPTION: getVal(["DESCRIPTION", "DESC", "REMARKS"]),
+          IS_STOCKABLE: getVal(["IS_STOCKABLE", "IS STOCKABLE", "STOCKABLE"]),
+          IS_SELLABLE: getVal(["IS_SELLABLE", "IS SELLABLE", "SELLABLE"]),
+          IS_PURCHASABLE: getVal([
+            "IS_PURCHASABLE",
+            "IS PURCHASABLE",
+            "PURCHASABLE",
+          ]),
+          MIN_STOCK_LEVEL: getVal([
+            "MIN_STOCK_LEVEL",
+            "MIN STOCK LEVEL",
+            "MIN STOCK",
+          ]),
+          MAX_STOCK_LEVEL: getVal([
+            "MAX_STOCK_LEVEL",
+            "MAX STOCK LEVEL",
+            "MAX STOCK",
+          ]),
+          REORDER_LEVEL: getVal(["REORDER_LEVEL", "REORDER LEVEL"]),
+        };
         let nextItemCode = rowData.ITEM_CODE || "";
         const itemTypeRaw = String(rowData.ITEM_TYPE || "").toUpperCase();
         const itemTypeResolved =
@@ -979,113 +1130,312 @@ export default function ItemSettingsTab() {
   const downloadTemplateCSV = async () => {
     let taxCodes = [];
     let accItems = [];
+    let itemTypes = [];
+    let categories = [];
+    let groups = [];
+    let currencies = [];
+    let uomList = [];
+
     try {
-      const [taxRes, accRes] = await Promise.all([
-        api.get("/finance/tax-codes"),
-        api.get("/finance/accounts"),
-      ]);
+      const [taxRes, accRes, typeRes, catRes, grpRes, curRes, uomRes] =
+        await Promise.all([
+          api.get("/finance/tax-codes").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/accounts").catch(() => ({ data: { items: [] } })),
+          api.get("/inventory/item-types").catch(() => ({ data: { items: [] } })),
+          api.get("/inventory/item-categories").catch(() => ({ data: { items: [] } })),
+          api.get("/inventory/item-groups").catch(() => ({ data: { items: [] } })),
+          api.get("/finance/currencies").catch(() => ({ data: { items: [] } })),
+          api.get("/inventory/uoms").catch(() => ({ data: { items: [] } })),
+        ]);
+
       taxCodes = (Array.isArray(taxRes?.data?.items) ? taxRes.data.items : [])
-        .map((t) => String(t.code || "").trim())
+        .map((t) => String(t.code || t.name || "").trim())
         .filter(Boolean);
       accItems = Array.isArray(accRes?.data?.items) ? accRes.data.items : [];
+      itemTypes = (Array.isArray(typeRes?.data?.items) ? typeRes.data.items : [])
+        .map((t) =>
+          String(
+            t.type_name || t.name || t.type_code || t.code || "",
+          ).trim(),
+        )
+        .filter(Boolean);
+      categories = (Array.isArray(catRes?.data?.items) ? catRes.data.items : [])
+        .map((c) => String(c.category_name || c.category_code || "").trim())
+        .filter(Boolean);
+      groups = (Array.isArray(grpRes?.data?.items) ? grpRes.data.items : [])
+        .map((g) => String(g.group_name || g.group_code || "").trim())
+        .filter(Boolean);
+      currencies = (Array.isArray(curRes?.data?.items) ? curRes.data.items : [])
+        .map((c) => String(c.code || c.currency_code || "").trim())
+        .filter(Boolean);
+      uomList = (Array.isArray(uomRes?.data?.items) ? uomRes.data.items : [])
+        .map((u) => String(u.uom_code || u.code || u.name || "").trim())
+        .filter(Boolean);
     } catch {
-      // ignore; will fall back to placeholders below
+      // ignore; fallbacks below
     }
-    const pick = (arr, idx = 0, fallback = "") =>
-      String(arr?.[idx] || fallback);
-    const findAccIdByName = (arr, part) => {
-      const row = arr?.find((a) =>
-        String(a?.name || "")
-          .toUpperCase()
-          .includes(part),
-      );
-      return row ? Number(row.id) : null;
+
+    if (!itemTypes.length) {
+      itemTypes = [
+        "Raw Material",
+        "Finished Good",
+        "Service",
+        "Consumable",
+        "Equipment",
+        "Spare Part",
+        "Asset",
+      ];
+    }
+    if (!uomList.length) {
+      uomList = [
+        "PCS",
+        "BOX",
+        "KG",
+        "L",
+        "M",
+        "PACK",
+        "DOZEN",
+        "SET",
+        "ROLL",
+        "BOTTLE",
+        "CARTON",
+        "BAG",
+        "PAIR",
+        "TIN",
+        "LTR",
+        "UNIT",
+      ];
+    }
+    if (!currencies.length) {
+      currencies = ["GHS", "USD", "EUR", "GBP", "NGN", "KES", "RMB", "CAD"];
+    }
+    if (!taxCodes.length) {
+      taxCodes = ["No Tax", "VAT", "Standard", "Exempt", "Zero Rated"];
+    }
+
+    const samplePurchaseAccId = 36;
+    const sampleSalesAccId = 1;
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("ItemsTemplate");
+
+    // Populate LookupData sheet for autocomplete & dropdown validation
+    const lookupSheet = workbook.addWorksheet("LookupData");
+    lookupSheet.getCell("A1").value = "ITEM_CATEGORY";
+    lookupSheet.getCell("B1").value = "ITEM_GROUP";
+    lookupSheet.getCell("C1").value = "UNIT_OF_MEASURE";
+    lookupSheet.getCell("D1").value = "CURRENCY";
+    lookupSheet.getCell("E1").value = "ITEM_TYPE";
+    lookupSheet.getCell("F1").value = "TAX_CODE";
+
+    categories.forEach((c, idx) => {
+      lookupSheet.getCell(`A${idx + 2}`).value = c;
+    });
+    groups.forEach((g, idx) => {
+      lookupSheet.getCell(`B${idx + 2}`).value = g;
+    });
+    uomList.forEach((u, idx) => {
+      lookupSheet.getCell(`C${idx + 2}`).value = u;
+    });
+    currencies.forEach((cur, idx) => {
+      lookupSheet.getCell(`D${idx + 2}`).value = cur;
+    });
+    itemTypes.forEach((t, idx) => {
+      lookupSheet.getCell(`E${idx + 2}`).value = t;
+    });
+    taxCodes.forEach((tc, idx) => {
+      lookupSheet.getCell(`F${idx + 2}`).value = tc;
+    });
+
+    lookupSheet.state = "hidden";
+
+    // Column definitions with all capitalized headings:
+    worksheet.columns = [
+      { header: "ITEM_NAME*", key: "ITEM_NAME", width: 26 },
+      { header: "ITEM TYPE*", key: "ITEM_TYPE", width: 20 },
+      { header: "ITEM CATEGORY", key: "ITEM_CATEGORY", width: 22 },
+      { header: "ITEM GROUP", key: "ITEM_GROUP", width: 22 },
+      { header: "UNIT OF MEASURE*", key: "BASE_UOM", width: 18 },
+      { header: "BARCODE", key: "BARCODE", width: 18 },
+      { header: "STANDARD_COST", key: "STANDARD_COST", width: 16 },
+      { header: "SELLING_PRICE", key: "SELLING_PRICE", width: 16 },
+      { header: "CURRENCY", key: "CURRENCY_CODE", width: 14 },
+      { header: "PURCHAS VAT CODE", key: "VAT_PURCHASE_CODE", width: 20 },
+      { header: "SALES VAT CODE", key: "VAT_SALES_CODE", width: 20 },
+      { header: "PURCHASE_ACCOUNT_ID", key: "PURCHASE_ACCOUNT_ID", width: 22 },
+      { header: "SALES_ACCOUNT_ID", key: "SALES_ACCOUNT_ID", width: 20 },
+      { header: "DESCRIPTION", key: "DESCRIPTION", width: 26 },
+      { header: "IS_STOCKABLE", key: "IS_STOCKABLE", width: 15 },
+      { header: "IS_SELLABLE", key: "IS_SELLABLE", width: 15 },
+      { header: "IS_PURCHASABLE", key: "IS_PURCHASABLE", width: 16 },
+      { header: "MIN_STOCK_LEVEL", key: "MIN_STOCK_LEVEL", width: 18 },
+      { header: "MAX_STOCK_LEVEL", key: "MAX_STOCK_LEVEL", width: 18 },
+      { header: "REORDER_LEVEL", key: "REORDER_LEVEL", width: 16 },
+    ];
+
+    // Style header row
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: "FF1E293B" } };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE2E8F0" },
     };
-    const pickAccId = (arr, idx = 0) => Number(arr?.[idx]?.id || 0) || null;
-    const sampleVatPurchase = pick(taxCodes, 0, "VAT");
-    const sampleVatSales = pick(taxCodes, 1, sampleVatPurchase);
-    let samplePurchaseAccId =
-      findAccIdByName(accItems, "PURCHASE") || pickAccId(accItems, 0);
-    let sampleSalesAccId =
-      findAccIdByName(accItems, "SALES") ||
-      pickAccId(accItems, 1) ||
-      pickAccId(accItems, 0);
-    // Force sample IDs as requested
-    samplePurchaseAccId = 36;
-    sampleSalesAccId = 1;
-    const headers = [
-      "ITEM_NAME*",
-      "ITEM_TYPE*",
-      "ITEM_CATEGORY",
-      "ITEM_GROUP",
-      "BASE_UOM*",
-      "BARCODE",
-      "STANDARD_COST",
-      "SELLING_PRICE",
-      "CURRENCY_CODE",
-      "VAT_PURCHASE_CODE",
-      "VAT_SALES_CODE",
-      "PURCHASE_ACCOUNT_ID",
-      "SALES_ACCOUNT_ID",
-      "DESCRIPTION",
-      "IS_STOCKABLE",
-      "IS_SELLABLE",
-      "IS_PURCHASABLE",
-      "MIN_STOCK_LEVEL",
-      "MAX_STOCK_LEVEL",
-      "REORDER_LEVEL",
-    ];
-    const sample = [
-      [
-        "Raw Material 1",
-        "RAW_MATERIAL",
-        "",
-        "",
-        "PCS",
-        "",
-        "100.00",
-        "120.00",
-        "GHS",
-        sampleVatPurchase,
-        sampleVatSales,
-        String(samplePurchaseAccId || ""),
-        String(sampleSalesAccId || ""),
-        "Sample raw material",
-        "Y",
-        "Y",
-        "Y",
-        "10",
-        "100",
-        "20",
-      ],
-      [
-        "Finished Good 1",
-        "FINISHED_GOOD",
-        "",
-        "",
-        "PCS",
-        "5060072082361",
-        "150.00",
-        "180.00",
-        "GHS",
-        sampleVatPurchase,
-        sampleVatSales,
-        String(samplePurchaseAccId || ""),
-        String(sampleSalesAccId || ""),
-        "Sample finished product",
-        "Y",
-        "Y",
-        "Y",
-        "5",
-        "50",
-        "10",
-      ],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
-    autosizeWorksheetColumns(ws);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "ItemsTemplate");
-    XLSX.writeFile(wb, "items_bulk_upload_template.xlsx");
+
+    // Add sample rows
+    worksheet.addRow({
+      ITEM_NAME: "Raw Material 1",
+      ITEM_TYPE: itemTypes[0] || "Raw Material",
+      ITEM_CATEGORY: categories[0] || "",
+      ITEM_GROUP: groups[0] || "",
+      BASE_UOM: uomList[0] || "PCS",
+      BARCODE: "",
+      STANDARD_COST: 100.0,
+      SELLING_PRICE: 120.0,
+      CURRENCY_CODE: currencies[0] || "GHS",
+      VAT_PURCHASE_CODE: taxCodes[0] || "No Tax",
+      VAT_SALES_CODE: taxCodes[0] || "No Tax",
+      PURCHASE_ACCOUNT_ID: samplePurchaseAccId,
+      SALES_ACCOUNT_ID: sampleSalesAccId,
+      DESCRIPTION: "Sample raw material",
+      IS_STOCKABLE: "Y",
+      IS_SELLABLE: "Y",
+      IS_PURCHASABLE: "Y",
+      MIN_STOCK_LEVEL: 10,
+      MAX_STOCK_LEVEL: 100,
+      REORDER_LEVEL: 20,
+    });
+
+    worksheet.addRow({
+      ITEM_NAME: "Finished Good 1",
+      ITEM_TYPE: itemTypes[1] || "Finished Good",
+      ITEM_CATEGORY: categories[1] || categories[0] || "",
+      ITEM_GROUP: groups[1] || groups[0] || "",
+      BASE_UOM: uomList[0] || "PCS",
+      BARCODE: "5060072082361",
+      STANDARD_COST: 150.0,
+      SELLING_PRICE: 180.0,
+      CURRENCY_CODE: currencies[0] || "GHS",
+      VAT_PURCHASE_CODE: taxCodes[0] || "No Tax",
+      VAT_SALES_CODE: taxCodes[0] || "No Tax",
+      PURCHASE_ACCOUNT_ID: samplePurchaseAccId,
+      SALES_ACCOUNT_ID: sampleSalesAccId,
+      DESCRIPTION: "Sample finished product",
+      IS_STOCKABLE: "Y",
+      IS_SELLABLE: "Y",
+      IS_PURCHASABLE: "Y",
+      MIN_STOCK_LEVEL: 5,
+      MAX_STOCK_LEVEL: 50,
+      REORDER_LEVEL: 10,
+    });
+
+    const maxCatRow = Math.max(categories.length + 1, 2);
+    const maxGrpRow = Math.max(groups.length + 1, 2);
+    const maxUomRow = Math.max(uomList.length + 1, 2);
+    const maxCurRow = Math.max(currencies.length + 1, 2);
+    const maxTypeRow = Math.max(itemTypes.length + 1, 2);
+    const maxTaxRow = Math.max(taxCodes.length + 1, 2);
+
+    for (let r = 2; r <= 1000; r++) {
+      // B: Item Type
+      worksheet.getCell(`B${r}`).dataValidation = {
+        type: "list",
+        allowBlank: false,
+        formulae: [`LookupData!$E$2:$E$${maxTypeRow}`],
+        showErrorMessage: true,
+        errorTitle: "Invalid Item Type",
+        error: "Please select a valid Item Type from the list.",
+      };
+      // C: Item Category
+      if (categories.length > 0) {
+        worksheet.getCell(`C${r}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`LookupData!$A$2:$A$${maxCatRow}`],
+          showErrorMessage: true,
+          errorTitle: "Invalid Item Category",
+          error: "Please select an Item Category from the list.",
+        };
+      }
+      // D: Item Group
+      if (groups.length > 0) {
+        worksheet.getCell(`D${r}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`LookupData!$B$2:$B$${maxGrpRow}`],
+          showErrorMessage: true,
+          errorTitle: "Invalid Item Group",
+          error: "Please select an Item Group from the list.",
+        };
+      }
+      // E: Unit of Measure
+      worksheet.getCell(`E${r}`).dataValidation = {
+        type: "list",
+        allowBlank: false,
+        formulae: [`LookupData!$C$2:$C$${maxUomRow}`],
+        showErrorMessage: true,
+        errorTitle: "Invalid UOM",
+        error: "Please select a valid Unit of Measure from the list.",
+      };
+      // I: Currency
+      worksheet.getCell(`I${r}`).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: [`LookupData!$D$2:$D$${maxCurRow}`],
+        showErrorMessage: true,
+        errorTitle: "Invalid Currency",
+        error: "Please select a Currency from the list.",
+      };
+      // J: Purchas Vat Code
+      worksheet.getCell(`J${r}`).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: [`LookupData!$F$2:$F$${maxTaxRow}`],
+        showErrorMessage: true,
+        errorTitle: "Invalid Purchase VAT Code",
+        error: "Please select a Purchase VAT Code from the list.",
+      };
+      // K: Sales Vat Code
+      worksheet.getCell(`K${r}`).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: [`LookupData!$F$2:$F$${maxTaxRow}`],
+        showErrorMessage: true,
+        errorTitle: "Invalid Sales VAT Code",
+        error: "Please select a Sales VAT Code from the list.",
+      };
+      // O: IS_STOCKABLE
+      worksheet.getCell(`O${r}`).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: ['"Y,N"'],
+      };
+      // P: IS_SELLABLE
+      worksheet.getCell(`P${r}`).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: ['"Y,N"'],
+      };
+      // Q: IS_PURCHASABLE
+      worksheet.getCell(`Q${r}`).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: ['"Y,N"'],
+      };
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "items_bulk_upload_template.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
   };
 
   const exportItemsExcel = () => {
