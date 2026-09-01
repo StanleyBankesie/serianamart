@@ -460,7 +460,7 @@ function PurchaseHomeIndex() {
       rbac_key: "total-purchases",
       icon: "🧾",
       value: loading ? "..." : fmt(overview?.totalPurchases || 0),
-      label: "Total Purchases",
+      label: "Purchases (Last 30 Days)",
       change: loading
         ? ""
         : `${Number(overview?.totalPurchaseOrders || 0)} bills`,
