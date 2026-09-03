@@ -32,6 +32,7 @@ import GeneralLedgerReportPage from "./reports/GeneralLedgerReportPage.jsx";
 import CreditorsLedgerReportPage from "./reports/CreditorsLedgerReportPage.jsx";
 import SupplierOutstandingReportPage from "./reports/SupplierOutstandingReportPage.jsx";
 import ProfitAndLossReportPage from "./reports/ProfitAndLossReportPage.jsx";
+import StatementOfProfitLossOCIReportPage from "./reports/StatementOfProfitLossOCIReportPage.jsx";
 import BalanceSheetReportPage from "./reports/BalanceSheetReportPage.jsx";
 import ChartOfAccountsReportPage from "./reports/ChartOfAccountsReportPage.jsx";
 import CashFlowReportPage from "./reports/CashFlowReportPage.jsx";
@@ -249,6 +250,10 @@ export default function FinanceRoutes() {
         <Route
           path="reports/profit-and-loss"
           element={<ProfitAndLossReportPage />}
+        />
+        <Route
+          path="reports/profit-loss-oci"
+          element={<StatementOfProfitLossOCIReportPage />}
         />
         <Route
           path="reports/balance-sheet"

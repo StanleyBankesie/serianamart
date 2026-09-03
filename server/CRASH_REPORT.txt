@@ -39053,3 +39053,177 @@ Error: listen EADDRINUSE: address already in use :::4002
     at file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/index.js:1226:10
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 --------------------------------------------------------------------------------
+
+[2026-09-03T15:30:59.368Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+userId: 1
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:69:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireAuth (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:88:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-09-03T15:31:31.362Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+userId: 1
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:69:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireAuth (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:88:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-09-03T15:39:39.413Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+userId: 1
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:69:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireAuth (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:88:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-09-03T15:59:27.489Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+userId: 1
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:69:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireAuth (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:88:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-09-03T16:01:50.610Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+userId: 1
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:69:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireAuth (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:88:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-09-03T16:01:57.447Z] HTTP_400
+Summary: Invalid id
+Request: GET /api/admin/companies/current (status 400)
+Context:
+status: 400
+code: VALIDATION_ERROR
+method: GET
+url: /api/admin/companies/current
+ip: ::ffff:127.0.0.1
+origin: 
+userAgent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+userId: 1
+companyId: null
+branchId: null
+body: {}
+query: {}
+Technical details:
+Error: Invalid id
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at getCompanyById (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/companies.controller.js:257:20)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at composedMiddleware (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/requirePermission.js:69:14)
+    at Layer.handle [as handle_request] (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\express\lib\router\route.js:149:13)
+    at requireAuth (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:88:16)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------

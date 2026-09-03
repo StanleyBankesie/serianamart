@@ -157,6 +157,9 @@ export const financeSections = [
       { title: "Profit & Loss", path: "/finance/reports/profit-and-loss", description: "Income vs. expenses summary", icon: "💹" , actions: [
           <ActionButton key="view" label="View" path="/finance/reports/profit-and-loss" type="outline" featureKey="finance:profit-and-loss" action="view" />,
         ], },
+      { title: "Statement of Profit or Loss & OCI", path: "/finance/reports/profit-loss-oci", description: "Authoritative IFRS statement with OCI, comparative analysis, and drill-down", icon: "📑" , actions: [
+          <ActionButton key="view" label="View" path="/finance/reports/profit-loss-oci" type="outline" featureKey="finance:profitlossocireport" action="view" />,
+        ], },
       { title: "Balance Sheet", path: "/finance/reports/balance-sheet", description: "Assets, liabilities, and equity", icon: "🧮" , actions: [
           <ActionButton key="view" label="View" path="/finance/reports/balance-sheet" type="outline" featureKey="finance:balance-sheet" action="view" />,
         ], },

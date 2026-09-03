@@ -213,6 +213,7 @@ export const MODULES_REGISTRY = {
       { key: "outstandingreceivablereport", label: " Outstanding Receivable Report", type: "feature" },
       { key: "paymentduereport", label: " Payment Due Report", type: "feature" },
       { key: "profitandlossreport", label: " Profit And Loss Report", type: "feature" },
+      { key: "profitlossocireport", label: " Statement of Profit or Loss and Other Comprehensive Income", type: "feature" },
       { key: "ratioanalysisreport", label: " Ratio Analysis Report", type: "feature" },
       { key: "supplieroutstandingreport", label: " Supplier Outstanding Report", type: "feature" },
       { key: "trialbalancereport", label: " Trial Balance Report", type: "feature" },

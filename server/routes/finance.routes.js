@@ -600,6 +600,22 @@ router.get(
 );
 
 router.get(
+  "/reports/profit-loss-oci",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.statementOfProfitOrLossAndOCIReport,
+);
+
+router.get(
+  "/reports/statement-reconciliation",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.reconcileFinancialStatement,
+);
+
+router.get(
   "/reports/ratio-analysis",
   requireAuth,
   requireCompanyScope,

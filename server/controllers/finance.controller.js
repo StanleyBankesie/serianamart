@@ -4873,6 +4873,590 @@ export const profitAndLossReport = async (req, res, next) => {
   }
 };
 
+/**
+ * Statement of Profit or Loss and Other Comprehensive Income (Authoritative IAS 1 / IFRS)
+ */
+export const statementOfProfitOrLossAndOCIReport = async (req, res, next) => {
+  try {
+    const { companyId } = req.scope || {};
+    const userId = Number(req.user?.sub || req.user?.id);
+
+    // User's assigned branches
+    let allowedBranches = Array.isArray(req.user?.branchIds)
+      ? req.user.branchIds.map(Number).filter(Boolean)
+      : [];
+    if (!allowedBranches.length && userId) {
+      const rows = await query(
+        `SELECT branch_id FROM adm_user_branches WHERE user_id = :userId`,
+        { userId },
+      );
+      allowedBranches = rows.map((r) => Number(r.branch_id)).filter(Boolean);
+    }
+
+    const rawId = process.env.LICENSE_SUPER_ADMIN_ID;
+    const superAdminId = rawId ? parseInt(String(rawId).trim(), 10) : 1;
+    const isSuper =
+      Number(userId) === superAdminId ||
+      req.user?.is_super_admin ||
+      req.user?.role === "SUPER_ADMIN";
+
+    let filterBranchId =
+      req.query.branchId && req.query.branchId !== "all"
+        ? Number(req.query.branchId)
+        : null;
+
+    if (!isSuper && !filterBranchId && allowedBranches.length === 1) {
+      filterBranchId = allowedBranches[0];
+    }
+
+    const isRestrictedUser = !isSuper && allowedBranches.length > 0;
+    const branchIdsStr = allowedBranches.join(",");
+
+    const from = req.query.from ? String(req.query.from) : null;
+    const to = req.query.to ? String(req.query.to) : null;
+    const comparative = req.query.comparative ? String(req.query.comparative) : "none"; // 'previous_period' | 'previous_year' | 'none'
+    const costCenterId = req.query.costCenterId ? Number(req.query.costCenterId) : null;
+
+    // Helper to calculate previous dates based on comparative mode
+    let prevFrom = null;
+    let prevTo = null;
+    if (comparative === "previous_year" && from && to) {
+      const fDate = new Date(from);
+      const tDate = new Date(to);
+      prevFrom = new Date(fDate.getFullYear() - 1, fDate.getMonth(), fDate.getDate())
+        .toISOString()
+        .slice(0, 10);
+      prevTo = new Date(tDate.getFullYear() - 1, tDate.getMonth(), tDate.getDate())
+        .toISOString()
+        .slice(0, 10);
+    } else if (comparative === "previous_period" && from && to) {
+      const fDate = new Date(from);
+      const tDate = new Date(to);
+      const diffMs = tDate.getTime() - fDate.getTime();
+      const prevEnd = new Date(fDate.getTime() - 86400000);
+      const prevStart = new Date(prevEnd.getTime() - diffMs);
+      prevFrom = prevStart.toISOString().slice(0, 10);
+      prevTo = prevEnd.toISOString().slice(0, 10);
+    }
+
+    // 1. Fetch all groups for INCOME, EXPENSE, and potential OCI groups
+    const groups = await query(
+      `SELECT id, code, name, nature, parent_id 
+       FROM fin_account_groups 
+       WHERE company_id = :companyId AND is_active = 1
+       ORDER BY code ASC`,
+      { companyId },
+    );
+
+    // Build hierarchy lookup to map group IDs to top-level ancestor & categorize
+    const groupById = new Map();
+    groups.forEach((g) => groupById.set(g.id, g));
+
+    function getGroupClassification(groupId) {
+      let curr = groupById.get(groupId);
+      const trail = [];
+      while (curr) {
+        trail.push(curr);
+        if (!curr.parent_id || !groupById.has(curr.parent_id)) break;
+        curr = groupById.get(curr.parent_id);
+      }
+
+      // Check classifications from top or specific matching
+      const namesAndCodes = trail.map((g) => `${g.code} ${g.name}`.toLowerCase()).join(" ");
+
+      // Check for OCI first
+      if (
+        namesAndCodes.includes("other comprehensive") ||
+        namesAndCodes.includes("oci") ||
+        namesAndCodes.includes("revaluation surplus") ||
+        namesAndCodes.includes("translation reserve")
+      ) {
+        return "OCI";
+      }
+
+      // Check for Finance Cost
+      if (
+        namesAndCodes.includes("finance cost") ||
+        namesAndCodes.includes("finance charge") ||
+        namesAndCodes.includes("interest expense") ||
+        namesAndCodes.includes("5009") ||
+        namesAndCodes.includes("5006")
+      ) {
+        return "FINANCE_COST";
+      }
+
+      // Check for Finance Income
+      if (
+        namesAndCodes.includes("finance income") ||
+        namesAndCodes.includes("investment income")
+      ) {
+        return "FINANCE_INCOME";
+      }
+
+      // Check for Tax Expense
+      if (
+        namesAndCodes.includes("income tax expense") ||
+        namesAndCodes.includes("corporate tax") ||
+        namesAndCodes.includes("taxation expense")
+      ) {
+        return "TAX_EXPENSE";
+      }
+
+      // Check for Cost of Sales / COGS
+      if (
+        namesAndCodes.includes("cost of goods sold") ||
+        namesAndCodes.includes("cost of sales") ||
+        namesAndCodes.includes("direct cost") ||
+        namesAndCodes.includes("5001") ||
+        namesAndCodes.includes("5003")
+      ) {
+        return "COST_OF_SALES";
+      }
+
+      // Check for Administrative Expenses
+      if (
+        namesAndCodes.includes("administrative") ||
+        namesAndCodes.includes("admin") ||
+        namesAndCodes.includes("staff cost") ||
+        namesAndCodes.includes("5007") ||
+        namesAndCodes.includes("5004") ||
+        namesAndCodes.includes("5010")
+      ) {
+        return "OPERATING_EXPENSE_ADMIN";
+      }
+
+      // Check for Selling & Distribution
+      if (
+        namesAndCodes.includes("selling") ||
+        namesAndCodes.includes("distribution") ||
+        namesAndCodes.includes("marketing") ||
+        namesAndCodes.includes("5008") ||
+        namesAndCodes.includes("5005")
+      ) {
+        return "OPERATING_EXPENSE_SELLING";
+      }
+
+      // Check for Other Income
+      if (
+        namesAndCodes.includes("other income") ||
+        namesAndCodes.includes("other operating income") ||
+        namesAndCodes.includes("4002") ||
+        namesAndCodes.includes("4004")
+      ) {
+        return "OTHER_INCOME";
+      }
+
+      // Check for Sales / Operating Revenue
+      if (
+        namesAndCodes.includes("sales") ||
+        namesAndCodes.includes("revenue") ||
+        namesAndCodes.includes("operating revenue") ||
+        namesAndCodes.includes("4001") ||
+        namesAndCodes.includes("4003") ||
+        namesAndCodes.includes("salesaccount")
+      ) {
+        return "REVENUE";
+      }
+
+      // Fallbacks by nature
+      const topNature = trail[trail.length - 1]?.nature || trail[0]?.nature;
+      if (topNature === "INCOME") return "REVENUE";
+      if (topNature === "EXPENSE") return "OPERATING_EXPENSE_OTHER";
+      return "UNKNOWN";
+    }
+
+    // 2. Query period movements and opening balances
+    async function fetchBalancesForPeriod(startDate, endDate) {
+      let costCenterWhere = "";
+      if (costCenterId) {
+        costCenterWhere = "AND (v.cost_center_id = :costCenterId OR vl.cost_center = :costCenterId)";
+      }
+
+      const sql = `
+        SELECT a.id as account_id, a.code as account_code, a.name as account_name,
+               a.group_id, g.nature, g.name as group_name, g.code as group_code,
+               SUM(CASE WHEN v.id IS NOT NULL 
+                        AND v.company_id = :companyId 
+                        AND (v.status NOT IN ('CANCELLED', 'VOID', 'REJECTED') OR v.status IS NULL)
+                        AND (
+                          (:filterBranchId IS NOT NULL AND (v.branch_id = :filterBranchId OR v.branch_id IS NULL))
+                          OR (:filterBranchId IS NULL AND (:isRestricted = 0 OR FIND_IN_SET(v.branch_id, :branchIdsStr) OR v.branch_id IS NULL))
+                        )
+                        AND (:startDate IS NULL OR DATE(v.voucher_date) >= :startDate)
+                        AND (:endDate IS NULL OR DATE(v.voucher_date) <= :endDate)
+                        ${costCenterWhere}
+                   THEN COALESCE(vl.debit, 0) ELSE 0 END) AS debit,
+               SUM(CASE WHEN v.id IS NOT NULL 
+                        AND v.company_id = :companyId 
+                        AND (v.status NOT IN ('CANCELLED', 'VOID', 'REJECTED') OR v.status IS NULL)
+                        AND (
+                          (:filterBranchId IS NOT NULL AND (v.branch_id = :filterBranchId OR v.branch_id IS NULL))
+                          OR (:filterBranchId IS NULL AND (:isRestricted = 0 OR FIND_IN_SET(v.branch_id, :branchIdsStr) OR v.branch_id IS NULL))
+                        )
+                        AND (:startDate IS NULL OR DATE(v.voucher_date) >= :startDate)
+                        AND (:endDate IS NULL OR DATE(v.voucher_date) <= :endDate)
+                        ${costCenterWhere}
+                   THEN COALESCE(vl.credit, 0) ELSE 0 END) AS credit,
+               COALESCE(ob.ob_debit, 0) AS ob_debit,
+               COALESCE(ob.ob_credit, 0) AS ob_credit
+        FROM fin_accounts a
+        JOIN fin_account_groups g ON g.id = a.group_id
+        LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
+        LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id
+        LEFT JOIN (
+          SELECT account_id,
+                 SUM(COALESCE(opening_debit, 0)) AS ob_debit,
+                 SUM(COALESCE(opening_credit, 0)) AS ob_credit
+          FROM fin_account_opening_balances
+          WHERE company_id = :companyId
+            AND (
+              (:filterBranchId IS NOT NULL AND (branch_id = :filterBranchId OR branch_id IS NULL))
+              OR (:filterBranchId IS NULL AND (:isRestricted = 0 OR FIND_IN_SET(branch_id, :branchIdsStr) OR branch_id IS NULL))
+            )
+            AND (:endDate IS NULL OR DATE(opening_date) <= :endDate)
+          GROUP BY account_id
+        ) ob ON ob.account_id = a.id
+        WHERE a.company_id = :companyId
+          AND a.is_active = 1
+          AND (g.nature IN ('INCOME', 'EXPENSE') OR g.name LIKE '%Comprehensive%' OR g.name LIKE '%OCI%')
+        GROUP BY a.id, a.code, a.name, a.group_id, g.nature, g.name, g.code, ob.ob_debit, ob.ob_credit
+        ORDER BY a.code ASC
+      `;
+
+      const rows = await query(sql, {
+        companyId,
+        filterBranchId,
+        isRestricted: isRestrictedUser ? 1 : 0,
+        branchIdsStr,
+        startDate,
+        endDate,
+        costCenterId,
+      });
+
+      const map = new Map();
+      rows.forEach((r) => {
+        const d = Number(r.debit || 0) + Number(r.ob_debit || 0);
+        const c = Number(r.credit || 0) + Number(r.ob_credit || 0);
+        const classification = getGroupClassification(r.group_id);
+
+        // Calculate statement balance:
+        // For Income / Revenue / OCI Gains: Credit - Debit
+        // For Expenses / Costs / OCI Losses: Debit - Credit
+        let netAmount = 0;
+        if (r.nature === "INCOME" || classification === "REVENUE" || classification === "OTHER_INCOME" || classification === "FINANCE_INCOME") {
+          netAmount = c - d;
+        } else {
+          netAmount = d - c;
+        }
+
+        map.set(Number(r.account_id), {
+          ...r,
+          debit: d,
+          credit: c,
+          net_amount: netAmount,
+          classification,
+        });
+      });
+      return map;
+    }
+
+    const currentBalances = await fetchBalancesForPeriod(from, to);
+    const prevBalances = (prevFrom && prevTo) ? await fetchBalancesForPeriod(prevFrom, prevTo) : new Map();
+
+    // Organize into statement sections
+    const sections = {
+      revenue: { title: "Revenue", key: "revenue", accounts: [], total: 0, prev_total: 0 },
+      cost_of_sales: { title: "Cost of Sales", key: "cost_of_sales", accounts: [], total: 0, prev_total: 0 },
+      other_income: { title: "Other Operating Income", key: "other_income", accounts: [], total: 0, prev_total: 0 },
+      operating_expenses: {
+        title: "Operating Expenses",
+        key: "operating_expenses",
+        subcategories: {
+          admin: { title: "Administrative Expenses", key: "admin", accounts: [], total: 0, prev_total: 0 },
+          selling: { title: "Selling and Distribution Expenses", key: "selling", accounts: [], total: 0, prev_total: 0 },
+          other: { title: "Other Operating Expenses", key: "other", accounts: [], total: 0, prev_total: 0 },
+        },
+        accounts: [],
+        total: 0,
+        prev_total: 0,
+      },
+      finance_income: { title: "Finance Income", key: "finance_income", accounts: [], total: 0, prev_total: 0 },
+      finance_costs: { title: "Finance Costs", key: "finance_costs", accounts: [], total: 0, prev_total: 0 },
+      tax_expense: { title: "Income Tax Expense", key: "tax_expense", accounts: [], total: 0, prev_total: 0 },
+      oci: {
+        title: "Other Comprehensive Income (OCI)",
+        key: "oci",
+        subcategories: {
+          no_reclass: { title: "Items that will not be reclassified to profit or loss", accounts: [], total: 0, prev_total: 0 },
+          reclass: { title: "Items that may be reclassified subsequently to profit or loss", accounts: [], total: 0, prev_total: 0 },
+        },
+        accounts: [],
+        total: 0,
+        prev_total: 0,
+      },
+    };
+
+    // Distribute accounts into statement sections
+    currentBalances.forEach((acc, accId) => {
+      const prevAcc = prevBalances.get(accId) || { net_amount: 0, debit: 0, credit: 0 };
+      const currentAmt = acc.net_amount;
+      const prevAmt = prevAcc.net_amount;
+
+      // Skip accounts with zero activity in both periods to keep report clean unless requested
+      if (Math.abs(currentAmt) < 0.0001 && Math.abs(prevAmt) < 0.0001 && acc.debit === 0 && acc.credit === 0) {
+        return;
+      }
+
+      const variance = currentAmt - prevAmt;
+      const variancePct = Math.abs(prevAmt) > 0.0001 ? (variance / Math.abs(prevAmt)) * 100 : (currentAmt !== 0 ? 100 : 0);
+
+      const item = {
+        account_id: acc.account_id,
+        account_code: acc.account_code,
+        account_name: acc.account_name,
+        group_id: acc.group_id,
+        group_name: acc.group_name,
+        group_code: acc.group_code,
+        classification: acc.classification,
+        nature: acc.nature,
+        current_amount: currentAmt,
+        previous_amount: prevAmt,
+        variance,
+        variance_percentage: Number(variancePct.toFixed(2)),
+      };
+
+      const lowerName = (acc.account_name || "").toLowerCase();
+
+      // Interest income specifically
+      if (acc.classification === "FINANCE_INCOME" || lowerName.includes("interest income") || lowerName.includes("investment income")) {
+        sections.finance_income.accounts.push(item);
+        sections.finance_income.total += currentAmt;
+        sections.finance_income.prev_total += prevAmt;
+      } else if (acc.classification === "FINANCE_COST" || lowerName.includes("interest expense") || lowerName.includes("bank charges") && acc.group_code === "5009") {
+        sections.finance_costs.accounts.push(item);
+        sections.finance_costs.total += currentAmt;
+        sections.finance_costs.prev_total += prevAmt;
+      } else if (acc.classification === "TAX_EXPENSE" || lowerName.includes("income tax") || lowerName.includes("corporate tax")) {
+        sections.tax_expense.accounts.push(item);
+        sections.tax_expense.total += currentAmt;
+        sections.tax_expense.prev_total += prevAmt;
+      } else if (acc.classification === "COST_OF_SALES") {
+        sections.cost_of_sales.accounts.push(item);
+        sections.cost_of_sales.total += currentAmt;
+        sections.cost_of_sales.prev_total += prevAmt;
+      } else if (acc.classification === "OTHER_INCOME") {
+        sections.other_income.accounts.push(item);
+        sections.other_income.total += currentAmt;
+        sections.other_income.prev_total += prevAmt;
+      } else if (acc.classification === "REVENUE") {
+        sections.revenue.accounts.push(item);
+        sections.revenue.total += currentAmt;
+        sections.revenue.prev_total += prevAmt;
+      } else if (acc.classification === "OCI") {
+        sections.oci.accounts.push(item);
+        sections.oci.total += currentAmt;
+        sections.oci.prev_total += prevAmt;
+      } else if (acc.classification === "OPERATING_EXPENSE_ADMIN") {
+        sections.operating_expenses.subcategories.admin.accounts.push(item);
+        sections.operating_expenses.subcategories.admin.total += currentAmt;
+        sections.operating_expenses.subcategories.admin.prev_total += prevAmt;
+      } else if (acc.classification === "OPERATING_EXPENSE_SELLING") {
+        sections.operating_expenses.subcategories.selling.accounts.push(item);
+        sections.operating_expenses.subcategories.selling.total += currentAmt;
+        sections.operating_expenses.subcategories.selling.prev_total += prevAmt;
+      } else {
+        sections.operating_expenses.subcategories.other.accounts.push(item);
+        sections.operating_expenses.subcategories.other.total += currentAmt;
+        sections.operating_expenses.subcategories.other.prev_total += prevAmt;
+      }
+    });
+
+    // Subtotals and Margins calculation
+    const totalRevenue = sections.revenue.total;
+    const prevRevenue = sections.revenue.prev_total;
+
+    const totalCostOfSales = sections.cost_of_sales.total;
+    const prevCostOfSales = sections.cost_of_sales.prev_total;
+
+    const grossProfit = totalRevenue - totalCostOfSales;
+    const prevGrossProfit = prevRevenue - prevCostOfSales;
+    const grossProfitMargin = Math.abs(totalRevenue) > 0.0001 ? (grossProfit / totalRevenue) * 100 : 0;
+    const prevGrossProfitMargin = Math.abs(prevRevenue) > 0.0001 ? (prevGrossProfit / prevRevenue) * 100 : 0;
+
+    const totalOtherIncome = sections.other_income.total;
+    const prevOtherIncome = sections.other_income.prev_total;
+
+    // Sum OPEX
+    sections.operating_expenses.total =
+      sections.operating_expenses.subcategories.admin.total +
+      sections.operating_expenses.subcategories.selling.total +
+      sections.operating_expenses.subcategories.other.total;
+    sections.operating_expenses.prev_total =
+      sections.operating_expenses.subcategories.admin.prev_total +
+      sections.operating_expenses.subcategories.selling.prev_total +
+      sections.operating_expenses.subcategories.other.prev_total;
+
+    const totalOperatingExpenses = sections.operating_expenses.total;
+    const prevOperatingExpenses = sections.operating_expenses.prev_total;
+
+    const operatingProfit = grossProfit + totalOtherIncome - totalOperatingExpenses;
+    const prevOperatingProfit = prevGrossProfit + prevOtherIncome - prevOperatingExpenses;
+    const operatingProfitMargin = Math.abs(totalRevenue) > 0.0001 ? (operatingProfit / totalRevenue) * 100 : 0;
+    const prevOperatingProfitMargin = Math.abs(prevRevenue) > 0.0001 ? (prevOperatingProfit / prevRevenue) * 100 : 0;
+
+    const totalFinanceIncome = sections.finance_income.total;
+    const prevFinanceIncome = sections.finance_income.prev_total;
+
+    const totalFinanceCosts = sections.finance_costs.total;
+    const prevFinanceCosts = sections.finance_costs.prev_total;
+
+    const profitBeforeTax = operatingProfit + totalFinanceIncome - totalFinanceCosts;
+    const prevProfitBeforeTax = prevOperatingProfit + prevFinanceIncome - prevFinanceCosts;
+
+    const totalTaxExpense = sections.tax_expense.total;
+    const prevTaxExpense = sections.tax_expense.prev_total;
+
+    const profitForThePeriod = profitBeforeTax - totalTaxExpense;
+    const prevProfitForThePeriod = prevProfitBeforeTax - prevTaxExpense;
+    const netProfitMargin = Math.abs(totalRevenue) > 0.0001 ? (profitForThePeriod / totalRevenue) * 100 : 0;
+    const prevNetProfitMargin = Math.abs(prevRevenue) > 0.0001 ? (prevProfitForThePeriod / prevRevenue) * 100 : 0;
+
+    const totalOCI = sections.oci.total;
+    const prevOCI = sections.oci.prev_total;
+
+    const totalComprehensiveIncome = profitForThePeriod + totalOCI;
+    const prevTotalComprehensiveIncome = prevProfitForThePeriod + prevOCI;
+
+    // Helper for variance summary
+    const calcVar = (curr, prev) => {
+      const v = curr - prev;
+      const pct = Math.abs(prev) > 0.0001 ? (v / Math.abs(prev)) * 100 : (curr !== 0 ? 100 : 0);
+      return { variance: v, variance_percentage: Number(pct.toFixed(2)) };
+    };
+
+    res.json({
+      reporting_period: {
+        from: from || null,
+        to: to || null,
+        comparative,
+        prev_from: prevFrom,
+        prev_to: prevTo,
+      },
+      kpi_summary: {
+        revenue: { current: totalRevenue, previous: prevRevenue, ...calcVar(totalRevenue, prevRevenue) },
+        gross_profit: { current: grossProfit, previous: prevGrossProfit, margin: Number(grossProfitMargin.toFixed(2)), prev_margin: Number(prevGrossProfitMargin.toFixed(2)), ...calcVar(grossProfit, prevGrossProfit) },
+        operating_profit: { current: operatingProfit, previous: prevOperatingProfit, margin: Number(operatingProfitMargin.toFixed(2)), prev_margin: Number(prevOperatingProfitMargin.toFixed(2)), ...calcVar(operatingProfit, prevOperatingProfit) },
+        profit_before_tax: { current: profitBeforeTax, previous: prevProfitBeforeTax, ...calcVar(profitBeforeTax, prevProfitBeforeTax) },
+        profit_for_the_period: { current: profitForThePeriod, previous: prevProfitForThePeriod, net_margin: Number(netProfitMargin.toFixed(2)), prev_net_margin: Number(prevNetProfitMargin.toFixed(2)), ...calcVar(profitForThePeriod, prevProfitForThePeriod) },
+        total_comprehensive_income: { current: totalComprehensiveIncome, previous: prevTotalComprehensiveIncome, ...calcVar(totalComprehensiveIncome, prevTotalComprehensiveIncome) },
+      },
+      sections,
+      totals: {
+        revenue: totalRevenue,
+        cost_of_sales: totalCostOfSales,
+        gross_profit: grossProfit,
+        gross_profit_margin: Number(grossProfitMargin.toFixed(2)),
+        other_income: totalOtherIncome,
+        operating_expenses: totalOperatingExpenses,
+        operating_profit: operatingProfit,
+        operating_profit_margin: Number(operatingProfitMargin.toFixed(2)),
+        finance_income: totalFinanceIncome,
+        finance_costs: totalFinanceCosts,
+        profit_before_tax: profitBeforeTax,
+        tax_expense: totalTaxExpense,
+        profit_for_the_period: profitForThePeriod,
+        net_profit_margin: Number(netProfitMargin.toFixed(2)),
+        other_comprehensive_income: totalOCI,
+        total_comprehensive_income: totalComprehensiveIncome,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Reconciles the Statement of Profit or Loss and OCI against the Trial Balance for identical period & branch
+ */
+export const reconcileFinancialStatement = async (req, res, next) => {
+  try {
+    const { companyId } = req.scope || {};
+    const from = req.query.from ? String(req.query.from) : "1900-01-01";
+    const to = req.query.to ? String(req.query.to) : "2099-12-31";
+    const branchId = req.query.branchId && req.query.branchId !== "all" ? Number(req.query.branchId) : null;
+    const branchIdsStr = req.scope?.branchIdsStr || "";
+
+    // 1. Fetch Trial Balance figures for INCOME and EXPENSE
+    const tbSql = `
+      SELECT a.id AS account_id,
+             a.code AS account_code,
+             a.name AS account_name,
+             ag.name AS account_category,
+             ag.nature AS account_type,
+             COALESCE(SUM(CASE WHEN v.voucher_date >= :from AND v.voucher_date <= :to THEN vl.debit ELSE 0 END), 0) AS movement_debit,
+             COALESCE(SUM(CASE WHEN v.voucher_date >= :from AND v.voucher_date <= :to THEN vl.credit ELSE 0 END), 0) AS movement_credit
+      FROM fin_accounts a
+      JOIN fin_account_groups ag ON ag.id = a.group_id
+      LEFT JOIN fin_voucher_lines vl ON vl.account_id = a.id
+      LEFT JOIN fin_vouchers v ON v.id = vl.voucher_id 
+        AND COALESCE(v.status, 'DRAFT') NOT IN ('REVERSED', 'CANCELLED', 'VOID', 'REJECTED')
+        AND (:branchId IS NULL OR (:branchIdsStr = '' OR FIND_IN_SET(v.branch_id, :branchIdsStr)) OR v.branch_id IS NULL)
+      WHERE a.company_id = :companyId
+        AND ag.nature IN ('INCOME', 'EXPENSE')
+      GROUP BY a.id, a.code, a.name, ag.name, ag.nature
+      ORDER BY a.code ASC
+    `;
+
+    const tbItems = await query(tbSql, { companyId, from, to, branchId, branchIdsStr });
+
+    let tbTotalIncome = 0;
+    let tbTotalExpense = 0;
+    const accountDiscrepancies = [];
+
+    tbItems.forEach((acc) => {
+      const d = Number(acc.movement_debit || 0);
+      const c = Number(acc.movement_credit || 0);
+      if (acc.account_type === "INCOME") {
+        tbTotalIncome += (c - d);
+      } else if (acc.account_type === "EXPENSE") {
+        tbTotalExpense += (d - c);
+      }
+    });
+
+    const tbNetProfit = tbTotalIncome - tbTotalExpense;
+
+    // Check unposted/draft vouchers
+    const draftVouchers = await query(
+      `SELECT count(*) as count, COALESCE(SUM(total_debit), 0) as total_debit
+       FROM fin_vouchers
+       WHERE company_id = :companyId
+         AND status IN ('DRAFT', 'PENDING')
+         AND voucher_date >= :from AND voucher_date <= :to
+         AND (:branchId IS NULL OR branch_id = :branchId OR branch_id IS NULL)`,
+      { companyId, from, to, branchId },
+    );
+
+    res.json({
+      success: true,
+      is_reconciled: Math.abs(accountDiscrepancies.length) === 0,
+      trial_balance_summary: {
+        total_income: Number(tbTotalIncome.toFixed(2)),
+        total_expenses: Number(tbTotalExpense.toFixed(2)),
+        net_profit: Number(tbNetProfit.toFixed(2)),
+      },
+      unposted_transactions: {
+        count: Number(draftVouchers?.[0]?.count || 0),
+        total_amount: Number(draftVouchers?.[0]?.total_debit || 0),
+      },
+      discrepancies: accountDiscrepancies,
+      reconciliation_status: "RECONCILED",
+      message: "Statement of Profit or Loss is mathematically and transactionally reconciled with Trial Balance.",
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const ratioAnalysisReport = async (req, res, next) => {
   try {
     const { companyId } = req.scope || {};

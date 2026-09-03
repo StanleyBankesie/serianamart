@@ -200,6 +200,7 @@ export const FEATURES_REGISTRY = {
       { feature_key: "finance:outstandingreceivablereport", type: "feature", label: " Outstanding Receivable Report", path: "/finance/reports/outstandingreceivablereport" },
       { feature_key: "finance:paymentduereport", type: "feature", label: " Payment Due Report", path: "/finance/reports/paymentduereport" },
       { feature_key: "finance:profitandlossreport", type: "feature", label: " Profit And Loss Report", path: "/finance/reports/profitandlossreport" },
+      { feature_key: "finance:profitlossocireport", type: "feature", label: " Statement of Profit or Loss and Other Comprehensive Income", path: "/finance/reports/profit-loss-oci" },
       { feature_key: "finance:ratioanalysisreport", type: "feature", label: " Ratio Analysis Report", path: "/finance/reports/ratioanalysisreport" },
       { feature_key: "finance:supplieroutstandingreport", type: "feature", label: " Supplier Outstanding Report", path: "/finance/reports/supplieroutstandingreport" },
       { feature_key: "finance:trialbalancereport", type: "feature", label: " Trial Balance Report", path: "/finance/reports/trialbalancereport" },

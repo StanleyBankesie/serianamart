@@ -1154,6 +1154,11 @@ export async function ensurePagesSeed() {
     },
     {
       module: "Finance",
+      name: "Reports Statement of Profit or Loss and OCI",
+      path: "/finance/reports/profit-loss-oci",
+    },
+    {
+      module: "Finance",
       name: "Reports Balance Sheet",
       path: "/finance/reports/balance-sheet",
     },
