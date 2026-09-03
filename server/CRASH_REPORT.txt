@@ -39227,3 +39227,51 @@ Error: Invalid id
     at requireAuth (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/middleware/auth.js:88:16)
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
 --------------------------------------------------------------------------------
+
+[2026-09-03T19:06:41.300Z] CLIENT_ERROR
+Summary: read ECONNRESET
+Context:
+remoteAddress: null
+remotePort: null
+Technical details:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+--------------------------------------------------------------------------------
+
+[2026-09-03T19:06:41.318Z] CLIENT_ERROR
+Summary: write ECONNRESET
+Context:
+remoteAddress: null
+remotePort: null
+Technical details:
+Error: write ECONNRESET
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writevGeneric (node:internal/stream_base_commons:142:3)
+    at Socket._writeGeneric (node:net:969:11)
+    at Socket._writev (node:net:978:8)
+    at doWrite (node:internal/streams/writable:596:12)
+    at clearBuffer (node:internal/streams/writable:775:5)
+    at Writable.uncork (node:internal/streams/writable:531:7)
+    at ServerResponse.end (node:_http_outgoing:1145:19)
+    at respond (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\engine.io\build\transports\polling.js:234:22)
+    at Polling.doWrite (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\engine.io\build\transports\polling.js:243:13)
+--------------------------------------------------------------------------------
+
+[2026-09-03T19:06:41.319Z] CLIENT_ERROR
+Summary: write ECONNRESET
+Context:
+remoteAddress: null
+remotePort: null
+Technical details:
+Error: write ECONNRESET
+    at afterWriteDispatched (node:internal/stream_base_commons:159:15)
+    at writevGeneric (node:internal/stream_base_commons:142:3)
+    at Socket._writeGeneric (node:net:969:11)
+    at Socket._writev (node:net:978:8)
+    at doWrite (node:internal/streams/writable:596:12)
+    at clearBuffer (node:internal/streams/writable:775:5)
+    at Writable.uncork (node:internal/streams/writable:531:7)
+    at ServerResponse.end (node:_http_outgoing:1145:19)
+    at respond (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\engine.io\build\transports\polling.js:234:22)
+    at Polling.doWrite (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\engine.io\build\transports\polling.js:243:13)
+--------------------------------------------------------------------------------

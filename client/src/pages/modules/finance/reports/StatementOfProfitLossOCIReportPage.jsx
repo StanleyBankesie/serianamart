@@ -18,12 +18,6 @@ const fmt = (n) =>
   });
 
 export default function StatementOfProfitLossOCIReportPage() {
-  const [pollingCounter, setPollingCounter] = React.useState(0);
-  React.useEffect(() => {
-    const __pollId = setInterval(() => setPollingCounter((c) => c + 1), 60000);
-    return () => clearInterval(__pollId);
-  }, []);
-
   // Filters & State
   const [from, setFrom] = useState(() => {
     const qp = new URLSearchParams(window.location.search).get("from");
@@ -248,7 +242,7 @@ export default function StatementOfProfitLossOCIReportPage() {
     if (from && to) {
       run();
     }
-  }, [from, to, selectedBranchId, comparative, selectedCostCenterId, pollingCounter]);
+  }, [from, to, selectedBranchId, comparative, selectedCostCenterId]);
 
   // Account Drill-down Handler
   async function openDrilldown(account) {
