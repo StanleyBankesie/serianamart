@@ -42,15 +42,19 @@ export default function ItemsList() {
   const [previewRows, setPreviewRows] = useState([]);
   const [uploading, setUploading] = useState(false);
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this item? This action cannot be undone.")) return;
+  const handleToggleStatus = async (item, targetActive) => {
+    const action = targetActive ? "enable" : "disable";
+    if (!window.confirm(`Are you sure you want to ${action} this item?`)) return;
     try {
       setLoading(true);
-      await api.delete(`/inventory/items/${id}`);
-      toast.success("Item deleted successfully");
-      api.get("/inventory/items?all=1").then(r => setItems(r.data?.items || [])).catch(() => {});
+      await api.patch(`/inventory/items/${item.id}/status`, { is_active: targetActive ? 1 : 0 });
+      toast.success(`Item ${targetActive ? "enabled" : "disabled"} successfully`);
+      const res = await api.get("/inventory/items?all=1");
+      setItems(Array.isArray(res.data?.items) ? res.data.items : []);
     } catch (err) {
-      toast.error(err?.response?.data?.message || err.message || "Failed to delete item");
+      toast.error(
+        err?.response?.data?.message || err.message || `Failed to ${action} item`,
+      );
     } finally {
       setLoading(false);
     }
@@ -105,7 +109,7 @@ export default function ItemsList() {
     setLoading(true);
     setError("");
     api
-      .get("/inventory/items")
+      .get("/inventory/items?all=1")
       .then((res) => {
         if (!mounted) return;
         setItems(Array.isArray(res.data?.items) ? res.data.items : []);
@@ -1715,12 +1719,19 @@ export default function ItemsList() {
                         >
                           Edit
                         </Link>
-                        {hasExceptional("INVENTORY.ITEM.DELETE") && (
+                        {it.is_active ? (
                           <button
-                            onClick={() => handleDelete(it.id)}
+                            onClick={() => handleToggleStatus(it, false)}
                             className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-full hover:bg-red-100 hover:text-red-700 transition-colors"
                           >
-                            Delete
+                            Disable
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleStatus(it, true)}
+                            className="inline-flex items-center justify-center px-4 py-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full hover:bg-emerald-100 hover:text-emerald-800 transition-colors"
+                          >
+                            Enable
                           </button>
                         )}
                       </div>

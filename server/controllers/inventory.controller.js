@@ -340,6 +340,7 @@ export const listItems = async (req, res, next) => {
        AND sb.item_id = i.id
         LEFT JOIN adm_users u ON u.id = i.created_by
          WHERE i.company_id = :companyId
+           ${req.query.all !== "1" && req.query.all !== "true" ? "AND i.is_active = 1" : ""}
       ORDER BY i.item_name ASC
       `,
       { companyId, branchId, branchIdsStr },

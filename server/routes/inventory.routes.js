@@ -10025,6 +10025,42 @@ router.put(
     }
   },
 );
+
+router.patch(
+  "/items/:id/status",
+  requireAuth,
+  requireCompanyScope,
+  async (req, res, next) => {
+    try {
+      await ensureItemsTable();
+      const { companyId = null } = req.scope || {};
+      const id = toNumber(req.params.id);
+      if (!id) throw httpError(400, "VALIDATION_ERROR", "Invalid id");
+      const { is_active } = req.body;
+      const isActiveVal =
+        is_active === true || is_active === 1 || is_active === "1" || is_active === "Y"
+          ? 1
+          : 0;
+
+      const updRaw = await query(
+        `UPDATE inv_items SET is_active = :isActive WHERE id = :id AND company_id = :companyId`,
+        { id, companyId, isActive: isActiveVal },
+      );
+      const upd = Array.isArray(updRaw) ? updRaw[0] : updRaw;
+      if (!upd?.affectedRows && upd?.affectedRows !== 0) {
+        const [exists] = await query(
+          `SELECT id FROM inv_items WHERE id = :id AND company_id = :companyId LIMIT 1`,
+          { id, companyId },
+        );
+        if (!exists) throw httpError(404, "NOT_FOUND", "Item not found");
+      }
+      res.json({ ok: true, is_active: isActiveVal });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.delete(
   "/items/:id",
   requireAuth,
