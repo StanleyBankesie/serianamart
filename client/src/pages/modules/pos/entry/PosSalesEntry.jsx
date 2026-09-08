@@ -796,7 +796,8 @@ export default function PosSalesEntry() {
   useEffect(() => {
     let mounted = true;
     api
-      .get("/sales/customers")
+      .get("/pos/customers")
+      .catch(() => api.get("/sales/customers"))
       .then((res) => {
         if (!mounted) return;
         const items = Array.isArray(res.data?.items) ? res.data.items : [];

@@ -986,6 +986,49 @@ async function nextSessionNo(companyId) {
   return `S-${String(nextNum).padStart(6, "0")}`;
 }
 
+router.get(
+  "/customers",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  async (req, res, next) => {
+    try {
+      const companyId = req.scope.companyId;
+      const items = await query(
+        `SELECT 
+           c.id,
+           c.company_id,
+           c.branch_id,
+           c.customer_code,
+           c.customer_name,
+           c.customer_type,
+           c.price_type_id,
+           c.contact_person,
+           c.email,
+           c.phone,
+           c.mobile,
+           c.credit_limit,
+           c.enforce_credit_limit,
+           c.temp_credit_limit,
+           c.temp_credit_limit_date,
+           c.is_active,
+           c.address,
+           c.city,
+           c.state,
+           c.zone,
+           c.country,
+           c.payment_terms
+         FROM sal_customers c
+         WHERE c.company_id = :companyId AND c.is_active = 1
+         ORDER BY c.customer_name ASC`,
+        { companyId },
+      ).catch(() => []);
+      res.json({ items: Array.isArray(items) ? items : [] });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 router.get(
   "/analytics/overview",

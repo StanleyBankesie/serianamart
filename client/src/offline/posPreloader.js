@@ -93,7 +93,7 @@ export async function preloadPosData(force = false) {
     // 5. Customers
     await fetchAndCache(
       POS_CACHE_KEYS.CUSTOMERS,
-      "/sales/customers",
+      "/pos/customers",
       (d) => (Array.isArray(d?.items) ? d.items : []),
     );
 
