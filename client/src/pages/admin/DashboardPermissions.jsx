@@ -10,7 +10,7 @@ import { api } from "../../api/client.js";
 import { MODULES_REGISTRY } from "../../data/modulesRegistry.js";
 import { DASHBOARD_CARDS } from "../../data/dashboardCards.js";
 import { useAuth } from "../../auth/AuthContext.jsx";
-import { usePermission } from "../../auth/PermissionContext.jsx";
+import { usePermission, DASHBOARD_CARD_SYNONYMS } from "../../auth/PermissionContext.jsx";
 
 /**
  * Helper to generate a unique key for a permission combination.
@@ -23,6 +23,33 @@ import { usePermission } from "../../auth/PermissionContext.jsx";
  */
 function permKey(module_key, dashboard_key, card_key, ticker_key) {
   return `${module_key}|${dashboard_key || ""}|${card_key || ""}|${ticker_key || ""}`;
+}
+
+function getCardCandidateKeys(moduleKey, cardKey) {
+  if (!cardKey) return [];
+  const mk = String(moduleKey || "").trim().toLowerCase();
+  const rawKey = String(cardKey || "").trim().toLowerCase();
+  const normKey = rawKey.replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  const cands = new Set([normKey]);
+  if (normKey.startsWith(`${mk}-`)) {
+    cands.add(normKey.slice(mk.length + 1));
+  } else {
+    cands.add(`${mk}-${normKey}`);
+  }
+  for (const [canonical, syns] of Object.entries(DASHBOARD_CARD_SYNONYMS || {})) {
+    const family = [canonical, ...syns];
+    if (family.some((k) => cands.has(k))) {
+      for (const f of family) {
+        cands.add(f);
+        if (f.startsWith(`${mk}-`)) {
+          cands.add(f.slice(mk.length + 1));
+        } else {
+          cands.add(`${mk}-${f}`);
+        }
+      }
+    }
+  }
+  return Array.from(cands);
 }
 
 /**
@@ -220,9 +247,31 @@ export default function DashboardPermissions() {
 
   function makeToggleHandler(module_key, dashboard_key, card_key, ticker_key, onChange) {
     return (e) => {
-      const key = permKey(module_key, dashboard_key, card_key, ticker_key);
-      setUserToggles((prev) => ({ ...prev, [key]: e.target.checked }));
-      onChange(e.target.checked);
+      const checked = e.target.checked;
+      const mk = String(module_key || "");
+      const dk = dashboard_key ? String(dashboard_key) : null;
+      const ck = card_key ? String(card_key) : null;
+      const tk = ticker_key ? String(ticker_key) : null;
+
+      setUserToggles((prev) => {
+        const next = { ...prev };
+        if (ck) {
+          const candKeys = getCardCandidateKeys(mk, ck);
+          for (const cand of candKeys) {
+            next[permKey(mk, dk, cand, tk)] = checked;
+          }
+        } else if (dk) {
+          next[permKey(mk, dk, ck, tk)] = checked;
+          if (dk === "dashboard" || dk === "dashboards") {
+            next[permKey(mk, "dashboard", null, null)] = checked;
+            next[permKey(mk, "dashboards", null, null)] = checked;
+          }
+        } else {
+          next[permKey(mk, dk, ck, tk)] = checked;
+        }
+        return next;
+      });
+      onChange(checked);
     };
   }
 
@@ -232,57 +281,115 @@ export default function DashboardPermissions() {
     card_key = null,
     ticker_key = null,
   ) => {
-    const key = permKey(module_key, dashboard_key, card_key, ticker_key);
-    if (key in userToggles) return userToggles[key];
-    const match = perms.filter(
-      (p) =>
-        String(p.module_key) === String(module_key) &&
-        String(p.dashboard_key || "") === String(dashboard_key || "") &&
-        String(p.card_key || "") === String(card_key || "") &&
-        String(p.ticker_key || "") === String(ticker_key || ""),
-    );
-    if (match.length === 0) {
-      if (module_key === "home" && card_key) {
-        const defaultCards = [
-          "sales-total-revenue",
-          "sales-pending-orders",
-          "sales-active-customers",
-          "purchase-total-value",
-        ];
-        return defaultCards.includes(card_key);
+    const mk = String(module_key || "");
+    const dk = dashboard_key ? String(dashboard_key) : null;
+    const ck = card_key ? String(card_key) : null;
+    const tk = ticker_key ? String(ticker_key) : null;
+
+    // 1. Check userToggles first
+    if (ck) {
+      const candKeys = getCardCandidateKeys(mk, ck);
+      for (const cand of candKeys) {
+        const k = permKey(mk, dk, cand, tk);
+        if (k in userToggles) return userToggles[k];
       }
-      return true;
+    } else if (dk) {
+      const k = permKey(mk, dk, ck, tk);
+      if (k in userToggles) return userToggles[k];
+      if (dk === "dashboard" || dk === "dashboards") {
+        const k1 = permKey(mk, "dashboard", null, null);
+        const k2 = permKey(mk, "dashboards", null, null);
+        if (k1 in userToggles) return userToggles[k1];
+        if (k2 in userToggles) return userToggles[k2];
+      }
+    } else {
+      const k = permKey(mk, dk, ck, tk);
+      if (k in userToggles) return userToggles[k];
     }
-    return match.some((p) => Number(p.can_view) === 1);
-  };
-  const setView = (module_key, dashboard_key, card_key, ticker_key, value) => {
-    setPerms((prev) => {
-      const matched = prev.filter(
+
+    // 2. Check perms loaded from server
+    if (ck) {
+      const candKeys = getCardCandidateKeys(mk, ck);
+      const matches = perms.filter(
         (p) =>
-          String(p.module_key) === String(module_key) &&
-          String(p.dashboard_key || "") === String(dashboard_key || "") &&
-          String(p.card_key || "") === String(card_key || "") &&
-          String(p.ticker_key || "") === String(ticker_key || ""),
+          String(p.module_key) === mk &&
+          candKeys.includes(String(p.card_key || "")) &&
+          String(p.ticker_key || "") === String(tk || "")
       );
-      if (matched.length > 0) {
-        // Update ALL matching records (handles duplicates)
-        return prev.map((p) =>
-          String(p.module_key) === String(module_key) &&
-          String(p.dashboard_key || "") === String(dashboard_key || "") &&
-          String(p.card_key || "") === String(card_key || "") &&
-          String(p.ticker_key || "") === String(ticker_key || "")
-            ? { ...p, can_view: value ? 1 : 0 }
-            : p,
-        );
+      if (matches.length > 0) {
+        const sorted = [...matches].sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+        return Number(sorted[0].can_view) === 1;
       }
+    } else if (dk) {
+      const matches = perms.filter(
+        (p) =>
+          String(p.module_key) === mk &&
+          (String(p.dashboard_key || "") === dk ||
+            ((dk === "dashboard" || dk === "dashboards") &&
+              (String(p.dashboard_key || "") === "dashboard" || String(p.dashboard_key || "") === "dashboards"))) &&
+          String(p.card_key || "") === "" &&
+          String(p.ticker_key || "") === String(tk || "")
+      );
+      if (matches.length > 0) {
+        const sorted = [...matches].sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+        return Number(sorted[0].can_view) === 1;
+      }
+    }
+
+    // 3. Fallback defaults
+    if (mk === "home" && ck) {
+      const defaultCards = [
+        "sales-total-revenue",
+        "sales-pending-orders",
+        "sales-active-customers",
+        "purchase-total-value",
+      ];
+      return defaultCards.includes(ck);
+    }
+    return true;
+  };
+
+  const setView = (module_key, dashboard_key, card_key, ticker_key, value) => {
+    const mk = String(module_key || "");
+    const dk = dashboard_key ? String(dashboard_key) : null;
+    const ck = card_key ? String(card_key) : null;
+    const tk = ticker_key ? String(ticker_key) : null;
+    const candKeys = ck ? getCardCandidateKeys(mk, ck) : [null];
+
+    setPerms((prev) => {
+      let matchedAny = false;
+      const updated = prev.map((p) => {
+        if (String(p.module_key) !== mk) return p;
+        if (ck) {
+          if (candKeys.includes(String(p.card_key || "")) && String(p.ticker_key || "") === String(tk || "")) {
+            matchedAny = true;
+            return { ...p, can_view: value ? 1 : 0 };
+          }
+        } else if (dk) {
+          if (
+            (String(p.dashboard_key || "") === dk ||
+              ((dk === "dashboard" || dk === "dashboards") &&
+                (String(p.dashboard_key || "") === "dashboard" || String(p.dashboard_key || "") === "dashboards"))) &&
+            String(p.card_key || "") === "" &&
+            String(p.ticker_key || "") === String(tk || "")
+          ) {
+            matchedAny = true;
+            return { ...p, can_view: value ? 1 : 0 };
+          }
+        }
+        return p;
+      });
+
+      if (matchedAny) return updated;
+
       return [
         ...prev,
         {
           user_id: Number(selectedUserId),
-          module_key,
-          dashboard_key: dashboard_key || null,
-          card_key: card_key || null,
-          ticker_key: ticker_key || null,
+          module_key: mk,
+          dashboard_key: dk,
+          card_key: ck,
+          ticker_key: tk,
           can_view: value ? 1 : 0,
         },
       ];
@@ -291,22 +398,44 @@ export default function DashboardPermissions() {
 
   const persistPermission = async (module_key, type, key, allow) => {
     if (!selectedUserId) return;
+    const mk = String(module_key || "");
     const dashboard_key = type === "dashboard" ? key : null;
     const card_key = type === "card" ? key : null;
     const ticker_key = type === "ticker" ? key : null;
-    setView(module_key, dashboard_key, card_key, ticker_key, allow);
+
+    setView(mk, dashboard_key, card_key, ticker_key, allow);
+
+    const candKeys = card_key ? getCardCandidateKeys(mk, card_key) : [null];
+    setUserToggles((prev) => {
+      const next = { ...prev };
+      if (card_key) {
+        for (const cand of candKeys) {
+          next[permKey(mk, null, cand, null)] = allow;
+        }
+      } else if (dashboard_key) {
+        next[permKey(mk, dashboard_key, null, null)] = allow;
+        if (dashboard_key === "dashboard" || dashboard_key === "dashboards") {
+          next[permKey(mk, "dashboard", null, null)] = allow;
+          next[permKey(mk, "dashboards", null, null)] = allow;
+        }
+      }
+      return next;
+    });
+
+    const permsToSend = [
+      {
+        module_key: mk,
+        dashboard_key,
+        card_key,
+        ticker_key,
+        can_view: allow ? 1 : 0,
+      },
+    ];
+
     try {
       await api.put("/access/dashboard-permissions", {
         user_id: Number(selectedUserId),
-        permissions: [
-          {
-            module_key,
-            dashboard_key,
-            card_key,
-            ticker_key,
-            can_view: allow ? 1 : 0,
-          },
-        ],
+        permissions: permsToSend,
       });
       await refreshPermissions();
       try {
@@ -314,7 +443,7 @@ export default function DashboardPermissions() {
         window.dispatchEvent(new Event("rbac:changed"));
       } catch {}
       toast.success(
-        `${allow ? "✅" : "🚫"} ${String(type === "dashboard" ? key : type === "card" ? key : key)
+        `${allow ? "✅" : "🚫"} ${String(key || "")
           .replace(/-/g, " ")
           .replace(/\b\w/g, (c) => c.toUpperCase())} ${
           type === "dashboard" ? "dashboard" : type === "card" ? "card" : "ticker"
@@ -322,8 +451,7 @@ export default function DashboardPermissions() {
         { autoClose: 2000 }
       );
     } catch (err) {
-      // Revert optimistic update on failure
-      setView(module_key, dashboard_key, card_key, ticker_key, !allow);
+      setView(mk, dashboard_key, card_key, ticker_key, !allow);
       toast.error(err.response?.data?.message || "Failed to save");
     }
   };
@@ -499,7 +627,6 @@ export default function DashboardPermissions() {
                                   setView(m.key, "dashboard", null, null, newVal);
                                   setView(m.key, "dashboards", null, null, newVal);
                                   persistPermission(m.key, "dashboard", "dashboard", newVal);
-                                  persistPermission(m.key, "dashboard", "dashboards", newVal);
                                 });
                                 handler(e);
                               }}

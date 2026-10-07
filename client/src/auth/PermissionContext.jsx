@@ -26,7 +26,7 @@ const DASHBOARD_MODULE_ALIASES = {
   admin: "administration",
 };
 
-const DASHBOARD_CARD_SYNONYMS = {
+export const DASHBOARD_CARD_SYNONYMS = {
   // Sales
   "sales-total-revenue": ["sales-this-month", "total-sales-this-month", "total-revenue", "total-sales", "revenue"],
   "sales-pending-orders": ["open-quotations", "pending-orders", "pending-deliveries", "orders-pending"],
@@ -67,10 +67,17 @@ const DASHBOARD_CARD_SYNONYMS = {
   "overdue-pm": ["overdue-pm", "overdue-pm-tasks"],
 
   // POS
-  "pos-today-sales": ["today-sales", "daily-sales"],
-  "pos-total-transactions": ["total-transactions", "transactions"],
-  "pos-avg-order": ["average-order", "avg-order", "average-order-value"],
-  "pos-monthly-revenue": ["monthly-revenue", "pos-revenue"],
+  "pos-today-sales": ["today-sales", "daily-sales", "pos-daily-sales"],
+  "pos-total-transactions": [
+    "total-transactions",
+    "total-customers",
+    "pos-total-customers",
+    "transactions-count",
+    "transactions",
+    "customers",
+  ],
+  "pos-avg-order": ["average-order", "avg-order", "average-order-value", "avg-order-value"],
+  "pos-monthly-revenue": ["monthly-revenue", "pos-revenue", "total-monthly-revenue", "monthly-sales"],
 
   // Admin
   "admin-active-users": ["total-users", "active-users", "users"],
@@ -501,7 +508,7 @@ export const PermissionProvider = ({ children }) => {
       const m = new Map();
       const byModule = new Map();
       for (const it of items) {
-        const mk = String(it.module_key || "");
+        const mk = String(it.module_key || "").trim().toLowerCase();
         const type = it.card_key
           ? "card"
           : it.ticker_key
@@ -509,9 +516,48 @@ export const PermissionProvider = ({ children }) => {
             : "dashboard";
         const key = String(
           it.card_key || it.ticker_key || it.dashboard_key || "",
-        );
-        const composite = `${mk}|${type}|${key}`;
-        m.set(composite, Number(it.can_view) === 1);
+        ).trim().toLowerCase();
+        const canView = Number(it.can_view) === 1;
+
+        const setComp = (k) => {
+          const comp = `${mk}|${type}|${k}`;
+          if (m.has(comp)) {
+            // An explicit false (disabled) takes precedence
+            if (!canView) m.set(comp, false);
+          } else {
+            m.set(comp, canView);
+          }
+        };
+
+        setComp(key);
+        if (type === "dashboard" && (key === "dashboard" || key === "dashboards")) {
+          setComp("dashboard");
+          setComp("dashboards");
+        }
+        if (key.startsWith(`${mk}-`)) {
+          setComp(key.slice(mk.length + 1));
+        } else {
+          setComp(`${mk}-${key}`);
+        }
+
+        for (const [canonical, syns] of Object.entries(DASHBOARD_CARD_SYNONYMS)) {
+          const family = [canonical, ...syns];
+          if (
+            family.includes(key) ||
+            family.includes(`${mk}-${key}`) ||
+            (key.startsWith(`${mk}-`) && family.includes(key.slice(mk.length + 1)))
+          ) {
+            for (const item of family) {
+              setComp(item);
+              if (item.startsWith(`${mk}-`)) {
+                setComp(item.slice(mk.length + 1));
+              } else {
+                setComp(`${mk}-${item}`);
+              }
+            }
+          }
+        }
+
         const set = byModule.get(mk) || new Set();
         set.add(type);
         byModule.set(mk, set);
@@ -1481,6 +1527,48 @@ export const PermissionProvider = ({ children }) => {
         }
       }
 
+      // If checking module-level dashboard toggle, check if any/all dashboards in this module are configured
+      if (normKey === "dashboard" || normKey === "dashboards") {
+        let hasModuleDashboardConfig = false;
+        let hasAnyModuleDashboardEnabled = false;
+        for (const m of modKeys) {
+          for (const [compKey, isAllowed] of dashboardViewMap.entries()) {
+            if (compKey.startsWith(`${m}|dashboard|`)) {
+              hasModuleDashboardConfig = true;
+              if (isAllowed === true) {
+                hasAnyModuleDashboardEnabled = true;
+                break;
+              }
+            }
+          }
+          if (hasAnyModuleDashboardEnabled) break;
+        }
+        if (hasModuleDashboardConfig && !hasAnyModuleDashboardEnabled) {
+          return false;
+        }
+      }
+
+      // If checking cards, check if all cards configured in this module are disabled
+      if (t === "card") {
+        let hasModuleCardConfig = false;
+        let hasAnyModuleCardEnabled = false;
+        for (const m of modKeys) {
+          for (const [compKey, isAllowed] of dashboardViewMap.entries()) {
+            if (compKey.startsWith(`${m}|card|`)) {
+              hasModuleCardConfig = true;
+              if (isAllowed === true) {
+                hasAnyModuleCardEnabled = true;
+                break;
+              }
+            }
+          }
+          if (hasAnyModuleCardEnabled) break;
+        }
+        if (hasModuleCardConfig && !hasAnyModuleCardEnabled) {
+          return false;
+        }
+      }
+
       // 2. Check if all dashboard/card entries configured for this module are disabled
       let hasExplicitModuleConfig = false;
       let hasAnyEnabledInModule = false;
@@ -1502,6 +1590,10 @@ export const PermissionProvider = ({ children }) => {
 
       // 3. Build candidate keys to check
       const candKeys = new Set([normKey]);
+      if (normKey === "dashboard" || normKey === "dashboards") {
+        candKeys.add("dashboard");
+        candKeys.add("dashboards");
+      }
       for (const m of modKeys) {
         if (normKey.startsWith(`${m}-`)) {
           candKeys.add(normKey.slice(m.length + 1));

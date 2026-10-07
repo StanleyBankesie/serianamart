@@ -110,6 +110,17 @@ async function ensureDashboardPermissionsTable() {
     "updated_at",
     "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
   );
+  try {
+    await query(`
+      DELETE p FROM adm_dashboard_permissions p
+      LEFT JOIN (
+        SELECT MAX(id) AS max_id
+        FROM adm_dashboard_permissions
+        GROUP BY user_id, module_key, IFNULL(dashboard_key, ''), IFNULL(card_key, ''), IFNULL(ticker_key, '')
+      ) latest ON p.id = latest.max_id
+      WHERE latest.max_id IS NULL
+    `);
+  } catch {}
   verifiedTables.add("adm_dashboard_permissions");
 }
 
@@ -257,10 +268,15 @@ router.get(
         return res.json({ items: [] });
       }
       const rows = await query(
-        `SELECT user_id, module_key, dashboard_key, card_key, ticker_key, can_view, created_at, updated_at
-         FROM adm_dashboard_permissions
-         WHERE user_id = :userId
-         ORDER BY module_key ASC, dashboard_key ASC, card_key ASC, ticker_key ASC`,
+        `SELECT p.user_id, p.module_key, p.dashboard_key, p.card_key, p.ticker_key, p.can_view, p.created_at, p.updated_at
+         FROM adm_dashboard_permissions p
+         INNER JOIN (
+           SELECT MAX(id) AS max_id
+           FROM adm_dashboard_permissions
+           WHERE user_id = :userId
+           GROUP BY module_key, IFNULL(dashboard_key, ''), IFNULL(card_key, ''), IFNULL(ticker_key, '')
+         ) latest ON p.id = latest.max_id
+         ORDER BY p.module_key ASC, p.dashboard_key ASC, p.card_key ASC, p.ticker_key ASC`,
         { userId },
       );
       res.json({ items: rows || [] });
@@ -312,22 +328,92 @@ router.put(
       for (const p of permissions) {
         const payload = {
           user_id: targetUserId,
-          module_key: String(p.module_key || "").trim(),
-          dashboard_key: p.dashboard_key ? String(p.dashboard_key) : null,
-          card_key: p.card_key ? String(p.card_key) : null,
-          ticker_key: p.ticker_key ? String(p.ticker_key) : null,
+          module_key: String(p.module_key || "").trim().toLowerCase(),
+          dashboard_key: p.dashboard_key ? String(p.dashboard_key).trim().toLowerCase() : null,
+          card_key: p.card_key ? String(p.card_key).trim().toLowerCase() : null,
+          ticker_key: p.ticker_key ? String(p.ticker_key).trim().toLowerCase() : null,
           can_view: Number(Boolean(p.can_view)),
         };
         if (!payload.module_key) continue;
-        await query(
-          `DELETE FROM adm_dashboard_permissions
-           WHERE user_id = :user_id
-             AND module_key = :module_key
-             AND dashboard_key <=> :dashboard_key
-             AND card_key <=> :card_key
-             AND ticker_key <=> :ticker_key`,
-          payload,
-        );
+
+        if (payload.card_key) {
+          const mk = payload.module_key;
+          const ck = payload.card_key;
+          const short = ck.startsWith(`${mk}-`) ? ck.slice(mk.length + 1) : ck;
+          const long = ck.startsWith(`${mk}-`) ? ck : `${mk}-${ck}`;
+          const isTransactionsOrCustomers = [
+            "pos-total-transactions",
+            "total-transactions",
+            "pos-total-customers",
+            "total-customers",
+            "transactions",
+            "customers",
+          ].includes(ck) || [
+            "pos-total-transactions",
+            "total-transactions",
+            "pos-total-customers",
+            "total-customers",
+            "transactions",
+            "customers",
+          ].includes(short);
+
+          if (isTransactionsOrCustomers) {
+            await query(
+              `DELETE FROM adm_dashboard_permissions
+               WHERE user_id = :user_id
+                 AND module_key = :module_key
+                 AND card_key IN ('pos-total-transactions', 'total-transactions', 'pos-total-customers', 'total-customers', 'transactions', 'customers')`,
+              { user_id: targetUserId, module_key: mk }
+            );
+          } else {
+            await query(
+              `DELETE FROM adm_dashboard_permissions
+               WHERE user_id = :user_id
+                 AND module_key = :module_key
+                 AND (card_key = :ck OR card_key = :short OR card_key = :long)`,
+              { user_id: targetUserId, module_key: mk, ck, short, long }
+            );
+          }
+        } else if (payload.dashboard_key) {
+          const dk = payload.dashboard_key;
+          if (dk === "dashboard" || dk === "dashboards") {
+            await query(
+              `DELETE FROM adm_dashboard_permissions
+               WHERE user_id = :user_id
+                 AND module_key = :module_key
+                 AND (dashboard_key = 'dashboard' OR dashboard_key = 'dashboards')`,
+              { user_id: targetUserId, module_key: payload.module_key }
+            );
+            await query(
+              `INSERT INTO adm_dashboard_permissions (user_id, module_key, dashboard_key, card_key, ticker_key, can_view)
+               VALUES (:user_id, :module_key, 'dashboard', NULL, NULL, :can_view),
+                      (:user_id, :module_key, 'dashboards', NULL, NULL, :can_view)`,
+              payload,
+            );
+            continue;
+          } else {
+            await query(
+              `DELETE FROM adm_dashboard_permissions
+               WHERE user_id = :user_id
+                 AND module_key = :module_key
+                 AND dashboard_key <=> :dashboard_key
+                 AND card_key <=> :card_key
+                 AND ticker_key <=> :ticker_key`,
+              payload,
+            );
+          }
+        } else {
+          await query(
+            `DELETE FROM adm_dashboard_permissions
+             WHERE user_id = :user_id
+               AND module_key = :module_key
+               AND dashboard_key <=> :dashboard_key
+               AND card_key <=> :card_key
+               AND ticker_key <=> :ticker_key`,
+            payload,
+          );
+        }
+
         await query(
           `INSERT INTO adm_dashboard_permissions (user_id, module_key, dashboard_key, card_key, ticker_key, can_view)
            VALUES (:user_id, :module_key, :dashboard_key, :card_key, :ticker_key, :can_view)`,

@@ -163,8 +163,8 @@ const ModuleDashboard = ({
 
   const isDashboardPath = (path) => {
     const parts = String(path || "").split("/").filter(Boolean);
-    const last = String(parts[parts.length - 1] || "");
-    return last.toLowerCase() === "dashboard" || last.toLowerCase() === "dashboards";
+    const last = String(parts[parts.length - 1] || "").toLowerCase();
+    return last === "dashboard" || last === "dashboards" || last.endsWith("-dashboard");
   };
 
   const currentModuleKey =
@@ -198,11 +198,13 @@ const ModuleDashboard = ({
     return actions.filter((a) => {
       const p = String(a?.path || "");
       if (mk && isDashboardPath(p)) {
-        return isDashboardAllowed;
+        if (!isDashboardAllowed) return false;
+        const itemKey = String(a?.key || a?.dashboard_key || p.split("/").filter(Boolean)[1] || "dashboard");
+        return canViewDashboardElement(mk, "dashboard", itemKey) !== false;
       }
       return true;
     });
-  }, [headerActions, currentModuleKey, canAccessPath, isDashboardAllowed]);
+  }, [headerActions, currentModuleKey, canAccessPath, isDashboardAllowed, canViewDashboardElement]);
   const [searchTerm, setSearchTerm] = useState("");
 
   const handleNavigate = (path, e) => {
@@ -255,10 +257,27 @@ const ModuleDashboard = ({
 
       if (mk && isDashboardPath(path)) {
         if (!isDashboardAllowed) return false;
+        const itemKey = String(item.key || item.dashboard_key || parts[1] || "dashboard");
         return (
           canViewDashboardElement(mk, "dashboard", "dashboard") !== false &&
-          canViewDashboardElement(mk, "dashboard", "dashboards") !== false
+          canViewDashboardElement(mk, "dashboard", "dashboards") !== false &&
+          canViewDashboardElement(mk, "dashboard", itemKey) !== false
         );
+      }
+
+      if (item.type === "card" || item.card_key) {
+        const itemKey = String(item.card_key || item.key || item.name || item.title || "");
+        if (itemKey && canViewDashboardElement(mk, "card", itemKey) === false) {
+          return false;
+        }
+      }
+
+      if (item.type === "dashboard" || item.dashboard_key) {
+        if (!isDashboardAllowed) return false;
+        const itemKey = String(item.dashboard_key || item.key || item.name || item.title || "");
+        if (itemKey && canViewDashboardElement(mk, "dashboard", itemKey) === false) {
+          return false;
+        }
       }
 
       if (showAll || isSuper) return true;
@@ -773,7 +792,12 @@ const ModuleDashboard = ({
         {/* Section Navigation Mode: View all sections as cards */}
         {!searchTerm && useSectionNavigation && activeSection === null && (
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredSections.map((section, sectionIndex) => {
+            {filteredSections
+              .filter((section) => {
+                const itemsList = section.items || section.features || [];
+                return itemsList.filter((item) => canShowItem(item)).length > 0;
+              })
+              .map((section, sectionIndex) => {
               const sectionTitle = section.title || section.category;
               const sectionIcon = getSectionIcon(section, sectionIndex);
               const itemsList = section.items || section.features || [];
@@ -853,7 +877,12 @@ const ModuleDashboard = ({
         )}
 
         {/* Normal Mode OR Section Navigation Mode: View active section items */}
-        {(!useSectionNavigation || searchTerm || activeSection !== null) && filteredSections.map((section, sectionIndex) => {
+        {(!useSectionNavigation || searchTerm || activeSection !== null) && filteredSections
+          .filter((section) => {
+            const itemsList = section.items || section.features || [];
+            return itemsList.filter((item) => canShowItem(item)).length > 0;
+          })
+          .map((section, sectionIndex) => {
           if (!searchTerm && useSectionNavigation && activeSection !== sectionIndex) {
             return null; // Skip if in section navigation mode and not the active section
           }
