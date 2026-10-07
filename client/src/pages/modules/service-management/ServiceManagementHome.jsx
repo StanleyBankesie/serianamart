@@ -207,7 +207,8 @@ export const serviceManagementSections = [
 function ServiceManagementLanding() {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "service-requests",
+      module_key: "service-management",
+      rbac_key: "sm-total-revenue",
       value: "—",
       label: "Customer Service Requests",
       change: "Loading…",
@@ -215,7 +216,8 @@ function ServiceManagementLanding() {
       path: "/service-management/customer-service-requests",
     },
     {
-      rbac_key: "open-orders",
+      module_key: "service-management",
+      rbac_key: "sm-pending-invoices",
       value: "—",
       label: "Open Service Orders",
       change: "Loading…",
@@ -223,6 +225,7 @@ function ServiceManagementLanding() {
       path: "/service-management/service-orders",
     },
     {
+      module_key: "service-management",
       rbac_key: "executions",
       value: "—",
       label: "Service Executions",
@@ -231,6 +234,7 @@ function ServiceManagementLanding() {
       path: "/service-management/service-executions",
     },
     {
+      module_key: "service-management",
       rbac_key: "confirmations",
       value: "—",
       label: "Confirmations",

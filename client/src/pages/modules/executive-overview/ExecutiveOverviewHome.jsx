@@ -267,7 +267,11 @@ const MODULE_DEFINITIONS = [
 
 export default function ExecutiveOverviewHome() {
   const navigate = useNavigate();
-  const { isModuleEnabled } = usePermission();
+  const { isModuleEnabled, canViewDashboardElement } = usePermission();
+
+  const isDashboardAllowed =
+    canViewDashboardElement("executive-overview", "dashboard", "dashboard") !== false &&
+    canViewDashboardElement("executive-overview", "dashboard", "dashboards") !== false;
 
   const enabledModules = useMemo(
     () => MODULE_DEFINITIONS.filter((m) => isModuleEnabled(m.key)),
@@ -485,6 +489,17 @@ export default function ExecutiveOverviewHome() {
     },
   ];
 
+  const visibleKpiCards = useMemo(() => {
+    if (!isDashboardAllowed) return [];
+    return KPI_CARDS.filter((card) => {
+      const cardKey = card.kpiKey || card.label.toLowerCase().replace(/\s+/g, "-");
+      return (
+        canViewDashboardElement("executive-overview", "card", cardKey) !== false &&
+        canViewDashboardElement("executive", "card", cardKey) !== false
+      );
+    });
+  }, [KPI_CARDS, isDashboardAllowed, canViewDashboardElement]);
+
   return (
     <div className="space-y-6">
       {/* Upper Top Sticky Navigation Bar (Identical layout to BI Module) */}
@@ -505,7 +520,7 @@ export default function ExecutiveOverviewHome() {
             <BarChart3 size={14} />
             Executive Overview
           </NavLink>
-          <ExecNavDropdown label="Key Performance Indicators" items={KPI_CARDS} navigate={navigate} />
+          <ExecNavDropdown label="Key Performance Indicators" items={visibleKpiCards} navigate={navigate} />
           <ExecNavDropdown label="Enterprise Modules" items={enabledModules} navigate={navigate} />
         </div>
       </div>
@@ -544,6 +559,7 @@ export default function ExecutiveOverviewHome() {
         {/* Main Content (Left Column) */}
         <div className="flex-1 min-w-0 w-full">
           {/* Signature Key Performance Indicators Section (Original 4-Card Vibrant UI) */}
+          {isDashboardAllowed && visibleKpiCards.length > 0 && (
           <div className="space-y-4 h-full">
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
               <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -555,7 +571,7 @@ export default function ExecutiveOverviewHome() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {KPI_CARDS.map((card, i) => {
+              {visibleKpiCards.map((card, i) => {
                 const val = card.kpiKey ? kpis[card.kpiKey] : null;
                 const hasValue = val !== null && val !== undefined;
                 const badgeText = card.badgeKey ? kpis.badges?.[card.badgeKey] : "";
@@ -688,6 +704,7 @@ export default function ExecutiveOverviewHome() {
               })}
             </div>
           </div>
+          )}
         </div>
 
         {/* Floating Enterprise ERP Modules Quick Launch (Right Column) */}

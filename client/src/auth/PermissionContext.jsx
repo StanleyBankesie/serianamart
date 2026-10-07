@@ -11,6 +11,97 @@ import { api } from "../api/client.js";
 import { MODULES_REGISTRY } from "../data/modulesRegistry.js";
 import { DASHBOARD_CARDS } from "../data/dashboardCards.js";
 
+const DASHBOARD_MODULE_ALIASES = {
+  "human-resources": "hr",
+  hr: "human-resources",
+  "project-management": "projects",
+  projects: "project-management",
+  "service-management": "service",
+  service: "service-management",
+  "business-intelligence": "bi",
+  bi: "business-intelligence",
+  "executive-overview": "executive",
+  executive: "executive-overview",
+  administration: "admin",
+  admin: "administration",
+};
+
+const DASHBOARD_CARD_SYNONYMS = {
+  // Sales
+  "sales-total-revenue": ["sales-this-month", "total-sales-this-month", "total-revenue", "total-sales", "revenue"],
+  "sales-pending-orders": ["open-quotations", "pending-orders", "pending-deliveries", "orders-pending"],
+  "sales-active-customers": ["active-customers", "total-customers", "customers-active"],
+  "sales-growth": ["sales-growth", "monthly-sales-trend"],
+  "overdue-invoices": ["overdue-invoices", "ar-aging"],
+
+  // Purchase
+  "purchase-total-value": ["total-purchases", "total-purchase-value", "purchases-last-30-days", "purchases-30-days"],
+  "purchase-pending-pos": ["active-purchase-orders", "pending-pos", "active-pos", "pending-purchase-orders"],
+  "purchase-active-suppliers": ["active-suppliers", "total-suppliers", "suppliers"],
+  "pending-approvals": ["pending-approvals", "approvals-pending"],
+  "outstanding-payables": ["outstanding-payables", "payables-outstanding"],
+
+  // Inventory
+  "inventory-total-items": ["items-tracked", "total-items", "items"],
+  "inventory-low-stock": ["low-stock-items", "low-stock-alerts", "low-stock"],
+  "inventory-warehouses": ["active-warehouses", "warehouses", "total-warehouses"],
+  "stock-quantity": ["stock-quantity", "stock-balances"],
+  "pending-requisitions": ["pending-requisitions"],
+
+  // Finance
+  "finance-cash-balance": ["cash-balance", "cash-on-hand", "bank-balance"],
+  "finance-ar": ["accounts-receivable", "ar", "receivables"],
+  "finance-ap": ["accounts-payable", "ap", "pending-vouchers", "payables"],
+  "net-income": ["net-income", "net-income-mtd", "profit-loss"],
+
+  // HR
+  "hr-total-employees": ["total-employees", "employees", "active-employees"],
+  "hr-on-leave": ["active-on-leave", "on-leave", "on-leave-today"],
+  "hr-new-hires": ["new-hires", "new-hires-30-days"],
+  "monthly-payroll": ["monthly-payroll", "payroll"],
+
+  // Maintenance
+  "maint-open-work-orders": ["open-requests", "new-requests", "open-work-orders", "work-orders"],
+  "maint-assets-in-maint": ["assets-in-maint", "assets-in-maintenance", "in-progress-jobs", "active-jobs"],
+  "maint-total-assets": ["total-assets", "assets"],
+  "overdue-pm": ["overdue-pm", "overdue-pm-tasks"],
+
+  // POS
+  "pos-today-sales": ["today-sales", "daily-sales"],
+  "pos-total-transactions": ["total-transactions", "transactions"],
+  "pos-avg-order": ["average-order", "avg-order", "average-order-value"],
+  "pos-monthly-revenue": ["monthly-revenue", "pos-revenue"],
+
+  // Admin
+  "admin-active-users": ["total-users", "active-users", "users"],
+  "admin-role-count": ["active-roles", "role-count", "roles"],
+  "admin-recent-logins": ["recent-logins", "logins"],
+
+  // Projects
+  "pm-active-projects": ["active-projects", "total-projects", "projects"],
+  "pm-overdue-tasks": ["open-tasks", "overdue-tasks", "tasks"],
+  "pm-total-milestones": ["total-milestones", "milestones"],
+  "total-budget": ["total-budget", "project-budget"],
+  "total-hours": ["total-hours", "logged-hours"],
+
+  // Service
+  "sm-active-contracts": ["active-contracts", "contracts"],
+  "sm-pending-invoices": ["pending-service-invoices", "open-orders", "service-orders"],
+  "sm-total-revenue": ["total-service-revenue", "service-requests", "executions", "confirmations"],
+
+  // Transport
+  "trans-active-vehicles": ["total-vehicles", "active-vehicles", "vehicles"],
+  "trans-ongoing-trips": ["active-trips", "ongoing-trips", "trips"],
+  "trans-pending-maint": ["pending-fleet-maintenance", "pending-maint"],
+  "total-drivers": ["total-drivers", "drivers"],
+  "total-fuel-cost": ["total-fuel-cost", "fuel-cost"],
+
+  // Production
+  "prod-active-orders": ["active-production-orders", "active-orders"],
+  "prod-completed-orders": ["completed-orders"],
+  "prod-yield": ["production-yield", "yield"],
+};
+
 /**
  * PermissionContext - Centralized permission management
  *
@@ -1342,18 +1433,17 @@ export const PermissionProvider = ({ children }) => {
     canPerformPageAction,
     basePathFrom,
     canViewDashboardElement: (moduleKey, type, key) => {
-      const mk = String(moduleKey || "");
-      const t = String(type || "");
-      const rawKey = String(key || "");
+      const rawMk = String(moduleKey || "").trim().toLowerCase();
+      const t = String(type || "card").trim().toLowerCase();
+      const rawKey = String(key || "").trim().toLowerCase();
       const normKey = rawKey
-        .toLowerCase()
-        .trim()
         .replace(/\s+/g, "-")
         .replace(/[^a-z0-9-]/g, "");
-      if (!dashboardViewLoaded) return false;
-      const comp = `${mk}|${t}|${normKey}`;
 
-      if (mk === "home" && t === "card") {
+      if (!dashboardViewLoaded) return false;
+
+      // Special handling for Home cards
+      if (rawMk === "home" && t === "card") {
         let hasHomeCardConfig = false;
         for (const k of dashboardViewMap.keys()) {
           if (k.startsWith("home|card|")) {
@@ -1362,7 +1452,7 @@ export const PermissionProvider = ({ children }) => {
           }
         }
         if (hasHomeCardConfig) {
-          return dashboardViewMap.get(comp) === true;
+          return dashboardViewMap.get(`home|card|${normKey}`) === true;
         } else {
           const defaultCards = [
             "sales-total-revenue",
@@ -1374,13 +1464,113 @@ export const PermissionProvider = ({ children }) => {
         }
       }
 
-      // If this item has an explicit permission entry, respect it
-      if (dashboardViewMap.has(comp)) {
-        return dashboardViewMap.get(comp) === true;
+      const modKeys = [rawMk];
+      if (DASHBOARD_MODULE_ALIASES[rawMk]) {
+        modKeys.push(DASHBOARD_MODULE_ALIASES[rawMk]);
       }
-      // No explicit config for this item — fall back to module-level RBAC
-      if (mk) {
-        return canAccessPath(`/${mk}`);
+
+      // 1. If dashboard as a whole is disabled for this module, cards are also disabled
+      if (t === "card" || normKey === "dashboard" || normKey === "dashboards") {
+        for (const m of modKeys) {
+          if (
+            dashboardViewMap.get(`${m}|dashboard|dashboard`) === false ||
+            dashboardViewMap.get(`${m}|dashboard|dashboards`) === false
+          ) {
+            return false;
+          }
+        }
+      }
+
+      // 2. Check if all dashboard/card entries configured for this module are disabled
+      let hasExplicitModuleConfig = false;
+      let hasAnyEnabledInModule = false;
+      for (const m of modKeys) {
+        for (const [compKey, isAllowed] of dashboardViewMap.entries()) {
+          if (compKey.startsWith(`${m}|card|`) || compKey.startsWith(`${m}|dashboard|`)) {
+            hasExplicitModuleConfig = true;
+            if (isAllowed === true) {
+              hasAnyEnabledInModule = true;
+              break;
+            }
+          }
+        }
+        if (hasAnyEnabledInModule) break;
+      }
+      if (hasExplicitModuleConfig && !hasAnyEnabledInModule) {
+        return false;
+      }
+
+      // 3. Build candidate keys to check
+      const candKeys = new Set([normKey]);
+      for (const m of modKeys) {
+        if (normKey.startsWith(`${m}-`)) {
+          candKeys.add(normKey.slice(m.length + 1));
+        }
+        candKeys.add(`${m}-${normKey}`);
+      }
+
+      // Check synonyms
+      for (const [canonical, syns] of Object.entries(DASHBOARD_CARD_SYNONYMS)) {
+        const allFamily = [canonical, ...syns];
+        const hasMatch = allFamily.some((syn) => candKeys.has(syn));
+        if (hasMatch) {
+          for (const item of allFamily) {
+            candKeys.add(item);
+            for (const m of modKeys) {
+              if (item.startsWith(`${m}-`)) {
+                candKeys.add(item.slice(m.length + 1));
+              }
+              candKeys.add(`${m}-${item}`);
+            }
+          }
+        }
+      }
+
+      // 4. Check for explicit disabled (false) or enabled (true)
+      let explicitAllowed = false;
+      const checkTypes = t === "card" ? ["card", "dashboard"] : ["dashboard", "card"];
+
+      for (const cand of candKeys) {
+        for (const m of modKeys) {
+          for (const chkType of checkTypes) {
+            const comp = `${m}|${chkType}|${cand}`;
+            if (dashboardViewMap.has(comp)) {
+              if (dashboardViewMap.get(comp) === false) {
+                return false; // Explicit disable takes absolute precedence
+              }
+              if (dashboardViewMap.get(comp) === true) {
+                explicitAllowed = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (explicitAllowed) {
+        return true;
+      }
+
+      // 5. If this module has configured cards, but this specific card is not in the allowed list:
+      if (t === "card" && hasExplicitModuleConfig) {
+        let hasAnyExplicitCardConfig = false;
+        for (const m of modKeys) {
+          for (const [compKey] of dashboardViewMap.entries()) {
+            if (compKey.startsWith(`${m}|card|`)) {
+              hasAnyExplicitCardConfig = true;
+              break;
+            }
+          }
+          if (hasAnyExplicitCardConfig) break;
+        }
+
+        if (hasAnyExplicitCardConfig) {
+          return false;
+        }
+      }
+
+      // 6. No explicit config for this item — fall back to module-level RBAC
+      if (rawMk) {
+        return canAccessPath(`/${rawMk}`);
       }
       return isSuper;
     },

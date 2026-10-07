@@ -327,6 +327,8 @@ export const productionSections = [
 function ProductionHomeIndex() {
   const [stats, setStats] = useState([
     {
+      module_key: "production",
+      rbac_key: "prod-active-orders",
       label: "Active Production Orders",
       value: "0",
       change: "Execution",
@@ -339,6 +341,8 @@ function ProductionHomeIndex() {
       color: "from-blue-600 to-blue-700",
     },
     {
+      module_key: "production",
+      rbac_key: "prod-completed-orders",
       label: "Open Job Cards",
       value: "0",
       change: "Shop Floor",
@@ -351,6 +355,8 @@ function ProductionHomeIndex() {
       color: "from-amber-600 to-amber-700",
     },
     {
+      module_key: "production",
+      rbac_key: "prod-yield",
       label: "Pending Requisitions",
       value: "0",
       change: "Warehouse",
@@ -363,6 +369,8 @@ function ProductionHomeIndex() {
       color: "from-purple-600 to-purple-700",
     },
     {
+      module_key: "production",
+      rbac_key: "prod-boms",
       label: "Active BOMs",
       value: "0",
       change: "Engineering",
@@ -421,7 +429,6 @@ function ProductionHomeIndex() {
       stats={stats}
       sections={productionSections}
       features={productionFeatures}
-      showAll={true}
     />
   );
 }

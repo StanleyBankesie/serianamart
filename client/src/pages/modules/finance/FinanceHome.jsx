@@ -192,7 +192,8 @@ export const financeSections = [
 export default function FinanceHome() {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "cash-balance",
+      module_key: "finance",
+      rbac_key: "finance-cash-balance",
       value: "—",
       label: "Cash on Hand",
       change: "Loading…",
@@ -200,7 +201,8 @@ export default function FinanceHome() {
       path: "/finance/reports",
     },
     {
-      rbac_key: "bank-balance",
+      module_key: "finance",
+      rbac_key: "finance-ar",
       value: "—",
       label: "Bank Balance",
       change: "Loading…",
@@ -208,7 +210,8 @@ export default function FinanceHome() {
       path: "/finance/reports",
     },
     {
-      rbac_key: "pending-vouchers",
+      module_key: "finance",
+      rbac_key: "finance-ap",
       value: "—",
       label: "Pending Vouchers",
       change: "Loading…",
@@ -216,6 +219,7 @@ export default function FinanceHome() {
       path: "/finance/journal-voucher",
     },
     {
+      module_key: "finance",
       rbac_key: "net-income",
       value: "—",
       label: "Net Income (MTD)",
@@ -273,6 +277,7 @@ export default function FinanceHome() {
 
   return (
     <ModuleDashboard
+      moduleKey="finance"
       title="Finance Module"
       description="Comprehensive accounting, budgeting, and financial reporting system"
       stats={stats}

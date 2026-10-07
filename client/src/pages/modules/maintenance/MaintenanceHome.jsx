@@ -122,10 +122,10 @@ export const maintenanceSections = [
 
 function MaintenanceLanding() {
   const [stats, setStats] = React.useState([
-    { rbac_key: "open-requests", value: "—", label: "New Requests", change: "Loading…", changeType: "neutral", path: "/maintenance/maintenance-requests", actions: [{ label: "View", path: "/maintenance/maintenance-requests", type: "outline" }] },
-    { rbac_key: "in-progress-jobs", value: "—", label: "Active Job Orders", change: "Loading…", changeType: "neutral", path: "/maintenance/job-orders", actions: [{ label: "View", path: "/maintenance/job-orders", type: "outline" }] },
-    { rbac_key: "overdue-pm", value: "—", label: "Overdue PM Tasks", change: "Loading…", changeType: "neutral", path: "/maintenance/pm-schedules", actions: [{ label: "View", path: "/maintenance/pm-schedules", type: "outline" }] },
-    { rbac_key: "total-assets", value: "—", label: "Total Assets", change: "Loading…", changeType: "neutral", path: "/maintenance/assets", actions: [{ label: "View", path: "/maintenance/assets", type: "outline" }] },
+    { module_key: "maintenance", rbac_key: "maint-open-work-orders", value: "—", label: "New Requests", change: "Loading…", changeType: "neutral", path: "/maintenance/maintenance-requests", actions: [{ label: "View", path: "/maintenance/maintenance-requests", type: "outline" }] },
+    { module_key: "maintenance", rbac_key: "maint-assets-in-maint", value: "—", label: "Active Job Orders", change: "Loading…", changeType: "neutral", path: "/maintenance/job-orders", actions: [{ label: "View", path: "/maintenance/job-orders", type: "outline" }] },
+    { module_key: "maintenance", rbac_key: "overdue-pm", value: "—", label: "Overdue PM Tasks", change: "Loading…", changeType: "neutral", path: "/maintenance/pm-schedules", actions: [{ label: "View", path: "/maintenance/pm-schedules", type: "outline" }] },
+    { module_key: "maintenance", rbac_key: "maint-total-assets", value: "—", label: "Total Assets", change: "Loading…", changeType: "neutral", path: "/maintenance/assets", actions: [{ label: "View", path: "/maintenance/assets", type: "outline" }] },
   ]);
 
   React.useEffect(() => {
@@ -145,10 +145,10 @@ function MaintenanceLanding() {
       const activeWos = wos.filter(w => w.status === "IN_PROGRESS" || w.status === "ASSIGNED" || w.status === "OPEN");
       const overduePms = pms.filter(p => p.status === "OVERDUE");
       setStats([
-        { rbac_key: "open-requests", value: openReqs.length.toString(), label: "New Requests", change: "Requires Action", changeType: openReqs.length > 0 ? "negative" : "positive", path: "/maintenance/maintenance-requests", actions: [{ label: "View", path: "/maintenance/maintenance-requests", type: "outline" }] },
-        { rbac_key: "in-progress-jobs", value: activeWos.length.toString(), label: "Active Job Orders", change: "In Progress", changeType: "neutral", path: "/maintenance/job-orders", actions: [{ label: "View", path: "/maintenance/job-orders", type: "outline" }] },
-        { rbac_key: "overdue-pm", value: overduePms.length.toString(), label: "Overdue PM Tasks", change: "Action Required", changeType: overduePms.length > 0 ? "negative" : "positive", path: "/maintenance/pm-schedules", actions: [{ label: "View", path: "/maintenance/pm-schedules", type: "outline" }] },
-        { rbac_key: "total-assets", value: assets.length.toString(), label: "Total Assets", change: "Managed", changeType: "positive", path: "/maintenance/assets", actions: [{ label: "View", path: "/maintenance/assets", type: "outline" }] },
+        { module_key: "maintenance", rbac_key: "maint-open-work-orders", value: openReqs.length.toString(), label: "New Requests", change: "Requires Action", changeType: openReqs.length > 0 ? "negative" : "positive", path: "/maintenance/maintenance-requests", actions: [{ label: "View", path: "/maintenance/maintenance-requests", type: "outline" }] },
+        { module_key: "maintenance", rbac_key: "maint-assets-in-maint", value: activeWos.length.toString(), label: "Active Job Orders", change: "In Progress", changeType: "neutral", path: "/maintenance/job-orders", actions: [{ label: "View", path: "/maintenance/job-orders", type: "outline" }] },
+        { module_key: "maintenance", rbac_key: "overdue-pm", value: overduePms.length.toString(), label: "Overdue PM Tasks", change: "Action Required", changeType: overduePms.length > 0 ? "negative" : "positive", path: "/maintenance/pm-schedules", actions: [{ label: "View", path: "/maintenance/pm-schedules", type: "outline" }] },
+        { module_key: "maintenance", rbac_key: "maint-total-assets", value: assets.length.toString(), label: "Total Assets", change: "Managed", changeType: "positive", path: "/maintenance/assets", actions: [{ label: "View", path: "/maintenance/assets", type: "outline" }] },
       ]);
     });
     return () => { mounted = false; };
@@ -156,6 +156,9 @@ function MaintenanceLanding() {
 
   return (
     <ModuleDashboard
+      moduleKey="maintenance"
+      title="Maintenance & Equipment Management"
+      description="Manage equipment, asset maintenance, work orders, PM schedules, rosters, and spare parts procurement."
       moduleTitle="Maintenance & Equipment Management"
       moduleDescription="Manage equipment, asset maintenance, work orders, PM schedules, rosters, and spare parts procurement."
       stats={stats}

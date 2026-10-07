@@ -422,7 +422,8 @@ function TransportLanding() {
 
   const dashboardStats = [
     {
-      rbac_key: "active-trips",
+      module_key: "transport",
+      rbac_key: "trans-ongoing-trips",
       icon: "🚚",
       value: String(stats?.activeTrips || 0),
       label: "Active Trips",
@@ -433,7 +434,8 @@ function TransportLanding() {
         ],
     },
     {
-      rbac_key: "total-vehicles",
+      module_key: "transport",
+      rbac_key: "trans-active-vehicles",
       icon: "🚛",
       value: String(stats?.totalVehicles || 0),
       label: "Total Vehicles",
@@ -444,6 +446,7 @@ function TransportLanding() {
         ],
     },
     {
+      module_key: "transport",
       rbac_key: "total-drivers",
       icon: "🧑‍✈️",
       value: String(stats?.totalDrivers || 0),
@@ -455,6 +458,7 @@ function TransportLanding() {
         ],
     },
     {
+      module_key: "transport",
       rbac_key: "total-fuel-cost",
       icon: "⛽",
       value: fmt(stats?.totalFuelCost || 0),

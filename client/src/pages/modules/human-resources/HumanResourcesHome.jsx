@@ -503,7 +503,8 @@ export const humanResourcesSections = [
 function HRDashboard() {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "total-employees",
+      module_key: "human-resources",
+      rbac_key: "hr-total-employees",
       value: "—",
       label: "Total Employees",
       change: "Loading…",
@@ -515,7 +516,8 @@ function HRDashboard() {
         ],
     },
     {
-      rbac_key: "active-on-leave",
+      module_key: "human-resources",
+      rbac_key: "hr-on-leave",
       value: "—",
       label: "Active on Leave",
       change: "Loading…",
@@ -527,6 +529,7 @@ function HRDashboard() {
         ],
     },
     {
+      module_key: "human-resources",
       rbac_key: "monthly-payroll",
       value: "—",
       label: "Monthly Payroll",
@@ -539,6 +542,7 @@ function HRDashboard() {
         ],
     },
     {
+      module_key: "human-resources",
       rbac_key: "pending-approvals",
       value: "—",
       label: "Pending Approvals",
@@ -604,6 +608,7 @@ function HRDashboard() {
 
   return (
     <ModuleDashboard
+      moduleKey="human-resources"
       useSectionNavigation={true}
       title="Human Resources"
       description="Employee management and payroll processing"

@@ -471,7 +471,8 @@ export const inventorySections = [
 function InventoryHomeIndex() {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "items-tracked",
+      module_key: "inventory",
+      rbac_key: "inventory-total-items",
       value: "—",
       label: "Items Tracked",
       change: "Loading…",
@@ -483,6 +484,7 @@ function InventoryHomeIndex() {
         ],
     },
     {
+      module_key: "inventory",
       rbac_key: "stock-quantity",
       value: "—",
       label: "Stock Quantity",
@@ -494,6 +496,7 @@ function InventoryHomeIndex() {
         ],
     },
     {
+      module_key: "inventory",
       rbac_key: "pending-requisitions",
       value: "—",
       label: "Pending Requisitions",
@@ -506,7 +509,8 @@ function InventoryHomeIndex() {
         ],
     },
     {
-      rbac_key: "low-stock-items",
+      module_key: "inventory",
+      rbac_key: "inventory-low-stock",
       value: "—",
       label: "Low Stock Items",
       change: "Loading…",
@@ -567,6 +571,7 @@ function InventoryHomeIndex() {
 
   return (
     <ModuleDashboard
+      moduleKey="inventory"
       useSectionNavigation={true}
       title="Inventory Management"
       description="Stock management, warehouse operations, and inventory control"

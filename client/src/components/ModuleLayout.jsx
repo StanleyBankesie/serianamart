@@ -53,6 +53,16 @@ export function ModuleNavDropdown({ section, location, navigate, moduleKey }) {
       // 4. Try to derive feature key from path
       if (item.path) {
         const parts = item.path.split("/").filter(Boolean);
+        const last = String(parts[parts.length - 1] || "").toLowerCase();
+        if (last === "dashboard" || last === "dashboards") {
+          if (
+            canViewDashboardElement(mk, "dashboard", "dashboard") === false ||
+            canViewDashboardElement(mk, "dashboard", "dashboards") === false
+          ) {
+            return false;
+          }
+        }
+
         if (parts.length > 1 && parts[0] === mk) {
            const pathKey = parts[parts.length - 1];
            const pathFeatureMatch = features.find(f => f.key === pathKey);

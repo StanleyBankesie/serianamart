@@ -233,7 +233,8 @@ export const salesFeatures = [
 const SalesModuleHome = () => {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "sales-this-month",
+      module_key: "sales",
+      rbac_key: "sales-total-revenue",
       icon: "🟢",
       value: "GH₵0.00",
       label: "Total Sales This Month",
@@ -243,7 +244,8 @@ const SalesModuleHome = () => {
       actions: [{ label: "View", path: "/sales/reports/invoice-summary", type: "outline" }],
     },
     {
-      rbac_key: "open-quotations",
+      module_key: "sales",
+      rbac_key: "sales-pending-orders",
       icon: "🔵",
       value: "0",
       label: "Open Quotations",
@@ -253,6 +255,7 @@ const SalesModuleHome = () => {
       actions: [{ label: "View", path: "/sales/reports/quotation-summary", type: "outline" }],
     },
     {
+      module_key: "sales",
       rbac_key: "pending-deliveries",
       icon: "🟠",
       value: "0",
@@ -263,6 +266,7 @@ const SalesModuleHome = () => {
       actions: [{ label: "View", path: "/sales/reports/delivery-register", type: "outline" }],
     },
     {
+      module_key: "sales",
       rbac_key: "overdue-invoices",
       icon: "🔴",
       value: "0",
@@ -273,7 +277,8 @@ const SalesModuleHome = () => {
       actions: [{ label: "View", path: "/sales/reports/ar-aging", type: "outline" }],
     },
     {
-      rbac_key: "total-revenue",
+      module_key: "sales",
+      rbac_key: "sales-total-revenue",
       icon: "💰",
       value: "GH₵0.00",
       label: "Total Revenue",
@@ -283,6 +288,7 @@ const SalesModuleHome = () => {
       actions: [{ label: "View", path: "/sales/reports/invoice-summary", type: "outline" }],
     },
     {
+      module_key: "sales",
       rbac_key: "sales-growth",
       icon: "📈",
       value: "0%",
@@ -337,6 +343,7 @@ const SalesModuleHome = () => {
 
   return (
     <ModuleDashboard
+      moduleKey="sales"
       useSectionNavigation={true}
       title="Sales Module"
       description="Customer orders, quotations, invoicing, and sales analytics"

@@ -66,7 +66,8 @@ function PosLanding() {
 
   const stats = [
     {
-      rbac_key: "today-sales",
+      module_key: "pos",
+      rbac_key: "pos-today-sales",
       icon: "💵",
       value: fmt(overview?.todaySales || 0),
       label: "Today Sales",
@@ -76,7 +77,8 @@ function PosLanding() {
         ],
     },
     {
-      rbac_key: "total-customers",
+      module_key: "pos",
+      rbac_key: "pos-total-transactions",
       icon: "👥",
       value: String(overview?.totalCustomers ?? 0),
       label: "Total Customers",
@@ -87,7 +89,8 @@ function PosLanding() {
         ],
     },
     {
-      rbac_key: "average-order",
+      module_key: "pos",
+      rbac_key: "pos-avg-order",
       icon: "🧾",
       value: fmt(overview?.averageOrder || 0),
       label: "Average Order",
@@ -97,7 +100,8 @@ function PosLanding() {
         ],
     },
     {
-      rbac_key: "monthly-revenue",
+      module_key: "pos",
+      rbac_key: "pos-monthly-revenue",
       icon: "📊",
       value: fmt(overview?.monthlyRevenue || 0),
       label: "Monthly Revenue",
@@ -112,7 +116,8 @@ function PosLanding() {
     <div className="space-y-6">
       <PosSyncStatus />
       <ModuleDashboard
-      useSectionNavigation={true}
+        moduleKey="pos"
+        useSectionNavigation={true}
         title="Point of Sale (POS)"
         description="Retail sales, register operations, and day management"
         stats={stats}

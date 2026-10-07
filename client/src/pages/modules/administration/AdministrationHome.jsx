@@ -260,7 +260,8 @@ function AdministrationLanding() {
   const { user } = useAuth();
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "total-users",
+      module_key: "administration",
+      rbac_key: "admin-active-users",
       value: "—",
       label: "Total Users",
       change: "Loading…",
@@ -272,7 +273,8 @@ function AdministrationLanding() {
         ],
     },
     {
-      rbac_key: "active-roles",
+      module_key: "administration",
+      rbac_key: "admin-role-count",
       value: "—",
       label: "Active Roles",
       change: "Loading…",
@@ -284,6 +286,7 @@ function AdministrationLanding() {
         ],
     },
     {
+      module_key: "administration",
       rbac_key: "pending-approvals",
       value: "—",
       label: "Pending Approvals",
@@ -353,6 +356,7 @@ function AdministrationLanding() {
 
   return (
     <ModuleDashboard
+      moduleKey="administration"
       useSectionNavigation={true}
       title="Administration"
       description="System configuration and user management"

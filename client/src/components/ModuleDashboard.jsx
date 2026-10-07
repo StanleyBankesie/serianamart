@@ -167,17 +167,20 @@ const ModuleDashboard = ({
     return last.toLowerCase() === "dashboard" || last.toLowerCase() === "dashboards";
   };
 
+  const currentModuleKey =
+    moduleKey || (location.pathname.split("/").filter(Boolean)[0] || "");
+
+  const isDashboardAllowed =
+    canViewDashboardElement(currentModuleKey, "dashboard", "dashboard") !== false &&
+    canViewDashboardElement(currentModuleKey, "dashboard", "dashboards") !== false;
+
   // Auto-inject a Dashboard button if the module has registered dashboards
   const resolvedHeaderActions = useMemo(() => {
     const actions = Array.isArray(headerActions) ? [...headerActions] : [];
-    const mk = moduleKey || (location.pathname.split("/").filter(Boolean)[0] || "");
+    const mk = currentModuleKey;
     const moduleInfo = MODULES_REGISTRY[mk];
     const hasDashboards = moduleInfo && moduleInfo.dashboards && moduleInfo.dashboards.length > 0;
     
-    const isDashboardAllowed =
-      canViewDashboardElement(mk, "dashboard", "dashboard") !== false &&
-      canViewDashboardElement(mk, "dashboard", "dashboards") !== false;
-
     const dbPath = `/${mk}/dashboard`;
     const dbsPath = `/${mk}/dashboards`;
     const canAccessDb = canAccessPath(dbPath) || canAccessPath(dbsPath);
@@ -199,7 +202,7 @@ const ModuleDashboard = ({
       }
       return true;
     });
-  }, [headerActions, moduleKey, location.pathname, canAccessPath, canViewDashboardElement]);
+  }, [headerActions, currentModuleKey, canAccessPath, isDashboardAllowed]);
   const [searchTerm, setSearchTerm] = useState("");
 
   const handleNavigate = (path, e) => {
@@ -236,35 +239,72 @@ const ModuleDashboard = ({
     return canAccessPath(path);
   }
 
-  const canShowItem = (item) => {
-    if (!item) return false;
-    if (item.hidden) return false;
-    const path = String(item.path || "");
-    if (!path) return false;
-
-    if (showAll || isSuper) return true;
-
-    const parts = path.split("/").filter(Boolean);
-    const mk = String(item.module_key || parts[0] || "");
-    const fk = String(item.feature_key || parts[1] || "");
-
-    if (mk && isDashboardPath(path)) {
-      return (
-        canViewDashboardElement(mk, "dashboard", "dashboard") !== false &&
-        canViewDashboardElement(mk, "dashboard", "dashboards") !== false
-      );
-    }
-
-    if (mk && fk) {
-      if (canAccessFeatureKey(mk, fk)) return true;
-      if (item.feature_key && canAccessFeatureKey(mk, item.feature_key)) return true;
-      if (parts.length > 2) {
-        const fk2 = String(parts[2] || "");
-        if (fk2 && canAccessFeatureKey(mk, fk2)) return true;
+  const canShowItem = React.useCallback(
+    (item) => {
+      if (!item) return false;
+      if (item.hidden) return false;
+      const path = String(item.path || "");
+      if (!path) {
+        if (item.label || item.title) return true;
+        return false;
       }
-    }
-    return canAccessPath(path);
-  };
+
+      const parts = path.split("/").filter(Boolean);
+      const mk = String(item.module_key || currentModuleKey || parts[0] || "");
+      const fk = String(item.feature_key || parts[1] || "");
+
+      if (mk && isDashboardPath(path)) {
+        if (!isDashboardAllowed) return false;
+        return (
+          canViewDashboardElement(mk, "dashboard", "dashboard") !== false &&
+          canViewDashboardElement(mk, "dashboard", "dashboards") !== false
+        );
+      }
+
+      if (showAll || isSuper) return true;
+
+      if (mk && fk) {
+        if (canAccessFeatureKey(mk, fk)) return true;
+        if (item.feature_key && canAccessFeatureKey(mk, item.feature_key)) return true;
+        if (parts.length > 2) {
+          const fk2 = String(parts[2] || "");
+          if (fk2 && canAccessFeatureKey(mk, fk2)) return true;
+        }
+      }
+      return canAccessPath(path);
+    },
+    [currentModuleKey, isDashboardAllowed, showAll, isSuper, canViewDashboardElement, canAccessFeatureKey, canAccessPath]
+  );
+
+  const isStatAllowed = React.useCallback(
+    (s) => {
+      if (!isDashboardAllowed) return false;
+      if (!canShowItem(s)) return false;
+      const path = String(s.path || "");
+      const parts = path.split("/").filter(Boolean);
+      const mk = String(s.module_key || currentModuleKey || parts[0] || "");
+      const key =
+        String(s.key || s.rbac_key || "")
+          .toLowerCase()
+          .trim() ||
+        String(s.label || s.name || s.title || "")
+          .toLowerCase()
+          .trim()
+          .replace(/\s+/g, "-")
+          .replace(/[^a-z0-9-]/g, "");
+      if (!mk || !key) return true;
+      return (
+        canViewDashboardElement(mk, "card", key) !== false &&
+        canViewDashboardElement(mk, "dashboard", key) !== false
+      );
+    },
+    [isDashboardAllowed, currentModuleKey, canViewDashboardElement, canShowItem]
+  );
+
+  const visibleStats = React.useMemo(() => {
+    if (!isDashboardAllowed) return [];
+    return stats.filter(isStatAllowed);
+  }, [stats, isDashboardAllowed, isStatAllowed]);
 
   const allSections = React.useMemo(() => {
     const base = Array.isArray(sections) ? sections : [];
@@ -545,47 +585,16 @@ const ModuleDashboard = ({
       )}
 
       {/* Key Statistics */}
-      {!isSearching && (!useSectionNavigation || searchTerm || activeSection === null) && stats.filter((s) => {
-        if (!canShowItem(s)) return false;
-        const path = String(s.path || "");
-        const parts = path.split("/").filter(Boolean);
-        const mk = String(s.module_key || parts[0] || "");
-        const key =
-          String(s.rbac_key || "")
-            .toLowerCase()
-            .trim() ||
-          String(s.label || s.name || s.title || "")
-            .toLowerCase()
-            .trim()
-            .replace(/\s+/g, "-")
-            .replace(/[^a-z0-9-]/g, "");
-        if (!mk || !key) return true;
-        return canViewDashboardElement(mk, "card", key);
-      }).length > 0 && (
+      {!isSearching &&
+        isDashboardAllowed &&
+        (!useSectionNavigation || searchTerm || activeSection === null) &&
+        visibleStats.length > 0 && (
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-brand-800 dark:text-brand-200 mb-4 flex items-center gap-2">
             <span>📈</span> Business Overview
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {stats
-              .filter((stat) => {
-                if (!canShowItem(stat)) return false;
-                const path = String(stat.path || "");
-                const parts = path.split("/").filter(Boolean);
-                const mk = String(stat.module_key || parts[0] || "");
-                const key =
-                  String(stat.rbac_key || "")
-                    .toLowerCase()
-                    .trim() ||
-                  String(stat.label || stat.name || stat.title || "")
-                    .toLowerCase()
-                    .trim()
-                    .replace(/\s+/g, "-")
-                    .replace(/[^a-z0-9-]/g, "");
-                if (!mk || !key) return true;
-                return canViewDashboardElement(mk, "card", key);
-              })
-              .map((stat, index) => {
+            {visibleStats.map((stat, index) => {
                 const cardType = index % 4;
                 if (cardType === 0) {
                   // Card 1: Amber Gold

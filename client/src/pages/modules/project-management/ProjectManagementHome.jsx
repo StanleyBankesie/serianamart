@@ -282,7 +282,8 @@ export const projectManagementSections = [
 function ProjectManagementLanding() {
   const [stats, setStats] = React.useState([
     {
-      rbac_key: "active-projects",
+      module_key: "project-management",
+      rbac_key: "pm-active-projects",
       value: "—",
       label: "Total Projects",
       change: "Loading…",
@@ -294,7 +295,8 @@ function ProjectManagementLanding() {
       ],
     },
     {
-      rbac_key: "open-tasks",
+      module_key: "project-management",
+      rbac_key: "pm-overdue-tasks",
       value: "—",
       label: "Open Tasks",
       change: "Loading…",
@@ -306,7 +308,8 @@ function ProjectManagementLanding() {
       ],
     },
     {
-      rbac_key: "total-budget",
+      module_key: "project-management",
+      rbac_key: "pm-total-milestones",
       value: "—",
       label: "Total Project Budget",
       change: "Loading…",
@@ -317,6 +320,7 @@ function ProjectManagementLanding() {
       ],
     },
     {
+      module_key: "project-management",
       rbac_key: "total-hours",
       value: "—",
       label: "Total Logged Hours",
