@@ -15,6 +15,7 @@ import { useGhanaCities } from "../../../../hooks/useGhanaCities";
 import { useDispatch } from "react-redux";
 import { setRefresh } from "../../../../store/ui/refreshSlice.js";
 import PhoneInput from "../../../../components/PhoneInput.jsx";
+import { useAuth } from "../../../../auth/AuthContext.jsx";
 
 /**
  *  component
@@ -28,6 +29,7 @@ export default function CustomerForm() {
   const isEdit = Boolean(id);
   const isViewOnly = Boolean(isEdit) && searchParams.get("mode") === "view";
   const dispatch = useDispatch();
+  const { scope } = useAuth();
   const { cities: ghanaCities } = useGhanaCities();
 
   const [loading, setLoading] = useState(false);
@@ -218,6 +220,7 @@ export default function CustomerForm() {
     setError("");
     try {
       const payload = {
+        branch_id: form.branch_id || (scope?.branchId && scope?.branchId !== "all" ? Number(scope.branchId) : undefined),
         customer_code: form.customer_code || null,
         customer_name: form.customer_name || "",
         email: form.email || null,
@@ -574,10 +577,10 @@ export default function CustomerForm() {
                 </fieldset>
                 {!isViewOnly && (
                   <div className="flex justify-end gap-3 pt-4">
-                    <button onClick={() => window.history.back()} className="btn btn-secondary">
+                    <button type="button" onClick={() => window.history.back()} className="btn btn-secondary">
                       Cancel
                     </button>
-                    <button className="btn-success" disabled={loading}>
+                    <button type="submit" className="btn-success" disabled={loading} data-rbac-exempt="true">
                       {loading ? "Saving..." : "Save Customer"}
                     </button>
                   </div>

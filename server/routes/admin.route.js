@@ -1679,6 +1679,12 @@ async function ensureUserBranchMapping() {
       CONSTRAINT fk_ub_branch FOREIGN KEY (branch_id) REFERENCES adm_branches(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  await query(`
+    INSERT IGNORE INTO adm_user_branches (user_id, company_id, branch_id)
+    SELECT id, COALESCE(company_id, 1), branch_id
+    FROM adm_users
+    WHERE branch_id IS NOT NULL
+  `).catch(() => {});
   verifiedTables.add("adm_user_branches");
 }
 
@@ -2128,6 +2134,24 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     }
     const reqPath = String(req.query?.path || "").trim() || "/";
     const base = basePathFromRequestPath(reqPath);
+
+    const rawId = process.env.LICENSE_SUPER_ADMIN_ID;
+    const superAdminId = rawId ? parseInt(String(rawId).trim(), 10) : 1;
+    const isSuperAdmin = (
+      userId === 1 ||
+      userId === superAdminId ||
+      (Array.isArray(req.user?.permissions) && req.user.permissions.includes("*")) ||
+      String(req.user?.role || req.user?.role_name || req.user?.role_code || "").toLowerCase().includes("super")
+    );
+    if (isSuperAdmin) {
+      return res.json({
+        path: base,
+        can_view: 1,
+        can_create: 1,
+        can_edit: 1,
+        can_delete: 1,
+      });
+    }
     let pages = await query(
       `SELECT id, path, feature_key,
           created_at,
@@ -2181,6 +2205,9 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
     try {
       const fk = String(page?.feature_key || "").trim() || null;
       if (fk) {
+        const parts = fk.split(":");
+        const shortFk = parts.length > 1 ? parts.slice(1).join(":") : fk;
+        const modKey = parts.length > 1 ? parts[0] : "";
         const agg = await query(
           `SELECT 
              MAX(rp.can_view)   AS can_view,
@@ -2193,9 +2220,16 @@ router.get("/page-permissions", requireAuth, async (req, res, next) => {
            JOIN adm_users u ON u.role_id = rp.role_id
         LEFT JOIN adm_users uc ON uc.id = rp.created_by
          WHERE u.id = :uid
-             AND (rp.feature_key = :fk OR rp.feature_key LIKE CONCAT(:fk, ':%'))
+             AND (
+                rp.feature_key = :fk 
+                OR rp.feature_key = :shortFk 
+                OR (LOWER(rp.module_key) = LOWER(:modKey) AND LOWER(rp.feature_key) = LOWER(:shortFk))
+                OR rp.feature_key LIKE CONCAT(:fk, ':%')
+                OR rp.feature_key LIKE CONCAT(:shortFk, ':%')
+                OR rp.feature_key = '*'
+              )
            LIMIT 1`,
-          { uid: userId, fk },
+          { uid: userId, fk, shortFk, modKey },
         );
         if (agg.length) {
           roleDefaults = {

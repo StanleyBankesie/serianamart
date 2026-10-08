@@ -25,6 +25,7 @@ import BranchSelectionPage from "./pages/BranchSelectionPage.jsx";
 import { useAuth } from "./auth/AuthContext.jsx";
 import { clearGeneralCache } from "./offline/cache.js";
 import { clearPosCache } from "./offline/db.js";
+import NetworkStatusBanner from "./components/NetworkStatusBanner.jsx";
 
 import AppShell from "./layout/AppShell.jsx";
 
@@ -90,6 +91,7 @@ export default function App() {
               <PermissionProvider>
                 <GpsTrackingProvider>
                 <ToastContainer position="top-right" theme="dark" />
+                <NetworkStatusBanner />
 
                 <Routes>
                   <Route path="/login" element={

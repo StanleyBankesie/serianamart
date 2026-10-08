@@ -4,7 +4,7 @@
  * notification polling, and service worker push integrations.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Link,
   NavLink,
@@ -60,6 +60,7 @@ import { api } from "../api/client.js";
 import useOfflineQueue from "../offline/useOfflineQueue.js";
 import FloatingInstallButton from "../components/FloatingInstallButton.jsx";
 import { toast } from "react-toastify";
+import { checkServerHealth, diagnoseNetworkIssue } from "../utils/networkErrorDiagnostics.js";
 import {
   Bell,
   Menu,
@@ -375,9 +376,37 @@ export default function AppShell() {
   const [online, setOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine !== false : true,
   );
+  const [isCheckingNetwork, setIsCheckingNetwork] = useState(false);
+
+  const handleCheckConnection = useCallback(async () => {
+    setIsCheckingNetwork(true);
+    try {
+      const health = await checkServerHealth(4000);
+      if (health.isServerReachable && health.isOnline) {
+        setOnline(true);
+        toast.success("Connection restored! You are back online.");
+      } else {
+        setOnline(false);
+        const diag = health.diagnosis || diagnoseNetworkIssue({ code: "ERR_NETWORK" });
+        toast.error(`${diag.title}: ${diag.realProblem}`);
+      }
+    } finally {
+      setIsCheckingNetwork(false);
+    }
+  }, []);
+
   useEffect(() => {
     function onOnline() {
-      setOnline(true);
+      checkServerHealth(3500).then((health) => {
+        if (health.isServerReachable) {
+          setOnline(true);
+          toast.success("Connection restored! You are back online.");
+        } else {
+          setOnline(false);
+          const diag = health.diagnosis || diagnoseNetworkIssue({ code: "ERR_NETWORK" });
+          toast.error(`${diag.title}: ${diag.realProblem}`);
+        }
+      });
     }
     function onOffline() {
       setOnline(false);
@@ -1542,9 +1571,22 @@ export default function AppShell() {
         </div>
       )}
       {!online && (
-        <div className="px-6 py-2 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 border-b border-yellow-300 dark:border-yellow-800 text-sm">
-          Offline mode enabled. Pages and assets are cached. Actions queue for
-          sync.
+        <div className="px-6 py-2.5 bg-amber-500/10 dark:bg-amber-950/40 border-b border-amber-500/30 text-amber-800 dark:text-amber-200 text-sm flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <span>📡</span>
+            <span>
+              <strong className="mr-1">Network Error (Offline):</strong>
+              No internet connection detected. Offline mode enabled — cached pages remain accessible and transactions will sync when reconnected.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleCheckConnection}
+            disabled={isCheckingNetwork}
+            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs rounded font-medium transition shrink-0"
+          >
+            {isCheckingNetwork ? "Checking..." : "Check Connection"}
+          </button>
         </div>
       )}
       {queueOpen && (
@@ -1988,17 +2030,46 @@ export default function AppShell() {
               </div>
             ) : null}
             {!online && !isRootPage && !location.pathname.startsWith("/pos") ? (
-              <div className="min-h-[60vh] flex items-center justify-center">
-                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-6 max-w-lg w-full text-center">
-                  <div className="text-4xl mb-2">ðŸ“¡</div>
-                  <div className="text-lg font-semibold mb-1">Offline</div>
-                  <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                    This module requires a network connection. Return to Home or
-                    reconnect to continue.
+              <div className="min-h-[60vh] flex items-center justify-center p-4">
+                <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-8 max-w-lg w-full text-center shadow-xl">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-amber-100 dark:bg-amber-900/40 rounded-full flex items-center justify-center text-3xl">
+                    📡
                   </div>
-                  <div className="flex items-center justify-center gap-2">
-                    <Link to="/" className="btn">
-                      Home
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">
+                    Network Error: Module Offline
+                  </h2>
+                  <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-left mb-6 text-sm text-slate-600 dark:text-slate-300 space-y-2">
+                    <p className="font-semibold text-rose-600 dark:text-rose-400 text-xs uppercase tracking-wider">
+                      Real Problem:
+                    </p>
+                    <p>
+                      No active internet connection was detected on your device. This module requires live communication with the server to fetch and record live data.
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 italic">
+                      Please check your Wi-Fi, Ethernet, or mobile data connection and click Retry.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleCheckConnection}
+                      disabled={isCheckingNetwork}
+                      className="btn btn-primary flex items-center gap-2"
+                    >
+                      {isCheckingNetwork ? (
+                        <>
+                          <span className="animate-spin">🔄</span>
+                          <span>Testing Connection...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>↻</span>
+                          <span>Retry Connection</span>
+                        </>
+                      )}
+                    </button>
+                    <Link to="/" className="btn btn-secondary">
+                      Return to Home
                     </Link>
                   </div>
                 </div>

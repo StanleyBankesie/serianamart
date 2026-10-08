@@ -172,7 +172,7 @@ export default function CampaignForm() {
             <p>{isEdit ? "Update campaign details" : "Create a new promotional campaign"}</p>
           </div>
           <div className="ds-header-actions">
-            <button onClick={() => window.history.back()} className="ds-btn ds-btn-secondary">
+            <button onClick={() => navigate("/sales/discount-schemes/discount")} className="ds-btn ds-btn-secondary">
               Back to Campaigns
             </button>
           </div>

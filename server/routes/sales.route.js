@@ -2448,8 +2448,36 @@ router.post(
       // Ensure created_by column exists
       await ensureCustomersTableColumns();
 
-      const createdBy = req.user?.id || req.user?.id || req.user?.sub || null;
+      const createdBy = req.user?.id || req.user?.sub || null;
       const isEnforced = enforce_credit_limit === true || enforce_credit_limit === 1 || String(enforce_credit_limit) === "true" ? 1 : 0;
+
+      let effectiveBranchId = Number(
+        req.body?.branch_id ||
+        (branchId !== "all" && branchId ? branchId : null) ||
+        req.user?.branch_id ||
+        req.user?.branchIds?.[0]
+      );
+      if (!Number.isFinite(effectiveBranchId) || effectiveBranchId <= 0) {
+        const [defaultBranch] = await query(
+          "SELECT id FROM adm_branches WHERE company_id = :companyId AND is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1",
+          { companyId }
+        ).catch(() => []);
+        effectiveBranchId = Number(defaultBranch?.id || 1);
+      }
+
+      let effectiveCustomerCode = customer_code ? String(customer_code).trim() : "";
+      if (!effectiveCustomerCode) {
+        const rows = await query(
+          "SELECT customer_code FROM sal_customers WHERE company_id = :companyId AND customer_code REGEXP '^C(-?[0-9]+)?$' ORDER BY id DESC LIMIT 1",
+          { companyId }
+        ).catch(() => []);
+        let nextNum = 1;
+        if (rows.length) {
+          const match = String(rows[0].customer_code || "").match(/\d+$/);
+          if (match) nextNum = parseInt(match[0], 10) + 1;
+        }
+        effectiveCustomerCode = "C-" + String(nextNum).padStart(6, "0");
+      }
 
       const result = await query(
         `INSERT INTO sal_customers 
@@ -2461,8 +2489,9 @@ router.post(
                  :price_type_id, :currency_id, :credit_limit, :enforce_credit_limit, :payment_terms, :is_active, :sales_account_id, :service_customer, :createdBy)`,
         {
           companyId,
-          branchId, branchIdsStr,
-          customer_code: customer_code || null,
+          branchId: effectiveBranchId,
+          branchIdsStr,
+          customer_code: effectiveCustomerCode,
           customer_name,
           email: email || null,
           phone: phone || null,
@@ -2474,13 +2503,13 @@ router.post(
           zone: zone || null,
           country: country || null,
           customer_type: customer_type || "Individual",
-          price_type_id: price_type_id || null,
-          currency_id: currency_id || null,
+          price_type_id: Number(price_type_id) || null,
+          currency_id: Number(currency_id) || null,
           credit_limit: isEnforced ? (Number(credit_limit || 0) || 0) : 0,
           enforce_credit_limit: isEnforced,
           payment_terms: payment_terms || "Net 30",
           is_active: is_active === false ? 0 : 1,
-          sales_account_id: sales_account_id || null,
+          sales_account_id: Number(sales_account_id) || null,
           service_customer: (service_customer === 'Y' || service_customer === true || String(service_customer).toLowerCase() === 'true') ? 'Y' : 'N',
           createdBy,
         },
@@ -2602,13 +2631,13 @@ router.put(
           zone: zone || null,
           country: country || null,
           customer_type: customer_type || "Individual",
-          price_type_id: price_type_id || null,
-          currency_id: currency_id || null,
+          price_type_id: Number(price_type_id) || null,
+          currency_id: Number(currency_id) || null,
           credit_limit: isEnforced ? (Number(credit_limit || 0) || 0) : 0,
           enforce_credit_limit: isEnforced,
           payment_terms: payment_terms || "Net 30",
           is_active: isActive,
-          sales_account_id: sales_account_id || null,
+          sales_account_id: Number(sales_account_id) || null,
           service_customer: (service_customer === 'Y' || service_customer === true || String(service_customer).toLowerCase() === 'true') ? 'Y' : 'N',
         },
       );
@@ -9872,6 +9901,20 @@ router.post(
         throw httpError(400, "VALIDATION_ERROR", "customer_name is required");
       }
 
+      let effectiveBranchId = Number(
+        req.body?.branch_id ||
+        (branchId !== "all" && branchId ? branchId : null) ||
+        req.user?.branch_id ||
+        req.user?.branchIds?.[0]
+      );
+      if (!Number.isFinite(effectiveBranchId) || effectiveBranchId <= 0) {
+        const [defaultBranch] = await query(
+          "SELECT id FROM adm_branches WHERE company_id = :companyId AND is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1",
+          { companyId }
+        ).catch(() => []);
+        effectiveBranchId = Number(defaultBranch?.id || 1);
+      }
+
       const result = await query(
         `INSERT INTO sal_prospect_customers 
          (company_id, branch_id, customer_code, customer_name, prospect_customer, email, phone, is_active, 
@@ -9882,7 +9925,8 @@ router.post(
                  :currency_id, :contact_person, :customer_type, :mobile, :credit_limit, :payment_terms)`,
         {
           companyId,
-          branchId, branchIdsStr,
+          branchId: effectiveBranchId,
+          branchIdsStr,
           customer_code: customer_code || null,
           customer_name,
           prospect_customer: customer_name,

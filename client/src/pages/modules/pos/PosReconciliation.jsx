@@ -121,11 +121,8 @@ export default function PosReconciliation() {
       toast.success("Sale synced successfully");
       load();
     } catch (err) {
-      if (err?.response?.data) {
-        toast.error(err.response.data.message || "Sync failed");
-      } else {
-        toast.error("Sync failed — still offline?");
-      }
+      const errorMsg = err?.response?.data?.message || err?.message || "Sync failed";
+      toast.error(`Sync failed: ${errorMsg}`);
       load();
     }
     setSyncing(false);

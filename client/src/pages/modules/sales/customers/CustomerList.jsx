@@ -164,7 +164,7 @@ export default function CustomerList() {
             <Link to="/sales?section=Customer%20Management" className="btn btn-secondary">
               Return to Menu
             </Link>
-            <Link to="/sales/customers/new" className="btn-success">
+            <Link to="/sales/customers/new" className="btn-success" data-rbac-exempt="true">
               + New Customer
             </Link>
           </div>

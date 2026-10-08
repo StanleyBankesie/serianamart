@@ -1913,6 +1913,34 @@ router.post(
 
       const createdBy = req.user?.id || req.user?.sub || null;
 
+      let effectiveBranchId = Number(
+        req.body?.branch_id ||
+        (branchId !== "all" && branchId ? branchId : null) ||
+        req.user?.branch_id ||
+        req.user?.branchIds?.[0]
+      );
+      if (!Number.isFinite(effectiveBranchId) || effectiveBranchId <= 0) {
+        const [defaultBranch] = await query(
+          "SELECT id FROM adm_branches WHERE company_id = :companyId AND is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1",
+          { companyId }
+        ).catch(() => []);
+        effectiveBranchId = Number(defaultBranch?.id || 1);
+      }
+
+      let effectiveCustomerCode = customer_code ? String(customer_code).trim() : "";
+      if (!effectiveCustomerCode) {
+        const rows = await query(
+          "SELECT customer_code FROM sal_customers WHERE company_id = :companyId AND customer_code REGEXP '^C(-?[0-9]+)?$' ORDER BY id DESC LIMIT 1",
+          { companyId }
+        ).catch(() => []);
+        let nextNum = 1;
+        if (rows.length) {
+          const match = String(rows[0].customer_code || "").match(/\d+$/);
+          if (match) nextNum = parseInt(match[0], 10) + 1;
+        }
+        effectiveCustomerCode = "C-" + String(nextNum).padStart(6, "0");
+      }
+
       const result = await query(
         `INSERT INTO sal_customers 
          (company_id, branch_id, customer_code, customer_name, email, phone, mobile, 
@@ -1923,8 +1951,9 @@ router.post(
                  :price_type_id, :currency_id, :credit_limit, :payment_terms, :is_active, :sales_account_id, :createdBy)`,
         {
           companyId,
-          branchId, branchIdsStr,
-          customer_code: customer_code || null,
+          branchId: effectiveBranchId,
+          branchIdsStr,
+          customer_code: effectiveCustomerCode,
           customer_name,
           email: email || null,
           phone: phone || null,
@@ -1936,12 +1965,12 @@ router.post(
           zone: zone || null,
           country: country || null,
           customer_type: customer_type || "Individual",
-          price_type_id: price_type_id || null,
-          currency_id: currency_id || null,
+          price_type_id: Number(price_type_id) || null,
+          currency_id: Number(currency_id) || null,
           credit_limit: credit_limit || 0,
           payment_terms: payment_terms || "Net 30",
           is_active: is_active === false ? 0 : 1,
-          sales_account_id: sales_account_id || null,
+          sales_account_id: Number(sales_account_id) || null,
           createdBy,
         },
       );
@@ -2036,12 +2065,12 @@ router.put(
           zone: zone || null,
           country: country || null,
           customer_type: customer_type || "Individual",
-          price_type_id: price_type_id || null,
-          currency_id: currency_id || null,
+          price_type_id: Number(price_type_id) || null,
+          currency_id: Number(currency_id) || null,
           credit_limit: Number(credit_limit || 0) || 0,
           payment_terms: payment_terms || "Net 30",
           is_active: isActive,
-          sales_account_id: sales_account_id || null,
+          sales_account_id: Number(sales_account_id) || null,
         },
       );
 

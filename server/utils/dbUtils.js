@@ -1576,6 +1576,12 @@ export async function ensureUserBranchMapping() {
       CONSTRAINT fk_ub_branch FOREIGN KEY (branch_id) REFERENCES adm_branches(id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+  await query(`
+    INSERT IGNORE INTO adm_user_branches (user_id, company_id, branch_id)
+    SELECT id, COALESCE(company_id, 1), branch_id
+    FROM adm_users
+    WHERE branch_id IS NOT NULL
+  `).catch(() => {});
   verifiedTables.add("adm_user_branches");
 }
 

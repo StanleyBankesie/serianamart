@@ -16,6 +16,7 @@ import {
   readStoredAuth,
   writeStoredAuth,
 } from "../auth/authStorage.js";
+import { diagnoseNetworkIssue } from "../utils/networkErrorDiagnostics.js";
 
 const AXIOS_TIMEOUT_MS = Math.max(
   5000,
@@ -444,11 +445,60 @@ api.interceptors.response.use(
       }
     }
 
+    // Diagnose network issue to identify the real underlying problem
+    const diagnosis = diagnoseNetworkIssue(error, { baseURL: api.defaults.baseURL });
+
+    // Dispatch global event so UI banners and listeners are immediately notified
+    if (diagnosis.isNetworkError && typeof window !== "undefined") {
+      try {
+        window.dispatchEvent(
+          new CustomEvent("omnisuite:network-error", {
+            detail: diagnosis,
+          })
+        );
+      } catch {}
+    }
+
+    // Fabricate or enrich error.response so code accessing err?.response?.data?.message gets the diagnosis
+    let normalizedResponse = error.response;
+    if (!normalizedResponse && diagnosis.isNetworkError) {
+      normalizedResponse = {
+        status: diagnosis.status || 0,
+        statusText: diagnosis.title,
+        data: {
+          message: diagnosis.summary,
+          error: diagnosis.title,
+          realProblem: diagnosis.realProblem,
+          suggestion: diagnosis.suggestion,
+          isNetworkError: true,
+          category: diagnosis.category,
+        },
+        headers: {},
+        config: error.config,
+      };
+    } else if (normalizedResponse?.data && typeof normalizedResponse.data === "object" && diagnosis.isNetworkError) {
+      if (!normalizedResponse.data.message || normalizedResponse.data.message === "Internal Server Error") {
+        normalizedResponse.data.message = diagnosis.summary;
+      }
+      normalizedResponse.data.realProblem = diagnosis.realProblem;
+      normalizedResponse.data.isNetworkError = true;
+    }
+
+    const finalMessage = diagnosis.isNetworkError
+      ? diagnosis.summary
+      : (error.response?.data?.message || error.message);
+
     return Promise.reject({
-      message: error.message,
-      response: error.response,
+      ...error,
+      code: error.code,
+      message: finalMessage,
+      response: normalizedResponse,
       config: error.config,
       isAxiosError: true,
+      isNetworkError: diagnosis.isNetworkError,
+      networkDiagnosis: diagnosis,
+      realProblem: diagnosis.realProblem,
+      suggestion: diagnosis.suggestion,
     });
   },
 );
