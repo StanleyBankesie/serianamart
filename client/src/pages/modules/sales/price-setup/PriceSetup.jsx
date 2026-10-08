@@ -23,6 +23,7 @@ export default function PriceSetup() {
   const [data, setData] = useState([]);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
   const [priceTypes, setPriceTypes] = useState([]);
   const [currencies, setCurrencies] = useState([]);
   const [modalOpen, setModalOpen] = useState(false);
@@ -76,6 +77,18 @@ export default function PriceSetup() {
   }, [activeTab, filters]);
 
   useEffect(() => {
+    if ((activeTab === "customer" || sellingView === "customer") && customers.length === 0 && !customersLoading) {
+      loadCustomers();
+    }
+  }, [activeTab, sellingView, customers.length, customersLoading]);
+
+  useEffect(() => {
+    if (modalOpen && modalType === "customer" && customers.length === 0 && !customersLoading) {
+      loadCustomers();
+    }
+  }, [modalOpen, modalType, customers.length, customersLoading]);
+
+  useEffect(() => {
     if (!modalOpen || priceTypes.length === 0 || formData.product_id) return;
     const retailPt = priceTypes.find(
       (pt) =>
@@ -122,30 +135,84 @@ export default function PriceSetup() {
     }
   }, [bulkSelectAll, bulkFilteredItems]);
 
+  const extractItems = (res) => {
+    if (!res || !res.data) return [];
+    if (Array.isArray(res.data)) return res.data;
+    if (Array.isArray(res.data.items)) return res.data.items;
+    if (Array.isArray(res.data.data)) return res.data.data;
+    return [];
+  };
+
+  const loadCustomers = async () => {
+    setCustomersLoading(true);
+    try {
+      const res = await api.get("/sales/customers", { params: { active: "true" } });
+      const items = extractItems(res);
+      setCustomers(items);
+      return items;
+    } catch (err) {
+      console.error("Error loading customers with active=true:", err);
+      try {
+        const fallbackRes = await api.get("/sales/customers");
+        const items = extractItems(fallbackRes);
+        setCustomers(items);
+        return items;
+      } catch (fbErr) {
+        console.error("Fallback error loading customers:", fbErr);
+        return [];
+      }
+    } finally {
+      setCustomersLoading(false);
+    }
+  };
+
   const loadInitialData = async () => {
     try {
       console.log("Loading initial data...");
-      const [productsRes, customersRes, priceTypesRes, currenciesRes, groupsRes] =
-        await Promise.all([
-          api.get("/inventory/items"),
-          api.get("/sales/customers", { params: { active: "true" } }),
-          api.get("/sales/price-types"),
-          api.get("/finance/currencies"),
-          api.get("/inventory/item-groups"),
-        ]);
+      const results = await Promise.allSettled([
+        api.get("/inventory/items"),
+        api.get("/sales/customers", { params: { active: "true" } }),
+        api.get("/sales/price-types"),
+        api.get("/finance/currencies"),
+        api.get("/inventory/item-groups"),
+      ]);
 
-      console.log("Products loaded:", productsRes.data);
-      console.log("Customers loaded:", customersRes.data);
-      console.log("Price Types loaded:", priceTypesRes.data);
-      console.log("Currencies loaded:", currenciesRes.data);
+      const [productsRes, customersRes, priceTypesRes, currenciesRes, groupsRes] = results;
 
-      setProducts(productsRes.data.items || []);
-      setCustomers(customersRes.data.items || []);
-      const ptItems = priceTypesRes.data.items || [];
-      setPriceTypes(ptItems);
-      const currItems = currenciesRes.data.items || [];
-      setCurrencies(currItems);
-      setItemGroups(groupsRes.data.items || []);
+      if (productsRes.status === "fulfilled") {
+        setProducts(extractItems(productsRes.value));
+      } else {
+        console.error("Failed to load products:", productsRes.reason);
+      }
+
+      if (customersRes.status === "fulfilled") {
+        const cItems = extractItems(customersRes.value);
+        setCustomers(cItems);
+        if (cItems.length === 0) {
+          loadCustomers();
+        }
+      } else {
+        console.error("Failed to load customers in initial batch:", customersRes.reason);
+        loadCustomers();
+      }
+
+      if (priceTypesRes.status === "fulfilled") {
+        setPriceTypes(extractItems(priceTypesRes.value));
+      } else {
+        console.error("Failed to load price types:", priceTypesRes.reason);
+      }
+
+      if (currenciesRes.status === "fulfilled") {
+        setCurrencies(extractItems(currenciesRes.value));
+      } else {
+        console.error("Failed to load currencies:", currenciesRes.reason);
+      }
+
+      if (groupsRes.status === "fulfilled") {
+        setItemGroups(extractItems(groupsRes.value));
+      } else {
+        console.error("Failed to load item groups:", groupsRes.reason);
+      }
     } catch (err) {
       console.error("Error loading initial data:", err);
     }
@@ -155,7 +222,7 @@ export default function PriceSetup() {
     setCostLoading(true);
     try {
       const res = await api.get("/inventory/items");
-      setCostData(res.data.items || []);
+      setCostData(extractItems(res));
     } catch (err) {
       console.error("Error loading cost data:", err);
     } finally {
@@ -175,12 +242,15 @@ export default function PriceSetup() {
         case "customer":
           endpoint = "/sales/prices/customer";
           if (filters.customer) params.customer_id = filters.customer;
+          if (customers.length === 0) {
+            loadCustomers();
+          }
           break;
         default:
           return;
       }
       const res = await api.get(endpoint, { params });
-      const items = Array.isArray(res.data) ? res.data : res.data.items || [];
+      const items = extractItems(res);
       setData(items);
     } catch (err) {
       console.error("Error loading tab data:", err);
@@ -202,25 +272,25 @@ export default function PriceSetup() {
     sorted.sort((a, b) => {
       let aVal, bVal;
       if (sortConfig.key === "product") {
-        const aProd = products.find((p) => p.id === a.product_id);
-        const bProd = products.find((p) => p.id === b.product_id);
-        aVal = (aProd ? aProd.item_name : "").toLowerCase();
-        bVal = (bProd ? bProd.item_name : "").toLowerCase();
+        const aProd = products.find((p) => String(p.id) === String(a.product_id));
+        const bProd = products.find((p) => String(p.id) === String(b.product_id));
+        aVal = (aProd ? aProd.item_name : (a.item_name || "")).toLowerCase();
+        bVal = (bProd ? bProd.item_name : (b.item_name || "")).toLowerCase();
       } else if (sortConfig.key === "customer") {
-        const aCust = customers.find((c) => c.id === a.customer_id);
-        const bCust = customers.find((c) => c.id === b.customer_id);
-        aVal = (aCust ? aCust.customer_name : "").toLowerCase();
-        bVal = (bCust ? bCust.customer_name : "").toLowerCase();
+        const aCust = customers.find((c) => String(c.id) === String(a.customer_id));
+        const bCust = customers.find((c) => String(c.id) === String(b.customer_id));
+        aVal = (aCust ? aCust.customer_name : (a.customer_name || "")).toLowerCase();
+        bVal = (bCust ? bCust.customer_name : (b.customer_name || "")).toLowerCase();
       } else if (sortConfig.key === "price_type") {
-        const apt = priceTypes.find((pt) => pt.id === a.price_type_id);
-        const bpt = priceTypes.find((pt) => pt.id === b.price_type_id);
-        aVal = (apt ? apt.name : "").toLowerCase();
-        bVal = (bpt ? bpt.name : "").toLowerCase();
+        const apt = priceTypes.find((pt) => String(pt.id) === String(a.price_type_id));
+        const bpt = priceTypes.find((pt) => String(pt.id) === String(b.price_type_id));
+        aVal = (apt ? apt.name : (a.price_type_name || "")).toLowerCase();
+        bVal = (bpt ? bpt.name : (b.price_type_name || "")).toLowerCase();
       } else if (sortConfig.key === "currency") {
-        const ac = currencies.find((c) => c.id === a.currency_id);
-        const bc = currencies.find((c) => c.id === b.currency_id);
-        aVal = (ac ? ac.code : "").toLowerCase();
-        bVal = (bc ? bc.code : "").toLowerCase();
+        const ac = currencies.find((c) => String(c.id) === String(a.currency_id));
+        const bc = currencies.find((c) => String(c.id) === String(b.currency_id));
+        aVal = (ac ? ac.code : (a.currency_code || "")).toLowerCase();
+        bVal = (bc ? bc.code : (b.currency_code || "")).toLowerCase();
       } else {
         aVal = a[sortConfig.key];
         bVal = b[sortConfig.key];
@@ -320,9 +390,9 @@ export default function PriceSetup() {
       ];
       filename = "customer_prices_template.xlsx";
       rows = data.map((item) => {
-        const product = products.find((p) => p.id === item.product_id);
-        const customer = customers.find((c) => c.id === item.customer_id);
-        const priceType = priceTypes.find((pt) => pt.id === item.price_type_id);
+        const product = products.find((p) => String(p.id) === String(item.product_id));
+        const customer = customers.find((c) => String(c.id) === String(item.customer_id));
+        const priceType = priceTypes.find((pt) => String(pt.id) === String(item.price_type_id));
         const prodCurrency = product
           ? currencies.find((c) => c.id === product.currency_id) ||
             currencies.find(
@@ -346,9 +416,9 @@ export default function PriceSetup() {
               product.category)) ||
           "";
         return [
-          customer ? customer.customer_name : "",
-          product ? product.item_code : "",
-          product ? product.item_name : "",
+          customer ? customer.customer_name : (item.customer_name || ""),
+          product ? product.item_code : (item.item_code || ""),
+          product ? product.item_name : (item.item_name || ""),
           groupName,
           item.standard_price,
           item.customer_price,
@@ -592,6 +662,9 @@ export default function PriceSetup() {
     setBulkSelectedItems([]);
     setBulkFilteredItems([]);
     setBulkSelectAll(false);
+    if (type === "customer" && customers.length === 0) {
+      loadCustomers();
+    }
     const today = new Date().toISOString().split("T")[0];
     const retailPt = priceTypes.find(
       (pt) =>
@@ -893,25 +966,25 @@ export default function PriceSetup() {
         </thead>
         <tbody>
           {tableData.map((item, index) => {
-            const customer = customers.find((c) => c.id === item.customer_id);
-            const product = products.find((p) => p.id === item.product_id);
+            const customer = customers.find((c) => String(c.id) === String(item.customer_id));
+            const product = products.find((p) => String(p.id) === String(item.product_id));
             const priceType = priceTypes.find(
-              (pt) => pt.id === item.price_type_id,
+              (pt) => String(pt.id) === String(item.price_type_id),
             );
-            const currency = currencies.find((c) => c.id === item.currency_id);
+            const currency = currencies.find((c) => String(c.id) === String(item.currency_id));
             return (
               <tr key={index}>
-                <td>{customer ? customer.customer_name : item.customer_id}</td>
-                <td>{product ? product.item_name : item.product_id}</td>
-                <td>{Number(item.standard_price).toFixed(2)}</td>
-                <td>{Number(item.customer_price).toFixed(2)}</td>
-                <td>{Number(item.discount_percent).toFixed(2)}%</td>
-                <td>{priceType ? priceType.name : "-"}</td>
+                <td>{customer ? (customer.customer_name || customer.name) : (item.customer_name || item.customer_id)}</td>
+                <td>{product ? (product.item_name || product.name) : (item.item_name || item.product_id)}</td>
+                <td>{Number(item.standard_price || 0).toFixed(2)}</td>
+                <td>{Number(item.customer_price || 0).toFixed(2)}</td>
+                <td>{Number(item.discount_percent || 0).toFixed(2)}%</td>
+                <td>{priceType ? (priceType.name || priceType.code) : (item.price_type_name || "-")}</td>
                 <td>{item.uom || "-"}</td>
                 <td>
                   {currency
                     ? `${currency.code} - ${currency.name}`
-                    : item.currency_id || "-"}
+                    : (item.currency_code || item.currency_id || "-")}
                 </td>
               </tr>
             );
@@ -1197,15 +1270,17 @@ export default function PriceSetup() {
             <div className="form-group">
               <label className="required">Customer</label>
               <select
-                value={formData.customer_id || ""}
+                value={formData.customer_id != null ? String(formData.customer_id) : ""}
                 onChange={(e) =>
                   setFormData({ ...formData, customer_id: e.target.value })
                 }
               >
-                <option value="">Select Customer</option>
+                <option value="">
+                  {customersLoading ? "Loading customers..." : "Select Customer"}
+                </option>
                 {customers.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.customer_name}
+                    {c.customer_name || c.name || c.customer_code || `Customer #${c.id}`}
                   </option>
                 ))}
               </select>
@@ -1353,13 +1428,15 @@ export default function PriceSetup() {
               <div className="form-group">
                 <label className="required">Customer</label>
                 <select
-                  value={bulkCustomerId}
+                  value={bulkCustomerId != null ? String(bulkCustomerId) : ""}
                   onChange={(e) => setBulkCustomerId(e.target.value)}
                 >
-                  <option value="">Select Customer</option>
+                  <option value="">
+                    {customersLoading ? "Loading customers..." : "Select Customer"}
+                  </option>
                   {customers.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.customer_name}
+                      {c.customer_name || c.name || c.customer_code || `Customer #${c.id}`}
                     </option>
                   ))}
                 </select>
@@ -1911,15 +1988,17 @@ export default function PriceSetup() {
                   <div className="form-group">
                     <label>Select Customer</label>
                     <select
-                      value={filters.customer}
+                      value={filters.customer != null ? String(filters.customer) : ""}
                       onChange={(e) =>
                         setFilters({ ...filters, customer: e.target.value })
                       }
                     >
-                      <option value="">All Customers</option>
+                      <option value="">
+                        {customersLoading ? "Loading customers..." : "All Customers"}
+                      </option>
                       {customers.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.customer_name}
+                          {c.customer_name || c.name || c.customer_code || `Customer #${c.id}`}
                         </option>
                       ))}
                     </select>
@@ -2057,6 +2136,9 @@ export default function PriceSetup() {
                     setBulkSelectedItems([]);
                     setBulkFilteredItems([]);
                     setBulkSelectAll(false);
+                    if (customers.length === 0) {
+                      loadCustomers();
+                    }
                     setModalOpen(true);
                   }}
                   className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"

@@ -1781,7 +1781,15 @@ router.get(
   requireAuth,
   requireCompanyScope,
   requireBranchScope,
-  requirePermission("SAL.CUSTOMER.VIEW"),
+  requireAnyPermission([
+    "SAL.CUSTOMER.VIEW",
+    "SAL.PRICE.VIEW",
+    "SAL.PRICE.CREATE",
+    "SAL.PRICE.EDIT",
+    "SAL.ORDER.VIEW",
+    "SAL.INVOICE.VIEW",
+    "SAL.QUOTATION.VIEW",
+  ]),
   async (req, res, next) => {
     try {
       const companyId = req.scope.companyId;
@@ -2404,8 +2412,12 @@ router.get(
   requireBranchScope,
   requireAnyPermission([
     "SAL.CUSTOMER.VIEW",
+    "SAL.PRICE.VIEW",
+    "SAL.PRICE.CREATE",
+    "SAL.PRICE.EDIT",
     "SAL.ORDER.VIEW",
     "SAL.INVOICE.VIEW",
+    "SAL.QUOTATION.VIEW",
   ]),
   async (req, res, next) => {
     try {
@@ -5609,12 +5621,22 @@ router.get(
           : null;
       const rows = await query(
         `SELECT cp.*,
+          c.customer_name,
+          c.customer_code,
+          i.item_name,
+          i.item_code,
+          pt.name AS price_type_name,
+          cur.code AS currency_code,
           cp.created_at,
           u.username AS created_by_name
          FROM sal_customer_prices cp
+        LEFT JOIN sal_customers c ON c.id = cp.customer_id
+        LEFT JOIN inv_items i ON i.id = cp.product_id
+        LEFT JOIN sal_price_types pt ON pt.id = cp.price_type_id
+        LEFT JOIN fin_currencies cur ON cur.id = cp.currency_id
         LEFT JOIN adm_users u ON u.id = cp.created_by
          WHERE cp.company_id = :companyId
-           AND ((:branchIdsStr = '' OR FIND_IN_SET(branch_id, :branchIdsStr)) OR cp.branch_id IS NULL)
+           AND ((:branchIdsStr = '' OR FIND_IN_SET(cp.branch_id, :branchIdsStr)) OR cp.branch_id IS NULL)
            AND (:customer_id IS NULL OR cp.customer_id = :customer_id)
          ORDER BY cp.updated_at DESC, cp.id DESC`,
         { companyId, branchId, branchIdsStr, customer_id },

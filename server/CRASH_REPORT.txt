@@ -39275,3 +39275,56 @@ Error: write ECONNRESET
     at respond (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\engine.io\build\transports\polling.js:234:22)
     at Polling.doWrite (C:\Users\stanl\OneDrive\Documents\serianamart\server\node_modules\engine.io\build\transports\polling.js:243:13)
 --------------------------------------------------------------------------------
+
+[2026-10-08T07:08:08.165Z] HTTP_401
+Summary: Invalid credentials
+Request: POST /api/login (status 401)
+Context:
+status: 401
+code: INVALID_CREDENTIALS
+method: POST
+url: /api/login
+ip: ::1
+origin: 
+userAgent: node
+userId: null
+companyId: null
+branchId: null
+body: {"username":"admin","password":"[REDACTED]"}
+query: {}
+Technical details:
+Error: Invalid credentials
+    at httpError (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/utils/httpError.js:16:15)
+    at login (file:///C:/Users/stanl/OneDrive/Documents/serianamart/server/controllers/auth.controller.js:413:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+--------------------------------------------------------------------------------
+
+[2026-10-08T07:08:08.601Z] CLIENT_ERROR
+Summary: read ECONNRESET
+Context:
+remoteAddress: ::1
+remotePort: 57213
+Technical details:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+--------------------------------------------------------------------------------
+
+[2026-10-08T07:08:08.603Z] CLIENT_ERROR
+Summary: read ECONNRESET
+Context:
+remoteAddress: ::1
+remotePort: 57224
+Technical details:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+--------------------------------------------------------------------------------
+
+[2026-10-08T07:26:03.311Z] CLIENT_ERROR
+Summary: read ECONNRESET
+Context:
+remoteAddress: ::1
+remotePort: 58787
+Technical details:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+--------------------------------------------------------------------------------
