@@ -39328,3 +39328,32 @@ Technical details:
 Error: read ECONNRESET
     at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
 --------------------------------------------------------------------------------
+
+[2026-10-08T09:42:35.726Z] HTTP_404
+Summary: Request failed with status 404
+Request: GET /api/admin/settings/app-background (status 404)
+Context:
+requestId: muzclinj-methczcn
+durationMs: 31
+method: GET
+url: /api/admin/settings/app-background
+ip: ::1
+origin: 
+userAgent: node
+userId: null
+companyId: null
+branchId: null
+status: 404
+Technical details:
+(no stack)
+--------------------------------------------------------------------------------
+
+[2026-10-08T13:13:46.041Z] CLIENT_ERROR
+Summary: read ECONNRESET
+Context:
+remoteAddress: ::1
+remotePort: 49245
+Technical details:
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+--------------------------------------------------------------------------------

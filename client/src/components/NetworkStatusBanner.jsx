@@ -41,6 +41,7 @@ export default function NetworkStatusBanner() {
           isRestored: true,
           title: "Connection Restored",
           realProblem: "Successfully connected back to the server.",
+          technicalDetail: null,
         });
         setDismissed(false);
         setTimeout(() => {
@@ -53,6 +54,7 @@ export default function NetworkStatusBanner() {
           category: diag.category,
           title: diag.title,
           realProblem: diag.realProblem,
+          technicalDetail: diag.technicalDetail,
           suggestion: diag.suggestion,
           isRestored: false,
         });
@@ -74,6 +76,7 @@ export default function NetworkStatusBanner() {
             isRestored: true,
             title: "Connection Restored",
             realProblem: "Internet connection has been re-established and the server is reachable.",
+            technicalDetail: null,
           });
           setDismissed(false);
           setTimeout(() => {
@@ -86,6 +89,7 @@ export default function NetworkStatusBanner() {
             category: diag.category,
             title: diag.title,
             realProblem: diag.realProblem,
+            technicalDetail: diag.technicalDetail,
             suggestion: diag.suggestion,
             isRestored: false,
           });
@@ -101,6 +105,7 @@ export default function NetworkStatusBanner() {
         category: "NO_INTERNET",
         title: "Network Error: No Internet Connection",
         realProblem: "Your device is not connected to the internet. Wi-Fi, Ethernet, or mobile data is turned off or disconnected.",
+        technicalDetail: "navigator.onLine=false",
         suggestion: "Please check your network cables or Wi-Fi connection.",
         isRestored: false,
       });
@@ -117,6 +122,7 @@ export default function NetworkStatusBanner() {
         category: diag.category,
         title: diag.title,
         realProblem: diag.realProblem,
+        technicalDetail: diag.technicalDetail,
         suggestion: diag.suggestion,
         isRestored: false,
       });
@@ -147,7 +153,7 @@ export default function NetworkStatusBanner() {
         className="fixed top-0 left-0 right-0 z-[99999] bg-emerald-600 text-white px-4 py-2.5 shadow-md flex items-center justify-between transition-all duration-300"
       >
         <div className="flex items-center gap-2.5 max-w-5xl mx-auto w-full">
-          <span className="text-xl leading-none">âœ…</span>
+          <span className="text-xl leading-none">✅</span>
           <div className="flex-1 text-sm font-medium">
             <span className="font-bold mr-1">Connection Restored:</span>
             <span>{networkState.realProblem}</span>
@@ -157,7 +163,7 @@ export default function NetworkStatusBanner() {
             className="text-white/80 hover:text-white text-lg px-2 rounded hover:bg-emerald-700/50"
             title="Dismiss"
           >
-            âœ•
+            ✕
           </button>
         </div>
       </div>
@@ -176,7 +182,7 @@ export default function NetworkStatusBanner() {
     >
       <div className="flex items-start gap-3 max-w-6xl mx-auto w-full">
         <span className="text-2xl leading-none mt-0.5">
-          {isNoInternet ? "ðŸ“¡" : "âš ï¸"}
+          {isNoInternet ? "📡" : "⚠️"}
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -191,8 +197,13 @@ export default function NetworkStatusBanner() {
             <span className="font-bold underline decoration-white/40 mr-1">Real Problem:</span>
             {networkState.realProblem}
           </p>
+          {networkState.technicalDetail && (
+            <p className="text-xs font-mono text-white/85 mt-1 bg-black/20 px-2 py-0.5 rounded inline-block break-all">
+              <span className="opacity-70 mr-1">Detail:</span>{networkState.technicalDetail}
+            </p>
+          )}
           {networkState.suggestion && (
-            <p className="text-xs text-white/80 mt-0.5 italic">
+            <p className="text-xs text-white/80 mt-1 italic">
               Suggested fix: {networkState.suggestion}
             </p>
           )}
@@ -206,12 +217,12 @@ export default function NetworkStatusBanner() {
           >
             {isChecking ? (
               <>
-                <span className="animate-spin text-sm">âŸ³</span>
+                <span className="animate-spin text-sm">⟳</span>
                 <span>Testing...</span>
               </>
             ) : (
               <>
-                <span>â†»</span>
+                <span>↻</span>
                 <span>Retry Connection</span>
               </>
             )}
@@ -222,7 +233,7 @@ export default function NetworkStatusBanner() {
             className="p-1.5 text-white/80 hover:text-white rounded hover:bg-black/20 text-sm"
             title="Dismiss notification"
           >
-            âœ•
+            ✕
           </button>
         </div>
       </div>

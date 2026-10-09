@@ -6,28 +6,51 @@
  */
 
 /**
+ * Resolves the true API base URL across environments (production, staging, local dev).
+ */
+export function getApiBaseUrl() {
+  if (
+    typeof window !== "undefined" &&
+    (window.location.hostname === "serianamart.omnisuite-erp.com" ||
+      window.location.hostname === "serianaserver.omnisuite-erp.com")
+  ) {
+    return "https://serianaserver.omnisuite-erp.com/api";
+  }
+  const envBase = typeof import.meta !== "undefined" && import.meta.env?.VITE_API_BASE_URL;
+  if (!envBase) {
+    return "/api";
+  }
+  if (!envBase.startsWith("http") && !envBase.startsWith("/")) {
+    return "/" + envBase;
+  }
+  return envBase;
+}
+
+/**
  * Extracts target host and URL for clear error descriptions.
  */
 function extractTargetUrl(error, fallbackBase = "") {
   try {
     const rawUrl = error?.config?.url || "";
-    const base = error?.config?.baseURL || fallbackBase || (typeof window !== "undefined" ? window.location.origin : "");
+    const base = error?.config?.baseURL || fallbackBase || getApiBaseUrl();
+    const method = String(error?.config?.method || "GET").toUpperCase();
     if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
       const parsed = new URL(rawUrl);
-      return { fullUrl: rawUrl, host: parsed.host, path: parsed.pathname };
+      return { fullUrl: rawUrl, host: parsed.host, path: parsed.pathname, method };
     }
     const full = `${base.replace(/\/+$/, "")}/${rawUrl.replace(/^\/+/, "")}`;
     if (full.startsWith("http://") || full.startsWith("https://")) {
       const parsed = new URL(full);
-      return { fullUrl: full, host: parsed.host, path: parsed.pathname };
+      return { fullUrl: full, host: parsed.host, path: parsed.pathname, method };
     }
     return {
       fullUrl: full,
       host: typeof window !== "undefined" ? window.location.host : "server",
       path: rawUrl || "/",
+      method,
     };
   } catch {
-    return { fullUrl: "", host: "server", path: "" };
+    return { fullUrl: "", host: "server", path: "", method: "GET" };
   }
 }
 
@@ -62,7 +85,7 @@ export function diagnoseNetworkIssue(error, context = {}) {
   }
 
   const isBrowserOffline = typeof navigator !== "undefined" && navigator.onLine === false;
-  const { host, fullUrl } = extractTargetUrl(error, context.baseURL);
+  const { host, fullUrl, method, path } = extractTargetUrl(error, context.baseURL || getApiBaseUrl());
 
   // 1. NO INTERNET CONNECTION (Device Offline)
   if (
@@ -83,6 +106,8 @@ export function diagnoseNetworkIssue(error, context = {}) {
       status: 0,
       host,
       fullUrl,
+      method,
+      endpoint: path,
       timestamp: Date.now(),
     };
   }
@@ -91,6 +116,8 @@ export function diagnoseNetworkIssue(error, context = {}) {
   const isTimeout =
     code === "ECONNABORTED" ||
     code === "ETIMEDOUT" ||
+    error?.name === "AbortError" ||
+    lowerMsg.includes("aborted") ||
     lowerMsg.includes("timeout of") ||
     lowerMsg.includes("timed out") ||
     lowerMsg.includes("network timeout") ||
@@ -99,17 +126,20 @@ export function diagnoseNetworkIssue(error, context = {}) {
   if (isTimeout) {
     const timeoutMatch = rawMsg.match(/timeout of (\d+)ms/i);
     const timeoutSec = timeoutMatch ? Math.round(Number(timeoutMatch[1]) / 1000) : (error?.config?.timeout ? Math.round(error.config.timeout / 1000) : 45);
+    const endpointDesc = path ? ` (${method} ${path})` : "";
     return {
       isNetworkError: true,
       category: "TIMEOUT",
       title: "Network Error: Request Timed Out",
-      realProblem: `The server took longer than ${timeoutSec} seconds to respond. The server may be experiencing high load or your connection has high latency.`,
+      realProblem: `The server took longer than ${timeoutSec}s to respond${endpointDesc}. The server may be experiencing high load or restarting.`,
       suggestion: "Please check your network speed or try again in a few moments.",
-      summary: `Network Error: Request Timed Out. The server did not respond within ${timeoutSec}s. The server may be overloaded or connection is slow.`,
-      technicalDetail: `code=${code || "TIMEOUT"}, duration>${timeoutSec}s`,
+      summary: `Network Error: Request Timed Out. The server did not respond within ${timeoutSec}s${endpointDesc}.`,
+      technicalDetail: `code=${code || (error?.name === "AbortError" ? "ABORTED" : "TIMEOUT")}, duration>${timeoutSec}s, url=${fullUrl || path}`,
       status: status || 408,
       host,
       fullUrl,
+      method,
+      endpoint: path,
       timestamp: Date.now(),
     };
   }
@@ -132,13 +162,17 @@ export function diagnoseNetworkIssue(error, context = {}) {
       status: 0,
       host,
       fullUrl,
+      method,
+      endpoint: path,
       timestamp: Date.now(),
     };
   }
 
   // 4. SERVER UNREACHABLE / CONNECTION REFUSED (Device has internet, but backend is unreachable)
   const isServerUnreachable =
-    !error?.response && (
+    !error?.response &&
+    !isTimeout &&
+    (
       code === "ERR_NETWORK" ||
       code === "ERR_CONNECTION_REFUSED" ||
       code === "ECONNREFUSED" ||
@@ -150,17 +184,34 @@ export function diagnoseNetworkIssue(error, context = {}) {
 
   if (isServerUnreachable) {
     const targetDesc = host && host !== "server" ? `at ${host}` : "";
+    const endpointDesc = path ? ` (${method} ${path})` : "";
+    const rawDetail = code || rawMsg || "Network Error";
+
+    let concreteReason = "";
+    if (code === "ERR_CONNECTION_REFUSED" || code === "ECONNREFUSED" || lowerMsg.includes("connection refused")) {
+      concreteReason = `Connection refused by ${host || "server"}${endpointDesc}. The backend service is currently offline or was restarting.`;
+    } else if (code === "ERR_CONNECTION_RESET") {
+      concreteReason = `Connection abruptly closed/reset by ${host || "server"}${endpointDesc}. The backend process restarted or dropped the socket.`;
+    } else if (lowerMsg.includes("failed to fetch")) {
+      concreteReason = `Browser network transport failed on ${method} ${path || fullUrl || host}. Possible backend restart, temporary downtime, or blocked CORS preflight.`;
+    } else {
+      concreteReason = `Cannot establish connection to ${host || "server"}${endpointDesc}. Raw error: ${rawDetail}.`;
+    }
+
     return {
       isNetworkError: true,
       category: "SERVER_UNREACHABLE",
       title: "Network Error: Server Unreachable",
-      realProblem: `Cannot establish a connection to the application server ${targetDesc}. The server may be down, undergoing maintenance, or blocked by a firewall.`,
-      suggestion: "Please verify that the backend server is running and accessible on your network.",
-      summary: `Network Error: Server Unreachable. Cannot connect to the server ${targetDesc}. The backend server may be offline, stopped, or blocked by a firewall.`,
-      technicalDetail: `code=${code || "ERR_NETWORK"}, online=true, target=${fullUrl || host}`,
+      realProblem: concreteReason,
+      suggestion: "If the backend recently restarted, click 'Retry Connection'. If this persists, verify backend process status.",
+      summary: `Network Error: Server Unreachable ${targetDesc}. ${concreteReason}`,
+      technicalDetail: `code=${code || "ERR_NETWORK"}, method=${method}, url=${fullUrl || path}, message="${rawMsg}"`,
       status: 0,
       host,
       fullUrl,
+      method,
+      endpoint: path,
+      rawError: rawMsg || code,
       timestamp: Date.now(),
     };
   }
@@ -307,10 +358,13 @@ export async function checkServerHealth(timeoutMs = 4000) {
   }
 
   const startTime = Date.now();
+  const apiBase = getApiBaseUrl();
+  const cleanBase = apiBase.replace(/\/+$/, "");
+  const healthUrl = `${cleanBase}/health?_t=${Date.now()}`;
+
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const healthUrl = `/api/health?_t=${Date.now()}`;
     
     const resp = await fetch(healthUrl, {
       method: "GET",
@@ -332,8 +386,8 @@ export async function checkServerHealth(timeoutMs = 4000) {
 
     const diag = diagnoseNetworkIssue({
       response: { status: resp.status, statusText: resp.statusText },
-      config: { url: healthUrl },
-    });
+      config: { url: healthUrl, method: "GET" },
+    }, { baseURL: apiBase });
     return {
       isOnline: true,
       isServerReachable: false,
@@ -341,7 +395,7 @@ export async function checkServerHealth(timeoutMs = 4000) {
       latencyMs,
     };
   } catch (err) {
-    const diag = diagnoseNetworkIssue(err, { baseURL: "/api" });
+    const diag = diagnoseNetworkIssue(err, { baseURL: apiBase });
     return {
       isOnline: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
       isServerReachable: false,
