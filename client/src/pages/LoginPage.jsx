@@ -298,6 +298,12 @@ export default function LoginPage() {
     const submittedUsername = usernameRef.current?.value?.trim() || "";
     const submittedPassword = passwordRef.current?.value || "";
 
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("No internet access");
+      toast.error("No internet access");
+      return;
+    }
+
     if (!submittedUsername || !submittedPassword) {
       setError("Please enter both username and password");
       return;
@@ -488,8 +494,17 @@ export default function LoginPage() {
         return;
       }
 
-      const msg =
-        err?.response?.data?.message || err?.message || "Login failed";
+      const isNetworkIssue =
+        err?.isNetworkError ||
+        !err?.response ||
+        err?.code === "ERR_NETWORK" ||
+        err?.code === "ECONNABORTED" ||
+        String(err?.message || "").toLowerCase().includes("network error") ||
+        (typeof navigator !== "undefined" && !navigator.onLine);
+
+      const msg = isNetworkIssue
+        ? "No internet access"
+        : (err?.response?.data?.message || err?.message || "Login failed");
       setError(msg);
       toast.error(msg);
     } finally {

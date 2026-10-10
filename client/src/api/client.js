@@ -469,19 +469,26 @@ api.interceptors.response.use(
           message: diagnosis.summary,
           error: diagnosis.title,
           realProblem: diagnosis.realProblem,
-          suggestion: diagnosis.suggestion,
+          suggestion: "",
           isNetworkError: true,
           category: diagnosis.category,
         },
         headers: {},
         config: error.config,
       };
-    } else if (normalizedResponse?.data && typeof normalizedResponse.data === "object" && diagnosis.isNetworkError) {
-      if (!normalizedResponse.data.message || normalizedResponse.data.message === "Internal Server Error") {
+    } else if (diagnosis.isNetworkError && normalizedResponse) {
+      if (!normalizedResponse.data || typeof normalizedResponse.data !== "object") {
+        normalizedResponse.data = {
+          message: diagnosis.summary,
+          error: diagnosis.title,
+          isNetworkError: true,
+        };
+      } else {
         normalizedResponse.data.message = diagnosis.summary;
+        normalizedResponse.data.error = diagnosis.title;
+        normalizedResponse.data.realProblem = diagnosis.realProblem;
+        normalizedResponse.data.isNetworkError = true;
       }
-      normalizedResponse.data.realProblem = diagnosis.realProblem;
-      normalizedResponse.data.isNetworkError = true;
     }
 
     const finalMessage = diagnosis.isNetworkError
@@ -498,7 +505,7 @@ api.interceptors.response.use(
       isNetworkError: diagnosis.isNetworkError,
       networkDiagnosis: diagnosis,
       realProblem: diagnosis.realProblem,
-      suggestion: diagnosis.suggestion,
+      suggestion: "",
     });
   },
 );

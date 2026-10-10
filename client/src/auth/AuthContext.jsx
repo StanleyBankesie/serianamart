@@ -137,11 +137,13 @@ export function AuthProvider({ children }) {
         });
         setScope(nextScope);
         setInitialized(true);
-      } catch {
+      } catch (err) {
         if (!active) return;
-        clearStoredAuth();
-        setToken(null);
-        setUser(null);
+        if (err?.response?.status === 401) {
+          clearStoredAuth();
+          setToken(null);
+          setUser(null);
+        }
         setInitialized(true);
       }
     }

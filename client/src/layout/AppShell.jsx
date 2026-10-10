@@ -387,8 +387,7 @@ export default function AppShell() {
         toast.success("Connection restored! You are back online.");
       } else {
         setOnline(false);
-        const diag = health.diagnosis || diagnoseNetworkIssue({ code: "ERR_NETWORK" });
-        toast.error(`${diag.title}: ${diag.realProblem}`);
+        toast.error("No internet access");
       }
     } finally {
       setIsCheckingNetwork(false);
@@ -403,13 +402,13 @@ export default function AppShell() {
           toast.success("Connection restored! You are back online.");
         } else {
           setOnline(false);
-          const diag = health.diagnosis || diagnoseNetworkIssue({ code: "ERR_NETWORK" });
-          toast.error(`${diag.title}: ${diag.realProblem}`);
+          toast.error("No internet access");
         }
       });
     }
     function onOffline() {
       setOnline(false);
+      toast.error("No internet access");
     }
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
@@ -1574,9 +1573,8 @@ export default function AppShell() {
         <div className="px-6 py-2.5 bg-amber-500/10 dark:bg-amber-950/40 border-b border-amber-500/30 text-amber-800 dark:text-amber-200 text-sm flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <span>📡</span>
-            <span>
-              <strong className="mr-1">Network Error (Offline):</strong>
-              No internet connection detected. Offline mode enabled — cached pages remain accessible and transactions will sync when reconnected.
+            <span className="font-semibold">
+              No internet access
             </span>
           </div>
           <button
@@ -1585,7 +1583,7 @@ export default function AppShell() {
             disabled={isCheckingNetwork}
             className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs rounded font-medium transition shrink-0"
           >
-            {isCheckingNetwork ? "Checking..." : "Check Connection"}
+            {isCheckingNetwork ? "Checking..." : "Retry"}
           </button>
         </div>
       )}
@@ -2035,20 +2033,9 @@ export default function AppShell() {
                   <div className="w-16 h-16 mx-auto mb-4 bg-amber-100 dark:bg-amber-900/40 rounded-full flex items-center justify-center text-3xl">
                     📡
                   </div>
-                  <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">
-                    Network Error: Module Offline
+                  <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-6">
+                    No internet access
                   </h2>
-                  <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 text-left mb-6 text-sm text-slate-600 dark:text-slate-300 space-y-2">
-                    <p className="font-semibold text-rose-600 dark:text-rose-400 text-xs uppercase tracking-wider">
-                      Real Problem:
-                    </p>
-                    <p>
-                      No active internet connection was detected on your device. This module requires live communication with the server to fetch and record live data.
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 italic">
-                      Please check your Wi-Fi, Ethernet, or mobile data connection and click Retry.
-                    </p>
-                  </div>
                   <div className="flex items-center justify-center gap-3">
                     <button
                       type="button"
@@ -2059,12 +2046,12 @@ export default function AppShell() {
                       {isCheckingNetwork ? (
                         <>
                           <span className="animate-spin">🔄</span>
-                          <span>Testing Connection...</span>
+                          <span>Testing...</span>
                         </>
                       ) : (
                         <>
                           <span>↻</span>
-                          <span>Retry Connection</span>
+                          <span>Retry</span>
                         </>
                       )}
                     </button>
