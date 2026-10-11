@@ -352,20 +352,18 @@ export const MODULES_REGISTRY = {
       { key: "post-to-finance", label: "Post to Finance", type: "feature" },
       { key: "returns", label: "POS Returns", type: "feature" },
       { key: "register", label: "POS Register", type: "feature" },
-
-
-
+      { key: "dashboard", label: "Dashboard", type: "feature", path: "/pos/dashboard" },
       { key: "customer-history", label: "Customer Accounts", type: "feature" },
       { key: "on-hold", label: "On-Hold Sales", type: "feature", path: "/pos/holds" },
       { key: "reconciliation", label: "Sync Reconciliation", type: "feature" },
       { key: "setup", label: "POS Setup", type: "feature" },
     ],
     dashboards: [
-
-          { key: "pos-today-sales", label: "Today Sales", type: "dashboard" },
+      { key: "dashboard", label: "Dashboard", type: "dashboard", path: "/pos/dashboard" },
+      { key: "pos-today-sales", label: "Today Sales", type: "dashboard" },
       { key: "pos-total-transactions", label: "Total Transactions", type: "dashboard" },
       { key: "pos-avg-order", label: "Average Order Value", type: "dashboard" },
-]
+    ]
   },
 
   "business-intelligence": {

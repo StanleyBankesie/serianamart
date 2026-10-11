@@ -184,16 +184,11 @@ export function ModuleTopNavBar({ sections = [], headerActions = [], moduleKey }
 
   const resolvedHeaderActions = React.useMemo(() => {
     const actions = Array.isArray(headerActions) ? [...headerActions] : [];
-    // Remove Dashboard button from top navigation bar
     return actions.filter((a) => {
-      const p = String(a?.path || "").toLowerCase();
-      const l = String(a?.label || a?.title || "").toLowerCase();
-      if (l === "dashboard" || p.endsWith("/dashboard") || p.endsWith("/dashboards")) {
-        return false;
-      }
-      return true;
+      if (!a?.path) return false;
+      return canAccessPath(a.path, "view");
     });
-  }, [headerActions]);
+  }, [headerActions, canAccessPath]);
 
   if (!sections.length && !resolvedHeaderActions.length) return null;
 

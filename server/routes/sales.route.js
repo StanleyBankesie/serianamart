@@ -2203,6 +2203,10 @@ router.get(
     "SAL.ORDER.VIEW",
     "SAL.INVOICE.VIEW",
     "SAL.QUOTATION.VIEW",
+    "POS.SALE.VIEW",
+    "POS.SALE.CREATE",
+    "POS.REGISTER.VIEW",
+    "POS.DASHBOARD.VIEW",
   ]),
   async (req, res, next) => {
     try {

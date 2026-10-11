@@ -325,18 +325,18 @@ export const FEATURES_REGISTRY = {
       { feature_key: "pos:post-to-finance", type: "feature", label: "Post to Finance", path: "/pos/post-to-finance" },
       { feature_key: "pos:returns", type: "feature", label: "POS Returns", path: "/pos/returns" },
       { feature_key: "pos:register", type: "feature", label: "POS Register", path: "/pos/register" },
-
-
+      { feature_key: "pos:dashboard", type: "feature", label: "Dashboard", path: "/pos/dashboard" },
       { feature_key: "pos:customer-history", type: "feature", label: "Customer Accounts", path: "/pos/customer-history" },
       { feature_key: "pos:on-hold", type: "feature", label: "On-Hold Sales", path: "/pos/holds" },
       { feature_key: "pos:reconciliation", type: "feature", label: "Sync Reconciliation", path: "/pos/reconciliation" },
       { feature_key: "pos:setup", type: "feature", label: "POS Setup", path: "/pos/setup" },
     ],
     dashboards: [
-          { feature_key: "pos:pos-today-sales", type: "dashboard", label: "Today Sales", path: "/pos/reports/pos-today-sales" },
+      { feature_key: "pos:dashboard", type: "dashboard", label: "Dashboard", path: "/pos/dashboard" },
+      { feature_key: "pos:pos-today-sales", type: "dashboard", label: "Today Sales", path: "/pos/reports/pos-today-sales" },
       { feature_key: "pos:pos-total-transactions", type: "dashboard", label: "Total Transactions", path: "/pos/reports/pos-total-transactions" },
       { feature_key: "pos:pos-avg-order", type: "dashboard", label: "Average Order Value", path: "/pos/reports/pos-avg-order" },
-],
+    ],
   },
 
   // Business Intelligence Module: Contains features for ETL, custom reports, dashboards, and analytics

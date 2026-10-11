@@ -535,7 +535,7 @@ const ModuleDashboard = ({
 
       <div className="space-y-8">
         {/* Header */}
-        <div className="mb-8 hidden lg:flex items-start justify-between gap-4">
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
           {(!useSectionNavigation || searchTerm || activeSection === null) && (
             <h1 className="text-3xl font-bold text-brand-900 dark:text-white tracking-tight mb-2">

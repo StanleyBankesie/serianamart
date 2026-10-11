@@ -120,6 +120,10 @@ async function ensureDashboardPermissionsTable() {
       ) latest ON p.id = latest.max_id
       WHERE latest.max_id IS NULL
     `);
+    await query(`
+      DELETE FROM adm_dashboard_permissions
+      WHERE module_key = 'pos' AND dashboard_key IN ('pos-overview', 'sales-analytics')
+    `);
   } catch {}
   verifiedTables.add("adm_dashboard_permissions");
 }

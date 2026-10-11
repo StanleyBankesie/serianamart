@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../../../api/client.js";
 import { renderHtmlToPdf } from "../../../../utils/pdfUtils.js";
+import { cachePosDatum, getPosDatum, POS_CACHE_KEYS } from "../../../../offline/offlinePosCache.js";
 
 
 function invoiceTotal(it) {
@@ -65,14 +66,26 @@ export default function PosCustomerHistory() {
     let mounted = true;
     setCustomersLoading(true);
     api
-      .get("/sales/customers")
+      .get("/pos/customers")
+      .catch(() => api.get("/sales/customers"))
       .then((res) => {
-        if (mounted) {
-          setCustomers(Array.isArray(res.data?.items) ? res.data.items : []);
-        }
+        if (!mounted) return;
+        const list = Array.isArray(res.data?.items)
+          ? res.data.items
+          : Array.isArray(res.data)
+            ? res.data
+            : [];
+        setCustomers(list);
+        cachePosDatum(POS_CACHE_KEYS.CUSTOMERS, list).catch(() => {});
       })
-      .catch(() => {
-        if (mounted) setCustomers([]);
+      .catch(async () => {
+        if (!mounted) return;
+        try {
+          const cached = await getPosDatum(POS_CACHE_KEYS.CUSTOMERS, []);
+          setCustomers(Array.isArray(cached?.data) ? cached.data : []);
+        } catch {
+          setCustomers([]);
+        }
       })
       .finally(() => {
         if (mounted) setCustomersLoading(false);
@@ -401,12 +414,16 @@ ${bodyHtml}
                     const c = customers.find((x) => String(x.id) === String(id));
                     setCustomerName(c ? c.customer_name : "");
                   }}
-                  disabled={customersLoading}
+                  disabled={customersLoading && customers.length === 0}
                 >
-                  <option value="">All Customers / Walk-in</option>
+                  <option value="">
+                    {customersLoading && customers.length === 0
+                      ? "Loading customers..."
+                      : "All Customers / Walk-in"}
+                  </option>
                   {customers.map((c) => (
                     <option key={c.id} value={String(c.id)}>
-                      {c.customer_name}
+                      {c.customer_name}{c.customer_code ? ` (${c.customer_code})` : ""}
                     </option>
                   ))}
                 </select>

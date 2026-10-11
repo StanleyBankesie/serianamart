@@ -1532,12 +1532,26 @@ export const PermissionProvider = ({ children }) => {
         let hasModuleDashboardConfig = false;
         let hasAnyModuleDashboardEnabled = false;
         for (const m of modKeys) {
+          if (
+            dashboardViewMap.get(`${m}|dashboard|dashboard`) === true ||
+            dashboardViewMap.get(`${m}|dashboard|dashboards`) === true
+          ) {
+            hasAnyModuleDashboardEnabled = true;
+            break;
+          }
+          const regDashboards = MODULES_REGISTRY[m]?.dashboards || [];
+          const validKeys = new Set(regDashboards.map((d) => String(d.key || "").toLowerCase()));
+          validKeys.add("dashboard");
+          validKeys.add("dashboards");
           for (const [compKey, isAllowed] of dashboardViewMap.entries()) {
             if (compKey.startsWith(`${m}|dashboard|`)) {
-              hasModuleDashboardConfig = true;
-              if (isAllowed === true) {
-                hasAnyModuleDashboardEnabled = true;
-                break;
+              const subKey = compKey.slice(`${m}|dashboard|`.length);
+              if (validKeys.has(subKey)) {
+                hasModuleDashboardConfig = true;
+                if (isAllowed === true) {
+                  hasAnyModuleDashboardEnabled = true;
+                  break;
+                }
               }
             }
           }
@@ -1573,12 +1587,25 @@ export const PermissionProvider = ({ children }) => {
       let hasExplicitModuleConfig = false;
       let hasAnyEnabledInModule = false;
       for (const m of modKeys) {
+        const regDashboards = MODULES_REGISTRY[m]?.dashboards || [];
+        const validDashKeys = new Set(regDashboards.map((d) => String(d.key || "").toLowerCase()));
+        validDashKeys.add("dashboard");
+        validDashKeys.add("dashboards");
         for (const [compKey, isAllowed] of dashboardViewMap.entries()) {
-          if (compKey.startsWith(`${m}|card|`) || compKey.startsWith(`${m}|dashboard|`)) {
+          if (compKey.startsWith(`${m}|card|`)) {
             hasExplicitModuleConfig = true;
             if (isAllowed === true) {
               hasAnyEnabledInModule = true;
               break;
+            }
+          } else if (compKey.startsWith(`${m}|dashboard|`)) {
+            const subKey = compKey.slice(`${m}|dashboard|`.length);
+            if (validDashKeys.has(subKey)) {
+              hasExplicitModuleConfig = true;
+              if (isAllowed === true) {
+                hasAnyEnabledInModule = true;
+                break;
+              }
             }
           }
         }

@@ -74,6 +74,7 @@ export default function Sidebar() {
       icon: "🏪",
       path: "/pos",
       children: [
+        { key: "dashboard", label: "Dashboard", path: "/pos/dashboard" },
         { key: "sales-entry", label: "Sales Entry", path: "/pos/sales-entry" },
         {
           key: "day-management",
