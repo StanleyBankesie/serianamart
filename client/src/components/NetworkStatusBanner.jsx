@@ -42,6 +42,12 @@ export default function NetworkStatusBanner() {
         setTimeout(() => {
           setNetworkState((prev) => (prev.isRestored ? { hasError: false, isRestored: false } : prev));
         }, 3000);
+      } else if (health.isOnline && (health.isSwFallback || navigator.onLine)) {
+        // Browser reports online but server health check failed (possibly due
+        // to a Service Worker fallback or transient server issue). Dismiss the
+        // banner rather than showing a false "No internet access" message.
+        setNetworkState({ hasError: false, isRestored: false });
+        setDismissed(true);
       } else {
         setNetworkState({
           hasError: true,
@@ -72,7 +78,7 @@ export default function NetworkStatusBanner() {
         } else {
           setNetworkState({
             hasError: true,
-            title: "No internet access",
+            title: health.diagnosis?.title || "Unable to connect to server",
             isRestored: false,
           });
           setDismissed(false);
@@ -95,9 +101,10 @@ export default function NetworkStatusBanner() {
       const diag = e?.detail;
       if (!diag || !diag.isNetworkError) return;
       
+      const isDeviceOffline = typeof navigator !== "undefined" && navigator.onLine === false;
       setNetworkState({
         hasError: true,
-        title: "No internet access",
+        title: isDeviceOffline ? "No internet access" : (diag.title || "Unable to connect to server"),
         isRestored: false,
       });
       setDismissed(false);
@@ -143,7 +150,11 @@ export default function NetworkStatusBanner() {
     );
   }
 
-  // Active Network Error Banner: Only show "No internet access"
+  // Active Network Error Banner
+  const isDeviceOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+  const bannerTitle = networkState.title || (isDeviceOffline ? "No internet access" : "Unable to connect to server");
+  const isNoInternet = bannerTitle.toLowerCase().includes("no internet");
+
   return (
     <div
       role="alert"
@@ -151,9 +162,9 @@ export default function NetworkStatusBanner() {
       className="fixed top-0 left-0 right-0 z-[99999] bg-amber-600 text-white px-4 py-2.5 shadow-lg flex items-center justify-between transition-all duration-300"
     >
       <div className="flex items-center gap-3 max-w-5xl mx-auto w-full">
-        <span className="text-xl leading-none">📡</span>
+        <span className="text-xl leading-none">{isNoInternet ? "📡" : "🔌"}</span>
         <div className="flex-1 text-sm font-semibold tracking-wide">
-          No internet access
+          {bannerTitle}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button

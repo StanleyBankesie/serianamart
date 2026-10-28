@@ -494,17 +494,20 @@ export default function LoginPage() {
         return;
       }
 
+      const isDeviceOffline = typeof navigator !== "undefined" && !navigator.onLine;
       const isNetworkIssue =
         err?.isNetworkError ||
         !err?.response ||
         err?.code === "ERR_NETWORK" ||
         err?.code === "ECONNABORTED" ||
-        String(err?.message || "").toLowerCase().includes("network error") ||
-        (typeof navigator !== "undefined" && !navigator.onLine);
+        String(err?.message || "").toLowerCase().includes("network error");
 
-      const msg = isNetworkIssue
-        ? "No internet access"
-        : (err?.response?.data?.message || err?.message || "Login failed");
+      let msg = err?.response?.data?.message || err?.message || "Login failed";
+      if (isDeviceOffline) {
+        msg = "No internet access. Please check your network connection.";
+      } else if (isNetworkIssue) {
+        msg = err?.realProblem || err?.networkDiagnosis?.title || "Unable to connect to server. Please try again in a moment.";
+      }
       setError(msg);
       toast.error(msg);
     } finally {

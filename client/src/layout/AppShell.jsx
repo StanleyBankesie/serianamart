@@ -385,9 +385,12 @@ export default function AppShell() {
       if (health.isServerReachable && health.isOnline) {
         setOnline(true);
         toast.success("Connection restored! You are back online.");
-      } else {
+      } else if (!health.isOnline) {
         setOnline(false);
         toast.error("No internet access");
+      } else {
+        setOnline(false);
+        toast.error("Unable to reach server. Please retry in a moment.");
       }
     } finally {
       setIsCheckingNetwork(false);
@@ -400,9 +403,12 @@ export default function AppShell() {
         if (health.isServerReachable) {
           setOnline(true);
           toast.success("Connection restored! You are back online.");
-        } else {
+        } else if (!health.isOnline) {
           setOnline(false);
           toast.error("No internet access");
+        } else {
+          setOnline(false);
+          toast.error("Unable to reach server. Please retry in a moment.");
         }
       });
     }

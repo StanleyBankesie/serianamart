@@ -131,16 +131,27 @@ export function diagnoseNetworkIssue(error, context = {}) {
     );
 
   // 5. Gateway issues / server unavailable (502, 503, 504) or server crash HTML/empty 500
+  //    EXCLUDE Service Worker synthetic fallback responses — those return 503 with
+  //    "X-Service-Worker-Fallback: 1" header or { offline: true } body. They indicate
+  //    the SW couldn't reach the server but the device may still have internet. The
+  //    real connectivity check happens via checkServerHealth(); SW fallbacks should
+  //    not trigger the "No internet access" banner on their own.
+  const isSwFallback =
+    (backendData && typeof backendData === "object" && backendData.offline === true) ||
+    lowerMsg.includes("network unavailable");
+
   const isGatewayOrDown =
-    status === 502 ||
-    status === 503 ||
-    status === 504 ||
-    (status === 500 && (
-      !backendMsg ||
-      backendMsg === "Internal Server Error" ||
-      backendMsg.startsWith("<!DOCTYPE") ||
-      backendMsg.startsWith("<html")
-    ));
+    !isSwFallback && (
+      status === 502 ||
+      status === 503 ||
+      status === 504 ||
+      (status === 500 && (
+        !backendMsg ||
+        backendMsg === "Internal Server Error" ||
+        backendMsg.startsWith("<!DOCTYPE") ||
+        backendMsg.startsWith("<html")
+      ))
+    );
 
   // 6. Browser blocked CORS due to network failure
   const isCorsOrBlocked =
@@ -163,13 +174,43 @@ export function diagnoseNetworkIssue(error, context = {}) {
     isCorsOrBlocked;
 
   if (isNetworkIssue) {
+    let title = "Unable to connect to server";
+    let realProblem = "Could not establish connection to the backend server.";
+    let category = "SERVER_UNREACHABLE";
+
+    if (isNoInternet) {
+      category = "NO_INTERNET";
+      title = NO_INTERNET_ACCESS;
+      realProblem = "Your device is not connected to the internet. Please check your network connection.";
+    } else if (isGatewayOrDown) {
+      category = "GATEWAY_ERROR";
+      title = "Server temporarily unavailable";
+      realProblem = backendMsg || "The server is temporarily unavailable or undergoing maintenance. Please retry in a moment.";
+    } else if (isWeakInternet) {
+      category = "TIMEOUT";
+      title = "Connection timed out";
+      realProblem = "The server took too long to respond. Please check your network speed or retry.";
+    } else if (isServerUnreachable) {
+      category = "SERVER_UNREACHABLE";
+      title = "Unable to connect to server";
+      realProblem = "Could not establish connection to the backend server. Please retry in a few moments.";
+    } else if (isDnsFailure) {
+      category = "DNS_FAILURE";
+      title = "Server unreachable";
+      realProblem = `Cannot resolve server host (${host || "server"}).`;
+    } else if (isCorsOrBlocked) {
+      category = "BLOCKED";
+      title = "Connection blocked";
+      realProblem = "Connection blocked by network security policy.";
+    }
+
     return {
       isNetworkError: true,
-      category: "NO_INTERNET",
-      title: NO_INTERNET_ACCESS,
-      realProblem: NO_INTERNET_ACCESS,
+      category,
+      title,
+      realProblem,
       suggestion: "",
-      summary: NO_INTERNET_ACCESS,
+      summary: title,
       technicalDetail: null,
       status: status || 0,
       host,
@@ -232,6 +273,24 @@ export async function checkServerHealth(timeoutMs = 4000) {
     clearTimeout(timer);
 
     const latencyMs = Date.now() - startTime;
+
+    // Detect Service Worker synthetic fallback responses — these do NOT
+    // indicate real network failure; they just mean the SW's own fetch timed
+    // out or failed. Treat them as "server reachable" = unknown and retry
+    // with a direct network check if possible.
+    const isSwFallback = resp.headers.get("X-Service-Worker-Fallback") === "1";
+    if (isSwFallback) {
+      // The SW intercepted our probe — browser IS online but we can't trust
+      // this response. Report as online but not server-confirmed.
+      return {
+        isOnline: true,
+        isServerReachable: false,
+        diagnosis: null,
+        latencyMs,
+        isSwFallback: true,
+      };
+    }
+
     if (resp.ok) {
       return {
         isOnline: true,
