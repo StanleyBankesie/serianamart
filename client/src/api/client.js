@@ -445,8 +445,16 @@ api.interceptors.response.use(
       }
     }
 
+    // Skip diagnosis for explicitly cancelled requests — these are not network errors
+    const isCancelled =
+      axios.isCancel(error) ||
+      error?.code === "ERR_CANCELED" ||
+      error?.name === "CanceledError";
+
     // Diagnose network issue to identify the real underlying problem
-    const diagnosis = diagnoseNetworkIssue(error, { baseURL: api.defaults.baseURL });
+    const diagnosis = isCancelled
+      ? { isNetworkError: false, category: "CANCELLED", title: "Request cancelled", summary: error.message || "Request cancelled" }
+      : diagnoseNetworkIssue(error, { baseURL: api.defaults.baseURL });
 
     // Dispatch global event so UI banners and listeners are immediately notified
     if (diagnosis.isNetworkError && typeof window !== "undefined") {

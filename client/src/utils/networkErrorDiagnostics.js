@@ -148,8 +148,11 @@ export function diagnoseNetworkIssue(error, context = {}) {
     lowerMsg.includes("cors policy") ||
     lowerMsg.includes("blocked by cors");
 
-  // 7. Generic no-response error
-  const isNoResponse = !error?.response;
+  // NOTE: Previously there was a catch-all `isNoResponse = !error?.response`
+  // that treated ANY error without an HTTP response as a network error.
+  // This caused false "No internet access" banners for request cancellations,
+  // client-side errors, and other non-network issues. Removed because all
+  // genuine network failure cases are already covered by conditions 1–6 above.
 
   const isNetworkIssue =
     isNoInternet ||
@@ -157,8 +160,7 @@ export function diagnoseNetworkIssue(error, context = {}) {
     isDnsFailure ||
     isServerUnreachable ||
     isGatewayOrDown ||
-    isCorsOrBlocked ||
-    isNoResponse;
+    isCorsOrBlocked;
 
   if (isNetworkIssue) {
     return {
