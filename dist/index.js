@@ -94,71 +94,94 @@ const serveFrontendFlag = (() => {
 const app = express();
 app.set("trust proxy", 1);
 
-// Hook res.writeHead at the request level to completely strip connection headers,
-// bypassing any custom subclassing by Passenger.
+/* ---------------- CORS CONFIGURATION ---------------- */
+const allowedOrigins = (() => {
+  const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
+  const origins = raw
+    ? raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  const defaults = [
+    "https://serianamart.omnisuite-erp.com",
+    "https://serianaserver.omnisuite-erp.com",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:4002",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:4002",
+  ];
+  for (const d of defaults) {
+    if (!origins.includes(d)) origins.push(d);
+  }
+  return origins;
+})();
+
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  if (
+    origin.endsWith(".omnisuite-erp.com") ||
+    origin.includes("omnisuite-erp.com") ||
+    origin.includes("localhost") ||
+    origin.includes("127.0.0.1") ||
+    origin.includes("192.168.") ||
+    origin.includes("10.") ||
+    origin.includes("172.") ||
+    origin.startsWith("exp://") ||
+    origin.startsWith("http://") ||
+    origin.startsWith("https://")
+  ) {
+    return true;
+  }
+  return false;
+};
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (isAllowedOrigin(origin)) {
+      return cb(null, true);
+    }
+    return cb(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-company-id",
+    "x-branch-id",
+    "x-user-id",
+    "x-skip-offline-queue",
+    "x-access-token",
+    "Accept",
+    "Origin",
+    "X-Requested-With",
+  ],
+  optionsSuccessStatus: 200,
+};
+
+// Universal CORS & Preflight handler at the top of the stack
 app.use((req, res, next) => {
-  const origWriteHead = res.writeHead;
-  res.writeHead = function (statusCode, statusMessage, headers) {
-    this.removeHeader("Connection");
-    this.removeHeader("connection");
-    this.removeHeader("Keep-Alive");
-    this.removeHeader("keep-alive");
-
-    let headersObj = headers;
-    let statusMsg = statusMessage;
-
-    if (typeof statusMessage === "object") {
-      headersObj = statusMessage;
-      statusMsg = undefined;
-    }
-
-    if (headersObj) {
-      if (Array.isArray(headersObj)) {
-        for (let i = 0; i < headersObj.length; i++) {
-          const key = headersObj[i][0];
-          if (
-            key &&
-            (key.toLowerCase() === "connection" ||
-              key.toLowerCase() === "keep-alive")
-          ) {
-            headersObj.splice(i, 1);
-            i--;
-          }
-        }
-      } else if (typeof headersObj === "object") {
-        for (const k of Object.keys(headersObj)) {
-          const lower = k.toLowerCase();
-          if (lower === "connection" || lower === "keep-alive") {
-            delete headersObj[k];
-          }
-        }
-      }
-    }
-
-    const strip = (obj) => {
-      if (!obj) return;
-      for (const k of Object.getOwnPropertyNames(obj)) {
-        const lower = k.toLowerCase();
-        if (lower === "connection" || lower === "keep-alive") {
-          delete obj[k];
-        }
-      }
-    };
-    strip(this._headers);
-    const sym = Object.getOwnPropertySymbols(this).find(
-      (s) =>
-        s.toString().includes("Headers") || s.toString().includes("headers"),
-    );
-    if (sym) strip(this[sym]);
-
-    if (statusMsg) {
-      return origWriteHead.call(this, statusCode, statusMsg, headersObj);
-    } else {
-      return origWriteHead.call(this, statusCode, headersObj);
-    }
-  };
+  const origin = req.headers.origin;
+  if (origin && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-company-id, x-branch-id, x-user-id, x-skip-offline-queue, x-access-token, Accept, Origin, X-Requested-With");
+  }
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
   next();
 });
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
+
+
 
 app.use(
   helmet({
@@ -325,61 +348,7 @@ const boolEnv = (v) => {
   return s === "1" || s === "true" || s === "yes" || s === "on";
 };
 
-/* ---------------- CORS ---------------- */
-const allowedOrigins = (() => {
-  const raw = String(process.env.CORS_ALLOWED_ORIGINS || "").trim();
-  const origins = raw
-    ? raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-
-  // Always allow the production frontend domain by default
-  if (!origins.includes("https://kaf.omnisuite-erp.com")) {
-    origins.push("https://kaf.omnisuite-erp.com");
-  }
-  if (!origins.includes("https://kaf.omnisuite-erp.com")) {
-    origins.push("https://kaf.omnisuite-erp.com");
-  }
-  return origins;
-})();
-
-const corsOptions = {
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    // Allow local development networks, Expo Go, and physical mobile phone requests
-    if (
-      origin.includes("localhost") ||
-      origin.includes("127.0.0.1") ||
-      origin.includes("192.168.") ||
-      origin.includes("10.") ||
-      origin.includes("172.") ||
-      origin.startsWith("exp://") ||
-      origin.startsWith("http://") ||
-      origin.startsWith("https://")
-    ) {
-      return cb(null, true);
-    }
-    return cb(null, false);
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "x-company-id",
-    "x-branch-id",
-    "x-user-id",
-    "x-skip-offline-queue",
-    "x-access-token",
-  ],
-  optionsSuccessStatus: 204,
-};
-
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+/* ---------------- BODY PARSERS & INPUT SANITIZATION ---------------- */
 const bodyLimit = process.env.MAX_BODY_LIMIT || "10mb";
 app.use(express.json({ limit: bodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
@@ -895,6 +864,9 @@ const _staticOpts = {
 const _frontendCandidates = [
   path.join(__dirname, "../client/dist"),
   path.join(process.cwd(), "client/dist"),
+  path.join(__dirname, "dist"),
+  path.join(process.cwd(), "dist"),
+  path.join(__dirname, "../dist"),
   path.join(__dirname, "public"),
   path.join(process.cwd(), "public"),
   path.join(__dirname, "../public"),
@@ -1003,7 +975,6 @@ app.use("/api/", healthRoutes);
 app.use("/", healthRoutes);
 
 app.use("/api", requireLicense);
-app.use("/", requireLicense);
 
 const apiPaths = [
   { path: "/licenses", router: licenseRoutes },
@@ -1135,18 +1106,30 @@ if (_spaFrontendPath && serveFrontendFlag) {
       // Try to find the file in any of our active static candidate directories
       const relativePath = req.path.replace(/^\//, "");
       for (const candidate of _activeFrontendPaths) {
-        const fullFilePath = path.join(candidate, relativePath);
-        if (fs.existsSync(fullFilePath) && fs.statSync(fullFilePath).isFile()) {
-          if (fullFilePath.endsWith(".js") || fullFilePath.endsWith(".mjs")) {
-            res.setHeader(
-              "Content-Type",
-              "application/javascript; charset=utf-8",
-            );
-          } else if (fullFilePath.endsWith(".css")) {
-            res.setHeader("Content-Type", "text/css; charset=utf-8");
+        const pathsToTry = [
+          path.join(candidate, relativePath),
+          path.join(candidate, "assets", path.basename(relativePath)),
+        ];
+        for (const fullFilePath of pathsToTry) {
+          if (fs.existsSync(fullFilePath) && fs.statSync(fullFilePath).isFile()) {
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            if (fullFilePath.endsWith(".js") || fullFilePath.endsWith(".mjs")) {
+              res.setHeader(
+                "Content-Type",
+                "application/javascript; charset=utf-8",
+              );
+            } else if (fullFilePath.endsWith(".css")) {
+              res.setHeader("Content-Type", "text/css; charset=utf-8");
+            }
+            return res.sendFile(fullFilePath);
           }
-          return res.sendFile(fullFilePath);
         }
+      }
+      if (req.path.endsWith(".css")) {
+        return res.status(404).type("text/css").send("/* 404 - CSS file not found */");
+      }
+      if (req.path.endsWith(".js") || req.path.endsWith(".mjs")) {
+        return res.status(404).type("application/javascript").send("/* 404 - JS file not found */");
       }
       return res.status(404).type("text/plain").send("Static file not found");
     }
@@ -1203,19 +1186,14 @@ server.on("clientError", (err, socket) => {
   } catch {}
 });
 
-// Timeouts to avoid long-hanging connections in managed hosting
+// Timeouts to avoid ERR_CONNECTION_CLOSED in managed hosting and reverse proxies (Nginx / Passenger / Cloudflare)
 try {
-  const keepAliveMs = process.env.KEEP_ALIVE_TIMEOUT_MS
-    ? Number(process.env.KEEP_ALIVE_TIMEOUT_MS)
-    : 0;
-  const headersMs = Number(process.env.HEADERS_TIMEOUT_MS || 65000);
+  const keepAliveMs = Number(process.env.KEEP_ALIVE_TIMEOUT_MS) || 65000;
+  const headersMs = Number(process.env.HEADERS_TIMEOUT_MS) || 66000;
   const requestMs = process.env.REQUEST_TIMEOUT_MS
     ? Number(process.env.REQUEST_TIMEOUT_MS)
     : undefined;
 
-  // This is CRITICAL for Plesk HTTP/2 + Nginx + Passenger environments.
-  // Setting this to 0 forces Node to send Connection: close,
-  // preventing Nginx from passing keep-alive to HTTP/2 clients which causes ERR_HTTP2_PROTOCOL_ERROR.
   server.keepAliveTimeout = keepAliveMs;
   server.headersTimeout = headersMs;
 

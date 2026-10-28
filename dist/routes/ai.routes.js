@@ -4,6 +4,7 @@
  */
 
 import express from "express";
+import { query } from "../db/pool.js";
 import {
   chatWithBanks,
   testGroqConnection,
@@ -104,8 +105,14 @@ router.get("/status", async (req, res) => {
     openRouterConn = await testOpenRouterConnection(openRouterKey);
   }
 
+  const [visRow] = await query(
+    "SELECT setting_value FROM adm_system_settings WHERE setting_key = 'banks_ai_enabled' LIMIT 1",
+  ).catch(() => []);
+  const isEnabled = visRow?.setting_value ? visRow.setting_value === "true" : true;
+
   res.json({
     success: true,
+    enabled: isEnabled,
     isConfigured: isGroqConfigured || isOpenRouterConfigured,
     groq: {
       isConfigured: isGroqConfigured,
@@ -131,6 +138,31 @@ router.get("/status", async (req, res) => {
       { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B Instant [Groq: Ultra-Fast Lightweight]" },
     ],
   });
+});
+
+/**
+ * POST /api/ai/toggle-visibility
+ * Toggle the Ask Banks AI visibility on/off.
+ */
+router.post("/toggle-visibility", async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const val = enabled ? "true" : "false";
+    await query(
+      `INSERT INTO adm_system_settings (company_id, setting_key, setting_value)
+       VALUES (1, 'banks_ai_enabled', :val)
+       ON DUPLICATE KEY UPDATE setting_value = :val`,
+      { val },
+    ).catch(async () => {
+      await query(
+        `UPDATE adm_system_settings SET setting_value = :val WHERE setting_key = 'banks_ai_enabled'`,
+        { val },
+      );
+    });
+    res.json({ success: true, enabled: Boolean(enabled) });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 /**

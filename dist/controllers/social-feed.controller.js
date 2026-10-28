@@ -463,16 +463,17 @@ export const createPost = async (req, res) => {
         broadcastNewPost(createdPost, visibility_type, branchId);
       } catch {}
 
-      try {
-        await triggerPostNotifications(
-          postId,
-          userId,
-          "post_created",
-          visibility_type,
-          branchId,
-          companyId,
-        );
-      } catch {}
+      // Trigger notifications asynchronously in background
+      triggerPostNotifications(
+        postId,
+        userId,
+        "post_created",
+        visibility_type,
+        branchId,
+        companyId,
+      ).catch((err) => {
+        console.error("Background notification error:", err?.message);
+      });
 
       res.status(201).json({
         success: true,

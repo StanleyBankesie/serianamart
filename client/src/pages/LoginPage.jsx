@@ -298,12 +298,6 @@ export default function LoginPage() {
     const submittedUsername = usernameRef.current?.value?.trim() || "";
     const submittedPassword = passwordRef.current?.value || "";
 
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setError("No internet access");
-      toast.error("No internet access");
-      return;
-    }
-
     if (!submittedUsername || !submittedPassword) {
       setError("Please enter both username and password");
       return;

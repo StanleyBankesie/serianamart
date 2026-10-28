@@ -287,7 +287,15 @@ api.interceptors.request.use(
         config.__cacheKey = `GET:${url.toString()}`;
       } catch {}
     }
-    if (["post", "put", "patch", "delete"].includes(method)) {
+    const requestPath = normalizeUrl(config.url);
+    const isAuthEndpoint =
+      requestPath === "/login" ||
+      requestPath === "/auth/refresh" ||
+      requestPath === "/auth/logout" ||
+      requestPath.startsWith("/auth/") ||
+      isUnauthenticatedEndpoint(requestPath);
+
+    if (["post", "put", "patch", "delete"].includes(method) && !isAuthEndpoint) {
       const skipOffline =
         config?.__skipOfflineQueue === true ||
         config?.headers?.["x-skip-offline-queue"] === "1" ||

@@ -83,6 +83,14 @@ router.put(
   financeController.updateAccountActiveStatus,
 );
 
+router.delete(
+  "/accounts/:id",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.deleteAccount,
+);
+
 router.get(
   "/accounts/:id/balance",
   requireAuth,
@@ -215,12 +223,28 @@ router.put(
   financeController.updateAccountGroup,
 );
 
+router.put(
+  "/account-groups/:id/active",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.setAccountGroupActive,
+);
+
 router.patch(
   "/account-groups/:id/active",
   requireAuth,
   requireCompanyScope,
   financeController.requireIdParam("id"),
   financeController.setAccountGroupActive,
+);
+
+router.delete(
+  "/account-groups/:id",
+  requireAuth,
+  requireCompanyScope,
+  financeController.requireIdParam("id"),
+  financeController.deleteAccountGroup,
 );
 
 // Tax Codes
@@ -475,6 +499,7 @@ router.get(
   "/opening-balances",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   financeController.listOpeningBalances,
 );
 
@@ -482,6 +507,7 @@ router.post(
   "/opening-balances",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   financeController.upsertOpeningBalance,
 );
 
@@ -489,6 +515,7 @@ router.post(
   "/opening-balances/bulk",
   requireAuth,
   requireCompanyScope,
+  requireBranchScope,
   financeController.bulkUpsertOpeningBalances,
 );
 
@@ -570,6 +597,22 @@ router.get(
   requireCompanyScope,
   requireBranchScope,
   financeController.profitAndLossReport,
+);
+
+router.get(
+  "/reports/profit-loss-oci",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.statementOfProfitOrLossAndOCIReport,
+);
+
+router.get(
+  "/reports/statement-reconciliation",
+  requireAuth,
+  requireCompanyScope,
+  requireBranchScope,
+  financeController.reconcileFinancialStatement,
 );
 
 router.get(

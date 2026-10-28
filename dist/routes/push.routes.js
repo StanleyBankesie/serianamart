@@ -36,37 +36,48 @@ export function getPublicKey() {
 }
 
 // Utility function to send a push notification to a specific user.
-// Iterates through their active subscriptions and uses web-push to send the payload.
+// Iterates through their active subscriptions and uses web-push to send the payload in parallel.
 export async function sendPushToUser(userId, payload) {
-  const subs = await query(`SELECT endpoint, p256dh, auth,
-          created_at,
-          u.username AS created_by_name
-         FROM adm_push_subscriptions
-        LEFT JOIN adm_users u ON u.id = created_by
-         WHERE user_id = :userId AND is_active = 1 
-     ORDER BY last_active_at DESC, created_at DESC 
-     LIMIT 20`,
-    { userId },
-  );
-  const body = typeof payload === "string" ? payload : JSON.stringify(payload);
-  for (const s of subs) {
-    const subscription = {
-      endpoint: s.endpoint,
-      keys: { p256dh: s.p256dh, auth: s.auth },
-    };
-    try {
-      await webpush.sendNotification(subscription, body, { TTL: 60 });
-      await query(`UPDATE adm_push_subscriptions SET last_active_at = NOW() WHERE endpoint = :endpoint`,
-        { endpoint: s.endpoint },
-      );
-    } catch (e) {
-      const msg = String(e?.message || "");
-      if (msg.includes("410") || msg.includes("404")) {
-        await query(`UPDATE adm_push_subscriptions SET is_active = 0 WHERE endpoint = :endpoint`,
-          { endpoint: s.endpoint },
-        );
-      }
-    }
+  try {
+    const subs = await query(
+      `SELECT endpoint, p256dh, auth
+       FROM adm_push_subscriptions
+       WHERE user_id = :userId AND is_active = 1 
+       ORDER BY last_active_at DESC, created_at DESC 
+       LIMIT 10`,
+      { userId },
+    );
+    if (!Array.isArray(subs) || subs.length === 0) return;
+    const body = typeof payload === "string" ? payload : JSON.stringify(payload);
+    await Promise.allSettled(
+      subs.map(async (s) => {
+        try {
+          const subscription = {
+            endpoint: s.endpoint,
+            keys: { p256dh: s.p256dh, auth: s.auth },
+          };
+          const sendPromise = webpush.sendNotification(subscription, body, { TTL: 60 });
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Push timeout")), 3000),
+          );
+          await Promise.race([sendPromise, timeoutPromise]);
+          await query(
+            `UPDATE adm_push_subscriptions SET last_active_at = NOW() WHERE endpoint = :endpoint`,
+            { endpoint: s.endpoint },
+          );
+        } catch (e) {
+          const msg = String(e?.message || "");
+          if (msg.includes("410") || msg.includes("404")) {
+            await query(
+              `UPDATE adm_push_subscriptions SET is_active = 0 WHERE endpoint = :endpoint`,
+              { endpoint: s.endpoint },
+            );
+          }
+        }
+      }),
+    );
+  } catch (err) {
+    // Non-blocking catch
   }
 }
 

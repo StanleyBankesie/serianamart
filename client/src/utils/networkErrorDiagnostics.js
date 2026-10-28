@@ -244,17 +244,6 @@ export function diagnoseNetworkIssue(error, context = {}) {
  * @returns {Promise<{isOnline: boolean, isServerReachable: boolean, diagnosis: object|null, latencyMs: number}>}
  */
 export async function checkServerHealth(timeoutMs = 4000) {
-  const isOnline = typeof navigator !== "undefined" ? navigator.onLine !== false : true;
-  if (!isOnline) {
-    const offlineDiag = diagnoseNetworkIssue({ code: "ERR_INTERNET_DISCONNECTED" });
-    return {
-      isOnline: false,
-      isServerReachable: false,
-      diagnosis: offlineDiag,
-      latencyMs: 0,
-    };
-  }
-
   const startTime = Date.now();
   const apiBase = getApiBaseUrl();
   const cleanBase = apiBase.replace(/\/+$/, "");
@@ -311,9 +300,19 @@ export async function checkServerHealth(timeoutMs = 4000) {
       latencyMs,
     };
   } catch (err) {
+    const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+    if (isOffline) {
+      const offlineDiag = diagnoseNetworkIssue({ code: "ERR_INTERNET_DISCONNECTED" });
+      return {
+        isOnline: false,
+        isServerReachable: false,
+        diagnosis: offlineDiag,
+        latencyMs: Date.now() - startTime,
+      };
+    }
     const diag = diagnoseNetworkIssue(err, { baseURL: apiBase });
     return {
-      isOnline: typeof navigator !== "undefined" ? navigator.onLine !== false : true,
+      isOnline: true,
       isServerReachable: false,
       diagnosis: diag,
       latencyMs: Date.now() - startTime,

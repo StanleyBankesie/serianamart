@@ -382,7 +382,7 @@ export async function getUserPermissions(userId) {
   const [permRows, legacyRows, exclusiveRows] = await Promise.all([
     query(
       `
-      SELECT DISTINCT feature_key as code
+      SELECT DISTINCT feature_key as code, module_key
       FROM adm_role_permissions rp
       WHERE rp.role_id = :roleId AND rp.can_view = 1
       `,
@@ -390,7 +390,7 @@ export async function getUserPermissions(userId) {
     ).catch(() => []),
     query(
       `
-      SELECT DISTINCT p.code
+      SELECT DISTINCT p.code, p.feature_key, p.module
       FROM adm_users u
       JOIN adm_user_permissions up ON up.user_id = u.id
       JOIN adm_pages p ON p.id = up.page_id
@@ -408,11 +408,27 @@ export async function getUserPermissions(userId) {
     ).catch(() => []),
   ]);
 
-  const allPerms = [
-    ...permRows.map((row) => row.code),
-    ...legacyRows.map((row) => row.code),
-    ...exclusiveRows.map((row) => row.code),
-  ];
+  const allPerms = [];
+  for (const row of permRows) {
+    if (row.code) {
+      allPerms.push(row.code);
+      if (row.module_key && !String(row.code).includes(":")) {
+        allPerms.push(`${row.module_key}:${row.code}`);
+      }
+    }
+  }
+  for (const row of legacyRows) {
+    if (row.code) allPerms.push(row.code);
+    if (row.feature_key) {
+      allPerms.push(row.feature_key);
+      if (row.module && !String(row.feature_key).includes(":")) {
+        allPerms.push(`${row.module}:${row.feature_key}`);
+      }
+    }
+  }
+  for (const row of exclusiveRows) {
+    if (row.code) allPerms.push(row.code);
+  }
 
   return Array.from(new Set(allPerms.filter(Boolean)));
 }

@@ -24,6 +24,8 @@ export const TOOL_MODULES = {
   get_executive_overview: ["business_intelligence", "administration", "sales", "finance"],
   get_financial_analytics: ["sales", "finance", "purchase", "purchases", "accounting"],
   get_recent_sales: ["sales", "pos", "finance", "business_intelligence", "administration"],
+  get_recent_purchases: ["purchase", "purchases", "procurement", "finance", "accounting", "business_intelligence"],
+  get_recent_payments_and_receipts: ["finance", "accounting", "purchase", "sales"],
   get_inventory_health: ["inventory"],
   get_production_status: ["production"],
   get_project_analytics: ["project_management", "projects"],
@@ -33,6 +35,8 @@ export const TOOL_MODULES = {
   get_maintenance_jobs: ["maintenance"],
   search_erp_entity: ["*"],
   get_erp_workflow_guide: ["*"],
+  run_sql_query: ["*"],
+  get_database_schema: ["*"],
 };
 
 /**
@@ -127,8 +131,21 @@ export const BANKS_TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_recent_purchases",
+      description: "CRITICAL: Call this tool whenever the user asks about ANY 'purchase', 'last purchase', 'latest purchase', 'purchase amount', 'what did I purchase / buy', 'purchase bill', 'direct purchase', 'purchase order', 'supplier bills', or procurement expenses. Retrieves live purchase orders, bills, and direct purchases from suppliers with exact dates and amounts in GH₵.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Number of recent purchases to retrieve (default 5)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_recent_sales",
-      description: "Get recent sales transactions, latest sales date and time, recent posted invoices, recent POS retail receipts, customer names, and payment methods.",
+      description: "Get recent SALES transactions (Customer Sales Invoices and POS Retail Sales to customers). DO NOT call this tool for questions about 'purchases' or 'buying' (use get_recent_purchases instead).",
       parameters: {
         type: "object",
         properties: {
@@ -140,8 +157,21 @@ export const BANKS_TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_recent_payments_and_receipts",
+      description: "Get recent finance payment vouchers (disbursements/settlements) and receipt vouchers (collections), voucher numbers, dates, amounts in GH₵, bank/cash accounts, and narrations.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Number of recent vouchers to retrieve (default 5)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_pos_performance",
-      description: "Get retail POS metrics: today's sales revenue, today's transactions count, 30-day trends, last completed POS sale, and top selling retail products.",
+      description: "Get retail POS customer sales metrics: today's revenue, today's transaction count, top selling products. This is exclusively for retail sales to customers, NOT for business purchases.",
       parameters: {
         type: "object",
         properties: {},
@@ -206,6 +236,39 @@ export const BANKS_TOOLS = [
           topic: { type: "string", description: "The workflow or topic to get instructions for (e.g., 'production', 'inventory', 'sales', 'pos', 'projects', 'hr')" },
         },
         required: ["topic"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_sql_query",
+      description: "Execute any read-only SQL query (SELECT, SHOW, DESCRIBE, EXPLAIN) directly against the OmniSuite ERP MySQL database to fetch any raw records, transactions, ledger entries, accounts, custom metrics, users, or line items. Use this whenever you need deep or unrestricted access to any database table.",
+      parameters: {
+        type: "object",
+        properties: {
+          sql: {
+            type: "string",
+            description: "The SQL SELECT statement to execute against the database. Example: 'SELECT * FROM pur_direct_purchase_hdr ORDER BY id DESC LIMIT 5;'",
+          },
+        },
+        required: ["sql"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_database_schema",
+      description: "Get the database schema (list of all tables or column definitions for a specific table) in the OmniSuite ERP database.",
+      parameters: {
+        type: "object",
+        properties: {
+          tableName: {
+            type: "string",
+            description: "Optional specific table name (e.g., 'sal_invoices', 'pur_bills', 'fin_vouchers', 'inv_items', 'adm_users'). If omitted, returns all table names.",
+          },
+        },
       },
     },
   },
@@ -583,6 +646,124 @@ export async function executeTool(name, args = {}, scope = {}) {
         };
       }
 
+      case "get_recent_purchases": {
+        const limit = Number(args.limit) || 5;
+        const [
+          recentDirectPurchases,
+          recentBills,
+          recentPOs,
+        ] = await Promise.all([
+          sq(
+            `SELECT dp.id, dp.dp_no as purchaseNo, dp.dp_date as purchaseDate, dp.net_amount as amount, dp.status, dp.remarks,
+                    s.supplier_name as supplierName, s.supplier_code as supplierCode, 'Direct Purchase' as purchaseType
+             FROM pur_direct_purchase_hdr dp
+             LEFT JOIN pur_suppliers s ON dp.supplier_id = s.id
+             WHERE (dp.company_id = :companyId OR dp.company_id IS NULL)
+             ORDER BY dp.dp_date DESC, dp.id DESC
+             LIMIT ${limit}`,
+            p,
+            [],
+          ),
+          sq(
+            `SELECT b.id, b.bill_no as purchaseNo, b.bill_date as purchaseDate, b.net_amount as amount, b.amount_paid as amountPaid, b.payment_status as paymentStatus, b.status,
+                    s.supplier_name as supplierName, s.supplier_code as supplierCode, 'Purchase Bill' as purchaseType
+             FROM pur_bills b
+             LEFT JOIN pur_suppliers s ON b.supplier_id = s.id
+             WHERE (b.company_id = :companyId OR b.company_id IS NULL)
+             ORDER BY b.bill_date DESC, b.id DESC
+             LIMIT ${limit}`,
+            p,
+            [],
+          ),
+          sq(
+            `SELECT po.id, po.po_no as purchaseNo, po.po_date as purchaseDate, po.total_amount as amount, po.status,
+                    s.supplier_name as supplierName, s.supplier_code as supplierCode, 'Purchase Order' as purchaseType
+             FROM pur_orders po
+             LEFT JOIN pur_suppliers s ON po.supplier_id = s.id
+             WHERE (po.company_id = :companyId OR po.company_id IS NULL)
+             ORDER BY po.po_date DESC, po.id DESC
+             LIMIT ${limit}`,
+            p,
+            [],
+          ),
+        ]);
+
+        const allCombined = [
+          ...recentDirectPurchases,
+          ...recentBills,
+          ...recentPOs,
+        ].sort((a, b) => {
+          const dateA = new Date(a.purchaseDate || 0).getTime();
+          const dateB = new Date(b.purchaseDate || 0).getTime();
+          return dateB - dateA || (b.id || 0) - (a.id || 0);
+        });
+
+        const latest = allCombined[0] || null;
+
+        return {
+          currency: "GHS (GH₵)",
+          latestPurchase: latest
+            ? {
+                purchaseType: latest.purchaseType,
+                documentNumber: latest.purchaseNo,
+                supplierName: latest.supplierName || "Supplier",
+                purchaseDate: latest.purchaseDate,
+                amount: Number(latest.amount || latest.netAmount || 0),
+                formattedAmount: `GH₵ ${Number(latest.amount || latest.netAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                status: latest.status,
+                paymentStatus:
+                  latest.paymentStatus ||
+                  (latest.purchaseType === "Direct Purchase"
+                    ? "Settled / Paid Upon Purchase"
+                    : "N/A"),
+              }
+            : "No purchase records found in the system.",
+          allRecentPurchasesChronological: allCombined.slice(0, limit),
+          recentDirectPurchases,
+          recentPurchaseBills: recentBills,
+          recentPurchaseOrders: recentPOs,
+        };
+      }
+
+      case "get_recent_payments_and_receipts": {
+        const limit = Number(args.limit) || 5;
+        const [
+          recentPaymentVouchers,
+          recentReceiptVouchers,
+        ] = await Promise.all([
+          sq(
+            `SELECT v.id, v.voucher_no as voucherNo, v.voucher_date as voucherDate, v.total_debit as amount, v.narration, v.status,
+                    vt.name as voucherTypeName, vt.code as voucherTypeCode
+             FROM fin_vouchers v
+             INNER JOIN fin_voucher_types vt ON v.voucher_type_id = vt.id
+             WHERE (v.company_id = :companyId OR v.company_id IS NULL)
+               AND vt.category = 'PAYMENT'
+             ORDER BY v.voucher_date DESC, v.id DESC
+             LIMIT ${limit}`,
+            p,
+            [],
+          ),
+          sq(
+            `SELECT v.id, v.voucher_no as voucherNo, v.voucher_date as voucherDate, v.total_credit as amount, v.narration, v.status,
+                    vt.name as voucherTypeName, vt.code as voucherTypeCode
+             FROM fin_vouchers v
+             INNER JOIN fin_voucher_types vt ON v.voucher_type_id = vt.id
+             WHERE (v.company_id = :companyId OR v.company_id IS NULL)
+               AND vt.category = 'RECEIPT'
+             ORDER BY v.voucher_date DESC, v.id DESC
+             LIMIT ${limit}`,
+            p,
+            [],
+          ),
+        ]);
+
+        return {
+          currency: "GHS (GH₵)",
+          recentPaymentVouchers,
+          recentReceiptVouchers,
+        };
+      }
+
       case "get_pos_performance": {
         const [
           [todayStats],
@@ -705,22 +886,31 @@ export async function executeTool(name, args = {}, scope = {}) {
         const results = {};
         const canSales = hasModuleAccess(["sales", "finance"], scope);
         const canInv = hasModuleAccess(["inventory"], scope);
-        const canPurch = hasModuleAccess(["purchase", "procurement"], scope);
+        const canPurch = hasModuleAccess(["purchase", "procurement", "finance"], scope);
         const canProd = hasModuleAccess(["production"], scope);
+        const canFin = hasModuleAccess(["finance", "accounting"], scope);
 
         const queries = [];
         queries.push(canSales ? sq(`SELECT id, customer_name, customer_code, email, phone FROM sal_customers WHERE customer_name LIKE ? OR customer_code LIKE ? LIMIT 5`, [q, q], []) : Promise.resolve([]));
+        queries.push(canPurch ? sq(`SELECT id, supplier_name, supplier_code, email, phone FROM pur_suppliers WHERE supplier_name LIKE ? OR supplier_code LIKE ? LIMIT 5`, [q, q], []) : Promise.resolve([]));
         queries.push(canInv ? sq(`SELECT id, item_code, item_name, cost_price, selling_price FROM inv_items WHERE item_name LIKE ? OR item_code LIKE ? LIMIT 5`, [q, q], []) : Promise.resolve([]));
         queries.push(canSales ? sq(`SELECT id, invoice_no, total_amount, status, invoice_date FROM sal_invoices WHERE invoice_no LIKE ? LIMIT 5`, [q], []) : Promise.resolve([]));
-        queries.push(canPurch ? sq(`SELECT id, po_number, total_amount, status, po_date FROM pur_orders WHERE po_number LIKE ? LIMIT 5`, [q], []) : Promise.resolve([]));
+        queries.push(canPurch ? sq(`SELECT dp.id, dp.dp_no, dp.net_amount as amount, dp.status, dp.dp_date, s.supplier_name FROM pur_direct_purchase_hdr dp LEFT JOIN pur_suppliers s ON dp.supplier_id = s.id WHERE dp.dp_no LIKE ? OR s.supplier_name LIKE ? LIMIT 5`, [q, q], []) : Promise.resolve([]));
+        queries.push(canPurch ? sq(`SELECT b.id, b.bill_no, b.net_amount as amount, b.amount_paid, b.payment_status, b.status, b.bill_date, s.supplier_name FROM pur_bills b LEFT JOIN pur_suppliers s ON b.supplier_id = s.id WHERE b.bill_no LIKE ? OR s.supplier_name LIKE ? LIMIT 5`, [q, q], []) : Promise.resolve([]));
+        queries.push(canPurch ? sq(`SELECT id, po_no, total_amount, status, po_date FROM pur_orders WHERE po_no LIKE ? LIMIT 5`, [q], []) : Promise.resolve([]));
+        queries.push(canFin ? sq(`SELECT id, voucher_no, total_debit, total_credit, narration, status, voucher_date FROM fin_vouchers WHERE voucher_no LIKE ? OR narration LIKE ? LIMIT 5`, [q, q], []) : Promise.resolve([]));
         queries.push(canProd ? sq(`SELECT id, work_order_no, qty_to_produce, status FROM prod_work_orders WHERE work_order_no LIKE ? LIMIT 5`, [q], []) : Promise.resolve([]));
 
-        const [customers, products, invoices, pos, workOrders] = await Promise.all(queries);
+        const [customers, suppliers, products, invoices, directPurchases, bills, pos, vouchers, workOrders] = await Promise.all(queries);
 
         if (customers.length) results.customers = customers;
+        if (suppliers.length) results.suppliers = suppliers;
         if (products.length) results.products = products;
-        if (invoices.length) results.invoices = invoices;
+        if (invoices.length) results.salesInvoices = invoices;
+        if (directPurchases.length) results.directPurchases = directPurchases;
+        if (bills.length) results.purchaseBills = bills;
         if (pos.length) results.purchaseOrders = pos;
+        if (vouchers.length) results.financeVouchers = vouchers;
         if (workOrders.length) results.workOrders = workOrders;
 
         return Object.keys(results).length ? results : { message: `No matching authorized ERP records found for query "${args.query}"` };
@@ -742,6 +932,70 @@ export async function executeTool(name, args = {}, scope = {}) {
           topic: args.topic,
           guide: matchedKey ? guides[matchedKey] : "OmniSuite ERP integrates all business modules. Navigate via the left sidebar or top module switcher to access authorized functions.",
         };
+      }
+
+      case "run_sql_query": {
+        const rawSql = String(args.sql || "").trim();
+        if (!rawSql) {
+          return { error: "No SQL query provided." };
+        }
+
+        // Safety check: ensure query is read-only (disallow mutating operations)
+        const forbiddenPatterns = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|REPLACE|GRANT|REVOKE|FLUSH|KILL|EXEC|CALL|LOCK)\b/i;
+        if (forbiddenPatterns.test(rawSql)) {
+          return {
+            error: "Security restriction: Only read-only SQL queries (SELECT, SHOW, DESCRIBE, EXPLAIN) are permitted.",
+          };
+        }
+
+        try {
+          let sqlToRun = rawSql.replace(/;+\s*$/, "");
+          // Auto-append LIMIT 100 if no LIMIT is provided to prevent memory overload
+          if (!/\bLIMIT\s+\d+/i.test(sqlToRun)) {
+            sqlToRun += " LIMIT 100";
+          }
+          const rows = await query(sqlToRun);
+          const resultList = Array.isArray(rows) ? rows : [rows];
+          return {
+            queryExecuted: sqlToRun,
+            rowCount: resultList.length,
+            rows: resultList,
+          };
+        } catch (dbErr) {
+          return {
+            queryExecuted: rawSql,
+            error: `SQL Execution Error: ${dbErr.message}`,
+          };
+        }
+      }
+
+      case "get_database_schema": {
+        const table = String(args.tableName || "").trim();
+        if (table) {
+          const cols = await sq(
+            `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_COMMENT 
+             FROM INFORMATION_SCHEMA.COLUMNS 
+             WHERE TABLE_NAME = :table AND TABLE_SCHEMA = DATABASE()`,
+            { table },
+            [],
+          );
+          return {
+            table,
+            columns: cols,
+          };
+        } else {
+          const tables = await sq(
+            `SELECT TABLE_NAME, TABLE_COMMENT 
+             FROM INFORMATION_SCHEMA.TABLES 
+             WHERE TABLE_SCHEMA = DATABASE() 
+             ORDER BY TABLE_NAME`,
+            {},
+            [],
+          );
+          return {
+            databaseTables: tables.map((t) => t.TABLE_NAME || t.table_name),
+          };
+        }
       }
 
       default:

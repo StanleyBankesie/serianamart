@@ -45,7 +45,7 @@ export async function getGlobalLicenseStatus(req, res) {
     });
   } catch (error) {
     console.error("[License Controller] getGlobalLicenseStatus Error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.json({ exists: false, status: "UNKNOWN", message: "License check bypass" });
   }
 }
 

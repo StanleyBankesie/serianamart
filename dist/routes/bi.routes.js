@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 
 import {
   requireAuth,
@@ -13,7 +14,36 @@ import {
   getInventoryReport,
   getHomeOverview,
   getModuleAnalytics,
+  getDataSources,
+  createDataSource,
+  updateDataSource,
+  deleteDataSource,
+  testDataSourceConnection,
+  syncDataSourceNow,
+  getDataSourceSyncHistory,
+  uploadSourceFile,
+  getDatasets,
+  getDatasetPreview,
+  previewTransformations,
+  getEtlPipelines,
+  createEtlPipeline,
+  runEtlPipelineNow,
+  getPipelineRuns,
+  getPipelineRunLogs,
+  getDataQualitySummary,
+  executeMultidimensionalAnalysis,
+  getAutomatedBusinessInsights,
+  getCustomDashboards,
+  createCustomDashboard,
+  getCustomDashboardById,
+  deleteCustomDashboard,
+  exportCustomBiDataset,
 } from "../controllers/bi.controller.js";
+
+const uploadMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }
+});
 
 const router = express.Router();
 
@@ -29,6 +59,46 @@ async function sq(sql, params, fallback = []) {
     return fallback;
   }
 }
+
+// ===== DATA SOURCES & INGESTION =====
+router.get("/data-sources", (req, res, next) => getDataSources(req, res, next));
+router.post("/data-sources", (req, res, next) => createDataSource(req, res, next));
+router.put("/data-sources/:id", (req, res, next) => updateDataSource(req, res, next));
+router.delete("/data-sources/:id", (req, res, next) => deleteDataSource(req, res, next));
+router.post("/data-sources/:id/test", (req, res, next) => testDataSourceConnection(req, res, next));
+router.post("/data-sources/:id/sync", (req, res, next) => syncDataSourceNow(req, res, next));
+router.get("/data-sources/:id/history", (req, res, next) => getDataSourceSyncHistory(req, res, next));
+router.post("/upload-source-file", uploadMemory.single("file"), (req, res, next) => uploadSourceFile(req, res, next));
+
+// ===== DATASETS & PREPARATION =====
+router.get("/datasets", (req, res, next) => getDatasets(req, res, next));
+router.get("/datasets/:id/preview", (req, res, next) => getDatasetPreview(req, res, next));
+router.post("/data-preparation/preview-transform", (req, res, next) => previewTransformations(req, res, next));
+
+// ===== ETL PIPELINES & RUNS =====
+router.get("/etl-pipelines", (req, res, next) => getEtlPipelines(req, res, next));
+router.post("/etl-pipelines", (req, res, next) => createEtlPipeline(req, res, next));
+router.post("/etl-pipelines/:id/run", (req, res, next) => runEtlPipelineNow(req, res, next));
+router.get("/etl-pipelines/:id/runs", (req, res, next) => getPipelineRuns(req, res, next));
+router.get("/etl-pipeline-runs/:runId/logs", (req, res, next) => getPipelineRunLogs(req, res, next));
+
+// ===== DATA QUALITY =====
+router.get("/data-quality/summary", (req, res, next) => getDataQualitySummary(req, res, next));
+
+// ===== MULTIDIMENSIONAL ANALYTICS =====
+router.post("/multidimensional-analysis", (req, res, next) => executeMultidimensionalAnalysis(req, res, next));
+
+// ===== AUTOMATED INSIGHTS =====
+router.get("/insights/automated", (req, res, next) => getAutomatedBusinessInsights(req, res, next));
+
+// ===== CUSTOM DASHBOARDS & WIDGETS =====
+router.get("/custom-dashboards", (req, res, next) => getCustomDashboards(req, res, next));
+router.post("/custom-dashboards", (req, res, next) => createCustomDashboard(req, res, next));
+router.get("/custom-dashboards/:id", (req, res, next) => getCustomDashboardById(req, res, next));
+router.delete("/custom-dashboards/:id", (req, res, next) => deleteCustomDashboard(req, res, next));
+
+// ===== ADVANCED EXPORT =====
+router.post("/export-custom", (req, res, next) => exportCustomBiDataset(req, res, next));
 
 // ===== LEGACY ROUTES =====
 router.get("/module-analytics", (req, res, next) => getModuleAnalytics(req, res, next));

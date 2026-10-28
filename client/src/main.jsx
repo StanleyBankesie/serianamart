@@ -7,7 +7,7 @@ import "./styles.css";
 import iconClearUrl from "./assets/resources/OMNISUITE_ICON_CLEAR.png?url";
 
 async function clearPwaCachesOnce() {
-  const key = "omnisuite_favicon_reset_v3";
+  const key = "omnisuite_sw_reset_v9";
   try {
     if (localStorage.getItem(key) === "1") return;
     localStorage.setItem(key, "1");

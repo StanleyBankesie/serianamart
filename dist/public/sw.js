@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v8";
+const CACHE_VERSION = "v9";
 const ASSET_CACHE = "omnisuite-assets-" + CACHE_VERSION;
 const API_CACHE = "omnisuite-api-" + CACHE_VERSION;
 const DEV_MODE =
@@ -85,7 +85,7 @@ async function staleWhileRevalidate(cacheName, request) {
   const networkPromise = (async () => {
     try {
       const ctrl = new AbortController();
-      const swTimeout = setTimeout(() => ctrl.abort(), 5000);
+      const swTimeout = setTimeout(() => ctrl.abort(), 8000);
       const resp = await fetch(request, { signal: ctrl.signal });
       clearTimeout(swTimeout);
       if (resp && resp.ok) {
@@ -105,8 +105,12 @@ async function staleWhileRevalidate(cacheName, request) {
       }
       return resp;
     } catch (e) {
+      // If we have a cached response, serve it as a fallback
       if (cached) return cached;
-      return buildApiFallbackResponse(request);
+      // Otherwise, let the request fail naturally so the app's own error
+      // handling can diagnose the real issue instead of seeing a synthetic 503
+      // that triggers false "No internet access" banners.
+      throw e;
     }
   })();
   return cached || networkPromise;
@@ -180,6 +184,11 @@ if (!DEV_MODE) {
 
     // Never cache auth-related API requests — always go to network.
     if (isAuthRequest(url)) return;
+
+    // Never intercept health-check probes — the NetworkStatusBanner uses these
+    // to determine real connectivity; a cached/fallback 503 would cause
+    // false "No internet access" banners.
+    if (url.pathname === "/api/health" || url.pathname === "/health") return;
 
     if (isApiRequest(url) && req.method === "GET") {
       event.respondWith(staleWhileRevalidate(API_CACHE, req));
