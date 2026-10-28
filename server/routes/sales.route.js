@@ -2471,10 +2471,17 @@ router.post(
       );
       if (!Number.isFinite(effectiveBranchId) || effectiveBranchId <= 0) {
         const [defaultBranch] = await query(
-          "SELECT id FROM adm_branches WHERE company_id = :companyId AND is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1",
+          "SELECT id FROM adm_branches WHERE (company_id = :companyId OR company_id IS NULL) AND is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1",
           { companyId }
         ).catch(() => []);
-        effectiveBranchId = Number(defaultBranch?.id || 1);
+        if (defaultBranch?.id) {
+          effectiveBranchId = Number(defaultBranch.id);
+        } else {
+          const [anyBranch] = await query(
+            "SELECT id FROM adm_branches WHERE is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1"
+          ).catch(() => []);
+          effectiveBranchId = Number(anyBranch?.id || 1);
+        }
       }
 
       let effectiveCustomerCode = customer_code ? String(customer_code).trim() : "";
@@ -9935,10 +9942,17 @@ router.post(
       );
       if (!Number.isFinite(effectiveBranchId) || effectiveBranchId <= 0) {
         const [defaultBranch] = await query(
-          "SELECT id FROM adm_branches WHERE company_id = :companyId AND is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1",
+          "SELECT id FROM adm_branches WHERE (company_id = :companyId OR company_id IS NULL) AND is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1",
           { companyId }
         ).catch(() => []);
-        effectiveBranchId = Number(defaultBranch?.id || 1);
+        if (defaultBranch?.id) {
+          effectiveBranchId = Number(defaultBranch.id);
+        } else {
+          const [anyBranch] = await query(
+            "SELECT id FROM adm_branches WHERE is_active = 1 ORDER BY is_head_office DESC, id ASC LIMIT 1"
+          ).catch(() => []);
+          effectiveBranchId = Number(anyBranch?.id || 1);
+        }
       }
 
       const result = await query(

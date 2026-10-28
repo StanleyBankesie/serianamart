@@ -269,7 +269,7 @@ export default function CustomerForm() {
         replace: true,
       });
     } catch (err) {
-      setError(err?.response?.data?.message || "Error saving customer");
+      setError(err?.response?.data?.message || err?.response?.data?.error || err?.message || "Error saving customer");
     } finally {
       setLoading(false);
     }
