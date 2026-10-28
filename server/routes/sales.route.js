@@ -421,35 +421,66 @@ async function ensureInvoiceTables() {
 
 // Ensure sal_customers has required columns
 async function ensureCustomersTableColumns() {
-  if (!(await hasColumn("sal_customers", "created_by"))) {
+  const table = "sal_customers";
+  if (!(await hasColumn(table, "created_by"))) {
     await query(
       `ALTER TABLE sal_customers ADD COLUMN created_by BIGINT UNSIGNED NULL`,
     ).catch(() => null);
   }
-  if (!(await hasColumn("sal_customers", "sales_account_id"))) {
+  if (!(await hasColumn(table, "sales_account_id"))) {
     await query(
       `ALTER TABLE sal_customers ADD COLUMN sales_account_id BIGINT UNSIGNED NULL`,
     ).catch(() => null);
   }
-  if (!(await hasColumn("sal_customers", "enforce_credit_limit"))) {
+  if (!(await hasColumn(table, "enforce_credit_limit"))) {
     await query(
       `ALTER TABLE sal_customers ADD COLUMN enforce_credit_limit TINYINT(1) NOT NULL DEFAULT 0`,
     ).catch(() => null);
   }
-  if (!(await hasColumn("sal_customers", "temp_credit_limit"))) {
+  if (!(await hasColumn(table, "temp_credit_limit"))) {
     await query(
       `ALTER TABLE sal_customers ADD COLUMN temp_credit_limit DECIMAL(18,2) NULL DEFAULT NULL`,
     ).catch(() => null);
   }
-  if (!(await hasColumn("sal_customers", "temp_credit_limit_date"))) {
+  if (!(await hasColumn(table, "temp_credit_limit_date"))) {
     await query(
       `ALTER TABLE sal_customers ADD COLUMN temp_credit_limit_date DATE NULL DEFAULT NULL`,
     ).catch(() => null);
   }
-  if (!(await hasColumn("sal_customers", "temp_credit_limit_by"))) {
+  if (!(await hasColumn(table, "temp_credit_limit_by"))) {
     await query(
       `ALTER TABLE sal_customers ADD COLUMN temp_credit_limit_by BIGINT UNSIGNED NULL DEFAULT NULL`,
     ).catch(() => null);
+  }
+
+  // Ensure service_customer exists (or rename service_client if present)
+  try {
+    const hasClient = await hasColumn(table, "service_client");
+    const hasCust = await hasColumn(table, "service_customer");
+    if (hasClient && !hasCust) {
+      await query(`ALTER TABLE sal_customers CHANGE service_client service_customer VARCHAR(1) DEFAULT 'N'`).catch(() => null);
+    } else if (!hasCust) {
+      await query(`ALTER TABLE sal_customers ADD COLUMN service_customer VARCHAR(1) DEFAULT 'N'`).catch(() => null);
+    }
+  } catch {}
+
+  if (!(await hasColumn(table, "currency_id"))) {
+    await query(`ALTER TABLE sal_customers ADD COLUMN currency_id BIGINT UNSIGNED NULL`).catch(() => null);
+  }
+  if (!(await hasColumn(table, "zone"))) {
+    await query(`ALTER TABLE sal_customers ADD COLUMN zone VARCHAR(100) NULL`).catch(() => null);
+  }
+  if (!(await hasColumn(table, "country"))) {
+    await query(`ALTER TABLE sal_customers ADD COLUMN country VARCHAR(100) NULL`).catch(() => null);
+  }
+  if (!(await hasColumn(table, "mobile"))) {
+    await query(`ALTER TABLE sal_customers ADD COLUMN mobile VARCHAR(100) NULL`).catch(() => null);
+  }
+  if (!(await hasColumn(table, "payment_terms"))) {
+    await query(`ALTER TABLE sal_customers ADD COLUMN payment_terms VARCHAR(100) NULL DEFAULT 'Net 30'`).catch(() => null);
+  }
+  if (!(await hasColumn(table, "customer_type"))) {
+    await query(`ALTER TABLE sal_customers ADD COLUMN customer_type VARCHAR(100) NULL DEFAULT 'Individual'`).catch(() => null);
   }
 }
 
@@ -2210,6 +2241,7 @@ router.get(
   ]),
   async (req, res, next) => {
     try {
+      await ensureCustomersTableColumns();
       const companyId = req.scope.companyId;
       const activeParam = String(req.query.active || "")
         .trim()
@@ -2221,50 +2253,65 @@ router.get(
       const serviceCustomerParam = String(req.query.service_customer || "").trim().toUpperCase();
 
       const params = { companyId };
-      const where = ["c.company_id = :companyId"];
-      if (onlyActive) where.push("c.is_active = 1");
+      const where = ["(c.company_id = :companyId OR c.company_id IS NULL)"];
+      if (onlyActive) where.push("(c.is_active = 1 OR c.is_active IS NULL)");
       if (serviceCustomerParam === "Y") where.push("c.service_customer = 'Y'");
-      else if (serviceCustomerParam === "N") where.push("c.service_customer = 'N'");
-      const items = await query(
-        `SELECT 
-           c.id,
-           c.company_id,
-           c.branch_id,
-           c.customer_code,
-           c.customer_name,
-           c.customer_type,
-           c.price_type_id,
-           pt.name AS price_type_name,
-           c.contact_person,
-           c.email,
-           c.phone,
-           c.mobile,
-           c.credit_limit,
-           c.enforce_credit_limit,
-           c.temp_credit_limit,
-           c.temp_credit_limit_date,
-           c.is_active,
-           c.address,
-           c.city,
-           c.state,
-           c.zone,
-           c.country,
-           c.payment_terms,
-           c.currency_id,
-           c.sales_account_id,
-           c.service_customer,
-           fa.name AS sales_account_name,
-          c.created_at,
-          u.username AS created_by_name
-         FROM sal_customers c
-         LEFT JOIN sal_price_types pt
-           ON pt.id = c.price_type_id AND pt.company_id = c.company_id
-        LEFT JOIN adm_users u ON u.id = c.created_by
-        LEFT JOIN fin_accounts fa ON fa.id = c.sales_account_id AND fa.company_id = c.company_id
-         WHERE ${where.join(" AND ")}
-         ORDER BY c.customer_name ASC`,
-        params,
-      ).catch(() => []);
+      else if (serviceCustomerParam === "N") where.push("(c.service_customer = 'N' OR c.service_customer IS NULL OR c.service_customer = '')");
+
+      let items = [];
+      try {
+        items = await query(
+          `SELECT 
+             c.id,
+             c.company_id,
+             c.branch_id,
+             c.customer_code,
+             c.customer_name,
+             c.customer_type,
+             c.price_type_id,
+             pt.name AS price_type_name,
+             c.contact_person,
+             c.email,
+             c.phone,
+             c.mobile,
+             c.credit_limit,
+             c.enforce_credit_limit,
+             c.temp_credit_limit,
+             c.temp_credit_limit_date,
+             c.is_active,
+             c.address,
+             c.city,
+             c.state,
+             c.zone,
+             c.country,
+             c.payment_terms,
+             c.currency_id,
+             c.sales_account_id,
+             c.service_customer,
+             fa.name AS sales_account_name,
+            c.created_at,
+            u.username AS created_by_name
+           FROM sal_customers c
+           LEFT JOIN sal_price_types pt
+             ON pt.id = c.price_type_id AND (pt.company_id = c.company_id OR pt.company_id IS NULL)
+          LEFT JOIN adm_users u ON u.id = c.created_by
+          LEFT JOIN fin_accounts fa ON fa.id = c.sales_account_id AND (fa.company_id = c.company_id OR fa.company_id IS NULL)
+           WHERE ${where.join(" AND ")}
+           ORDER BY c.customer_name ASC`,
+          params,
+        );
+      } catch (err) {
+        console.error("GET /customers rich query error, falling back to basic query:", err);
+        items = await query(
+          `SELECT c.* FROM sal_customers c
+           WHERE ${where.join(" AND ")}
+           ORDER BY c.customer_name ASC`,
+          params,
+        ).catch((fallbackErr) => {
+          console.error("GET /customers fallback query error:", fallbackErr);
+          throw fallbackErr;
+        });
+      }
       res.json({ items: Array.isArray(items) ? items : [] });
     } catch (e) {
       next(e);
