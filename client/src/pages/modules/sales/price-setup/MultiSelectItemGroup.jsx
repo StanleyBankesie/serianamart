@@ -266,7 +266,7 @@ export default function MultiSelectItemGroup({
 
       {/* Dropdown Panel */}
       {isOpen && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden min-w-[280px]">
+        <div className="absolute z-50 left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl ring-1 ring-black/5 overflow-hidden w-full min-w-[300px]">
           {/* Search box inside dropdown */}
           <div className="p-2 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
             <input
