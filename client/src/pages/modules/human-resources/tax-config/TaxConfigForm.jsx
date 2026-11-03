@@ -195,7 +195,7 @@ export default function TaxConfigForm() {
             </div>
           )}
 
-          {(form.tax_type === 'SOCIAL_SECURITY' || form.tax_type === 'PROVIDENCE_FUND') && (
+          {(form.tax_type === 'SOCIAL_SECURITY' || form.tax_type === 'PROVIDENCE_FUND' || form.tax_type === 'PROVIDENT_FUND') && (
             <div className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow-sm space-y-6">
               <h2 className="text-lg font-semibold border-b pb-2 text-brand">Fund Contribution Setup</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -208,6 +208,12 @@ export default function TaxConfigForm() {
                     value={form.employee_contribution_rate} 
                     onChange={(e) => update('employee_contribution_rate', e.target.value)} 
                   />
+
+                  {(form.tax_type === 'PROVIDENCE_FUND' || form.tax_type === 'PROVIDENT_FUND') && Number(form.employee_contribution_rate) > 16.5 && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400 font-medium block mt-1">
+                      ⚠️ 16.5% is tax-exempt. The remaining {(Number(form.employee_contribution_rate) - 16.5).toFixed(2)}% above 16.5% will be taxable under PAYE.
+                    </span>
+                  )}
                 </div>
                 <div>
                   <label className="label">Employer Contribution Rate (%)</label>
@@ -220,7 +226,7 @@ export default function TaxConfigForm() {
                   />
                 </div>
               </div>
-              <p className="text-xs text-slate-500 italic">These rates will be applied to the employee's gross or base salary during payroll processing.</p>
+              <p className="text-xs text-slate-500 italic">Contributions are calculated as a percentage of the employee's basic salary. For Provident Fund (Tier 3), employee contributions up to 16.5% are tax-exempt; any remaining percentage above 16.5% is taxable under PAYE.</p>
             </div>
           )}
           {form.tax_type === 'INCOME_TAX' && (

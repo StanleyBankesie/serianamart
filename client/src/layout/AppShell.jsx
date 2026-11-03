@@ -1414,7 +1414,7 @@ export default function AppShell() {
       {/* Floating Social Feed Notification - Always Visible */}
       <SocialFeedNotification />
 
-      <header className="flex justify-between items-center px-6 py-1 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm z-50 sticky top-0">
+      <header className="flex justify-between items-center px-6 py-2 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md shadow-sm z-50 sticky top-0 transition-colors">
         <div className="flex items-center gap-3 flex-nowrap">
           <button
             type="button"
@@ -1970,7 +1970,7 @@ export default function AppShell() {
               className={({ isActive }) =>
                 `flex items-center px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200 group ` +
                 (isActive
-                  ? "bg-brand-800 text-white shadow-lg border-l-4 border-secondary"
+                  ? "bg-brand-800 text-white shadow-lg border-l-4 border-orange-500"
                   : "text-brand-200 hover:bg-brand-800 hover:text-white border-l-4 border-transparent")
               }
             >
@@ -1997,7 +1997,7 @@ export default function AppShell() {
                   className={({ isActive }) =>
                     `flex items-center px-3 py-2.5 rounded-lg text-base font-medium transition-all duration-200 group ` +
                     (isActive
-                      ? "bg-brand-800 text-white shadow-lg border-l-4 border-secondary"
+                      ? "bg-brand-800 text-white shadow-lg border-l-4 border-orange-500"
                       : "text-brand-200 hover:bg-brand-800 hover:text-white border-l-4 border-transparent")
                   }
                 >

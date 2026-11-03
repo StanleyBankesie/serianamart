@@ -101,7 +101,8 @@ export const humanResourcesSections = [
     ],
   },
   {
-    title: "Organization & Structures",
+    title: "Reports",
+    icon: "📊",
     features: [
       {
         name: "Organogram",
@@ -678,7 +679,7 @@ export default function HumanResourcesHome() {
       <Route path="leave/balances" element={<LeaveBalances />} />
       <Route path="leave-balances" element={<LeaveBalances />} />
 
-      {/* Organization & Structures routes */}
+      {/* Organization & Reports routes */}
       <Route path="departments" element={<HRSetup />} />
       <Route path="designations" element={<HRSetup />} />
       <Route path="job-roles" element={<HRSetup />} />

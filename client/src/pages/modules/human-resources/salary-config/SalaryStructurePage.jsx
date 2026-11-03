@@ -68,7 +68,7 @@ export default function SalaryStructurePage() {
       const taxItems = taxRes.data.items || [];
       setIncomeTaxes(taxItems.filter((i) => i.tax_type === "INCOME_TAX"));
       setSsfTaxes(taxItems.filter((i) => i.tax_type === "SOCIAL_SECURITY"));
-      setTier3Taxes(taxItems.filter((i) => i.tax_type === "PROVIDENT_FUND"));
+      setTier3Taxes(taxItems.filter((i) => i.tax_type === "PROVIDENT_FUND" || i.tax_type === "PROVIDENCE_FUND"));
       setLoans(
         (loanRes.data?.items || []).filter(
           (l) => String(l.status || "").toUpperCase() !== "CLOSED",

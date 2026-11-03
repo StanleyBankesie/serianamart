@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import MultiSelectItemGroup, { ItemGroupChips } from "./MultiSelectItemGroup.jsx";
 import * as XLSX from "xlsx";
 import { api } from "../../../../api/client";
 import { toast } from "react-toastify";
@@ -35,10 +36,18 @@ export default function PriceSetup() {
   const [showPriceTypeSelector, setShowPriceTypeSelector] = useState(false);
 
   // Bulk price % state
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Bulk price % state
   const [itemGroups, setItemGroups] = useState([]);
   const [customerModalSubType, setCustomerModalSubType] = useState("single");
   const [bulkCustomerId, setBulkCustomerId] = useState("");
-  const [bulkGroupId, setBulkGroupId] = useState("");
+  const [bulkGroupIds, setBulkGroupIds] = useState([]);
+  const [bulkActiveGroupId, setBulkActiveGroupId] = useState(null);
+  const [bulkItemSearch, setBulkItemSearch] = useState("");
+  const [customerFilterGroupIds, setCustomerFilterGroupIds] = useState([]);
+  const [singleFilterGroupIds, setSingleFilterGroupIds] = useState([]);
   const [bulkPriceTypeId, setBulkPriceTypeId] = useState("");
   const [bulkPercentage, setBulkPercentage] = useState("");
   const [bulkOperator, setBulkOperator] = useState("+");
@@ -71,6 +80,22 @@ export default function PriceSetup() {
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  useEffect(() => {
+    const path = (location.pathname || "").toLowerCase();
+    if (path.includes("/price-setup/customer")) {
+      setSection("selling");
+      setSellingView("customer");
+      setActiveTab("customer");
+    } else if (path.includes("/price-setup/standard")) {
+      setSection("selling");
+      setSellingView("standard");
+      setActiveTab("standard");
+    } else if (path.includes("/price-setup/cost")) {
+      setSection("cost");
+    }
+  }, [location.pathname]);
+
 
   useEffect(() => {
     loadTabData();
@@ -112,28 +137,51 @@ export default function PriceSetup() {
     if (section === "cost") loadCostData();
   }, [section]);
 
-  // Filter products by selected group for bulk tool
+  // Filter products by selected group(s) for bulk tool
   useEffect(() => {
-    const groupId = Number(bulkGroupId);
-    if (groupId) {
+    if (bulkGroupIds.length > 0) {
+      const selectedSet = new Set(bulkGroupIds.map(Number));
       setBulkFilteredItems(
-        products.filter((p) => Number(p.item_group_id) === groupId),
+        products.filter((p) => selectedSet.has(Number(p.item_group_id))),
       );
+      if (bulkActiveGroupId && !selectedSet.has(Number(bulkActiveGroupId))) {
+        setBulkActiveGroupId(null);
+      }
     } else {
       setBulkFilteredItems([]);
+      setBulkActiveGroupId(null);
     }
     setBulkSelectedItems([]);
     setBulkSelectAll(false);
-  }, [bulkGroupId, products]);
+  }, [bulkGroupIds, products]);
+
+  const displayedBulkItems = React.useMemo(() => {
+    let items = bulkFilteredItems;
+    if (bulkActiveGroupId) {
+      items = items.filter(
+        (p) => Number(p.item_group_id) === Number(bulkActiveGroupId)
+      );
+    }
+    if (bulkItemSearch.trim()) {
+      const q = bulkItemSearch.trim().toLowerCase();
+      items = items.filter(
+        (p) =>
+          p.item_name?.toLowerCase().includes(q) ||
+          p.item_code?.toLowerCase().includes(q) ||
+          p.barcode?.toLowerCase().includes(q),
+      );
+    }
+    return items;
+  }, [bulkFilteredItems, bulkActiveGroupId, bulkItemSearch]);
 
   // Sync bulkSelectAll
   useEffect(() => {
-    if (bulkSelectAll && bulkFilteredItems.length) {
-      setBulkSelectedItems(bulkFilteredItems.map((p) => p.id));
+    if (bulkSelectAll && displayedBulkItems.length) {
+      setBulkSelectedItems(displayedBulkItems.map((p) => p.id));
     } else if (!bulkSelectAll) {
       setBulkSelectedItems([]);
     }
-  }, [bulkSelectAll, bulkFilteredItems]);
+  }, [bulkSelectAll, displayedBulkItems]);
 
   const extractItems = (res) => {
     if (!res || !res.data) return [];
@@ -655,7 +703,10 @@ export default function PriceSetup() {
     setSelectedItem(item);
     setCustomerModalSubType("single");
     setBulkCustomerId("");
-    setBulkGroupId("");
+    setBulkGroupIds([]);
+    setBulkActiveGroupId(null);
+    setBulkItemSearch("");
+    setSingleFilterGroupIds([]);
     setBulkPriceTypeId("");
     setBulkPercentage("");
     setBulkOperator("+");
@@ -694,7 +745,10 @@ export default function PriceSetup() {
     setProductQuery("");
     setShowProductResults(false);
     setBulkCustomerId("");
-    setBulkGroupId("");
+    setBulkGroupIds([]);
+    setBulkActiveGroupId(null);
+    setBulkItemSearch("");
+    setSingleFilterGroupIds([]);
     setBulkPriceTypeId("");
     setBulkPercentage("");
     setBulkOperator("+");
@@ -1286,6 +1340,27 @@ export default function PriceSetup() {
               </select>
             </div>
             <div className="form-group">
+              <label>Filter by Item Group(s)</label>
+              <MultiSelectItemGroup
+                itemGroups={itemGroups}
+                selectedIds={singleFilterGroupIds}
+                onChange={setSingleFilterGroupIds}
+                products={products}
+                placeholder="All Item Groups"
+                hideChips={true}
+              />
+            </div>
+            {singleFilterGroupIds.length > 0 && (
+              <div className="col-span-full w-full pt-1 pb-1">
+                <ItemGroupChips
+                  itemGroups={itemGroups}
+                  selectedIds={singleFilterGroupIds}
+                  onChange={setSingleFilterGroupIds}
+                  products={products}
+                />
+              </div>
+            )}
+            <div className="form-group">
               <label className="required">Product</label>
               <div className="relative">
                 <input
@@ -1309,8 +1384,11 @@ export default function PriceSetup() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       const query = productQuery.trim();
+                      const candidateProds = singleFilterGroupIds.length > 0
+                        ? products.filter((p) => singleFilterGroupIds.map(Number).includes(Number(p.item_group_id)))
+                        : products;
                       const results = query
-                        ? filterByPrefix(products, {
+                        ? filterByPrefix(candidateProds, {
                             query,
                             searchFields: ["item_code", "item_name", "barcode"],
                           })
@@ -1424,7 +1502,7 @@ export default function PriceSetup() {
       } else {
         return (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
               <div className="form-group">
                 <label className="required">Customer</label>
                 <select
@@ -1442,18 +1520,17 @@ export default function PriceSetup() {
                 </select>
               </div>
               <div className="form-group">
-                <label>Item Group</label>
-                <select
-                  value={bulkGroupId}
-                  onChange={(e) => setBulkGroupId(e.target.value)}
-                >
-                  <option value="">All Groups</option>
-                  {itemGroups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.group_name}
-                    </option>
-                  ))}
-                </select>
+                <label>Filter by Item Group(s)</label>
+                <MultiSelectItemGroup
+                  itemGroups={itemGroups}
+                  selectedIds={bulkGroupIds}
+                  onChange={setBulkGroupIds}
+                  products={products}
+                  placeholder="Select Item Groups"
+                  activeGroupId={bulkActiveGroupId}
+                  onSelectGroup={setBulkActiveGroupId}
+                  hideChips={true}
+                />
               </div>
               <div className="form-group">
                 <label>Price Type</label>
@@ -1493,26 +1570,51 @@ export default function PriceSetup() {
                 </div>
               </div>
             </div>
+
+            {/* Horizontal Marked Item Groups Bar */}
+            {bulkGroupIds.length > 0 && (
+              <div className="w-full pt-1 pb-1">
+                <ItemGroupChips
+                  itemGroups={itemGroups}
+                  selectedIds={bulkGroupIds}
+                  onChange={setBulkGroupIds}
+                  products={products}
+                  activeGroupId={bulkActiveGroupId}
+                  onSelectGroup={setBulkActiveGroupId}
+                />
+              </div>
+            )}
             {bulkFilteredItems.length > 0 && (
               <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <label className="text-sm font-medium text-gray-700">
-                    Select Items
-                  </label>
-                  <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <label className="text-sm font-medium text-gray-700">
+                      Select Items
+                    </label>
+                    <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={bulkSelectAll}
+                        onChange={(e) => setBulkSelectAll(e.target.checked)}
+                      />
+                      Select All ({displayedBulkItems.length} items)
+                    </label>
+                    <span className="text-xs text-gray-400">
+                      {bulkSelectedItems.length} selected
+                    </span>
+                  </div>
+                  <div className="w-48">
                     <input
-                      type="checkbox"
-                      checked={bulkSelectAll}
-                      onChange={(e) => setBulkSelectAll(e.target.checked)}
+                      type="text"
+                      className="w-full text-xs px-2.5 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-brand"
+                      placeholder="Search items..."
+                      value={bulkItemSearch}
+                      onChange={(e) => setBulkItemSearch(e.target.value)}
                     />
-                    Select All ({bulkFilteredItems.length} items)
-                  </label>
-                  <span className="text-xs text-gray-400">
-                    {bulkSelectedItems.length} selected
-                  </span>
+                  </div>
                 </div>
-                <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
-                  {bulkFilteredItems.map((item) => (
+                <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                  {displayedBulkItems.map((item) => (
                     <label
                       key={item.id}
                       className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer"
@@ -1550,9 +1652,9 @@ export default function PriceSetup() {
                 </div>
               </div>
             )}
-            {!bulkGroupId && (
+            {bulkGroupIds.length === 0 && (
               <p className="text-xs text-gray-400 italic">
-                Select an Item Group to view and select items
+                Select one or more Item Groups to view and select items
               </p>
             )}
           </div>
@@ -1783,8 +1885,10 @@ export default function PriceSetup() {
               onClick={() => {
                 if (section === "selling" && sellingView !== "picker") {
                   setSellingView("picker");
+                  navigate("/sales/price-setup");
                 } else {
                   setSection("selector");
+                  navigate("/sales/price-setup");
                 }
               }}
             >
@@ -1863,6 +1967,7 @@ export default function PriceSetup() {
                 onClick={() => {
                   setActiveTab("standard");
                   setSellingView("standard");
+                  navigate("/sales/price-setup/standard");
                 }}
                 className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
               >
@@ -1900,6 +2005,7 @@ export default function PriceSetup() {
                 onClick={() => {
                   setActiveTab("customer");
                   setSellingView("customer");
+                  navigate("/sales/price-setup/customer");
                 }}
                 className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 text-left"
               >
@@ -2003,7 +2109,28 @@ export default function PriceSetup() {
                       ))}
                     </select>
                   </div>
+                  <div className="form-group">
+                    <label>Filter by Item Group(s)</label>
+                    <MultiSelectItemGroup
+                      itemGroups={itemGroups}
+                      selectedIds={customerFilterGroupIds}
+                      onChange={setCustomerFilterGroupIds}
+                      products={products}
+                      placeholder="All Item Groups"
+                      hideChips={true}
+                    />
+                  </div>
                 </div>
+                {customerFilterGroupIds.length > 0 && (
+                  <div className="w-full pt-2">
+                    <ItemGroupChips
+                      itemGroups={itemGroups}
+                      selectedIds={customerFilterGroupIds}
+                      onChange={setCustomerFilterGroupIds}
+                      products={products}
+                    />
+                  </div>
+                )}
               </div>
 
               {loading ? (
@@ -2013,7 +2140,15 @@ export default function PriceSetup() {
                   No customer prices found. Click "New Price" to add one.
                 </div>
               ) : (
-                renderCustomerPrices(getSortedData(data))
+                (() => {
+                  const filteredData = customerFilterGroupIds.length > 0
+                    ? data.filter((item) => {
+                        const prod = products.find((p) => String(p.id) === String(item.product_id));
+                        return prod && customerFilterGroupIds.map(Number).includes(Number(prod.item_group_id));
+                      })
+                    : data;
+                  return renderCustomerPrices(getSortedData(filteredData));
+                })()
               )}
             </div>
           )}
@@ -2129,7 +2264,9 @@ export default function PriceSetup() {
                     setCustomerModalSubType("bulk");
                     setModalType("customer");
                     setBulkCustomerId("");
-                    setBulkGroupId("");
+                    setBulkGroupIds([]);
+    setBulkItemSearch("");
+    setSingleFilterGroupIds([]);
                     setBulkPriceTypeId("");
                     setBulkPercentage("");
                     setBulkOperator("+");

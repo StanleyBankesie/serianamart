@@ -1059,6 +1059,9 @@ export default function TaxConfigList() {
                 <h2 className="text-lg font-bold text-brand">
                   Provident Fund (Tier 3) Setup
                 </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Contributions are based on basic salary. Employee contributions up to 16.5% are tax-exempt; any excess above 16.5% is taxable under PAYE.
+                </p>
                 <div className="flex gap-2">
                   <button
                     onClick={() =>
@@ -1101,11 +1104,9 @@ export default function TaxConfigList() {
                       <th className="px-4 py-3">Profile Name</th>
                       <th className="px-4 py-3">Employee Contribution (%)</th>
                       <th className="px-4 py-3">Employer Contribution (%)</th>
-                        <th className="px-4 py-3">Employee Contribution (%)</th>
-                        <th className="px-4 py-3">Employer Contribution (%)</th>
-                        <th className="px-4 py-3">Created By</th>
-                        <th className="px-4 py-3">Created Date</th>
-                        <th className="px-4 py-3 w-16"></th>
+                      <th className="px-4 py-3">Created By</th>
+                      <th className="px-4 py-3">Created Date</th>
+                      <th className="px-4 py-3 w-16"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1141,6 +1142,11 @@ export default function TaxConfigList() {
                               )
                             }
                           />
+                          {Number(tax.employee_contribution_rate) > 16.5 && (
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium block mt-1">
+                              16.5% exempt · {(Number(tax.employee_contribution_rate) - 16.5).toFixed(2)}% taxable
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-2">
                           <input

@@ -6,12 +6,18 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Send, Sparkles, RefreshCw, X, Maximize2, Minimize2,
-  CheckCircle, Copy, Check
+  CheckCircle, Copy, Check, Trash2, AlertTriangle, Plus,
+  Mic, MicOff, Volume2, VolumeX, Headphones
 } from "lucide-react";
+import { useSpeech } from "./useSpeech.js";
+import VoiceVisualizer from "./VoiceVisualizer.jsx";
+import { toast } from "react-toastify";
 import banksIcon from "../../assets/banks_ai_icon.png";
 import { api } from "../../api/client.js";
 import { useAuth } from "../../auth/AuthContext.jsx";
 import { usePermission } from "../../auth/PermissionContext.jsx";
+import InteractiveFormCard from "./InteractiveFormCard.jsx";
+import { useBanksChat } from "./useBanksChat.js";
 
 // Markdown Formatter for AI responses
 function MarkdownContent({ content }) {
@@ -136,48 +142,115 @@ function renderInlineFormatting(text) {
   });
 }
 
-const ALL_QUICK_QUERIES = [
-  { label: "📊 Revenue & Financials", prompt: "Give me an executive summary of our overall revenue, expenses, and gross profit.", path: "/sales" },
-  { label: "📦 Low Stock Alerts", prompt: "Check inventory health: which items are below safety reorder level?", path: "/inventory" },
-  { label: "🏭 Production Status", prompt: "What is our current production status, active work orders, and machine uptime?", path: "/production" },
-  { label: "📁 Active Projects", prompt: "Show me all active projects, their budgets, and expenses incurred so far.", path: "/project-management" },
-  { label: "🛒 POS Sales Today", prompt: "How much retail sales have been processed at the POS today?", path: "/pos" },
-  { label: "🚚 Fleet Deliveries", prompt: "What is our current transport delivery and fleet status?", path: "/transport" },
-  { label: "🛠️ Maintenance Jobs", prompt: "Show me open maintenance job orders and equipment status.", path: "/maintenance" },
-  { label: "👥 Workforce Overview", prompt: "Give me an overview of our workforce headcount and department distribution.", path: "/human-resource" },
-];
-
 export default function BanksAiModal({ isOpen, onClose }) {
   const { user } = useAuth();
-  const { isSuperAdmin, canAccessPath, modules } = usePermission();
+  const { isSuperAdmin, canAccessPath } = usePermission();
 
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: "Hello! I am **Banks**, your OmniSuite AI Assistant. How can I help you today?",
+  const {
+    messages,
+    input,
+    setInput,
+    loading,
+    activeToolBadge,
+    aiStatus,
+    sendMessage,
+    deleteChatHistory,
+    startNewChat,
+  } = useBanksChat();
+
+  const {
+    isListening,
+    isSpeaking,
+    speakingId,
+    isVoiceMode,
+    speechError,
+    audioLevel,
+    isTranscribing,
+    activeEngine,
+    startListening,
+    stopListening,
+    toggleListening,
+    speak,
+    stopSpeaking,
+    toggleSpeak,
+    toggleVoiceMode,
+  } = useSpeech({
+    onAutoSend: (spokenText) => {
+      if (spokenText && spokenText.trim()) {
+        sendMessage(spokenText);
+      }
     },
-  ]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [aiStatus, setAiStatus] = useState(null);
+  });
+
+  // Auto-speak responses in continuous Voice Mode
+  const prevMsgCountRef = useRef(messages.length);
+  useEffect(() => {
+    if (isVoiceMode && messages.length > prevMsgCountRef.current) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.role === "assistant" && lastMsg.content) {
+        speak(lastMsg.content, messages.length - 1);
+      }
+    }
+    prevMsgCountRef.current = messages.length;
+  }, [messages, isVoiceMode, speak]);
+
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedIdx, setCopiedIdx] = useState(null);
-  const [activeToolBadge, setActiveToolBadge] = useState(null);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleNewChat = () => {
+    startNewChat();
+    setShowConfirmDelete(false);
+    toast.info("Started new conversation.");
+  };
+
+  const handleDeleteHistory = async () => {
+    try {
+      setDeleting(true);
+      await deleteChatHistory();
+      setShowConfirmDelete(false);
+      toast.success("Your chat history was deleted successfully.");
+    } catch {
+      toast.error("Failed to delete chat history.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // Automatically delete user's chat history from the database when the chat is closed
+  const handleClose = async () => {
+    stopSpeaking();
+    stopListening();
+    try {
+      await deleteChatHistory();
+    } catch {}
+    onClose();
+  };
+
+  const wasOpenRef = useRef(isOpen);
+  useEffect(() => {
+    if (wasOpenRef.current && !isOpen) {
+      // Chat closed via external trigger (e.g. Alt + B or parent state)
+      deleteChatHistory().catch(() => {});
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen, deleteChatHistory]);
+
+  // Close & auto-delete on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, deleteChatHistory]);
 
   const messagesEndRef = useRef(null);
-
-  // Filter suggestion pills strictly according to user's permissions
-  const authorizedSuggestions = useMemo(() => {
-    if (isSuperAdmin || user?.id === 1) return ALL_QUICK_QUERIES;
-    return ALL_QUICK_QUERIES.filter((q) => canAccessPath(q.path));
-  }, [isSuperAdmin, user, canAccessPath]);
-
-  // Extract allowed modules list for backend RBAC enforcement
-  const userAllowedModules = useMemo(() => {
-    if (isSuperAdmin || user?.id === 1) return ["*"];
-    const list = Array.from(modules || []);
-    return list.length ? list : ["general"];
-  }, [isSuperAdmin, user, modules]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -186,71 +259,11 @@ export default function BanksAiModal({ isOpen, onClose }) {
   useEffect(() => {
     if (isOpen) {
       scrollToBottom();
-      checkStatus();
     }
   }, [isOpen, messages]);
 
-  const checkStatus = async () => {
-    try {
-      const res = await api.get("/ai/status");
-      setAiStatus(res.data);
-    } catch {
-      // Fallback
-    }
-  };
-
-  const handleSend = async (userPrompt = null) => {
-    const text = (userPrompt || input).trim();
-    if (!text || loading) return;
-
-    const newMessages = [...messages, { role: "user", content: text }];
-    setMessages(newMessages);
-    setInput("");
-    setLoading(true);
-    setActiveToolBadge("Analyzing request...");
-
-    try {
-      const res = await api.post("/ai/chat", {
-        messages: newMessages,
-        userContext: {
-          roleName: user?.role_name || user?.role || "User",
-          isSuperAdmin: Boolean(isSuperAdmin || user?.id === 1),
-          allowedModules: userAllowedModules,
-        },
-      });
-
-      const reply = res.data?.data?.reply;
-      const toolsExecuted = res.data?.data?.toolCallsExecuted || [];
-
-      if (toolsExecuted.length > 0) {
-        const toolNames = toolsExecuted.map((t) => t.toolName.replace(/_/g, " ")).join(", ");
-        setActiveToolBadge(`Executed: ${toolNames}`);
-      }
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: reply,
-          tools: toolsExecuted,
-        },
-      ]);
-    } catch (err) {
-      const errMsg =
-        err?.response?.data?.message ||
-        "I encountered an issue connecting to the AI engine. Please configure your Groq API key under System Configuration -> General Settings.";
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `⚠️ **Error:** ${errMsg}`,
-          isError: true,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-      setActiveToolBadge(null);
-    }
+  const handleSend = (userPrompt = null) => {
+    sendMessage(userPrompt);
   };
 
   const handleCopy = (text, idx) => {
@@ -259,19 +272,18 @@ export default function BanksAiModal({ isOpen, onClose }) {
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
-  const clearChat = () => {
-    setMessages([
-      {
-        role: "assistant",
-        content: "Conversation cleared. How can I help you today?",
-      },
-    ]);
-  };
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 md:p-6 transition-all">
+    <div
+      data-floating-ignore="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-3 md:p-6 transition-all"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          handleClose();
+        }
+      }}
+    >
       <div
         className={`bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden transition-all duration-200 ${
           isExpanded ? "w-full h-full max-w-6xl max-h-[95vh]" : "w-full max-w-3xl h-[680px] max-h-[90vh]"
@@ -302,11 +314,41 @@ export default function BanksAiModal({ isOpen, onClose }) {
 
           <div className="flex items-center gap-1.5">
             <button
-              onClick={clearChat}
-              title="Clear Conversation"
-              className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+              type="button"
+              onClick={() =>
+                toggleVoiceMode(
+                  (interim) => setInput(interim),
+                  (final) => setInput(final)
+                )
+              }
+              title={isVoiceMode ? "Disable Voice Mode (Speech-to-Speech)" : "Enable Voice Mode (Speech-to-Speech Auto-Conversation)"}
+              className={`px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 text-xs font-semibold shadow-sm active:scale-95 ${
+                isVoiceMode
+                  ? "bg-emerald-500 text-white shadow-emerald-500/30 animate-pulse"
+                  : "bg-white/10 hover:bg-white/20 text-white"
+              }`}
             >
-              <RefreshCw size={16} />
+              <Headphones size={14} />
+              <span className="hidden sm:inline">{isVoiceMode ? "Voice Mode ON" : "Voice Mode"}</span>
+            </button>
+            <button
+              onClick={handleNewChat}
+              title="Start New Chat"
+              className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-sm active:scale-95"
+            >
+              <Plus size={14} />
+              <span className="hidden sm:inline">New Chat</span>
+            </button>
+            <button
+              onClick={() => setShowConfirmDelete((prev) => !prev)}
+              title="Delete My Chat History"
+              className={`p-2 rounded-lg transition-colors ${
+                showConfirmDelete
+                  ? "bg-rose-600 text-white"
+                  : "text-white/70 hover:text-rose-300 hover:bg-white/10"
+              }`}
+            >
+              <Trash2 size={16} />
             </button>
             <button
               onClick={() => setIsExpanded(!isExpanded)}
@@ -316,14 +358,75 @@ export default function BanksAiModal({ isOpen, onClose }) {
               {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
             <button
-              onClick={onClose}
-              title="Close"
+              onClick={handleClose}
+              title="Close & Clear Chat (Esc)"
               className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
             >
               <X size={18} />
             </button>
           </div>
         </div>
+
+        {/* Inline Confirmation for Deleting Chat History */}
+        {showConfirmDelete && (
+          <div className="bg-rose-50 dark:bg-rose-950/70 border-b border-rose-200 dark:border-rose-900/60 px-4 py-2.5 flex items-center justify-between text-xs text-rose-800 dark:text-rose-200 animate-fadeIn flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={15} className="text-rose-600 dark:text-rose-400 flex-shrink-0" />
+              <span>Permanently delete your personal chat history? Only your own conversation records will be deleted from the database.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDeleteHistory}
+                disabled={deleting}
+                className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-md font-semibold text-[11px] shadow-sm transition-colors"
+              >
+                {deleting ? "Deleting..." : "Delete My History"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowConfirmDelete(false)}
+                className="px-2.5 py-1 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 rounded-md font-medium text-[11px] border border-slate-300 dark:border-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Live Speaking Status */}
+        {isSpeaking && (
+          <div className="bg-emerald-50 dark:bg-emerald-950/70 border-b border-emerald-200 dark:border-emerald-900/60 px-4 py-1.5 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-200 animate-fadeIn">
+            <span className="flex items-center gap-2 font-medium">
+              <Volume2 size={14} className="text-emerald-600 dark:text-emerald-400 animate-bounce" />
+              <span>Banks is speaking...</span>
+            </span>
+            <button
+              type="button"
+              onClick={stopSpeaking}
+              className="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-200 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 hover:bg-emerald-300 transition-colors"
+            >
+              Stop Audio
+            </button>
+          </div>
+        )}
+
+        {/* Live Microphone Status */}
+        {isListening && (
+          <div className="bg-rose-50 dark:bg-rose-950/70 border-b border-rose-200 dark:border-rose-900/60 px-4 py-1.5 flex items-center justify-between text-xs text-rose-800 dark:text-rose-200 animate-pulse">
+            <span className="flex items-center gap-2 font-medium">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+              <span>Listening... speak into your microphone</span>
+            </span>
+            <button
+              type="button"
+              onClick={stopListening}
+              className="px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-200 dark:bg-rose-800 text-rose-900 dark:text-rose-100 hover:bg-rose-300 transition-colors"
+            >
+              Stop Mic
+            </button>
+          </div>
+        )}
 
         {/* Live Active Tool Pill */}
         {activeToolBadge && (
@@ -366,6 +469,7 @@ export default function BanksAiModal({ isOpen, onClose }) {
                 ) : (
                   <div>
                     <MarkdownContent content={msg.content} />
+                    {msg.form && <InteractiveFormCard form={msg.form} />}
                     {msg.tools && msg.tools.length > 0 && (
                       <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-1.5">
                         {msg.tools.map((t, tIdx) => (
@@ -382,15 +486,28 @@ export default function BanksAiModal({ isOpen, onClose }) {
                   </div>
                 )}
 
-                {/* Copy response button */}
+                {/* Assistant Message Actions (Speak Aloud & Copy) */}
                 {msg.role === "assistant" && (
-                  <button
-                    onClick={() => handleCopy(msg.content, idx)}
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    title="Copy Answer"
-                  >
-                    {copiedIdx === idx ? <Check size={13} className="text-secondary" /> : <Copy size={13} />}
-                  </button>
+                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => toggleSpeak(msg.content, idx)}
+                      className={`p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
+                        isSpeaking && speakingId === idx ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      }`}
+                      title={isSpeaking && speakingId === idx ? "Stop Audio" : "Read Aloud (Speech-to-Speech)"}
+                    >
+                      {isSpeaking && speakingId === idx ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(msg.content, idx)}
+                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      title="Copy Answer"
+                    >
+                      {copiedIdx === idx ? <Check size={13} className="text-secondary" /> : <Copy size={13} />}
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -411,28 +528,23 @@ export default function BanksAiModal({ isOpen, onClose }) {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Quick Suggestion Pills — Strictly Role & Permission Filtered */}
-        {messages.length <= 2 && authorizedSuggestions.length > 0 && (
-          <div className="px-4 py-2 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 overflow-x-auto flex-shrink-0">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-              Suggested Executive Queries
-            </span>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {authorizedSuggestions.map((s, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSend(s.prompt)}
-                  className="px-2.5 py-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:border-brand-400 hover:text-brand-600 dark:hover:text-brand-300 transition-all whitespace-nowrap shadow-sm hover:shadow"
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Prompt Input Box */}
         <div className="p-3 md:p-4 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex-shrink-0">
+          {/* Audio Visualizer & Level Indicator */}
+          <VoiceVisualizer
+            isListening={isListening}
+            isSpeaking={isSpeaking}
+            isTranscribing={isTranscribing}
+            audioLevel={audioLevel}
+            activeEngine={activeEngine}
+            onStopAndSend={() => {
+              stopListening(true);
+              if (input.trim()) {
+                handleSend();
+              }
+            }}
+          />
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -445,11 +557,46 @@ export default function BanksAiModal({ isOpen, onClose }) {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask Banks anything about your ERP data, analytics, or workflows..."
-                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
+                placeholder={isListening ? "Listening... speak now..." : "Ask Banks anything about your ERP data, analytics, or workflows..."}
+                className={`w-full bg-white dark:bg-slate-900 border rounded-xl px-4 py-2.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all ${
+                  isListening ? "border-rose-500 ring-1 ring-rose-500" : "border-slate-200 dark:border-slate-700"
+                }`}
                 disabled={loading}
               />
             </div>
+            {/* Speech-to-Text Microphone Button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (isListening) {
+                  stopListening(true);
+                  if (input.trim()) {
+                    handleSend();
+                  }
+                } else {
+                  toggleListening(
+                    (interim) => setInput(interim),
+                    (final) => setInput(final)
+                  );
+                }
+              }}
+              disabled={loading}
+              className={`p-2.5 rounded-xl transition-all flex items-center justify-center flex-shrink-0 shadow-sm ${
+                isListening
+                  ? "bg-rose-600 text-white animate-pulse shadow-md scale-105 ring-2 ring-rose-400"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 active:scale-95"
+              }`}
+              title={isListening ? "Finish & Send (or click to stop)" : "Voice Input (Speech-to-Text)"}
+            >
+              {isListening ? (
+                <div className="flex items-center gap-1">
+                  <MicOff size={17} />
+                  {audioLevel > 15 && <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />}
+                </div>
+              ) : (
+                <Mic size={18} />
+              )}
+            </button>
             <button
               type="submit"
               disabled={loading || !input.trim()}

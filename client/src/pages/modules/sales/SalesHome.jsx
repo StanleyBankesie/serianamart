@@ -809,6 +809,7 @@ export default function SalesHome() {
         <Route path="/delivery/new" element={<DeliveryForm />} />
         <Route path="/delivery/:id" element={<DeliveryForm />} />
         <Route path="/price-setup" element={<PriceSetup />} />
+        <Route path="/price-setup/*" element={<PriceSetup />} />
         <Route path="/discount-schemes" element={<CampaignHub />} />
         {/* Discount Campaigns */}
         <Route path="/discount-schemes/discount" element={<DiscountSchemeList />} />

@@ -1140,3 +1140,156 @@
   padding: 0 !important;
   flex-shrink: 0 !important;
 }
+
+
+/* ── UX/UI Pro Max, Impeccable & Apple Design System Elevations ── */
+
+/* 1. Tabular Figures & Numerical Precision (Apple HIG & Impeccable Craft Floor) */
+.tabular-nums,
+table td,
+table th,
+.table td,
+.table th,
+[data-format="currency"],
+[data-format="number"],
+[data-format="date"],
+.stat-value,
+.stat-number,
+.stat-count,
+.amount,
+.price,
+.quantity,
+.rate,
+.balance,
+.code,
+.voucher-no,
+.invoice-no {
+  font-variant-numeric: tabular-nums lining-nums;
+  -webkit-font-feature-settings: "tnum" 1, "lnum" 1, "cv02" 1, "cv03" 1, "cv04" 1, "cv11" 1;
+  font-feature-settings: "tnum" 1, "lnum" 1, "cv02" 1, "cv03" 1, "cv04" 1, "cv11" 1;
+}
+
+/* 2. Elevated Data Table Shells */
+.table-container,
+.overflow-x-auto:has(> table) {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.03), 0 1px 2px -1px rgba(15, 23, 42, 0.02);
+}
+.dark .table-container,
+.dark .overflow-x-auto:has(> table) {
+  border-color: rgba(51, 65, 85, 0.75);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.25);
+}
+
+.table thead th {
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.table tbody tr {
+  transition: background-color 0.15s ease-in-out;
+}
+
+/* 3. Refined Focus & Accessibility (WCAG 2.1 AA) */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgba(14, 54, 70, 0.45) !important;
+  outline-offset: 2px !important;
+}
+.dark button:focus-visible,
+.dark a:focus-visible,
+.dark input:focus-visible,
+.dark select:focus-visible,
+.dark textarea:focus-visible {
+  outline: 2px solid rgba(249, 181, 20, 0.6) !important;
+  outline-offset: 2px !important;
+}
+
+/* 4. Apple-Grade Modal & Overlay Backdrop Blur */
+.modal-backdrop,
+.swal2-container.swal2-backdrop-show,
+.ant-modal-mask {
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+.swal2-popup {
+  border-radius: 1rem !important;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25) !important;
+  border: 1px solid rgba(226, 232, 240, 0.8) !important;
+}
+.dark .swal2-popup {
+  background: #0f172a !important;
+  color: #f1f5f9 !important;
+  border-color: rgba(51, 65, 85, 0.8) !important;
+}
+
+/* 5. Refined Status Badges with Micro-Rhythm */
+.badge {
+  letter-spacing: 0.025em;
+  font-weight: 600;
+  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid transparent;
+  transition: all 0.15s ease-in-out;
+}
+.badge-success {
+  border-color: rgba(34, 197, 94, 0.25);
+}
+.badge-warning {
+  border-color: rgba(245, 158, 11, 0.25);
+}
+.badge-error {
+  border-color: rgba(239, 68, 68, 0.25);
+}
+.badge-info {
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+/* 6. Subtle Shimmer Skeletons for Loading States */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+.dark .skeleton-shimmer {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* 7. Refined Scrollbars (Apple Smoothness) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease-in-out;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.5);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.8);
+}
